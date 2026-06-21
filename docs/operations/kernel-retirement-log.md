@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-TOOL-BATCH-AUTH-20260622 - P1 - Mixed model tool-call batches must fail before any effect
+
+- Status: ready_for_acceptance.
+- Fix commit: `5754c4297`.
+- Evidence: `TestSubmitTurnRejectsMixedModelToolBatchBeforeAnyEffect` proves a provider batch containing allowed `shell.exec` plus unsupported `email.send` returns `ErrModelToolCallRejected`, creates no output file, and leaves no operation projection. `TestSubmitTurnRejectsUnsupportedModelToolCall` still proves unsupported single-call batches record `turn.submitted`, `model.tool_call`, and `turn.failed` without effects. `go test ./...` passed; `git diff --check` passed; the repository scan for versioned route or kernel version labels returned no matches.
+- Acceptance condition: reviewer confirms the Tool System preflights each model tool-call batch as one authority decision before any effect executes.
+- Residual risk: this covers the current synchronous model tool loop and canonical `shell.exec` descriptor. Future parallel tool execution or new effectful tools must reuse the same batch preflight boundary before adding concurrency.
+
 ### KERNEL-TOOL-LOOP-20260622 - P0 - Turn loop cannot execute model-requested tools
 
 - Status: ready_for_acceptance.
