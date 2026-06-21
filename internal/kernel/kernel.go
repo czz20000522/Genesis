@@ -83,8 +83,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	modelResp, err := k.provider.Complete(ctx, ModelRequest{
 		SessionID:  sessionID,
 		TurnID:     turnID,
-		InputItems: req.InputItems,
-		Memories:   recalledMemories,
+		InputItems: modelInputItems(req.InputItems, recalledMemories),
 	})
 	if err != nil {
 		return TurnResponse{}, fmt.Errorf("provider complete: %w", err)

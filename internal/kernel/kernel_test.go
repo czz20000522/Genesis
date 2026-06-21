@@ -74,6 +74,26 @@ func TestSubmitTurnRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestModelInputItemsInjectsApprovedMemoryContextBeforeProvider(t *testing.T) {
+	items := modelInputItems(
+		[]InputItem{{Type: "text", Text: "你记得我的回答偏好吗？"}},
+		[]MemoryRecall{
+			{Text: "我偏好中文回答", Source: "turn:memory-source"},
+			{Text: "  "},
+		},
+	)
+
+	if len(items) != 2 {
+		t.Fatalf("len(items) = %d, want 2", len(items))
+	}
+	if items[0].Type != "text" || items[0].Text != "Approved memories:\n- 我偏好中文回答" {
+		t.Fatalf("memory context item = %+v", items[0])
+	}
+	if items[1].Text != "你记得我的回答偏好吗？" {
+		t.Fatalf("user item = %+v", items[1])
+	}
+}
+
 func TestHTTPReadyTurnAndSession(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))

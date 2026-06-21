@@ -16,7 +16,6 @@ type ModelRequest struct {
 	SessionID  string
 	TurnID     string
 	InputItems []InputItem
-	Memories   []MemoryRecall
 }
 
 type ModelResponse struct {
@@ -47,11 +46,6 @@ func (FakeProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse
 	text := strings.TrimSpace(strings.Join(parts, "\n"))
 	if text == "" {
 		text = "empty turn"
-	}
-	for _, memory := range req.Memories {
-		if strings.TrimSpace(memory.Text) != "" {
-			text += "\nmemory: " + memory.Text
-		}
 	}
 	return ModelResponse{
 		Text:  fmt.Sprintf("fake: %s", text),

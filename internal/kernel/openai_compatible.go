@@ -68,7 +68,7 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 	payload := chatCompletionRequest{
 		Model: p.model,
 		Messages: []chatMessage{
-			{Role: "user", Content: modelUserText(req)},
+			{Role: "user", Content: modelUserText(req.InputItems)},
 		},
 	}
 	encoded, err := json.Marshal(payload)
@@ -114,20 +114,9 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 
 var ErrProviderUnavailable = errors.New("provider unavailable")
 
-func modelUserText(req ModelRequest) string {
+func modelUserText(items []InputItem) string {
 	var parts []string
-	if len(req.Memories) > 0 {
-		var memoryLines []string
-		for _, memory := range req.Memories {
-			if strings.TrimSpace(memory.Text) != "" {
-				memoryLines = append(memoryLines, "- "+memory.Text)
-			}
-		}
-		if len(memoryLines) > 0 {
-			parts = append(parts, "Approved memories:\n"+strings.Join(memoryLines, "\n"))
-		}
-	}
-	for _, item := range req.InputItems {
+	for _, item := range items {
 		if item.Type == "text" && item.Text != "" {
 			parts = append(parts, item.Text)
 		}
