@@ -141,3 +141,64 @@ type localSecretRecord struct {
 	CredentialRef string `json:"credential_ref"`
 	ProtectedData string `json:"protected_data_b64"`
 }
+
+type LocalCredentialSecretWriteRequest struct {
+	CredentialRef string
+	Secret        string
+	StoreRoot     string
+	Protector     func([]byte) ([]byte, error)
+	DryRun        bool
+}
+
+type LocalCredentialSecretWriteResult struct {
+	CredentialRef  string `json:"credential_ref"`
+	CredentialPath string `json:"credential_path"`
+	DryRun         bool   `json:"dry_run"`
+}
+
+func WriteLocalCredentialSecret(req LocalCredentialSecretWriteRequest) (LocalCredentialSecretWriteResult, error) {
+	normalized := normalizeLocalSecretRef(req.CredentialRef)
+	if normalized == "" {
+		return LocalCredentialSecretWriteResult{}, ErrLocalSecretRefInvalid
+	}
+	secret := strings.TrimSpace(req.Secret)
+	if secret == "" && !req.DryRun {
+		return LocalCredentialSecretWriteResult{}, ErrLocalSecretMissing
+	}
+	path := localSecretPath(normalized, req.StoreRoot)
+	result := LocalCredentialSecretWriteResult{
+		CredentialRef:  normalized,
+		CredentialPath: path,
+		DryRun:         req.DryRun,
+	}
+	if req.DryRun {
+		return result, nil
+	}
+	protector := req.Protector
+	if protector == nil {
+		protector = dpapiProtect
+	}
+	protected, err := protector([]byte(secret))
+	if err != nil {
+		if errors.Is(err, ErrLocalSecretUnsupported) {
+			return LocalCredentialSecretWriteResult{}, err
+		}
+		return LocalCredentialSecretWriteResult{}, fmt.Errorf("%w: %v", ErrLocalSecretUnreadable, err)
+	}
+	record := localSecretRecord{
+		RecordType:    "local_credential_secret",
+		CredentialRef: normalized,
+		ProtectedData: base64.StdEncoding.EncodeToString(protected),
+	}
+	encoded, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return LocalCredentialSecretWriteResult{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return LocalCredentialSecretWriteResult{}, fmt.Errorf("%w: %v", ErrLocalSecretUnreadable, err)
+	}
+	if err := os.WriteFile(path, append(encoded, '\n'), 0o600); err != nil {
+		return LocalCredentialSecretWriteResult{}, fmt.Errorf("%w: %v", ErrLocalSecretUnreadable, err)
+	}
+	return result, nil
+}

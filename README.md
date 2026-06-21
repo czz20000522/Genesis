@@ -26,12 +26,18 @@ The kernel owns only these planes:
 
 External applications are user-space programs. The kernel may receive events from them and may let the active model call their CLIs through governed tools, but it must not become those applications.
 
-## Phase 1 Spike
+## Initial Kernel Spike
 
 Build the first runnable kernel binary:
 
 ```powershell
 D:\software\Go\bin\go.exe build -o $env:TEMP\genesisd.exe .\cmd\genesisd
+```
+
+Build the optional operator setup tool:
+
+```powershell
+D:\software\Go\bin\go.exe build -o $env:TEMP\genesisctl.exe .\cmd\genesisctl
 ```
 
 Run it with an explicit ledger path:
@@ -54,7 +60,7 @@ Minimal HTTP surface:
 - `GET /memory/candidates/{id}`
 - `POST /memory/candidates/{id}/approve`
 
-The phase 1 provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
+The initial provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
 
 Protected routes require `Authorization: Bearer <runtime-token>`. `GET /ready` is the only unauthenticated route, but readiness is `blocked` when no runtime token is configured because the kernel cannot accept protected work.
 
@@ -86,6 +92,26 @@ $env:TEMP\genesisd.exe `
 ```
 
 The provider base URL is configuration, not a kernel route. Include whatever provider-specific prefix the upstream service requires in `-provider-base-url`.
+
+### Provider Setup
+
+`genesisctl provider-setup` is an operator setup surface, not a product shell and not part of turn execution. It writes the Genesis-owned `models.json` and a `secret://...` local credential record so a new machine does not require hand-written protected credential data.
+
+It accepts the API key only from an environment variable or stdin. It does not provide an API-key flag and does not print the secret:
+
+```powershell
+$env:GENESIS_PROVIDER_API_KEY = "<provider api key>"
+$env:TEMP\genesisctl.exe provider-setup `
+  -config-root $HOME\.genesis\config `
+  -credential-store-root $HOME\.genesis\credentials `
+  -profile-id primary `
+  -gateway-route primary `
+  -base-url https://provider.example.com/api `
+  -model provider-model `
+  -credential-ref secret://models/provider/primary
+```
+
+The command output contains paths, profile ids, route ids, and the `secret://...` ref only. It never writes provider-specific account flows into the kernel runtime.
 
 ## Tool Runtime
 

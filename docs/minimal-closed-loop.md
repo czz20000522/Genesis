@@ -2,7 +2,7 @@
 
 The first implementation must prove the kernel loop before adding shells or application integrations.
 
-## Phase 1 Acceptance
+## Initial Acceptance
 
 1. A caller submits a turn through a transport-neutral kernel boundary.
 2. The kernel records the turn and emits observable events.
@@ -23,7 +23,7 @@ The first implementation must prove the kernel loop before adding shells or appl
 - A provider failure returns a structured degraded result, not a panic.
 - Duplicate tool idempotency keys do not execute effects twice.
 
-## Not Required In Phase 1
+## Not Required Initially
 
 - CLI UX.
 - WebUI or desktop UI.
