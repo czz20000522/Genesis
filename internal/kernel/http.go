@@ -88,6 +88,9 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	resp, err := k.SubmitTurn(r.Context(), req)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
 	if errors.Is(err, ErrProviderUnavailable) {
 		writeError(w, http.StatusServiceUnavailable, "provider_unavailable", err.Error())
 		return
@@ -105,6 +108,9 @@ func handleExecShell(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	operation, err := k.ExecShell(r.Context(), req)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -118,6 +124,9 @@ func handleCreateMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kern
 		return
 	}
 	candidate, err := k.CreateMemoryCandidate(req)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -128,6 +137,9 @@ func handleCreateMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kern
 func handleListMemoryCandidates(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	status := r.URL.Query().Get("status")
 	candidates, err := k.MemoryCandidates(status)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -142,6 +154,9 @@ func handleGetMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kernel)
 		return
 	}
 	candidate, err := k.MemoryCandidate(candidateID)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
 	if errors.Is(err, ErrMemoryCandidateNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "memory candidate not found")
 		return
@@ -164,6 +179,9 @@ func handleApproveMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Ker
 		return
 	}
 	candidate, err := k.ApproveMemoryCandidate(candidateID, req)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
 	if errors.Is(err, ErrMemoryCandidateNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "memory candidate not found")
 		return
@@ -227,6 +245,9 @@ func handleGetSession(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	projection, err := k.Session(sessionID)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
 	if errors.Is(err, ErrSessionNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "session not found")
 		return
@@ -260,4 +281,12 @@ func writeError(w http.ResponseWriter, status int, code string, message string) 
 			Message: message,
 		},
 	})
+}
+
+func writeKernelUnavailable(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, ErrLedgerUnavailable) {
+		writeError(w, http.StatusServiceUnavailable, "ledger_unwritable", err.Error())
+		return true
+	}
+	return false
 }

@@ -102,7 +102,7 @@ func (k *Kernel) appendOperationEvent(operation OperationProjection) error {
 	if createdAt.IsZero() {
 		createdAt = operation.StartedAt
 	}
-	return k.ledger.Append(StoredEvent{
+	return k.appendEvent(StoredEvent{
 		EventID:     newID("evt", createdAt),
 		SessionID:   operation.SessionID,
 		OperationID: operation.OperationID,

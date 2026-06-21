@@ -37,7 +37,7 @@ func (k *Kernel) CreateMemoryCandidate(req MemoryCandidateRequest) (MemoryCandid
 			MemoryCandidate: &candidate,
 		},
 	}
-	if err := k.ledger.Append(event); err != nil {
+	if err := k.appendEvent(event); err != nil {
 		return MemoryCandidateProjection{}, err
 	}
 	return candidate, nil
@@ -78,7 +78,7 @@ func (k *Kernel) ApproveMemoryCandidate(candidateID string, req MemoryApprovalRe
 			MemoryCandidate: &candidate,
 		},
 	}
-	if err := k.ledger.Append(event); err != nil {
+	if err := k.appendEvent(event); err != nil {
 		return MemoryCandidateProjection{}, err
 	}
 	return candidate, nil
@@ -153,7 +153,7 @@ func (k *Kernel) memoryCandidates() (map[string]MemoryCandidateProjection, error
 }
 
 func (k *Kernel) memoryCandidateList() ([]MemoryCandidateProjection, map[string]MemoryCandidateProjection, error) {
-	events, err := k.ledger.Load()
+	events, err := k.loadEvents()
 	if err != nil {
 		return nil, nil, err
 	}

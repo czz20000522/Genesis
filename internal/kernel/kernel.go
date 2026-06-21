@@ -43,14 +43,16 @@ func (k *Kernel) Ready() ReadyResponse {
 	if k.runtimeToken == "" {
 		runtimeAuth = ReadyCheck{Status: "blocked", Reason: "runtime_token_missing"}
 	}
+	ledgerStatus := k.ledger.Ready()
 	status := "ok"
-	if providerStatus.Status != "ok" || runtimeAuth.Status != "ok" {
+	if providerStatus.Status != "ok" || runtimeAuth.Status != "ok" || ledgerStatus.Status != "ok" {
 		status = "blocked"
 	}
 	return ReadyResponse{
 		Status:      status,
 		Provider:    providerStatus,
 		RuntimeAuth: runtimeAuth,
+		Ledger:      ledgerStatus,
 		LedgerPath:  k.ledger.Path(),
 	}
 }
@@ -81,7 +83,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			RecalledMemories: recalledMemories,
 		},
 	}
-	if err := k.ledger.Append(submitted); err != nil {
+	if err := k.appendEvent(submitted); err != nil {
 		return TurnResponse{}, err
 	}
 
@@ -103,7 +105,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 				TurnError: &failure,
 			},
 		}
-		if appendErr := k.ledger.Append(failed); appendErr != nil {
+		if appendErr := k.appendEvent(failed); appendErr != nil {
 			return TurnResponse{}, appendErr
 		}
 		return TurnResponse{}, fmt.Errorf("provider complete: %w", err)
@@ -121,7 +123,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			Final: &final,
 		},
 	}
-	if err := k.ledger.Append(completed); err != nil {
+	if err := k.appendEvent(completed); err != nil {
 		return TurnResponse{}, err
 	}
 
@@ -141,7 +143,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 	if sessionID == "" {
 		return SessionProjection{}, errors.New("session id is required")
 	}
-	events, err := k.ledger.Load()
+	events, err := k.loadEvents()
 	if err != nil {
 		return SessionProjection{}, err
 	}
@@ -232,6 +234,22 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 }
 
 var ErrSessionNotFound = errors.New("session not found")
+var ErrLedgerUnavailable = errors.New("ledger unavailable")
+
+func (k *Kernel) appendEvent(event StoredEvent) error {
+	if err := k.ledger.Append(event); err != nil {
+		return fmt.Errorf("%w: %w", ErrLedgerUnavailable, err)
+	}
+	return nil
+}
+
+func (k *Kernel) loadEvents() ([]StoredEvent, error) {
+	events, err := k.ledger.Load()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrLedgerUnavailable, err)
+	}
+	return events, nil
+}
 
 func validateTurnRequest(req TurnRequest) error {
 	if len(req.InputItems) == 0 {

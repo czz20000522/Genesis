@@ -118,6 +118,9 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 	if ready.RuntimeAuth.Status != "ok" {
 		t.Fatalf("runtime auth ready = %+v, want ok", ready.RuntimeAuth)
 	}
+	if ready.Ledger.Status != "ok" {
+		t.Fatalf("ledger ready = %+v, want ok", ready.Ledger)
+	}
 
 	body := []byte(`{"session_id":"http-session","input_items":[{"type":"text","text":"hello over http"}]}`)
 	turnResp, err := postJSONWithAuth(server.URL+"/turn", body)
@@ -258,6 +261,60 @@ func TestHTTPProtectedRoutesFailClosedWithoutConfiguredRuntimeToken(t *testing.T
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
+func TestReadyBlocksWhenLedgerUnwritable(t *testing.T) {
+	k := newTestKernel(t, ledgerPathUnderFile(t))
+
+	ready := k.Ready()
+	if ready.Status != "blocked" {
+		t.Fatalf("ready status = %q, want blocked", ready.Status)
+	}
+	if ready.Ledger.Status != "blocked" || ready.Ledger.Reason != "ledger_unwritable" {
+		t.Fatalf("ledger ready = %+v, want ledger_unwritable blocker", ready.Ledger)
+	}
+	if ready.Provider.Status != "ok" || ready.RuntimeAuth.Status != "ok" {
+		t.Fatalf("provider/runtime readiness = %+v/%+v, want ok", ready.Provider, ready.RuntimeAuth)
+	}
+}
+
+func TestHTTPLedgerUnavailableBlocksReadyAndTurn(t *testing.T) {
+	k := newTestKernel(t, ledgerPathUnderFile(t))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	readyResp, err := http.Get(server.URL + "/ready")
+	if err != nil {
+		t.Fatalf("GET /ready failed: %v", err)
+	}
+	defer readyResp.Body.Close()
+	if readyResp.StatusCode != http.StatusOK {
+		t.Fatalf("ready status = %d, want 200", readyResp.StatusCode)
+	}
+	var ready ReadyResponse
+	if err := json.NewDecoder(readyResp.Body).Decode(&ready); err != nil {
+		t.Fatalf("decode ready response: %v", err)
+	}
+	if ready.Status != "blocked" || ready.Ledger.Status != "blocked" || ready.Ledger.Reason != "ledger_unwritable" {
+		t.Fatalf("ready = %+v, want ledger_unwritable blocker", ready)
+	}
+
+	body := []byte(`{"session_id":"ledger-bad","input_items":[{"type":"text","text":"hello"}]}`)
+	resp, err := postJSONWithAuth(server.URL+"/turn", body)
+	if err != nil {
+		t.Fatalf("POST /turn failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+	var envelope errorEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if envelope.Error.Code != "ledger_unwritable" {
+		t.Fatalf("error code = %q, want ledger_unwritable", envelope.Error.Code)
 	}
 }
 
@@ -1226,6 +1283,16 @@ func newTestKernelWithRuntimeTokenAndPolicy(t *testing.T, ledgerPath string, tok
 		t.Fatalf("New returned error: %v", err)
 	}
 	return k
+}
+
+func ledgerPathUnderFile(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	filePath := filepath.Join(root, "not-a-directory")
+	if err := os.WriteFile(filePath, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("write non-directory ledger parent: %v", err)
+	}
+	return filepath.Join(filePath, "events.jsonl")
 }
 
 func postJSONWithAuth(url string, body []byte) (*http.Response, error) {

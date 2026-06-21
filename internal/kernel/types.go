@@ -19,6 +19,7 @@ type ReadyResponse struct {
 	Status      string         `json:"status"`
 	Provider    ProviderStatus `json:"provider"`
 	RuntimeAuth ReadyCheck     `json:"runtime_auth"`
+	Ledger      ReadyCheck     `json:"ledger"`
 	LedgerPath  string         `json:"ledger_path"`
 }
 

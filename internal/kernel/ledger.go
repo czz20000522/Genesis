@@ -14,6 +14,7 @@ const maxLedgerLineBytes = 16 * 1024 * 1024
 type Ledger interface {
 	Append(event StoredEvent) error
 	Load() ([]StoredEvent, error)
+	Ready() ReadyCheck
 	Path() string
 }
 
@@ -28,6 +29,23 @@ func NewJSONLLedger(path string) *JSONLLedger {
 
 func (l *JSONLLedger) Path() string {
 	return l.path
+}
+
+func (l *JSONLLedger) Ready() ReadyCheck {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(l.path), 0o755); err != nil {
+		return ReadyCheck{Status: "blocked", Reason: "ledger_unwritable"}
+	}
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return ReadyCheck{Status: "blocked", Reason: "ledger_unwritable"}
+	}
+	if err := f.Close(); err != nil {
+		return ReadyCheck{Status: "blocked", Reason: "ledger_unwritable"}
+	}
+	return ReadyCheck{Status: "ok"}
 }
 
 func (l *JSONLLedger) Append(event StoredEvent) error {
