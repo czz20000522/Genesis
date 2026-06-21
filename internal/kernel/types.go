@@ -101,15 +101,26 @@ type OperationProjection struct {
 type MemoryCandidateRequest struct {
 	SessionID string `json:"session_id"`
 	Text      string `json:"text"`
+	SourceRef string `json:"source_ref"`
+}
+
+type MemoryApprovalRequest struct {
+	ApprovalAuthority   string `json:"approval_authority"`
+	ApprovalReason      string `json:"approval_reason"`
+	ApprovalEvidenceRef string `json:"approval_evidence_ref"`
 }
 
 type MemoryCandidateProjection struct {
-	CandidateID string     `json:"candidate_id"`
-	SessionID   string     `json:"session_id"`
-	Text        string     `json:"text"`
-	Status      string     `json:"status"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ApprovedAt  *time.Time `json:"approved_at,omitempty"`
+	CandidateID         string     `json:"candidate_id"`
+	SessionID           string     `json:"session_id"`
+	Text                string     `json:"text"`
+	SourceRef           string     `json:"source_ref"`
+	Status              string     `json:"status"`
+	CreatedAt           time.Time  `json:"created_at"`
+	ApprovalAuthority   string     `json:"approval_authority,omitempty"`
+	ApprovalReason      string     `json:"approval_reason,omitempty"`
+	ApprovalEvidenceRef string     `json:"approval_evidence_ref,omitempty"`
+	ApprovedAt          *time.Time `json:"approved_at,omitempty"`
 }
 
 type MemoryRecall struct {

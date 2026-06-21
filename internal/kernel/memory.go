@@ -23,6 +23,7 @@ func (k *Kernel) CreateMemoryCandidate(req MemoryCandidateRequest) (MemoryCandid
 		CandidateID: newID("mem", now),
 		SessionID:   strings.TrimSpace(req.SessionID),
 		Text:        strings.TrimSpace(req.Text),
+		SourceRef:   strings.TrimSpace(req.SourceRef),
 		Status:      MemoryCandidatePending,
 		CreatedAt:   now,
 	}
@@ -42,10 +43,13 @@ func (k *Kernel) CreateMemoryCandidate(req MemoryCandidateRequest) (MemoryCandid
 	return candidate, nil
 }
 
-func (k *Kernel) ApproveMemoryCandidate(candidateID string) (MemoryCandidateProjection, error) {
+func (k *Kernel) ApproveMemoryCandidate(candidateID string, req MemoryApprovalRequest) (MemoryCandidateProjection, error) {
 	candidateID = strings.TrimSpace(candidateID)
 	if candidateID == "" {
 		return MemoryCandidateProjection{}, errors.New("candidate id is required")
+	}
+	if err := validateMemoryApprovalRequest(req); err != nil {
+		return MemoryCandidateProjection{}, err
 	}
 	candidates, err := k.memoryCandidates()
 	if err != nil {
@@ -60,6 +64,9 @@ func (k *Kernel) ApproveMemoryCandidate(candidateID string) (MemoryCandidateProj
 	}
 	now := k.clock()
 	candidate.Status = MemoryCandidateApproved
+	candidate.ApprovalAuthority = strings.TrimSpace(req.ApprovalAuthority)
+	candidate.ApprovalReason = strings.TrimSpace(req.ApprovalReason)
+	candidate.ApprovalEvidenceRef = strings.TrimSpace(req.ApprovalEvidenceRef)
 	candidate.ApprovedAt = &now
 	event := StoredEvent{
 		EventID:     newID("evt", now),
@@ -83,6 +90,22 @@ func validateMemoryCandidateRequest(req MemoryCandidateRequest) error {
 	}
 	if strings.TrimSpace(req.Text) == "" {
 		return errors.New("text is required")
+	}
+	if strings.TrimSpace(req.SourceRef) == "" {
+		return errors.New("source_ref is required")
+	}
+	return nil
+}
+
+func validateMemoryApprovalRequest(req MemoryApprovalRequest) error {
+	if strings.TrimSpace(req.ApprovalAuthority) == "" {
+		return errors.New("approval_authority is required")
+	}
+	if strings.TrimSpace(req.ApprovalReason) == "" {
+		return errors.New("approval_reason is required")
+	}
+	if strings.TrimSpace(req.ApprovalEvidenceRef) == "" {
+		return errors.New("approval_evidence_ref is required")
 	}
 	return nil
 }
@@ -140,7 +163,7 @@ func (k *Kernel) recallMemories(items []InputItem) ([]MemoryRecall, error) {
 			recalls = append(recalls, MemoryRecall{
 				CandidateID: candidate.CandidateID,
 				Text:        candidate.Text,
-				Source:      "approved_memory",
+				Source:      candidate.SourceRef,
 			})
 		}
 	}

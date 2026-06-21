@@ -34,7 +34,7 @@ func Handler(k *Kernel) http.Handler {
 			}
 			handleCreateMemoryCandidate(w, r, k)
 		case r.Method == http.MethodPost && isMemoryApprovePath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) || !requireEmptyBody(w, r) {
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
 				return
 			}
 			handleApproveMemoryCandidate(w, r, k)
@@ -67,21 +67,6 @@ func requireJSONContentType(w http.ResponseWriter, r *http.Request) bool {
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil || mediaType != "application/json" {
 		writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content-type must be application/json")
-		return false
-	}
-	return true
-}
-
-func requireEmptyBody(w http.ResponseWriter, r *http.Request) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
-	defer r.Body.Close()
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid body: %s", err.Error()))
-		return false
-	}
-	if len(strings.TrimSpace(string(data))) != 0 {
-		writeError(w, http.StatusBadRequest, "invalid_request", "request body must be empty")
 		return false
 	}
 	return true
@@ -131,12 +116,16 @@ func handleCreateMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kern
 }
 
 func handleApproveMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kernel) {
+	var req MemoryApprovalRequest
+	if !decodeRequest(w, r, &req) {
+		return
+	}
 	candidateID := memoryApproveCandidateID(r.URL.Path)
 	if candidateID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "memory candidate route not found")
 		return
 	}
-	candidate, err := k.ApproveMemoryCandidate(candidateID)
+	candidate, err := k.ApproveMemoryCandidate(candidateID, req)
 	if errors.Is(err, ErrMemoryCandidateNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "memory candidate not found")
 		return

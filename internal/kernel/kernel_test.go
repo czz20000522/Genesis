@@ -506,6 +506,7 @@ func TestUnapprovedMemoryCandidateIsNotRecalled(t *testing.T) {
 	_, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-source",
 		Text:      "我偏好中文回答",
+		SourceRef: "turn:memory-source",
 	})
 	if err != nil {
 		t.Fatalf("CreateMemoryCandidate returned error: %v", err)
@@ -523,19 +524,32 @@ func TestUnapprovedMemoryCandidateIsNotRecalled(t *testing.T) {
 	}
 }
 
+func TestCreateMemoryCandidateRequiresSourceRef(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+
+	_, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
+		SessionID: "memory-source",
+		Text:      "我偏好中文回答",
+	})
+	if err == nil {
+		t.Fatal("CreateMemoryCandidate returned nil error without source_ref")
+	}
+}
+
 func TestApprovedMemoryCandidateRecallsAcrossSessionsAfterRestart(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-source",
 		Text:      "我偏好中文回答",
+		SourceRef: "turn:memory-source",
 	})
 	if err != nil {
 		t.Fatalf("CreateMemoryCandidate returned error: %v", err)
 	}
 
 	restarted := newTestKernel(t, ledgerPath)
-	approved, err := restarted.ApproveMemoryCandidate(candidate.CandidateID)
+	approved, err := restarted.ApproveMemoryCandidate(candidate.CandidateID, testApprovalRequest("approval:memory-source"))
 	if err != nil {
 		t.Fatalf("ApproveMemoryCandidate returned error: %v", err)
 	}
@@ -565,6 +579,12 @@ func TestApprovedMemoryCandidateRecallsAcrossSessionsAfterRestart(t *testing.T) 
 	if sourceProjection.MemoryCandidates[0].Status != MemoryCandidateApproved {
 		t.Fatalf("candidate status = %q, want approved", sourceProjection.MemoryCandidates[0].Status)
 	}
+	if sourceProjection.MemoryCandidates[0].SourceRef != "turn:memory-source" {
+		t.Fatalf("candidate source ref = %q, want turn:memory-source", sourceProjection.MemoryCandidates[0].SourceRef)
+	}
+	if sourceProjection.MemoryCandidates[0].ApprovalEvidenceRef != "approval:memory-source" {
+		t.Fatalf("approval evidence ref = %q, want approval:memory-source", sourceProjection.MemoryCandidates[0].ApprovalEvidenceRef)
+	}
 
 	consumerProjection, err := consumer.Session("memory-consumer")
 	if err != nil {
@@ -575,6 +595,9 @@ func TestApprovedMemoryCandidateRecallsAcrossSessionsAfterRestart(t *testing.T) 
 	}
 	if len(consumerProjection.Turns[0].RecalledMemories) != 1 {
 		t.Fatalf("recalled memories = %+v, want one", consumerProjection.Turns[0].RecalledMemories)
+	}
+	if consumerProjection.Turns[0].RecalledMemories[0].Source != "turn:memory-source" {
+		t.Fatalf("recall source = %q, want turn:memory-source", consumerProjection.Turns[0].RecalledMemories[0].Source)
 	}
 }
 
@@ -587,6 +610,7 @@ func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
 	candidatePayload, err := json.Marshal(MemoryCandidateRequest{
 		SessionID: "http-memory-source",
 		Text:      "我偏好中文回答",
+		SourceRef: "turn:http-memory-source",
 	})
 	if err != nil {
 		t.Fatalf("marshal candidate request: %v", err)
@@ -604,7 +628,11 @@ func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
 		t.Fatalf("decode candidate response: %v", err)
 	}
 
-	approveResp, err := postEmptyWithAuth(server.URL + "/memory/candidates/" + candidate.CandidateID + "/approve")
+	approvalPayload, err := json.Marshal(testApprovalRequest("approval:http-memory-source"))
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	approveResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/approve", approvalPayload)
 	if err != nil {
 		t.Fatalf("POST approve failed: %v", err)
 	}
@@ -643,7 +671,11 @@ func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
-	resp, err := postEmptyWithAuth(server.URL + "/memory/candidates/missing/approve")
+	approvalPayload, err := json.Marshal(testApprovalRequest("approval:missing"))
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	resp, err := postJSONWithAuth(server.URL+"/memory/candidates/missing/approve", approvalPayload)
 	if err != nil {
 		t.Fatalf("POST approve failed: %v", err)
 	}
@@ -653,17 +685,12 @@ func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestHTTPApproveMemoryCandidateRejectsBody(t *testing.T) {
+func TestHTTPApproveMemoryCandidateRejectsMissingEvidence(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
-	req, err := http.NewRequest(http.MethodPost, server.URL+"/memory/candidates/anything/approve", strings.NewReader(`{"unexpected":true}`))
-	if err != nil {
-		t.Fatalf("NewRequest failed: %v", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+testRuntimeToken)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := postJSONWithAuth(server.URL+"/memory/candidates/anything/approve", []byte(`{"approval_authority":"runtime"}`))
 	if err != nil {
 		t.Fatalf("POST approve failed: %v", err)
 	}
@@ -776,6 +803,14 @@ func TestOpenAICompatibleProviderCompletesAgainstCompatibleServer(t *testing.T) 
 
 const testRuntimeToken = "test-runtime-token"
 
+func testApprovalRequest(evidenceRef string) MemoryApprovalRequest {
+	return MemoryApprovalRequest{
+		ApprovalAuthority:   "runtime:test",
+		ApprovalReason:      "approved in test",
+		ApprovalEvidenceRef: evidenceRef,
+	}
+}
+
 func newTestKernel(t *testing.T, ledgerPath string) *Kernel {
 	t.Helper()
 	return newTestKernelWithRuntimeTokenAndPolicy(t, ledgerPath, testRuntimeToken, ToolPolicy{
@@ -819,15 +854,6 @@ func postJSONWithAuth(url string, body []byte) (*http.Response, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+testRuntimeToken)
 	req.Header.Set("Content-Type", "application/json")
-	return http.DefaultClient.Do(req)
-}
-
-func postEmptyWithAuth(url string) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodPost, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+testRuntimeToken)
 	return http.DefaultClient.Do(req)
 }
 

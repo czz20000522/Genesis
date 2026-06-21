@@ -90,8 +90,8 @@ The HTTP request cannot select `permission_mode` or `workspace_root`; those are 
 
 The first memory loop is explicit and governed:
 
-- `POST /memory/candidates` creates a pending candidate from user-visible text.
-- `POST /memory/candidates/{id}/approve` approves a candidate.
+- `POST /memory/candidates` creates a pending candidate from user-visible text and a required `source_ref`.
+- `POST /memory/candidates/{id}/approve` approves a candidate with required `approval_authority`, `approval_reason`, and `approval_evidence_ref`.
 - `POST /turn` recalls only approved candidates and records recalled memory refs on the turn event.
 
-The first recall strategy is intentionally simple text matching. It proves the governance loop and restart-safe replay before adding vector indexes or richer memory policy.
+The first recall strategy is intentionally simple text matching. It proves the governance, provenance, and restart-safe replay loop before adding vector indexes or richer memory policy.
