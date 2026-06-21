@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### recvnd2PDI1LuV - P0 - Minimal Go single-binary spike
+
+- Status: ready_for_acceptance.
+- Fix commits: `559e1c0c7`, `fd5bf9d8a`, `db9aeca13`, `22d5ca9f4`, `a9b34bda7`, `25e292b81`.
+- Evidence: `go test ./...` passed; build passed; `GENESIS_LIVE_PROVIDER=1 go test ./internal/kernel -run TestLiveOpenAICompatibleProviderThroughKernel -count=1 -v` passed using Genesis `~/.genesis/config/models.json` and local `secret://...` credential resolution; binary `/ready` smoke returned `provider=openai-compatible` and `status=ok`; repository version-label scan returned no matches.
+- Acceptance condition: reviewer confirms the spike proves a single Go binary with unversioned `/ready`, `/turn`, `/sessions/{id}`, fake provider mode, OpenAI-compatible provider mode, restart-safe ledger replay, and Genesis-owned live provider config.
+- Residual risk: this is still a kernel spike, not a full product shell. Streaming, richer tool loop continuation, prompt-injection admission, and long-term storage policy remain future kernel work.
+
 ### recvnd2PDIz0sA - P0 - Minimal `shell.exec` tool runtime and permission gate
 
 - Status: ready_for_acceptance.

@@ -14,19 +14,4 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### recvnd2PDI1LuV - P0 - Minimal Go single-binary spike
-
-- Status: open.
-- Type: architecture.
-- Problem: the Go kernel spike must prove a runnable single binary with `/ready`, `/turn`, `/sessions/{id}`, fake provider mode, OpenAI-compatible provider mode, restart-safe session replay, and no project-specific or shell-specific assumptions.
-- Current evidence: commits `559e1c0c7`, `fd5bf9d8a`, `db9aeca13`, and `22d5ca9f4` prove the fake provider loop, provider configuration, provider context boundary, and an opt-in live provider smoke test.
-- Remaining blocker: live external OpenAI-compatible provider verification must run against the Genesis-owned model config and credential store. Codex credentials must not be reused as Genesis credentials.
-- Acceptance command:
-
-```powershell
-$env:GENESIS_LIVE_PROVIDER = "1"
-D:\software\Go\bin\go.exe test ./...
-```
-
-- Acceptance evidence required: the live smoke `TestLiveOpenAICompatibleProviderThroughKernel` resolves `~/.genesis/config/models.json` plus `secret://...` credentials and passes, `D:\software\Go\bin\go.exe build -o $env:TEMP\genesisd.exe .\cmd\genesisd` passes, and a route scan shows no versioned kernel route contracts.
-- Residual risk: fake and httptest provider coverage proves kernel control flow but not an external provider account, rate limit, or model behavior.
+No active issue is currently recorded in the repo ledger. New Feishu/Base issues should be copied here only after triage confirms they require code, verification, or user acceptance work in the kernel.
