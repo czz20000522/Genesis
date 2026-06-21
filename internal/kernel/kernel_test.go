@@ -635,6 +635,70 @@ func TestExecShellIdempotencyKeySurvivesRestartWithoutRepeatingEffect(t *testing
 	}
 }
 
+func TestExecShellStaleRunningIdempotencyKeyFailsClosedAfterRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := t.TempDir()
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+	startedAt := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
+	stale := OperationProjection{
+		OperationID:    "op-stale-running",
+		SessionID:      "shell-stale-idempotent",
+		Tool:           "shell.exec",
+		IdempotencyKey: "stale-key",
+		Status:         "running",
+		PermissionMode: PermissionModeDefault,
+		CWD:            workspace,
+		Command:        writeFileCommand("stale.txt", "first"),
+		StartedAt:      startedAt,
+	}
+	if err := k.appendOperationEvent(stale); err != nil {
+		t.Fatalf("append stale running operation: %v", err)
+	}
+
+	restarted := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+	recovered, err := restarted.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "shell-stale-idempotent",
+		CWD:            workspace,
+		Command:        writeFileCommand("stale.txt", "second"),
+		IdempotencyKey: "stale-key",
+	})
+	if err != nil {
+		t.Fatalf("ExecShell returned error: %v", err)
+	}
+	if recovered.OperationID != stale.OperationID {
+		t.Fatalf("operation id = %q, want stale operation id %q", recovered.OperationID, stale.OperationID)
+	}
+	if recovered.Status != "failed" {
+		t.Fatalf("status = %q, want failed stale operation", recovered.Status)
+	}
+	if recovered.BlockedReason != "stale_running_operation" {
+		t.Fatalf("blocked reason = %q, want stale_running_operation", recovered.BlockedReason)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "stale.txt")); !os.IsNotExist(err) {
+		t.Fatalf("stale retry executed file effect, stat err = %v", err)
+	}
+
+	projection, err := restarted.Session("shell-stale-idempotent")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 {
+		t.Fatalf("len(Operations) = %d, want 1", len(projection.Operations))
+	}
+	if projection.Operations[0].Status != "failed" || projection.Operations[0].BlockedReason != "stale_running_operation" {
+		t.Fatalf("operation projection = %+v, want failed stale operation", projection.Operations[0])
+	}
+	if len(projection.Events) != 2 || projection.Events[0].Type != "operation.running" || projection.Events[1].Type != "operation.failed" {
+		t.Fatalf("events = %+v, want running then failed recovery event", projection.Events)
+	}
+}
+
 func TestExecShellBlockedOperationIsIdempotent(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
@@ -1016,6 +1080,64 @@ func TestHTTPShellExecIdempotencyKeyReturnsExistingOperation(t *testing.T) {
 	}
 	if len(projection.Operations) != 1 || len(projection.Events) != 2 {
 		t.Fatalf("projection = %+v, want one operation and two events", projection)
+	}
+}
+
+func TestHTTPShellExecStaleRunningIdempotencyKeyReturnsFailedOperation(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := t.TempDir()
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+	stale := OperationProjection{
+		OperationID:    "op-http-stale-running",
+		SessionID:      "http-shell-stale",
+		Tool:           "shell.exec",
+		IdempotencyKey: "http-stale-key",
+		Status:         "running",
+		PermissionMode: PermissionModeDefault,
+		CWD:            workspace,
+		Command:        writeFileCommand("http-stale.txt", "first"),
+		StartedAt:      time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC),
+	}
+	if err := k.appendOperationEvent(stale); err != nil {
+		t.Fatalf("append stale operation: %v", err)
+	}
+
+	restarted := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+	server := httptest.NewServer(Handler(restarted))
+	defer server.Close()
+
+	payload, err := json.Marshal(ShellExecRequest{
+		SessionID:      "http-shell-stale",
+		CWD:            workspace,
+		Command:        writeFileCommand("http-stale.txt", "second"),
+		IdempotencyKey: "http-stale-key",
+	})
+	if err != nil {
+		t.Fatalf("marshal stale shell request: %v", err)
+	}
+	resp, err := postJSONWithAuth(server.URL+"/tools/shell.exec", payload)
+	if err != nil {
+		t.Fatalf("POST /tools/shell.exec failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 with failed operation projection", resp.StatusCode)
+	}
+	var operation OperationProjection
+	if err := json.NewDecoder(resp.Body).Decode(&operation); err != nil {
+		t.Fatalf("decode operation response: %v", err)
+	}
+	if operation.Status != "failed" || operation.BlockedReason != "stale_running_operation" {
+		t.Fatalf("operation = %+v, want failed stale operation", operation)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "http-stale.txt")); !os.IsNotExist(err) {
+		t.Fatalf("stale HTTP retry executed file effect, stat err = %v", err)
 	}
 }
 

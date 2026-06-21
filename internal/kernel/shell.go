@@ -20,6 +20,8 @@ const (
 
 	maxShellOutputBytes = 64 * 1024
 	maxShellDuration    = 30 * time.Second
+
+	staleRunningOperationReason = "stale_running_operation"
 )
 
 func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (OperationProjection, error) {
@@ -40,6 +42,9 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 			return OperationProjection{}, err
 		}
 		if ok {
+			if operation.Status == "running" {
+				return k.failStaleRunningOperation(operation)
+			}
 			return operation, nil
 		}
 	}
@@ -103,6 +108,18 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 	} else {
 		operation.Status = "failed"
 	}
+	operation = redactOperationEvidence(operation)
+	if err := k.appendOperationEvent(operation); err != nil {
+		return OperationProjection{}, err
+	}
+	return operation, nil
+}
+
+func (k *Kernel) failStaleRunningOperation(operation OperationProjection) (OperationProjection, error) {
+	operation.Status = "failed"
+	operation.BlockedReason = staleRunningOperationReason
+	operation.Stderr = staleRunningOperationReason
+	operation.EndedAt = k.clock()
 	operation = redactOperationEvidence(operation)
 	if err := k.appendOperationEvent(operation); err != nil {
 		return OperationProjection{}, err
