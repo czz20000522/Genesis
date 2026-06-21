@@ -69,8 +69,14 @@ type TurnProjection struct {
 	InputItems       []InputItem    `json:"input_items"`
 	RecalledMemories []MemoryRecall `json:"recalled_memories,omitempty"`
 	FinalMessage     FinalMessage   `json:"final,omitempty"`
+	Error            *TurnError     `json:"error,omitempty"`
 	StartedAt        time.Time      `json:"started_at"`
 	CompletedAt      time.Time      `json:"completed_at,omitempty"`
+}
+
+type TurnError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 type EventProjection struct {
@@ -161,6 +167,7 @@ type EventData struct {
 	InputItems       []InputItem                `json:"input_items,omitempty"`
 	RecalledMemories []MemoryRecall             `json:"recalled_memories,omitempty"`
 	Final            *FinalMessage              `json:"final,omitempty"`
+	TurnError        *TurnError                 `json:"turn_error,omitempty"`
 	Operation        *OperationProjection       `json:"operation,omitempty"`
 	MemoryCandidate  *MemoryCandidateProjection `json:"memory_candidate,omitempty"`
 }

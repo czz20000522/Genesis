@@ -861,6 +861,24 @@ func TestHTTPReportsBlockedProvider(t *testing.T) {
 	if turnResp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("turn status = %d, want 503", turnResp.StatusCode)
 	}
+
+	restarted := newTestKernelWithRuntimeToken(t, ledgerPath, testRuntimeToken)
+	projection, err := restarted.Session("blocked-session")
+	if err != nil {
+		t.Fatalf("Session after provider failure returned error: %v", err)
+	}
+	if len(projection.Turns) != 1 {
+		t.Fatalf("len(Turns) = %d, want 1", len(projection.Turns))
+	}
+	if projection.Turns[0].Status != "failed" {
+		t.Fatalf("turn status = %q, want failed", projection.Turns[0].Status)
+	}
+	if projection.Turns[0].Error == nil || projection.Turns[0].Error.Code != "provider_unavailable" {
+		t.Fatalf("turn error = %+v, want provider_unavailable", projection.Turns[0].Error)
+	}
+	if len(projection.Events) != 2 || projection.Events[0].Type != "turn.submitted" || projection.Events[1].Type != "turn.failed" {
+		t.Fatalf("events = %+v, want submitted then failed", projection.Events)
+	}
 }
 
 func TestOpenAICompatibleProviderReadyRequiresConfiguration(t *testing.T) {

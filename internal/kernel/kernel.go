@@ -91,6 +91,21 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		InputItems: modelInputItems(req.InputItems, recalledMemories),
 	})
 	if err != nil {
+		failedAt := k.clock()
+		failure := turnFailureFromProviderError(err)
+		failed := StoredEvent{
+			EventID:   newID("evt", failedAt),
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Type:      "turn.failed",
+			CreatedAt: failedAt,
+			Data: EventData{
+				TurnError: &failure,
+			},
+		}
+		if appendErr := k.ledger.Append(failed); appendErr != nil {
+			return TurnResponse{}, appendErr
+		}
 		return TurnResponse{}, fmt.Errorf("provider complete: %w", err)
 	}
 
@@ -171,6 +186,16 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 				projection.Turns[idx].FinalMessage = *event.Data.Final
 			}
 			projection.Turns[idx].CompletedAt = event.CreatedAt
+		case "turn.failed":
+			idx, ok := turnByID[event.TurnID]
+			if !ok {
+				continue
+			}
+			projection.Turns[idx].Status = "failed"
+			if event.Data.TurnError != nil {
+				projection.Turns[idx].Error = event.Data.TurnError
+			}
+			projection.Turns[idx].CompletedAt = event.CreatedAt
 		case "operation.running", "operation.completed", "operation.failed", "operation.blocked":
 			if event.Data.Operation != nil {
 				operation := *event.Data.Operation
@@ -221,6 +246,17 @@ func validateTurnRequest(req TurnRequest) error {
 		}
 	}
 	return nil
+}
+
+func turnFailureFromProviderError(err error) TurnError {
+	code := "provider_error"
+	if errors.Is(err, ErrProviderUnavailable) {
+		code = "provider_unavailable"
+	}
+	return TurnError{
+		Code:    code,
+		Message: err.Error(),
+	}
 }
 
 func toEvent(event StoredEvent) Event {
