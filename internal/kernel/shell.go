@@ -26,6 +26,7 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 	}
 	now := k.clock()
 	policy := k.toolPolicy
+	rawCommand := strings.TrimSpace(req.Command)
 	operation := OperationProjection{
 		OperationID:    newID("op", now),
 		SessionID:      strings.TrimSpace(req.SessionID),
@@ -33,7 +34,7 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 		Status:         "running",
 		PermissionMode: policy.PermissionMode,
 		CWD:            strings.TrimSpace(req.CWD),
-		Command:        strings.TrimSpace(req.Command),
+		Command:        rawCommand,
 		StartedAt:      now,
 	}
 
@@ -41,6 +42,7 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 		operation.Status = "blocked"
 		operation.BlockedReason = reason
 		operation.EndedAt = k.clock()
+		operation = redactOperationEvidence(operation)
 		if err := k.appendOperationEvent(operation); err != nil {
 			return OperationProjection{}, err
 		}
@@ -53,7 +55,7 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 
 	execCtx, cancel := context.WithTimeout(ctx, maxShellDuration)
 	defer cancel()
-	cmd := platformShellCommand(execCtx, operation.Command)
+	cmd := platformShellCommand(execCtx, rawCommand)
 	cmd.Dir = operation.CWD
 	var stdout cappedBuffer
 	var stderr cappedBuffer
@@ -77,6 +79,7 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 		operation.Status = "completed"
 	}
 	operation.ExitCode = &code
+	operation = redactOperationEvidence(operation)
 	if err := k.appendOperationEvent(operation); err != nil {
 		return OperationProjection{}, err
 	}
@@ -84,6 +87,7 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 }
 
 func (k *Kernel) appendOperationEvent(operation OperationProjection) error {
+	operation = redactOperationEvidence(operation)
 	eventType := "operation." + operation.Status
 	return k.ledger.Append(StoredEvent{
 		EventID:     newID("evt", operation.EndedAt),

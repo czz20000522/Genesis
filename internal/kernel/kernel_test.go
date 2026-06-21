@@ -390,6 +390,42 @@ func TestExecShellDefaultBlocksMutatingCommandPathEscapesWorkspace(t *testing.T)
 	}
 }
 
+func TestExecShellRedactsSecretEvidenceBeforePersistence(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := t.TempDir()
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+
+	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID: "shell-redaction",
+		CWD:       workspace,
+		Command:   secretEchoCommand(),
+	})
+	if err != nil {
+		t.Fatalf("ExecShell returned error: %v", err)
+	}
+	if operation.Status != "completed" {
+		t.Fatalf("status = %q, want completed; stderr=%q", operation.Status, operation.Stderr)
+	}
+	ledgerData, err := os.ReadFile(ledgerPath)
+	if err != nil {
+		t.Fatalf("read ledger: %v", err)
+	}
+	for _, leaked := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
+		if strings.Contains(operation.Command, leaked) || strings.Contains(operation.Stdout, leaked) || strings.Contains(operation.Stderr, leaked) {
+			t.Fatalf("operation evidence leaked %q: %+v", leaked, operation)
+		}
+		if strings.Contains(string(ledgerData), leaked) {
+			t.Fatalf("ledger leaked %q: %s", leaked, string(ledgerData))
+		}
+	}
+	if !strings.Contains(operation.Command+operation.Stdout+string(ledgerData), "[REDACTED]") {
+		t.Fatalf("redaction marker missing from operation/ledger evidence")
+	}
+}
+
 func TestHTTPShellExecAndSessionProjection(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	workspace := t.TempDir()
@@ -816,4 +852,11 @@ func echoCommand(value string) string {
 		return "Write-Output " + value
 	}
 	return "printf " + value
+}
+
+func secretEchoCommand() string {
+	if runtime.GOOS == "windows" {
+		return `Write-Output 'GENESIS_PROVIDER_API_KEY=sk-secret123'; Write-Output 'Authorization: Bearer tokentest123456'; Write-Output '{"api_key":"sk-jsonsecret"}'`
+	}
+	return `printf '%s\n' 'GENESIS_PROVIDER_API_KEY=sk-secret123' 'Authorization: Bearer tokentest123456' '{"api_key":"sk-jsonsecret"}'`
 }
