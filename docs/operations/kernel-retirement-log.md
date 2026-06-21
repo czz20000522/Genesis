@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### recvndHA93jSZH - P1 - Genesis provider credential needs an executable setup path
+
+- Status: ready_for_acceptance.
+- Fix commits: `1a3fed964`, `0ad989b71`.
+- Evidence: `go test ./...` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for versioned route or phase labels returned no matches; `TestSetupOpenAICompatibleProviderWritesConfigAndProtectedCredential`, `TestSetupOpenAICompatibleProviderDryRunWritesNothing`, `TestCorruptSetupCredentialBlocksProviderConfig`, `TestProviderSetupCommandDryRunDoesNotRequireAPIKey`, and `TestProviderSetupCommandWritesCredentialWithoutPrintingSecret` passed; a live local smoke wrote temp `models.json` plus a DPAPI credential record, verified `genesisctl provider-setup` output and generated files did not contain the test secret, started `genesisd` with the generated config and observed `/ready.status=ok`, then corrupted the credential and observed `/ready.status=blocked` with provider reason `provider_credential_missing`.
+- Acceptance condition: reviewer confirms setup is an operator setup surface only, not a provider account flow inside runtime, and a new machine can initialize Genesis-owned model gateway config plus `secret://...` credential data without hand-writing `protected_data_b64`.
+- Residual risk: real provider account creation, login, billing, quota, and upstream credential issuance remain external. This setup path only stores an already obtained API key and model gateway config for the local kernel.
+
 ### KERNEL-IDEMPOTENCY-20260622 - P0 - Duplicate tool idempotency keys must not execute effects twice
 
 - Status: ready_for_acceptance.
