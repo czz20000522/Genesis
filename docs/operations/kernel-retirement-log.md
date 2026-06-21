@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-IDEMPOTENCY-20260622 - P0 - Duplicate tool idempotency keys must not execute effects twice
+
+- Status: ready_for_acceptance.
+- Fix commits: `d9b65933b`, `76971aef5`.
+- Evidence: `go test ./...` passed; build passed; live fake-provider HTTP smoke returned the same `operation_id` for two `/tools/shell.exec` requests with the same `idempotency_key`, preserved file content as `first`, and projected `operation_count=1` plus `event_count=2`; `TestExecShellIdempotencyKeySurvivesRestartWithoutRepeatingEffect` proves restart-safe replay does not execute the second command; `TestExecShellBlockedOperationIsIdempotent` proves blocked operations are idempotent; `TestExecShellRejectsInvalidIdempotencyKey` proves invalid key shapes fail before ledger append; `TestHTTPShellExecIdempotencyKeyReturnsExistingOperation` proves the HTTP transport uses the same kernel behavior.
+- Acceptance condition: reviewer confirms `idempotency_key` is a kernel control-plane field and duplicate `session_id + tool + idempotency_key` retries return the existing operation without re-executing effects.
+- Residual risk: idempotency is currently implemented for `shell.exec`, the only effectful tool in the spike. Future effectful tools must reuse the same ledger-backed boundary before execution.
+
 ### recvnd2PDI1LuV - P0 - Minimal Go single-binary spike
 
 - Status: ready_for_acceptance.
