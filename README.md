@@ -101,3 +101,10 @@ The first memory loop is explicit and governed:
 - `POST /turn` recalls only approved candidates and records recalled memory refs on the turn event.
 
 The first recall strategy is intentionally simple text matching. It proves the governance, provenance, and restart-safe replay loop before adding vector indexes or richer memory policy.
+
+## Operations Records
+
+- Active kernel issues: `docs/operations/kernel-v2-issues.md`
+- Ready or retired issue evidence: `docs/operations/kernel-v2-retirement-log.md`
+
+Feishu Base remains a collaboration inbox. The repo records above are the durable project source for active issues, acceptance evidence, and retirement decisions.
