@@ -19,6 +19,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: reviewer confirms the spike proves a single Go binary with unversioned `/ready`, `/turn`, `/sessions/{id}`, fake provider mode, OpenAI-compatible provider mode, restart-safe ledger replay, and Genesis-owned live provider config.
 - Residual risk: this is still a kernel spike, not a full product shell. Streaming, richer tool loop continuation, duplicate idempotency handling, and long-term storage policy remain future kernel work.
 
+### recvndJWPu1RcN - P0 - Ingress security must not hard-reject ordinary user text
+
+- Status: ready_for_acceptance.
+- Fix commit: `330836d7b`.
+- Evidence: `go test ./...` passed; build passed; `TestSubmitTurnRecordsIngressRiskWithoutBlocking` proves prompt-injection samples are accepted as user data and recorded as risk metadata; `TestHTTPAcceptsRiskyUserDataAndRecordsMetadata` proves `System:` log headings and `tool_call_id` / `function_call` fragments do not block `/turn`; `TestHTTPRejectsNestedControlFieldBeforeAdmission` proves malformed nested control fields still return 400 before ledger append; `TestHTTPBlocksInvisibleIngressMarker` proves hidden control text still returns 403 before ledger append.
+- Acceptance condition: reviewer confirms the kernel separates data from authority: risky text is metadata, while control-plane forgery or hidden text fails closed.
+- Residual risk: risk metadata is recorded in session projection only. Richer downstream isolation policy can be added later, but it must not make prompt text itself an authority boundary.
+
 ### recvnd2PDIz0sA - P0 - Minimal `shell.exec` tool runtime and permission gate
 
 - Status: ready_for_acceptance.
