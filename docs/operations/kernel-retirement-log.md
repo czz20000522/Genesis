@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### recvndQ9cGNIqE - P1 - Stale running shell operations must not trap idempotent retries
+
+- Status: ready_for_acceptance.
+- Fix commits: `9742ad13`, `d274af7f1`.
+- Evidence: the new `TestExecShellStaleRunningIdempotencyKeyFailsClosedAfterRestart` and `TestHTTPShellExecStaleRunningIdempotencyKeyReturnsFailedOperation` first failed against the previous behavior because stale idempotent retries returned `status=running`; after the fix both tests passed. `go test ./...` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed. The fixed behavior replays a stale `operation.running`, appends a terminal `operation.failed` event with `blocked_reason=stale_running_operation`, returns the same `operation_id`, and does not execute the retry command.
+- Acceptance condition: reviewer confirms a crash between `operation.running` and a terminal event no longer traps idempotent `shell.exec` retries in a permanent running projection, and the kernel does not guess or repeat the effect.
+- Residual risk: this is the minimal fail-closed recovery for the current short-lived `shell.exec` tool. Future long-running tools need richer lease, heartbeat, retry, cancellation, and recovery policy before they can safely resume work.
+
 ### recvndHA93jSZH - P1 - Genesis provider credential needs an executable setup path
 
 - Status: ready_for_acceptance.
