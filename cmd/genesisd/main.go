@@ -15,6 +15,9 @@ import (
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8765", "HTTP listen address")
 	ledgerPath := flag.String("ledger", defaultLedgerPath(), "append-only event ledger path")
+	runtimeToken := flag.String("runtime-token", os.Getenv("GENESIS_RUNTIME_TOKEN"), "runtime bearer token for protected routes")
+	permissionMode := flag.String("permission-mode", envOrDefault("GENESIS_PERMISSION_MODE", kernel.PermissionModePlan), "tool permission mode: plan, default, or yolo")
+	workspaceRoot := flag.String("workspace-root", os.Getenv("GENESIS_WORKSPACE_ROOT"), "workspace root for default tool permission mode")
 	providerName := flag.String("provider", envOrDefault("GENESIS_PROVIDER", "fake"), "provider name: fake or openai-compatible")
 	providerBaseURL := flag.String("provider-base-url", os.Getenv("GENESIS_PROVIDER_BASE_URL"), "OpenAI-compatible provider base URL")
 	providerModel := flag.String("provider-model", os.Getenv("GENESIS_PROVIDER_MODEL"), "OpenAI-compatible provider model")
@@ -26,8 +29,13 @@ func main() {
 		log.Fatalf("create provider: %v", err)
 	}
 	k, err := kernel.New(kernel.Config{
-		LedgerPath: *ledgerPath,
-		Provider:   provider,
+		LedgerPath:   *ledgerPath,
+		Provider:     provider,
+		RuntimeToken: *runtimeToken,
+		ToolPolicy: kernel.ToolPolicy{
+			PermissionMode: *permissionMode,
+			WorkspaceRoot:  *workspaceRoot,
+		},
 	})
 	if err != nil {
 		log.Fatalf("create kernel: %v", err)

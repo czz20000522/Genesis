@@ -37,7 +37,10 @@ D:\software\Go\bin\go.exe build -o $env:TEMP\genesisd.exe .\cmd\genesisd
 Run it with an explicit ledger path:
 
 ```powershell
-$env:TEMP\genesisd.exe -addr 127.0.0.1:8765 -ledger $env:TEMP\genesis-events.jsonl
+$env:TEMP\genesisd.exe `
+  -addr 127.0.0.1:8765 `
+  -ledger $env:TEMP\genesis-events.jsonl `
+  -runtime-token local-dev-token
 ```
 
 Minimal HTTP surface:
@@ -50,6 +53,8 @@ Minimal HTTP surface:
 - `POST /memory/candidates/{id}/approve`
 
 The phase 1 provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
+
+Protected routes require `Authorization: Bearer <runtime-token>`. `GET /ready` is the only unauthenticated route.
 
 ## Provider Configuration
 
@@ -75,11 +80,11 @@ The provider base URL is configuration, not a kernel route. Include whatever pro
 
 The first kernel tool is `shell.exec`. It is deliberately small:
 
-- `plan` mode blocks commands that look mutating.
-- `default` mode requires a workspace root and runs only from inside that workspace.
-- `yolo` mode is explicit high-trust execution.
+- `plan` mode blocks shell execution fail-closed.
+- `default` mode requires a kernel-configured workspace root and runs only from inside that workspace.
+- `yolo` mode is explicit high-trust execution and can only be selected by kernel startup configuration.
 
-Every call records an operation with tool name, permission mode, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
+The HTTP request cannot select `permission_mode` or `workspace_root`; those are kernel-owned authority fields. Every allowed call first records a `running` operation before process execution, then records completion or failure with tool name, permission mode, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
 
 ## Accumulation
 

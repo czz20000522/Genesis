@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 const (
@@ -17,6 +17,7 @@ const (
 	PermissionModeYolo    = "yolo"
 
 	maxShellOutputBytes = 64 * 1024
+	maxShellDuration    = 30 * time.Second
 )
 
 func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (OperationProjection, error) {
@@ -24,18 +25,19 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 		return OperationProjection{}, err
 	}
 	now := k.clock()
+	policy := k.toolPolicy
 	operation := OperationProjection{
 		OperationID:    newID("op", now),
 		SessionID:      strings.TrimSpace(req.SessionID),
 		Tool:           "shell.exec",
 		Status:         "running",
-		PermissionMode: normalizedPermissionMode(req.PermissionMode),
+		PermissionMode: policy.PermissionMode,
 		CWD:            strings.TrimSpace(req.CWD),
 		Command:        strings.TrimSpace(req.Command),
 		StartedAt:      now,
 	}
 
-	if reason := shellBlockReason(req); reason != "" {
+	if reason := shellBlockReason(policy, req); reason != "" {
 		operation.Status = "blocked"
 		operation.BlockedReason = reason
 		operation.EndedAt = k.clock()
@@ -45,7 +47,13 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 		return operation, nil
 	}
 
-	cmd := platformShellCommand(ctx, operation.Command)
+	if err := k.appendOperationEvent(operation); err != nil {
+		return OperationProjection{}, err
+	}
+
+	execCtx, cancel := context.WithTimeout(ctx, maxShellDuration)
+	defer cancel()
+	cmd := platformShellCommand(execCtx, operation.Command)
 	cmd.Dir = operation.CWD
 	var stdout cappedBuffer
 	var stderr cappedBuffer
@@ -99,35 +107,42 @@ func validateShellRequest(req ShellExecRequest) error {
 	if strings.TrimSpace(req.Command) == "" {
 		return errors.New("command is required")
 	}
-	mode := normalizedPermissionMode(req.PermissionMode)
-	if mode != PermissionModePlan && mode != PermissionModeDefault && mode != PermissionModeYolo {
-		return fmt.Errorf("permission_mode must be plan, default, or yolo")
-	}
 	return nil
 }
 
-func shellBlockReason(req ShellExecRequest) string {
-	mode := normalizedPermissionMode(req.PermissionMode)
-	switch mode {
+func shellBlockReason(policy ToolPolicy, req ShellExecRequest) string {
+	switch policy.PermissionMode {
 	case PermissionModePlan:
-		if commandLooksMutating(req.Command) {
-			return "blocked_by_permission_mode=plan"
-		}
+		return "blocked_by_permission_mode=plan"
 	case PermissionModeDefault:
-		if strings.TrimSpace(req.WorkspaceRoot) == "" {
+		if strings.TrimSpace(policy.WorkspaceRoot) == "" {
 			return "workspace_root_required"
 		}
-		if !pathWithin(req.CWD, req.WorkspaceRoot) {
+		if !pathWithin(req.CWD, policy.WorkspaceRoot) {
 			return "cwd_outside_workspace"
+		}
+		if commandLooksMutating(req.Command) && commandReferencesOutsideWorkspace(req.Command, policy.WorkspaceRoot) {
+			return "command_path_outside_workspace"
 		}
 	}
 	return ""
 }
 
+func normalizedToolPolicy(policy ToolPolicy) ToolPolicy {
+	mode := normalizedPermissionMode(policy.PermissionMode)
+	if mode != PermissionModePlan && mode != PermissionModeDefault && mode != PermissionModeYolo {
+		mode = PermissionModePlan
+	}
+	return ToolPolicy{
+		PermissionMode: mode,
+		WorkspaceRoot:  strings.TrimSpace(policy.WorkspaceRoot),
+	}
+}
+
 func normalizedPermissionMode(mode string) string {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode == "" {
-		return PermissionModeDefault
+		return PermissionModePlan
 	}
 	return mode
 }
@@ -145,6 +160,38 @@ func commandLooksMutating(command string) bool {
 		}
 	}
 	return false
+}
+
+func commandReferencesOutsideWorkspace(command string, workspaceRoot string) bool {
+	for _, token := range strings.Fields(command) {
+		token = strings.Trim(token, "\"'`,;()[]{}")
+		if token == "" {
+			continue
+		}
+		candidates := []string{token}
+		if key, value, ok := strings.Cut(token, "="); ok && key != "" && value != "" {
+			candidates = append(candidates, value)
+		}
+		for _, candidate := range candidates {
+			if hasParentTraversal(candidate) {
+				return true
+			}
+			if filepath.IsAbs(candidate) && !pathWithin(candidate, workspaceRoot) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasParentTraversal(token string) bool {
+	normalized := strings.ReplaceAll(token, "\\", "/")
+	return normalized == ".." ||
+		strings.HasPrefix(normalized, "../") ||
+		strings.Contains(normalized, "/../") ||
+		strings.HasSuffix(normalized, "/..") ||
+		strings.Contains(normalized, "=../") ||
+		strings.HasSuffix(normalized, "=..")
 }
 
 func pathWithin(path string, root string) bool {

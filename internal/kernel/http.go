@@ -1,10 +1,12 @@
 package kernel
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
 )
@@ -17,19 +19,72 @@ func Handler(k *Kernel) http.Handler {
 		case r.Method == http.MethodGet && r.URL.Path == "/ready":
 			writeJSON(w, http.StatusOK, k.Ready())
 		case r.Method == http.MethodPost && r.URL.Path == "/turn":
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
 			handleSubmitTurn(w, r, k)
 		case r.Method == http.MethodPost && r.URL.Path == "/tools/shell.exec":
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
 			handleExecShell(w, r, k)
 		case r.Method == http.MethodPost && r.URL.Path == "/memory/candidates":
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
 			handleCreateMemoryCandidate(w, r, k)
 		case r.Method == http.MethodPost && isMemoryApprovePath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) || !requireEmptyBody(w, r) {
+				return
+			}
 			handleApproveMemoryCandidate(w, r, k)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/sessions/"):
+			if !authorizeRuntimeRequest(w, r, k) {
+				return
+			}
 			handleGetSession(w, r, k)
 		default:
 			writeError(w, http.StatusNotFound, "not_found", "route not found")
 		}
 	})
+}
+
+func authorizeRuntimeRequest(w http.ResponseWriter, r *http.Request, k *Kernel) bool {
+	if k.runtimeToken == "" {
+		writeError(w, http.StatusServiceUnavailable, "runtime_token_missing", "runtime token is not configured")
+		return false
+	}
+	expected := "Bearer " + k.runtimeToken
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "runtime token is required")
+		return false
+	}
+	return true
+}
+
+func requireJSONContentType(w http.ResponseWriter, r *http.Request) bool {
+	contentType := r.Header.Get("Content-Type")
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || mediaType != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content-type must be application/json")
+		return false
+	}
+	return true
+}
+
+func requireEmptyBody(w http.ResponseWriter, r *http.Request) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+	defer r.Body.Close()
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid body: %s", err.Error()))
+		return false
+	}
+	if len(strings.TrimSpace(string(data))) != 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "request body must be empty")
+		return false
+	}
+	return true
 }
 
 func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {

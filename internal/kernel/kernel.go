@@ -9,9 +9,11 @@ import (
 )
 
 type Kernel struct {
-	ledger   Ledger
-	provider Provider
-	clock    func() time.Time
+	ledger       Ledger
+	provider     Provider
+	runtimeToken string
+	toolPolicy   ToolPolicy
+	clock        func() time.Time
 }
 
 func New(config Config) (*Kernel, error) {
@@ -27,9 +29,11 @@ func New(config Config) (*Kernel, error) {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
 	return &Kernel{
-		ledger:   NewJSONLLedger(config.LedgerPath),
-		provider: provider,
-		clock:    clock,
+		ledger:       NewJSONLLedger(config.LedgerPath),
+		provider:     provider,
+		runtimeToken: strings.TrimSpace(config.RuntimeToken),
+		toolPolicy:   normalizedToolPolicy(config.ToolPolicy),
+		clock:        clock,
 	}, nil
 }
 
@@ -163,9 +167,20 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 				projection.Turns[idx].FinalMessage = *event.Data.Final
 			}
 			projection.Turns[idx].CompletedAt = event.CreatedAt
-		case "operation.completed", "operation.failed", "operation.blocked":
+		case "operation.running", "operation.completed", "operation.failed", "operation.blocked":
 			if event.Data.Operation != nil {
-				projection.Operations = append(projection.Operations, *event.Data.Operation)
+				operation := *event.Data.Operation
+				replaced := false
+				for i := range projection.Operations {
+					if projection.Operations[i].OperationID == operation.OperationID {
+						projection.Operations[i] = operation
+						replaced = true
+						break
+					}
+				}
+				if !replaced {
+					projection.Operations = append(projection.Operations, operation)
+				}
 			}
 		case "memory.candidate.created", "memory.candidate.approved":
 			if event.Data.MemoryCandidate == nil {

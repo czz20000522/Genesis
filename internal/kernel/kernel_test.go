@@ -96,7 +96,7 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 	}
 
 	body := []byte(`{"session_id":"http-session","input_items":[{"type":"text","text":"hello over http"}]}`)
-	turnResp, err := http.Post(server.URL+"/turn", "application/json", bytes.NewReader(body))
+	turnResp, err := postJSONWithAuth(server.URL+"/turn", body)
 	if err != nil {
 		t.Fatalf("POST /turn failed: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 		t.Fatalf("turn final = %q, want fake: hello over http", turn.Final.Text)
 	}
 
-	sessionResp, err := http.Get(server.URL + "/sessions/http-session")
+	sessionResp, err := getWithAuth(server.URL + "/sessions/http-session")
 	if err != nil {
 		t.Fatalf("GET /sessions failed: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestHTTPRejectsUnknownTurnFields(t *testing.T) {
 	defer server.Close()
 
 	body := []byte(`{"session_id":"bad-session","input_items":[{"type":"text","text":"hello"}],"unexpected":true}`)
-	resp, err := http.Post(server.URL+"/turn", "application/json", bytes.NewReader(body))
+	resp, err := postJSONWithAuth(server.URL+"/turn", body)
 	if err != nil {
 		t.Fatalf("POST /turn failed: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestHTTPRejectsTrailingJSON(t *testing.T) {
 	defer server.Close()
 
 	body := []byte(`{"session_id":"bad-session","input_items":[{"type":"text","text":"hello"}]}{}`)
-	resp, err := http.Post(server.URL+"/turn", "application/json", bytes.NewReader(body))
+	resp, err := postJSONWithAuth(server.URL+"/turn", body)
 	if err != nil {
 		t.Fatalf("POST /turn failed: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestHTTPRejectsOversizedTurnRequest(t *testing.T) {
 	defer server.Close()
 
 	body := bytes.Repeat([]byte(" "), maxRequestBytes+1)
-	resp, err := http.Post(server.URL+"/turn", "application/json", bytes.NewReader(body))
+	resp, err := postJSONWithAuth(server.URL+"/turn", body)
 	if err != nil {
 		t.Fatalf("POST /turn failed: %v", err)
 	}
@@ -186,16 +186,68 @@ func TestHTTPRejectsOversizedTurnRequest(t *testing.T) {
 	}
 }
 
+func TestHTTPProtectedRoutesRequireRuntimeToken(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	body := []byte(`{"session_id":"http-session","input_items":[{"type":"text","text":"hello"}]}`)
+	resp, err := http.Post(server.URL+"/turn", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /turn failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestHTTPProtectedRoutesFailClosedWithoutConfiguredRuntimeToken(t *testing.T) {
+	k := newTestKernelWithRuntimeToken(t, filepath.Join(t.TempDir(), "events.jsonl"), "")
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	body := []byte(`{"session_id":"http-session","input_items":[{"type":"text","text":"hello"}]}`)
+	resp, err := postJSONWithAuth(server.URL+"/turn", body)
+	if err != nil {
+		t.Fatalf("POST /turn failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
+func TestHTTPRejectsNonJSONContentType(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/turn", strings.NewReader(`{"input_items":[{"type":"text","text":"hello"}]}`))
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testRuntimeToken)
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /turn failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415", resp.StatusCode)
+	}
+}
+
 func TestExecShellPlanBlocksMutatingCommand(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	workspace := t.TempDir()
 	k := newTestKernel(t, ledgerPath)
 
 	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
-		SessionID:      "shell-plan",
-		PermissionMode: PermissionModePlan,
-		CWD:            workspace,
-		Command:        "Set-Content -LiteralPath blocked.txt -Value no",
+		SessionID: "shell-plan",
+		CWD:       workspace,
+		Command:   "Set-Content -LiteralPath blocked.txt -Value no",
 	})
 	if err != nil {
 		t.Fatalf("ExecShell returned error: %v", err)
@@ -214,14 +266,15 @@ func TestExecShellPlanBlocksMutatingCommand(t *testing.T) {
 func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	workspace := t.TempDir()
-	k := newTestKernel(t, ledgerPath)
-
-	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
-		SessionID:      "shell-default",
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
-		CWD:            workspace,
-		Command:        writeFileCommand("output.txt", "ok"),
+	})
+
+	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID: "shell-default",
+		CWD:       workspace,
+		Command:   writeFileCommand("output.txt", "ok"),
 	})
 	if err != nil {
 		t.Fatalf("ExecShell returned error: %v", err)
@@ -240,7 +293,10 @@ func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *test
 		t.Fatalf("output file = %q, want ok", string(content))
 	}
 
-	restarted := newTestKernel(t, ledgerPath)
+	restarted := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
 	projection, err := restarted.Session("shell-default")
 	if err != nil {
 		t.Fatalf("Session after restart returned error: %v", err)
@@ -251,7 +307,7 @@ func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *test
 	if projection.Operations[0].OperationID != operation.OperationID {
 		t.Fatalf("operation id = %q, want %q", projection.Operations[0].OperationID, operation.OperationID)
 	}
-	if len(projection.Events) != 1 || projection.Events[0].OperationID != operation.OperationID {
+	if len(projection.Events) != 2 || projection.Events[0].OperationID != operation.OperationID || projection.Events[1].OperationID != operation.OperationID {
 		t.Fatalf("events = %+v, want operation event", projection.Events)
 	}
 }
@@ -267,14 +323,15 @@ func TestExecShellDefaultBlocksOutsideWorkspace(t *testing.T) {
 	if err := os.MkdirAll(outside, 0o755); err != nil {
 		t.Fatalf("mkdir outside: %v", err)
 	}
-	k := newTestKernel(t, ledgerPath)
-
-	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
-		SessionID:      "shell-outside",
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
-		CWD:            outside,
-		Command:        echoCommand("hello"),
+	})
+
+	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID: "shell-outside",
+		CWD:       outside,
+		Command:   echoCommand("hello"),
 	})
 	if err != nil {
 		t.Fatalf("ExecShell returned error: %v", err)
@@ -287,24 +344,71 @@ func TestExecShellDefaultBlocksOutsideWorkspace(t *testing.T) {
 	}
 }
 
+func TestExecShellDefaultBlocksMutatingCommandPathEscapesWorkspace(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+
+	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID: "shell-escape",
+		CWD:       workspace,
+		Command:   "Set-Content -LiteralPath .." + string(filepath.Separator) + "outside.txt -Value no",
+	})
+	if err != nil {
+		t.Fatalf("ExecShell returned error: %v", err)
+	}
+	if operation.Status != "blocked" {
+		t.Fatalf("status = %q, want blocked", operation.Status)
+	}
+	if operation.BlockedReason != "command_path_outside_workspace" {
+		t.Fatalf("blocked reason = %q, want command_path_outside_workspace", operation.BlockedReason)
+	}
+	if _, err := os.Stat(filepath.Join(root, "outside.txt")); !os.IsNotExist(err) {
+		t.Fatalf("blocked command wrote outside file, stat err = %v", err)
+	}
+
+	equalFormOperation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID: "shell-escape-equal",
+		CWD:       workspace,
+		Command:   "Set-Content -LiteralPath=.." + string(filepath.Separator) + "outside-equal.txt -Value no",
+	})
+	if err != nil {
+		t.Fatalf("ExecShell with equal-form path returned error: %v", err)
+	}
+	if equalFormOperation.Status != "blocked" {
+		t.Fatalf("equal-form status = %q, want blocked", equalFormOperation.Status)
+	}
+	if _, err := os.Stat(filepath.Join(root, "outside-equal.txt")); !os.IsNotExist(err) {
+		t.Fatalf("blocked equal-form command wrote outside file, stat err = %v", err)
+	}
+}
+
 func TestHTTPShellExecAndSessionProjection(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	workspace := t.TempDir()
-	k := newTestKernel(t, ledgerPath)
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
 	payload, err := json.Marshal(ShellExecRequest{
-		SessionID:      "http-shell",
-		PermissionMode: PermissionModeDefault,
-		WorkspaceRoot:  workspace,
-		CWD:            workspace,
-		Command:        echoCommand("hello"),
+		SessionID: "http-shell",
+		CWD:       workspace,
+		Command:   echoCommand("hello"),
 	})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
-	resp, err := http.Post(server.URL+"/tools/shell.exec", "application/json", bytes.NewReader(payload))
+	resp, err := postJSONWithAuth(server.URL+"/tools/shell.exec", payload)
 	if err != nil {
 		t.Fatalf("POST /tools/shell.exec failed: %v", err)
 	}
@@ -323,7 +427,7 @@ func TestHTTPShellExecAndSessionProjection(t *testing.T) {
 		t.Fatalf("stdout = %q, want hello", operation.Stdout)
 	}
 
-	sessionResp, err := http.Get(server.URL + "/sessions/http-shell")
+	sessionResp, err := getWithAuth(server.URL + "/sessions/http-shell")
 	if err != nil {
 		t.Fatalf("GET /sessions failed: %v", err)
 	}
@@ -347,7 +451,7 @@ func TestHTTPRejectsUnknownShellFields(t *testing.T) {
 	defer server.Close()
 
 	body := []byte(`{"session_id":"bad-shell","permission_mode":"default","cwd":".","command":"echo hello","unexpected":true}`)
-	resp, err := http.Post(server.URL+"/tools/shell.exec", "application/json", bytes.NewReader(body))
+	resp, err := postJSONWithAuth(server.URL+"/tools/shell.exec", body)
 	if err != nil {
 		t.Fatalf("POST /tools/shell.exec failed: %v", err)
 	}
@@ -451,7 +555,7 @@ func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal candidate request: %v", err)
 	}
-	candidateResp, err := http.Post(server.URL+"/memory/candidates", "application/json", bytes.NewReader(candidatePayload))
+	candidateResp, err := postJSONWithAuth(server.URL+"/memory/candidates", candidatePayload)
 	if err != nil {
 		t.Fatalf("POST /memory/candidates failed: %v", err)
 	}
@@ -464,7 +568,7 @@ func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
 		t.Fatalf("decode candidate response: %v", err)
 	}
 
-	approveResp, err := http.Post(server.URL+"/memory/candidates/"+candidate.CandidateID+"/approve", "application/json", bytes.NewReader(nil))
+	approveResp, err := postEmptyWithAuth(server.URL + "/memory/candidates/" + candidate.CandidateID + "/approve")
 	if err != nil {
 		t.Fatalf("POST approve failed: %v", err)
 	}
@@ -481,7 +585,7 @@ func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
 	}
 
 	turnPayload := []byte(`{"session_id":"http-memory-consumer","input_items":[{"type":"text","text":"你记得我的回答偏好吗？"}]}`)
-	turnResp, err := http.Post(server.URL+"/turn", "application/json", bytes.NewReader(turnPayload))
+	turnResp, err := postJSONWithAuth(server.URL+"/turn", turnPayload)
 	if err != nil {
 		t.Fatalf("POST /turn failed: %v", err)
 	}
@@ -503,7 +607,7 @@ func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
-	resp, err := http.Post(server.URL+"/memory/candidates/missing/approve", "application/json", bytes.NewReader(nil))
+	resp, err := postEmptyWithAuth(server.URL + "/memory/candidates/missing/approve")
 	if err != nil {
 		t.Fatalf("POST approve failed: %v", err)
 	}
@@ -513,11 +617,32 @@ func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestHTTPApproveMemoryCandidateRejectsBody(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/memory/candidates/anything/approve", strings.NewReader(`{"unexpected":true}`))
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testRuntimeToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestHTTPReportsBlockedProvider(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	k, err := New(Config{
-		LedgerPath: ledgerPath,
-		Provider:   NewOpenAICompatibleProvider(OpenAICompatibleConfig{}),
+		LedgerPath:   ledgerPath,
+		Provider:     NewOpenAICompatibleProvider(OpenAICompatibleConfig{}),
+		RuntimeToken: testRuntimeToken,
 	})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -539,7 +664,7 @@ func TestHTTPReportsBlockedProvider(t *testing.T) {
 	}
 
 	body := []byte(`{"session_id":"blocked-session","input_items":[{"type":"text","text":"hello"}]}`)
-	turnResp, err := http.Post(server.URL+"/turn", "application/json", bytes.NewReader(body))
+	turnResp, err := postJSONWithAuth(server.URL+"/turn", body)
 	if err != nil {
 		t.Fatalf("POST /turn failed: %v", err)
 	}
@@ -613,11 +738,34 @@ func TestOpenAICompatibleProviderCompletesAgainstCompatibleServer(t *testing.T) 
 	}
 }
 
+const testRuntimeToken = "test-runtime-token"
+
 func newTestKernel(t *testing.T, ledgerPath string) *Kernel {
 	t.Helper()
+	return newTestKernelWithRuntimeTokenAndPolicy(t, ledgerPath, testRuntimeToken, ToolPolicy{
+		PermissionMode: PermissionModePlan,
+	})
+}
+
+func newTestKernelWithPolicy(t *testing.T, ledgerPath string, policy ToolPolicy) *Kernel {
+	t.Helper()
+	return newTestKernelWithRuntimeTokenAndPolicy(t, ledgerPath, testRuntimeToken, policy)
+}
+
+func newTestKernelWithRuntimeToken(t *testing.T, ledgerPath string, token string) *Kernel {
+	t.Helper()
+	return newTestKernelWithRuntimeTokenAndPolicy(t, ledgerPath, token, ToolPolicy{
+		PermissionMode: PermissionModePlan,
+	})
+}
+
+func newTestKernelWithRuntimeTokenAndPolicy(t *testing.T, ledgerPath string, token string, policy ToolPolicy) *Kernel {
+	t.Helper()
 	k, err := New(Config{
-		LedgerPath: ledgerPath,
-		Provider:   FakeProvider{},
+		LedgerPath:   ledgerPath,
+		Provider:     FakeProvider{},
+		RuntimeToken: token,
+		ToolPolicy:   policy,
 		Clock: func() time.Time {
 			return time.Date(2026, 6, 22, 1, 2, 3, 0, time.UTC)
 		},
@@ -626,6 +774,34 @@ func newTestKernel(t *testing.T, ledgerPath string) *Kernel {
 		t.Fatalf("New returned error: %v", err)
 	}
 	return k
+}
+
+func postJSONWithAuth(url string, body []byte) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+testRuntimeToken)
+	req.Header.Set("Content-Type", "application/json")
+	return http.DefaultClient.Do(req)
+}
+
+func postEmptyWithAuth(url string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+testRuntimeToken)
+	return http.DefaultClient.Do(req)
+}
+
+func getWithAuth(url string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+testRuntimeToken)
+	return http.DefaultClient.Do(req)
 }
 
 func writeFileCommand(filename string, value string) string {

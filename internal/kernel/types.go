@@ -3,9 +3,16 @@ package kernel
 import "time"
 
 type Config struct {
-	LedgerPath string
-	Provider   Provider
-	Clock      func() time.Time
+	LedgerPath   string
+	Provider     Provider
+	RuntimeToken string
+	ToolPolicy   ToolPolicy
+	Clock        func() time.Time
+}
+
+type ToolPolicy struct {
+	PermissionMode string
+	WorkspaceRoot  string
 }
 
 type ReadyResponse struct {
@@ -70,11 +77,9 @@ type EventProjection struct {
 }
 
 type ShellExecRequest struct {
-	SessionID      string `json:"session_id"`
-	PermissionMode string `json:"permission_mode"`
-	WorkspaceRoot  string `json:"workspace_root,omitempty"`
-	CWD            string `json:"cwd"`
-	Command        string `json:"command"`
+	SessionID string `json:"session_id"`
+	CWD       string `json:"cwd"`
+	Command   string `json:"command"`
 }
 
 type OperationProjection struct {
