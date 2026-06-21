@@ -43,6 +43,10 @@ Owns request normalization, session identity, event emission, idempotency, and t
 
 Owns provider configuration, model calls, streaming, retries, provider error projection, and data-egress policy hooks. It does not own prompts as product copy.
 
+The local binary resolves provider startup from Genesis-owned model gateway configuration by default. The canonical user config root is `~/.genesis/config`; `models.json` selects a role-bound gateway profile, the gateway route, the upstream endpoint, protocol, model id, timeout, and a `secret://...` credential ref. The kernel may expose operator flags to select a profile or config root, but it must not require Codex environment variables or Codex credentials for Genesis live operation.
+
+Provider endpoint paths are upstream configuration, not Genesis route contracts. The kernel's own HTTP transport remains unversioned.
+
 ### Tool System
 
 Owns tool descriptors, permission gates, shell/process execution, result envelopes, and tool-loop continuation. Tool descriptors describe generic effects; application-specific instructions live in skills.
@@ -58,6 +62,8 @@ Owns memory candidates, approval state, safe recall, source refs, and supersessi
 ### Auth/Credential Plane
 
 Owns runtime client authentication, credential refs, redaction, and secret resolution for authorized effects. Provider-specific account setup belongs to shells or external applications unless it becomes a generic credential primitive.
+
+The first local credential primitive is the Genesis local secret store. On Windows, `secret://...` refs resolve to same-user DPAPI-protected JSON records under `~/.genesis/credentials`. The kernel can decrypt the selected provider key in memory for the Model Gateway, but it must never expose raw secrets in readiness, events, sessions, logs, docs, tests, or model-visible context. Missing, unreadable, or unsupported credentials fail closed as provider readiness blockers.
 
 ## Explicit Non-Kernel Surfaces
 
