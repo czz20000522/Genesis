@@ -28,6 +28,11 @@ type ingressSecurityRule struct {
 	pattern  *regexp.Regexp
 }
 
+type IngressRisk struct {
+	Category string `json:"category"`
+	RuleID   string `json:"rule_id"`
+}
+
 var ingressSecurityRules = []ingressSecurityRule{
 	{
 		id:       "ignore_prior_instructions",
@@ -66,20 +71,21 @@ var ingressSecurityRules = []ingressSecurityRule{
 	},
 }
 
-func scanTurnIngressSecurity(items []InputItem) error {
+func scanTurnIngressSecurity(items []InputItem) ([]IngressRisk, error) {
+	var risks []IngressRisk
 	for i, item := range items {
 		text := item.Text
 		if hasInvisibleControlMarker(text) {
-			return IngressSecurityError{Category: "hidden_text", RuleID: fmt.Sprintf("invisible_control:item_%d", i)}
+			return nil, IngressSecurityError{Category: "hidden_text", RuleID: fmt.Sprintf("invisible_control:item_%d", i)}
 		}
 		normalized := strings.ReplaceAll(text, "\r\n", "\n")
 		for _, rule := range ingressSecurityRules {
 			if rule.pattern.MatchString(normalized) {
-				return IngressSecurityError{Category: rule.category, RuleID: rule.id}
+				risks = append(risks, IngressRisk{Category: rule.category, RuleID: rule.id})
 			}
 		}
 	}
-	return nil
+	return dedupeIngressRisks(risks), nil
 }
 
 func hasInvisibleControlMarker(text string) bool {
@@ -94,4 +100,20 @@ func hasInvisibleControlMarker(text string) bool {
 		}
 	}
 	return false
+}
+
+func dedupeIngressRisks(risks []IngressRisk) []IngressRisk {
+	if len(risks) < 2 {
+		return risks
+	}
+	seen := map[IngressRisk]bool{}
+	deduped := make([]IngressRisk, 0, len(risks))
+	for _, risk := range risks {
+		if seen[risk] {
+			continue
+		}
+		seen[risk] = true
+		deduped = append(deduped, risk)
+	}
+	return deduped
 }

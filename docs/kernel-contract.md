@@ -39,7 +39,7 @@ These names are conceptual. The first implementation may expose HTTP endpoints, 
 
 Owns request normalization, session identity, event emission, idempotency, and turn admission. It does not know which shell submitted the request.
 
-Turn admission includes a generic ingress security scan before memory recall, ledger append, provider calls, or tool effects. High-confidence prompt-injection markers, authority-forgery markers, tool-call forgery markers, and invisible-control text fail closed with a structured blocker. The blocker may expose a stable category/reason code, but it must not expose matching thresholds, raw secret material, or shell-specific policy.
+Turn admission separates untrusted content from control-plane authority. User or external-application text can contain prompt-injection samples, role labels, tool protocol fragments, logs, or quoted hostile instructions; those strings remain user data and do not grant system, developer, tool, credential, or permission authority. The Interface Kernel may record high-confidence text risks as ingress metadata for inspection. It fails closed only for malformed transport schema, hidden control text, unsupported input item types, or real attempts to set kernel-owned control fields.
 
 ### Model Gateway
 

@@ -19,14 +19,6 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: reviewer confirms the spike proves a single Go binary with unversioned `/ready`, `/turn`, `/sessions/{id}`, fake provider mode, OpenAI-compatible provider mode, restart-safe ledger replay, and Genesis-owned live provider config.
 - Residual risk: this is still a kernel spike, not a full product shell. Streaming, richer tool loop continuation, duplicate idempotency handling, and long-term storage policy remain future kernel work.
 
-### KERNEL-INGRESS-SECURITY-20260622 - P1 - Prompt-injection and authority-forgery admission gate
-
-- Status: ready_for_acceptance.
-- Fix commit: `52ce27ef7`.
-- Evidence: `go test ./...` passed; build passed; `TestSubmitTurnBlocksIngressSecurityBeforeLedger` proves prompt-injection markers are rejected before ledger append; `TestHTTPBlocksIngressSecurityBeforeAdmission` proves HTTP returns 403 `turn_blocked_by_ingress_security` for authority-forgery markers; `TestHTTPBlocksInvisibleIngressMarker` proves invisible-control text is rejected before admission; benign system/developer terminology still passes.
-- Acceptance condition: reviewer confirms turn admission rejects high-confidence prompt-injection, role/authority-forgery, tool-call forgery, and invisible-control markers before memory recall, ledger append, provider calls, or tool effects.
-- Residual risk: the scanner is intentionally high-confidence and not a full moderation system. Future broadening must remain kernel-generic and be covered by false-positive tests.
-
 ### recvnd2PDIz0sA - P0 - Minimal `shell.exec` tool runtime and permission gate
 
 - Status: ready_for_acceptance.

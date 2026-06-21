@@ -61,7 +61,8 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	if err := validateTurnRequest(req); err != nil {
 		return TurnResponse{}, err
 	}
-	if err := scanTurnIngressSecurity(req.InputItems); err != nil {
+	ingressRisks, err := scanTurnIngressSecurity(req.InputItems)
+	if err != nil {
 		return TurnResponse{}, err
 	}
 	now := k.clock()
@@ -83,6 +84,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		CreatedAt: now,
 		Data: EventData{
 			InputItems:       req.InputItems,
+			IngressRisks:     ingressRisks,
 			RecalledMemories: recalledMemories,
 		},
 	}
@@ -178,6 +180,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 				TurnID:           event.TurnID,
 				Status:           "running",
 				InputItems:       event.Data.InputItems,
+				IngressRisks:     event.Data.IngressRisks,
 				RecalledMemories: event.Data.RecalledMemories,
 				StartedAt:        event.CreatedAt,
 			})

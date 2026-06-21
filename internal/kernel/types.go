@@ -68,6 +68,7 @@ type TurnProjection struct {
 	TurnID           string         `json:"turn_id"`
 	Status           string         `json:"status"`
 	InputItems       []InputItem    `json:"input_items"`
+	IngressRisks     []IngressRisk  `json:"ingress_risks,omitempty"`
 	RecalledMemories []MemoryRecall `json:"recalled_memories,omitempty"`
 	FinalMessage     FinalMessage   `json:"final,omitempty"`
 	Error            *TurnError     `json:"error,omitempty"`
@@ -170,6 +171,7 @@ type StoredEvent struct {
 
 type EventData struct {
 	InputItems       []InputItem                `json:"input_items,omitempty"`
+	IngressRisks     []IngressRisk              `json:"ingress_risks,omitempty"`
 	RecalledMemories []MemoryRecall             `json:"recalled_memories,omitempty"`
 	Final            *FinalMessage              `json:"final,omitempty"`
 	TurnError        *TurnError                 `json:"turn_error,omitempty"`
