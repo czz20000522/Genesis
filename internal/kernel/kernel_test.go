@@ -360,6 +360,159 @@ func TestHTTPRejectsUnknownShellFields(t *testing.T) {
 	}
 }
 
+func TestUnapprovedMemoryCandidateIsNotRecalled(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	_, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
+		SessionID: "memory-source",
+		Text:      "我偏好中文回答",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemoryCandidate returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "memory-consumer",
+		InputItems: []InputItem{{Type: "text", Text: "你记得我的回答偏好吗？"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if strings.Contains(resp.Final.Text, "我偏好中文回答") {
+		t.Fatalf("unapproved memory was recalled in final text: %q", resp.Final.Text)
+	}
+}
+
+func TestApprovedMemoryCandidateRecallsAcrossSessionsAfterRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
+		SessionID: "memory-source",
+		Text:      "我偏好中文回答",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemoryCandidate returned error: %v", err)
+	}
+
+	restarted := newTestKernel(t, ledgerPath)
+	approved, err := restarted.ApproveMemoryCandidate(candidate.CandidateID)
+	if err != nil {
+		t.Fatalf("ApproveMemoryCandidate returned error: %v", err)
+	}
+	if approved.Status != MemoryCandidateApproved {
+		t.Fatalf("approved status = %q, want approved", approved.Status)
+	}
+
+	consumer := newTestKernel(t, ledgerPath)
+	resp, err := consumer.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "memory-consumer",
+		InputItems: []InputItem{{Type: "text", Text: "你记得我的回答偏好吗？"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if !strings.Contains(resp.Final.Text, "我偏好中文回答") {
+		t.Fatalf("final text = %q, want recalled memory", resp.Final.Text)
+	}
+
+	sourceProjection, err := consumer.Session("memory-source")
+	if err != nil {
+		t.Fatalf("source Session returned error: %v", err)
+	}
+	if len(sourceProjection.MemoryCandidates) != 1 {
+		t.Fatalf("len(MemoryCandidates) = %d, want 1", len(sourceProjection.MemoryCandidates))
+	}
+	if sourceProjection.MemoryCandidates[0].Status != MemoryCandidateApproved {
+		t.Fatalf("candidate status = %q, want approved", sourceProjection.MemoryCandidates[0].Status)
+	}
+
+	consumerProjection, err := consumer.Session("memory-consumer")
+	if err != nil {
+		t.Fatalf("consumer Session returned error: %v", err)
+	}
+	if len(consumerProjection.Turns) != 1 {
+		t.Fatalf("len(Turns) = %d, want 1", len(consumerProjection.Turns))
+	}
+	if len(consumerProjection.Turns[0].RecalledMemories) != 1 {
+		t.Fatalf("recalled memories = %+v, want one", consumerProjection.Turns[0].RecalledMemories)
+	}
+}
+
+func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	candidatePayload, err := json.Marshal(MemoryCandidateRequest{
+		SessionID: "http-memory-source",
+		Text:      "我偏好中文回答",
+	})
+	if err != nil {
+		t.Fatalf("marshal candidate request: %v", err)
+	}
+	candidateResp, err := http.Post(server.URL+"/memory/candidates", "application/json", bytes.NewReader(candidatePayload))
+	if err != nil {
+		t.Fatalf("POST /memory/candidates failed: %v", err)
+	}
+	defer candidateResp.Body.Close()
+	if candidateResp.StatusCode != http.StatusOK {
+		t.Fatalf("candidate status = %d, want 200", candidateResp.StatusCode)
+	}
+	var candidate MemoryCandidateProjection
+	if err := json.NewDecoder(candidateResp.Body).Decode(&candidate); err != nil {
+		t.Fatalf("decode candidate response: %v", err)
+	}
+
+	approveResp, err := http.Post(server.URL+"/memory/candidates/"+candidate.CandidateID+"/approve", "application/json", bytes.NewReader(nil))
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	defer approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve status = %d, want 200", approveResp.StatusCode)
+	}
+	var approved MemoryCandidateProjection
+	if err := json.NewDecoder(approveResp.Body).Decode(&approved); err != nil {
+		t.Fatalf("decode approved response: %v", err)
+	}
+	if approved.Status != MemoryCandidateApproved {
+		t.Fatalf("approved status = %q, want approved", approved.Status)
+	}
+
+	turnPayload := []byte(`{"session_id":"http-memory-consumer","input_items":[{"type":"text","text":"你记得我的回答偏好吗？"}]}`)
+	turnResp, err := http.Post(server.URL+"/turn", "application/json", bytes.NewReader(turnPayload))
+	if err != nil {
+		t.Fatalf("POST /turn failed: %v", err)
+	}
+	defer turnResp.Body.Close()
+	if turnResp.StatusCode != http.StatusOK {
+		t.Fatalf("turn status = %d, want 200", turnResp.StatusCode)
+	}
+	var turn TurnResponse
+	if err := json.NewDecoder(turnResp.Body).Decode(&turn); err != nil {
+		t.Fatalf("decode turn response: %v", err)
+	}
+	if !strings.Contains(turn.Final.Text, "我偏好中文回答") {
+		t.Fatalf("final text = %q, want recalled memory", turn.Final.Text)
+	}
+}
+
+func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	resp, err := http.Post(server.URL+"/memory/candidates/missing/approve", "application/json", bytes.NewReader(nil))
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
 func TestHTTPReportsBlockedProvider(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	k, err := New(Config{

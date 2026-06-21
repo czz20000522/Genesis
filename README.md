@@ -46,6 +46,8 @@ Minimal HTTP surface:
 - `POST /turn`
 - `GET /sessions/{id}`
 - `POST /tools/shell.exec`
+- `POST /memory/candidates`
+- `POST /memory/candidates/{id}/approve`
 
 The phase 1 provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
 
@@ -78,3 +80,13 @@ The first kernel tool is `shell.exec`. It is deliberately small:
 - `yolo` mode is explicit high-trust execution.
 
 Every call records an operation with tool name, permission mode, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
+
+## Accumulation
+
+The first memory loop is explicit and governed:
+
+- `POST /memory/candidates` creates a pending candidate from user-visible text.
+- `POST /memory/candidates/{id}/approve` approves a candidate.
+- `POST /turn` recalls only approved candidates and records recalled memory refs on the turn event.
+
+The first recall strategy is intentionally simple text matching. It proves the governance loop and restart-safe replay before adding vector indexes or richer memory policy.

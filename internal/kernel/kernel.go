@@ -56,6 +56,10 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		sessionID = newID("sess", now)
 	}
 	turnID := newID("turn", now)
+	recalledMemories, err := k.recallMemories(req.InputItems)
+	if err != nil {
+		return TurnResponse{}, err
+	}
 
 	submitted := StoredEvent{
 		EventID:   newID("evt", now),
@@ -64,7 +68,8 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		Type:      "turn.submitted",
 		CreatedAt: now,
 		Data: EventData{
-			InputItems: req.InputItems,
+			InputItems:       req.InputItems,
+			RecalledMemories: recalledMemories,
 		},
 	}
 	if err := k.ledger.Append(submitted); err != nil {
@@ -75,6 +80,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		SessionID:  sessionID,
 		TurnID:     turnID,
 		InputItems: req.InputItems,
+		Memories:   recalledMemories,
 	})
 	if err != nil {
 		return TurnResponse{}, fmt.Errorf("provider complete: %w", err)
@@ -117,12 +123,14 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 		return SessionProjection{}, err
 	}
 	projection := SessionProjection{
-		SessionID:  sessionID,
-		Turns:      []TurnProjection{},
-		Operations: []OperationProjection{},
-		Events:     []EventProjection{},
+		SessionID:        sessionID,
+		Turns:            []TurnProjection{},
+		Operations:       []OperationProjection{},
+		MemoryCandidates: []MemoryCandidateProjection{},
+		Events:           []EventProjection{},
 	}
 	turnByID := map[string]int{}
+	candidateByID := map[string]int{}
 	for _, event := range events {
 		if event.SessionID != sessionID {
 			continue
@@ -131,6 +139,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 			EventID:     event.EventID,
 			TurnID:      event.TurnID,
 			OperationID: event.OperationID,
+			CandidateID: event.CandidateID,
 			Type:        event.Type,
 			CreatedAt:   event.CreatedAt,
 		})
@@ -138,10 +147,11 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 		case "turn.submitted":
 			turnByID[event.TurnID] = len(projection.Turns)
 			projection.Turns = append(projection.Turns, TurnProjection{
-				TurnID:     event.TurnID,
-				Status:     "running",
-				InputItems: event.Data.InputItems,
-				StartedAt:  event.CreatedAt,
+				TurnID:           event.TurnID,
+				Status:           "running",
+				InputItems:       event.Data.InputItems,
+				RecalledMemories: event.Data.RecalledMemories,
+				StartedAt:        event.CreatedAt,
 			})
 		case "model.final":
 			idx, ok := turnByID[event.TurnID]
@@ -157,6 +167,18 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 			if event.Data.Operation != nil {
 				projection.Operations = append(projection.Operations, *event.Data.Operation)
 			}
+		case "memory.candidate.created", "memory.candidate.approved":
+			if event.Data.MemoryCandidate == nil {
+				continue
+			}
+			candidate := *event.Data.MemoryCandidate
+			idx, ok := candidateByID[candidate.CandidateID]
+			if ok {
+				projection.MemoryCandidates[idx] = candidate
+				continue
+			}
+			candidateByID[candidate.CandidateID] = len(projection.MemoryCandidates)
+			projection.MemoryCandidates = append(projection.MemoryCandidates, candidate)
 		}
 	}
 	if len(projection.Events) == 0 {
@@ -188,6 +210,7 @@ func toEvent(event StoredEvent) Event {
 		SessionID:   event.SessionID,
 		TurnID:      event.TurnID,
 		OperationID: event.OperationID,
+		CandidateID: event.CandidateID,
 		Type:        event.Type,
 		CreatedAt:   event.CreatedAt,
 		Data:        event.Data,

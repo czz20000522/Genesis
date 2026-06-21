@@ -43,25 +43,28 @@ type FinalMessage struct {
 }
 
 type SessionProjection struct {
-	SessionID  string                `json:"session_id"`
-	Turns      []TurnProjection      `json:"turns"`
-	Operations []OperationProjection `json:"operations"`
-	Events     []EventProjection     `json:"events"`
+	SessionID        string                      `json:"session_id"`
+	Turns            []TurnProjection            `json:"turns"`
+	Operations       []OperationProjection       `json:"operations"`
+	MemoryCandidates []MemoryCandidateProjection `json:"memory_candidates"`
+	Events           []EventProjection           `json:"events"`
 }
 
 type TurnProjection struct {
-	TurnID       string       `json:"turn_id"`
-	Status       string       `json:"status"`
-	InputItems   []InputItem  `json:"input_items"`
-	FinalMessage FinalMessage `json:"final,omitempty"`
-	StartedAt    time.Time    `json:"started_at"`
-	CompletedAt  time.Time    `json:"completed_at,omitempty"`
+	TurnID           string         `json:"turn_id"`
+	Status           string         `json:"status"`
+	InputItems       []InputItem    `json:"input_items"`
+	RecalledMemories []MemoryRecall `json:"recalled_memories,omitempty"`
+	FinalMessage     FinalMessage   `json:"final,omitempty"`
+	StartedAt        time.Time      `json:"started_at"`
+	CompletedAt      time.Time      `json:"completed_at,omitempty"`
 }
 
 type EventProjection struct {
 	EventID     string    `json:"event_id"`
 	TurnID      string    `json:"turn_id"`
 	OperationID string    `json:"operation_id,omitempty"`
+	CandidateID string    `json:"candidate_id,omitempty"`
 	Type        string    `json:"type"`
 	CreatedAt   time.Time `json:"created_at"`
 }
@@ -90,11 +93,32 @@ type OperationProjection struct {
 	EndedAt        time.Time `json:"ended_at"`
 }
 
+type MemoryCandidateRequest struct {
+	SessionID string `json:"session_id"`
+	Text      string `json:"text"`
+}
+
+type MemoryCandidateProjection struct {
+	CandidateID string     `json:"candidate_id"`
+	SessionID   string     `json:"session_id"`
+	Text        string     `json:"text"`
+	Status      string     `json:"status"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ApprovedAt  *time.Time `json:"approved_at,omitempty"`
+}
+
+type MemoryRecall struct {
+	CandidateID string `json:"candidate_id"`
+	Text        string `json:"text"`
+	Source      string `json:"source"`
+}
+
 type Event struct {
 	EventID     string      `json:"event_id"`
 	SessionID   string      `json:"session_id"`
 	TurnID      string      `json:"turn_id"`
 	OperationID string      `json:"operation_id,omitempty"`
+	CandidateID string      `json:"candidate_id,omitempty"`
 	Type        string      `json:"type"`
 	CreatedAt   time.Time   `json:"created_at"`
 	Data        interface{} `json:"data"`
@@ -105,13 +129,16 @@ type StoredEvent struct {
 	SessionID   string    `json:"session_id"`
 	TurnID      string    `json:"turn_id"`
 	OperationID string    `json:"operation_id,omitempty"`
+	CandidateID string    `json:"candidate_id,omitempty"`
 	Type        string    `json:"type"`
 	CreatedAt   time.Time `json:"created_at"`
 	Data        EventData `json:"data"`
 }
 
 type EventData struct {
-	InputItems []InputItem          `json:"input_items,omitempty"`
-	Final      *FinalMessage        `json:"final,omitempty"`
-	Operation  *OperationProjection `json:"operation,omitempty"`
+	InputItems       []InputItem                `json:"input_items,omitempty"`
+	RecalledMemories []MemoryRecall             `json:"recalled_memories,omitempty"`
+	Final            *FinalMessage              `json:"final,omitempty"`
+	Operation        *OperationProjection       `json:"operation,omitempty"`
+	MemoryCandidate  *MemoryCandidateProjection `json:"memory_candidate,omitempty"`
 }
