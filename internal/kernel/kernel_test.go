@@ -198,6 +198,64 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 	}
 }
 
+func TestHTTPTurnEventsAfterRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+
+	body := []byte(`{"session_id":"http-turn-events","input_items":[{"type":"text","text":"hello events"}]}`)
+	turnResp, err := postJSONWithAuth(server.URL+"/turn", body)
+	if err != nil {
+		t.Fatalf("POST /turn failed: %v", err)
+	}
+	defer turnResp.Body.Close()
+	if turnResp.StatusCode != http.StatusOK {
+		t.Fatalf("turn status = %d, want 200", turnResp.StatusCode)
+	}
+	var turn TurnResponse
+	if err := json.NewDecoder(turnResp.Body).Decode(&turn); err != nil {
+		t.Fatalf("decode turn response: %v", err)
+	}
+	server.Close()
+
+	restarted := newTestKernel(t, ledgerPath)
+	restartedServer := httptest.NewServer(Handler(restarted))
+	defer restartedServer.Close()
+
+	eventsResp, err := getWithAuth(restartedServer.URL + "/turns/" + turn.TurnID + "/events")
+	if err != nil {
+		t.Fatalf("GET /turns/{id}/events failed: %v", err)
+	}
+	defer eventsResp.Body.Close()
+	if eventsResp.StatusCode != http.StatusOK {
+		t.Fatalf("events status = %d, want 200", eventsResp.StatusCode)
+	}
+	var events struct {
+		Items []Event `json:"items"`
+	}
+	if err := json.NewDecoder(eventsResp.Body).Decode(&events); err != nil {
+		t.Fatalf("decode turn events response: %v", err)
+	}
+	if len(events.Items) != 2 {
+		t.Fatalf("len(events) = %d, want 2", len(events.Items))
+	}
+	if events.Items[0].Type != "turn.submitted" || events.Items[1].Type != "model.final" {
+		t.Fatalf("event types = %q, %q; want submitted then final", events.Items[0].Type, events.Items[1].Type)
+	}
+	for _, event := range events.Items {
+		if event.TurnID != turn.TurnID || event.SessionID != "http-turn-events" {
+			t.Fatalf("event = %+v, want turn/session ids", event)
+		}
+	}
+
+	missingResp, err := getWithAuth(restartedServer.URL + "/turns/missing/events")
+	if err != nil {
+		t.Fatalf("GET missing turn events failed: %v", err)
+	}
+	defer missingResp.Body.Close()
+	assertErrorCode(t, missingResp, http.StatusNotFound, "not_found")
+}
+
 func TestHTTPRejectsUnknownTurnFields(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)

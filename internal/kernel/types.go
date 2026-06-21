@@ -51,6 +51,10 @@ type TurnResponse struct {
 	Final     FinalMessage `json:"final"`
 }
 
+type TurnEventsResponse struct {
+	Items []Event `json:"items"`
+}
+
 type FinalMessage struct {
 	Text  string `json:"text"`
 	Model string `json:"model"`

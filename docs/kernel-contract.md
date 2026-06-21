@@ -33,6 +33,8 @@ The stable boundary should be task-oriented, not UI-oriented:
 
 These names are conceptual. The first implementation may expose HTTP endpoints, but HTTP is transport, not the contract.
 
+The first HTTP transport for `turn.stream` is `GET /turns/{id}/events`. It reads ordered turn events from the kernel ledger. It is intentionally a minimal observation surface, not a streaming protocol commitment and not a shell/UI timeline owner.
+
 ## Kernel Planes
 
 ### Interface Kernel

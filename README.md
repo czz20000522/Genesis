@@ -53,6 +53,7 @@ Minimal HTTP surface:
 
 - `GET /ready`
 - `POST /turn`
+- `GET /turns/{id}/events`
 - `GET /sessions/{id}`
 - `POST /tools/shell.exec`
 - `POST /memory/candidates`
@@ -126,6 +127,10 @@ The controlled default command set is intentionally narrow: text output, simple 
 The HTTP request cannot select `permission_mode` or `workspace_root`; those are kernel-owned authority fields. Every allowed call first records a `running` operation before process execution, then records completion or failure with tool name, permission mode, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
 
 `shell.exec` accepts an optional `idempotency_key` control-plane field. Within the same `session_id` and tool, the first operation for a key owns the effect. Later retries with the same key return the persisted operation projection and do not execute the command again or append new operation events.
+
+## Turn Events
+
+`GET /turns/{id}/events` is the first HTTP transport for the conceptual `turn.stream` syscall. It reads the append-only ledger and returns the ordered events for one turn id after restart. It is a kernel observation surface for shells and external applications; it is not a UI timeline owner and does not duplicate session lifecycle logic.
 
 ## Accumulation
 

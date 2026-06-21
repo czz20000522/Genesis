@@ -242,7 +242,29 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 }
 
 var ErrSessionNotFound = errors.New("session not found")
+var ErrTurnNotFound = errors.New("turn not found")
 var ErrLedgerUnavailable = errors.New("ledger unavailable")
+
+func (k *Kernel) TurnEvents(turnID string) ([]Event, error) {
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return nil, errors.New("turn id is required")
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		return nil, err
+	}
+	items := []Event{}
+	for _, event := range events {
+		if event.TurnID == turnID {
+			items = append(items, toEvent(event))
+		}
+	}
+	if len(items) == 0 {
+		return nil, ErrTurnNotFound
+	}
+	return items, nil
+}
 
 func (k *Kernel) appendEvent(event StoredEvent) error {
 	if err := k.ensureLedgerReady(); err != nil {

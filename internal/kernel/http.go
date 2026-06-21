@@ -53,6 +53,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleGetSession(w, r, k)
+		case r.Method == http.MethodGet && isTurnEventsPath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) {
+				return
+			}
+			handleGetTurnEvents(w, r, k)
 		default:
 			writeError(w, http.StatusNotFound, "not_found", "route not found")
 		}
@@ -261,6 +266,42 @@ func handleGetSession(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	writeJSON(w, http.StatusOK, projection)
+}
+
+func isTurnEventsPath(path string) bool {
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	return len(parts) == 3 && parts[0] == "turns" && strings.TrimSpace(parts[1]) != "" && parts[2] == "events"
+}
+
+func turnEventsID(path string) string {
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 3 || parts[0] != "turns" || parts[2] != "events" {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
+func handleGetTurnEvents(w http.ResponseWriter, r *http.Request, k *Kernel) {
+	turnID := turnEventsID(r.URL.Path)
+	if turnID == "" {
+		writeError(w, http.StatusNotFound, "not_found", "turn event route not found")
+		return
+	}
+	events, err := k.TurnEvents(turnID)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
+	if errors.Is(err, ErrTurnNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "turn not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, TurnEventsResponse{Items: events})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
