@@ -18,13 +18,26 @@ func main() {
 	runtimeToken := flag.String("runtime-token", os.Getenv("GENESIS_RUNTIME_TOKEN"), "runtime bearer token for protected routes")
 	permissionMode := flag.String("permission-mode", envOrDefault("GENESIS_PERMISSION_MODE", kernel.PermissionModePlan), "tool permission mode: plan, default, or yolo")
 	workspaceRoot := flag.String("workspace-root", os.Getenv("GENESIS_WORKSPACE_ROOT"), "workspace root for default tool permission mode")
-	providerName := flag.String("provider", envOrDefault("GENESIS_PROVIDER", "fake"), "provider name: fake or openai-compatible")
+	providerName := flag.String("provider", envOrDefault("GENESIS_PROVIDER", "genesis-config"), "provider name: genesis-config, fake, or openai-compatible")
 	providerBaseURL := flag.String("provider-base-url", os.Getenv("GENESIS_PROVIDER_BASE_URL"), "OpenAI-compatible provider base URL")
 	providerModel := flag.String("provider-model", os.Getenv("GENESIS_PROVIDER_MODEL"), "OpenAI-compatible provider model")
 	providerAPIKeyEnv := flag.String("provider-api-key-env", envOrDefault("GENESIS_PROVIDER_API_KEY_ENV", "GENESIS_PROVIDER_API_KEY"), "environment variable containing provider API key")
+	configRoot := flag.String("config-root", os.Getenv("GENESIS_CONFIG_ROOT"), "Genesis config root containing models.json")
+	credentialStoreRoot := flag.String("credential-store-root", os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"), "Genesis credential store root")
+	modelRole := flag.String("model-role", envOrDefault("GENESIS_MODEL_ROLE", kernel.DefaultModelRole), "Genesis model role binding to resolve")
+	modelProfileID := flag.String("model-profile-id", os.Getenv("GENESIS_MODEL_PROFILE_ID"), "Genesis model profile id override")
 	flag.Parse()
 
-	provider, err := buildProvider(*providerName, *providerBaseURL, *providerModel, *providerAPIKeyEnv)
+	provider, err := buildProvider(providerBuildRequest{
+		name:                *providerName,
+		baseURL:             *providerBaseURL,
+		model:               *providerModel,
+		apiKeyEnv:           *providerAPIKeyEnv,
+		configRoot:          *configRoot,
+		credentialStoreRoot: *credentialStoreRoot,
+		modelRole:           *modelRole,
+		modelProfileID:      *modelProfileID,
+	})
 	if err != nil {
 		log.Fatalf("create provider: %v", err)
 	}
@@ -53,18 +66,40 @@ func main() {
 	}
 }
 
-func buildProvider(name string, baseURL string, model string, apiKeyEnv string) (kernel.Provider, error) {
-	switch name {
+type providerBuildRequest struct {
+	name                string
+	baseURL             string
+	model               string
+	apiKeyEnv           string
+	configRoot          string
+	credentialStoreRoot string
+	modelRole           string
+	modelProfileID      string
+}
+
+func buildProvider(req providerBuildRequest) (kernel.Provider, error) {
+	switch req.name {
 	case "", "fake":
 		return kernel.FakeProvider{}, nil
+	case "genesis-config":
+		config, err := kernel.ResolveOpenAICompatibleConfigFromGenesis(kernel.GenesisModelConfigRequest{
+			ConfigRoot:          req.configRoot,
+			CredentialStoreRoot: req.credentialStoreRoot,
+			ModelRole:           req.modelRole,
+			ModelProfileID:      req.modelProfileID,
+		})
+		if err != nil {
+			return kernel.NewBlockedProvider("openai-compatible", kernel.ProviderConfigReason(err)), nil
+		}
+		return kernel.NewOpenAICompatibleProvider(config), nil
 	case "openai-compatible":
 		return kernel.NewOpenAICompatibleProvider(kernel.OpenAICompatibleConfig{
-			BaseURL: baseURL,
-			APIKey:  os.Getenv(apiKeyEnv),
-			Model:   model,
+			BaseURL: req.baseURL,
+			APIKey:  os.Getenv(req.apiKeyEnv),
+			Model:   req.model,
 		}), nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q", name)
+		return nil, fmt.Errorf("unknown provider %q", req.name)
 	}
 }
 

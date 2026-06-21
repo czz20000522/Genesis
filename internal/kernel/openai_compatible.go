@@ -14,10 +14,11 @@ import (
 )
 
 type OpenAICompatibleConfig struct {
-	BaseURL    string
-	APIKey     string
-	Model      string
-	HTTPClient *http.Client
+	BaseURL        string
+	APIKey         string
+	Model          string
+	RequestTimeout time.Duration
+	HTTPClient     *http.Client
 }
 
 type OpenAICompatibleProvider struct {
@@ -30,7 +31,11 @@ type OpenAICompatibleProvider struct {
 func NewOpenAICompatibleProvider(config OpenAICompatibleConfig) *OpenAICompatibleProvider {
 	client := config.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+		timeout := config.RequestTimeout
+		if timeout <= 0 {
+			timeout = 60 * time.Second
+		}
+		client = &http.Client{Timeout: timeout}
 	}
 	return &OpenAICompatibleProvider{
 		baseURL:    strings.TrimRight(strings.TrimSpace(config.BaseURL), "/"),
@@ -111,8 +116,6 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 		Model: model,
 	}, nil
 }
-
-var ErrProviderUnavailable = errors.New("provider unavailable")
 
 func modelUserText(items []InputItem) string {
 	var parts []string

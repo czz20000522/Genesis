@@ -1204,31 +1204,21 @@ func TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider(t *test
 
 func TestLiveOpenAICompatibleProviderThroughKernel(t *testing.T) {
 	if os.Getenv("GENESIS_LIVE_PROVIDER") != "1" {
-		t.Skip("set GENESIS_LIVE_PROVIDER=1 with Genesis provider env to run live provider smoke")
+		t.Skip("set GENESIS_LIVE_PROVIDER=1 to run the Genesis model config live provider smoke")
 	}
-	baseURL := strings.TrimSpace(os.Getenv("GENESIS_PROVIDER_BASE_URL"))
-	model := strings.TrimSpace(os.Getenv("GENESIS_PROVIDER_MODEL"))
-	apiKeyEnv := strings.TrimSpace(os.Getenv("GENESIS_PROVIDER_API_KEY_ENV"))
-	if apiKeyEnv == "" {
-		apiKeyEnv = "GENESIS_PROVIDER_API_KEY"
-	}
-	apiKey := strings.TrimSpace(os.Getenv(apiKeyEnv))
-	switch {
-	case baseURL == "":
-		t.Fatal("GENESIS_PROVIDER_BASE_URL is required for live provider smoke")
-	case model == "":
-		t.Fatal("GENESIS_PROVIDER_MODEL is required for live provider smoke")
-	case apiKey == "":
-		t.Fatalf("%s is required for live provider smoke", apiKeyEnv)
+	providerConfig, err := ResolveOpenAICompatibleConfigFromGenesis(GenesisModelConfigRequest{
+		ConfigRoot:          os.Getenv("GENESIS_CONFIG_ROOT"),
+		CredentialStoreRoot: os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"),
+		ModelRole:           os.Getenv("GENESIS_MODEL_ROLE"),
+		ModelProfileID:      os.Getenv("GENESIS_MODEL_PROFILE_ID"),
+	})
+	if err != nil {
+		t.Fatalf("Genesis model config live smoke blocked: %s", ProviderConfigReason(err))
 	}
 
 	k, err := New(Config{
-		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
-		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
-			BaseURL: baseURL,
-			APIKey:  apiKey,
-			Model:   model,
-		}),
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     NewOpenAICompatibleProvider(providerConfig),
 		RuntimeToken: testRuntimeToken,
 	})
 	if err != nil {

@@ -60,13 +60,22 @@ Protected routes require `Authorization: Bearer <runtime-token>`. `GET /ready` i
 
 ## Provider Configuration
 
-`genesisd` defaults to the fake provider:
+`genesisd` defaults to Genesis-owned model gateway configuration. It reads `models.json` from the Genesis config root, resolves the selected role/profile, selects the gateway route, and resolves the route credential from the Genesis local secret store.
+
+Useful operator flags:
+
+- `-config-root`: directory containing `models.json`; defaults to `~/.genesis/config`.
+- `-credential-store-root`: directory containing local credential records; defaults to `~/.genesis/credentials`.
+- `-model-role`: role binding to resolve; defaults to `foreground.coordinator`.
+- `-model-profile-id`: explicit profile override when the operator wants to bypass the role default.
+
+For deterministic tests, select the fake provider explicitly:
 
 ```powershell
 $env:TEMP\genesisd.exe -provider fake
 ```
 
-An OpenAI-compatible provider can be selected without changing kernel code:
+An OpenAI-compatible provider can still be selected directly without using the Genesis config resolver:
 
 ```powershell
 $env:TEMP\genesisd.exe `
