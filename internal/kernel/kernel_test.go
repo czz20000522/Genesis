@@ -1619,6 +1619,204 @@ func TestOpenAICompatibleProviderCompletesAgainstCompatibleServer(t *testing.T) 
 	}
 }
 
+func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
+	workspace := t.TempDir()
+	toolCommand := writeFileCommand("tool-result.txt", "toolvalue")
+	toolArgs, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": toolCommand,
+	})
+	if err != nil {
+		t.Fatalf("marshal tool args: %v", err)
+	}
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		var req map[string]interface{}
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		messages, ok := req["messages"].([]interface{})
+		if !ok || len(messages) == 0 {
+			t.Fatalf("messages = %#v, want non-empty array", req["messages"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch callCount {
+		case 1:
+			tools, ok := req["tools"].([]interface{})
+			if !ok || len(tools) == 0 {
+				http.Error(w, "missing shell.exec tool descriptor", http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"model": "served-model",
+				"choices": []interface{}{
+					map[string]interface{}{
+						"message": map[string]interface{}{
+							"role":    "assistant",
+							"content": nil,
+							"tool_calls": []interface{}{
+								map[string]interface{}{
+									"id":   "call_write_file",
+									"type": "function",
+									"function": map[string]interface{}{
+										"name":      "shell.exec",
+										"arguments": string(toolArgs),
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+		case 2:
+			if len(messages) != 3 {
+				t.Fatalf("second request messages = %#v, want user, assistant tool call, tool result", messages)
+			}
+			toolMessage, ok := messages[2].(map[string]interface{})
+			if !ok {
+				t.Fatalf("tool message = %#v", messages[2])
+			}
+			if toolMessage["role"] != "tool" || toolMessage["tool_call_id"] != "call_write_file" {
+				t.Fatalf("tool message = %#v, want shell tool result for call_write_file", toolMessage)
+			}
+			content, _ := toolMessage["content"].(string)
+			if !strings.Contains(content, `"tool":"shell.exec"`) || !strings.Contains(content, `"status":"completed"`) {
+				t.Fatalf("tool evidence content = %q, want completed shell operation evidence", content)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"model": "served-model",
+				"choices": []interface{}{
+					map[string]interface{}{
+						"message": map[string]interface{}{
+							"role":    "assistant",
+							"content": "tool evidence received",
+						},
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected provider call %d", callCount)
+		}
+	}))
+	defer server.Close()
+
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath: ledgerPath,
+		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+			BaseURL: server.URL,
+			APIKey:  "test-key",
+			Model:   "test-model",
+		}),
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+		Clock: func() time.Time {
+			return time.Date(2026, 6, 22, 1, 2, 3, 0, time.UTC)
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "provider-tool-loop",
+		InputItems: []InputItem{{Type: "text", Text: "write the file"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "tool evidence received" {
+		t.Fatalf("final text = %q, want tool evidence received", resp.Final.Text)
+	}
+	if callCount != 2 {
+		t.Fatalf("provider call count = %d, want 2", callCount)
+	}
+	fileContent, err := os.ReadFile(filepath.Join(workspace, "tool-result.txt"))
+	if err != nil {
+		t.Fatalf("read tool output file: %v", err)
+	}
+	if string(fileContent) != "toolvalue" {
+		t.Fatalf("tool output file = %q, want toolvalue", string(fileContent))
+	}
+
+	restarted := newTestKernelWithRuntimeTokenAndPolicy(t, ledgerPath, testRuntimeToken, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+	events, err := restarted.TurnEvents(resp.TurnID)
+	if err != nil {
+		t.Fatalf("TurnEvents returned error: %v", err)
+	}
+	eventTypes := make([]string, 0, len(events))
+	for _, event := range events {
+		eventTypes = append(eventTypes, event.Type)
+	}
+	wantTypes := []string{"turn.submitted", "model.tool_call", "operation.running", "operation.completed", "model.final"}
+	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Fatalf("turn event types = %v, want %v", eventTypes, wantTypes)
+	}
+}
+
+func TestSubmitTurnRejectsUnsupportedModelToolCall(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath: ledgerPath,
+		Provider: singleToolCallProvider{call: ModelToolCall{
+			ToolCallID: "call_email",
+			Name:       "email.send",
+			Arguments:  json.RawMessage(`{"to":"someone@example.com"}`),
+		}},
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  t.TempDir(),
+		},
+		Clock: func() time.Time {
+			return time.Date(2026, 6, 22, 1, 2, 3, 0, time.UTC)
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "unsupported-tool-call",
+		InputItems: []InputItem{{Type: "text", Text: "send email"}},
+	})
+	if !errors.Is(err, ErrModelToolCallRejected) {
+		t.Fatalf("SubmitTurn error = %v, want ErrModelToolCallRejected", err)
+	}
+	projection, err := k.Session("unsupported-tool-call")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want no executed effects", projection.Operations)
+	}
+	if len(projection.Turns) != 1 || projection.Turns[0].Status != "failed" {
+		t.Fatalf("turns = %+v, want one failed turn", projection.Turns)
+	}
+	if projection.Turns[0].Error == nil || projection.Turns[0].Error.Code != "tool_call_rejected" {
+		t.Fatalf("turn error = %+v, want tool_call_rejected", projection.Turns[0].Error)
+	}
+	eventTypes := make([]string, 0, len(projection.Events))
+	for _, event := range projection.Events {
+		eventTypes = append(eventTypes, event.Type)
+	}
+	wantTypes := []string{"turn.submitted", "model.tool_call", "turn.failed"}
+	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Fatalf("event types = %v, want %v", eventTypes, wantTypes)
+	}
+}
+
 func TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider(t *testing.T) {
 	var providerContent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1773,6 +1971,25 @@ func createMemoryCandidateOverHTTP(t *testing.T, serverURL string, req MemoryCan
 		t.Fatalf("decode candidate response: %v", err)
 	}
 	return candidate
+}
+
+type singleToolCallProvider struct {
+	call ModelToolCall
+}
+
+func (p singleToolCallProvider) Name() string {
+	return "single-tool-call"
+}
+
+func (p singleToolCallProvider) Ready() ProviderStatus {
+	return ProviderStatus{Name: p.Name(), Status: "ok"}
+}
+
+func (p singleToolCallProvider) Complete(_ context.Context, _ ModelRequest) (ModelResponse, error) {
+	return ModelResponse{
+		Model:     "single-tool-call-model",
+		ToolCalls: []ModelToolCall{p.call},
+	}, nil
 }
 
 func newTestKernel(t *testing.T, ledgerPath string) *Kernel {

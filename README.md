@@ -128,6 +128,14 @@ The HTTP request cannot select `permission_mode` or `workspace_root`; those are 
 
 `shell.exec` accepts an optional `idempotency_key` control-plane field. Within the same `session_id` and tool, the first operation for a key owns the effect. Later retries with the same key return the persisted operation projection and do not execute the command again or append new operation events.
 
+### Model Tool Loop
+
+`POST /turn` now supports the same governed `shell.exec` tool through the model loop. The Model Gateway exposes a canonical `shell.exec` descriptor to OpenAI-compatible providers, normalizes provider tool calls, and hands them to the Tool System. The Tool System applies the same `ToolPolicy` used by direct `POST /tools/shell.exec` calls.
+
+When the model requests `shell.exec`, the kernel writes a `model.tool_call` event, executes or blocks the operation, records turn-scoped `operation.*` events, and sends the redacted operation projection back to the provider as structured tool evidence. The provider must then return the final assistant text. `GET /turns/{id}/events` replays the full sequence after restart.
+
+Unsupported model-requested tools fail closed as `tool_call_rejected`; no effect is executed. This does not make email, Feishu, calendar, or other applications kernel features. Those remain external skills, CLIs, and daemons that can be reached through generic governed tools when installed and authorized.
+
 ## Turn Events
 
 `GET /turns/{id}/events` is the first HTTP transport for the conceptual `turn.stream` syscall. It reads the append-only ledger and returns the ordered events for one turn id after restart. It is a kernel observation surface for shells and external applications; it is not a UI timeline owner and does not duplicate session lifecycle logic.

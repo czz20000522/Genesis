@@ -1,6 +1,9 @@
 package kernel
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Config struct {
 	LedgerPath   string
@@ -42,6 +45,29 @@ type TurnRequest struct {
 type InputItem struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
+}
+
+type ModelToolDescriptor struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
+}
+
+type ModelToolCall struct {
+	ToolCallID string          `json:"tool_call_id"`
+	Name       string          `json:"name"`
+	Arguments  json.RawMessage `json:"arguments,omitempty"`
+}
+
+type ModelToolRound struct {
+	Calls   []ModelToolCall   `json:"calls"`
+	Results []ModelToolResult `json:"results"`
+}
+
+type ModelToolResult struct {
+	ToolCallID string `json:"tool_call_id"`
+	Name       string `json:"name"`
+	Content    string `json:"content"`
 }
 
 type TurnResponse struct {
@@ -104,6 +130,7 @@ type ShellExecRequest struct {
 type OperationProjection struct {
 	OperationID    string    `json:"operation_id"`
 	SessionID      string    `json:"session_id"`
+	TurnID         string    `json:"turn_id,omitempty"`
 	Tool           string    `json:"tool"`
 	IdempotencyKey string    `json:"idempotency_key,omitempty"`
 	Status         string    `json:"status"`
@@ -179,8 +206,14 @@ type EventData struct {
 	InputItems       []InputItem                `json:"input_items,omitempty"`
 	IngressRisks     []IngressRisk              `json:"ingress_risks,omitempty"`
 	RecalledMemories []MemoryRecall             `json:"recalled_memories,omitempty"`
+	ModelToolCalls   []ModelToolCallRecord      `json:"model_tool_calls,omitempty"`
 	Final            *FinalMessage              `json:"final,omitempty"`
 	TurnError        *TurnError                 `json:"turn_error,omitempty"`
 	Operation        *OperationProjection       `json:"operation,omitempty"`
 	MemoryCandidate  *MemoryCandidateProjection `json:"memory_candidate,omitempty"`
+}
+
+type ModelToolCallRecord struct {
+	ToolCallID string `json:"tool_call_id"`
+	Tool       string `json:"tool"`
 }

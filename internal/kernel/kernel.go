@@ -94,55 +94,81 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		return TurnResponse{}, err
 	}
 
-	modelResp, err := k.provider.Complete(ctx, ModelRequest{
-		SessionID:  sessionID,
-		TurnID:     turnID,
-		InputItems: modelInputItems(req.InputItems, recalledMemories),
-	})
-	if err != nil {
-		failedAt := k.clock()
-		failure := turnFailureFromProviderError(err)
-		failed := StoredEvent{
-			EventID:   newID("evt", failedAt),
-			SessionID: sessionID,
-			TurnID:    turnID,
-			Type:      "turn.failed",
-			CreatedAt: failedAt,
-			Data: EventData{
-				TurnError: &failure,
-			},
+	inputItems := modelInputItems(req.InputItems, recalledMemories)
+	toolRounds := []ModelToolRound{}
+	for roundIndex := 0; roundIndex <= maxModelToolRounds; roundIndex++ {
+		modelResp, err := k.provider.Complete(ctx, ModelRequest{
+			SessionID:  sessionID,
+			TurnID:     turnID,
+			InputItems: inputItems,
+			Tools:      k.modelToolDescriptors(),
+			ToolRounds: toolRounds,
+		})
+		if err != nil {
+			failure := turnFailureFromProviderError(err)
+			if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
+				return TurnResponse{}, appendErr
+			}
+			return TurnResponse{}, fmt.Errorf("provider complete: %w", err)
 		}
-		if appendErr := k.appendEvent(failed); appendErr != nil {
-			return TurnResponse{}, appendErr
+		if len(modelResp.ToolCalls) == 0 {
+			completedAt := k.clock()
+			final := FinalMessage{Text: modelResp.Text, Model: modelResp.Model}
+			completed := StoredEvent{
+				EventID:   newID("evt", completedAt),
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "model.final",
+				CreatedAt: completedAt,
+				Data: EventData{
+					Final: &final,
+				},
+			}
+			if err := k.appendEvent(completed); err != nil {
+				return TurnResponse{}, err
+			}
+			events, err := k.TurnEvents(turnID)
+			if err != nil {
+				return TurnResponse{}, err
+			}
+			return TurnResponse{
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Events:    events,
+				Final:     final,
+			}, nil
 		}
-		return TurnResponse{}, fmt.Errorf("provider complete: %w", err)
+		if roundIndex == maxModelToolRounds {
+			failure := TurnError{
+				Code:    "tool_loop_limit_exceeded",
+				Message: "model tool loop exceeded the maximum number of rounds",
+			}
+			if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
+				return TurnResponse{}, appendErr
+			}
+			return TurnResponse{}, errors.New("model tool loop exceeded the maximum number of rounds")
+		}
+		if err := k.appendModelToolCallEvent(sessionID, turnID, modelResp.ToolCalls); err != nil {
+			return TurnResponse{}, err
+		}
+		round := ModelToolRound{Calls: modelResp.ToolCalls}
+		for _, call := range modelResp.ToolCalls {
+			result, err := k.executeModelToolCall(ctx, sessionID, turnID, call)
+			if err != nil {
+				failure := TurnError{
+					Code:    "tool_call_rejected",
+					Message: err.Error(),
+				}
+				if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
+					return TurnResponse{}, appendErr
+				}
+				return TurnResponse{}, err
+			}
+			round.Results = append(round.Results, result)
+		}
+		toolRounds = append(toolRounds, round)
 	}
-
-	completedAt := k.clock()
-	final := FinalMessage{Text: modelResp.Text, Model: modelResp.Model}
-	completed := StoredEvent{
-		EventID:   newID("evt", completedAt),
-		SessionID: sessionID,
-		TurnID:    turnID,
-		Type:      "model.final",
-		CreatedAt: completedAt,
-		Data: EventData{
-			Final: &final,
-		},
-	}
-	if err := k.appendEvent(completed); err != nil {
-		return TurnResponse{}, err
-	}
-
-	return TurnResponse{
-		SessionID: sessionID,
-		TurnID:    turnID,
-		Events: []Event{
-			toEvent(submitted),
-			toEvent(completed),
-		},
-		Final: final,
-	}, nil
+	return TurnResponse{}, errors.New("unreachable model tool loop state")
 }
 
 func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
@@ -274,6 +300,34 @@ func (k *Kernel) appendEvent(event StoredEvent) error {
 		return wrapLedgerUnavailable(err)
 	}
 	return nil
+}
+
+func (k *Kernel) appendTurnFailure(sessionID string, turnID string, failure TurnError) error {
+	failedAt := k.clock()
+	return k.appendEvent(StoredEvent{
+		EventID:   newID("evt", failedAt),
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      "turn.failed",
+		CreatedAt: failedAt,
+		Data: EventData{
+			TurnError: &failure,
+		},
+	})
+}
+
+func (k *Kernel) appendModelToolCallEvent(sessionID string, turnID string, calls []ModelToolCall) error {
+	createdAt := k.clock()
+	return k.appendEvent(StoredEvent{
+		EventID:   newID("evt", createdAt),
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      "model.tool_call",
+		CreatedAt: createdAt,
+		Data: EventData{
+			ModelToolCalls: modelToolCallRecords(calls),
+		},
+	})
 }
 
 func (k *Kernel) loadEvents() ([]StoredEvent, error) {

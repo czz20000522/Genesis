@@ -57,6 +57,10 @@ Provider endpoint paths are upstream configuration, not Genesis route contracts.
 
 Owns tool descriptors, permission gates, shell/process execution, result envelopes, and tool-loop continuation. Tool descriptors describe generic effects; application-specific instructions live in skills.
 
+The first model-visible tool descriptor is canonical `shell.exec`. Provider adapters may translate it to provider-native function/tool schemas, but they do not own permission, workspace, execution, idempotency, or evidence semantics. A model-requested tool call is admitted only after the Tool System applies the kernel-owned policy; the resulting operation projection is the structured evidence returned to the model loop.
+
+Unsupported provider tool calls are rejected as turn failures before any effect runs. The kernel does not add application-specific outbound APIs for email, Feishu, calendar, documents, or similar domains; installed skills and external CLIs remain user-space capabilities reachable through generic governed tools.
+
 ### WorkRegistry
 
 Owns durable work state, cancellation, recovery, status projection, and execution evidence. It does not own application business data.

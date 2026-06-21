@@ -25,6 +25,10 @@ const (
 )
 
 func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (OperationProjection, error) {
+	return k.execShell(ctx, req, "")
+}
+
+func (k *Kernel) execShell(ctx context.Context, req ShellExecRequest, turnID string) (OperationProjection, error) {
 	if err := validateShellRequest(req); err != nil {
 		return OperationProjection{}, err
 	}
@@ -52,6 +56,7 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 	operation := OperationProjection{
 		OperationID:    newID("op", now),
 		SessionID:      sessionID,
+		TurnID:         strings.TrimSpace(turnID),
 		Tool:           "shell.exec",
 		IdempotencyKey: idempotencyKey,
 		Status:         "running",
@@ -137,6 +142,7 @@ func (k *Kernel) appendOperationEvent(operation OperationProjection) error {
 	return k.appendEvent(StoredEvent{
 		EventID:     newID("evt", createdAt),
 		SessionID:   operation.SessionID,
+		TurnID:      operation.TurnID,
 		OperationID: operation.OperationID,
 		Type:        eventType,
 		CreatedAt:   createdAt,

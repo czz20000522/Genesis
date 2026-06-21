@@ -22,6 +22,13 @@ The first implementation must prove the kernel loop before adding shells or appl
 - Prompt-injection text is isolated as user data and may be recorded as ingress risk metadata; authority-forgery attempts in transport schema or hidden control text fail closed at turn admission.
 - A provider failure returns a structured degraded result, not a panic.
 - Duplicate tool idempotency keys do not execute effects twice.
+- Unsupported model-requested tools are rejected before any effect executes.
+
+## Current Tool Loop Proof
+
+The initial tool loop is deliberately narrow. OpenAI-compatible providers receive a canonical `shell.exec` descriptor. If the provider returns a `shell.exec` tool call, Genesis executes it through the existing Tool System, writes turn-scoped operation events to the ledger, and returns the redacted operation projection to the provider as tool evidence. The provider then returns the final assistant text.
+
+This proves the kernel loop without making any external application part of the kernel. Future Feishu, email, calendar, or document actions remain external skills and CLIs; Genesis only supplies the governed tool execution path.
 
 ## Not Required Initially
 

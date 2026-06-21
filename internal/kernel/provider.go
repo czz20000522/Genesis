@@ -19,11 +19,14 @@ type ModelRequest struct {
 	SessionID  string
 	TurnID     string
 	InputItems []InputItem
+	Tools      []ModelToolDescriptor
+	ToolRounds []ModelToolRound
 }
 
 type ModelResponse struct {
-	Text  string
-	Model string
+	Text      string
+	Model     string
+	ToolCalls []ModelToolCall
 }
 
 type FakeProvider struct{}

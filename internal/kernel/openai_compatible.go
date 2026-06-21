@@ -71,10 +71,12 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 	}
 
 	payload := chatCompletionRequest{
-		Model: p.model,
-		Messages: []chatMessage{
-			{Role: "user", Content: modelUserText(req.InputItems)},
-		},
+		Model:    p.model,
+		Messages: chatMessagesFromModelRequest(req),
+		Tools:    chatToolsFromModelTools(req.Tools),
+	}
+	if len(payload.Tools) > 0 {
+		payload.ToolChoice = "auto"
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -104,17 +106,54 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		return ModelResponse{}, err
 	}
-	if len(decoded.Choices) == 0 || strings.TrimSpace(decoded.Choices[0].Message.Content) == "" {
-		return ModelResponse{}, errors.New("provider returned no assistant content")
+	if len(decoded.Choices) == 0 {
+		return ModelResponse{}, errors.New("provider returned no choices")
 	}
+	message := decoded.Choices[0].Message
 	model := decoded.Model
 	if model == "" {
 		model = p.model
 	}
+	if len(message.ToolCalls) > 0 {
+		calls, err := modelToolCallsFromChat(message.ToolCalls)
+		if err != nil {
+			return ModelResponse{}, err
+		}
+		return ModelResponse{
+			Model:     model,
+			ToolCalls: calls,
+		}, nil
+	}
+	if strings.TrimSpace(message.Content) == "" {
+		return ModelResponse{}, errors.New("provider returned no assistant content")
+	}
 	return ModelResponse{
-		Text:  decoded.Choices[0].Message.Content,
+		Text:  message.Content,
 		Model: model,
 	}, nil
+}
+
+func chatMessagesFromModelRequest(req ModelRequest) []chatMessage {
+	messages := []chatMessage{
+		{Role: "user", Content: modelUserText(req.InputItems)},
+	}
+	for _, round := range req.ToolRounds {
+		if len(round.Calls) == 0 {
+			continue
+		}
+		messages = append(messages, chatMessage{
+			Role:      "assistant",
+			ToolCalls: chatToolCallsFromModel(round.Calls),
+		})
+		for _, result := range round.Results {
+			messages = append(messages, chatMessage{
+				Role:       "tool",
+				ToolCallID: result.ToolCallID,
+				Content:    result.Content,
+			})
+		}
+	}
+	return messages
 }
 
 func modelUserText(items []InputItem) string {
@@ -128,13 +167,17 @@ func modelUserText(items []InputItem) string {
 }
 
 type chatCompletionRequest struct {
-	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
+	Model      string        `json:"model"`
+	Messages   []chatMessage `json:"messages"`
+	Tools      []chatTool    `json:"tools,omitempty"`
+	ToolChoice string        `json:"tool_choice,omitempty"`
 }
 
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string         `json:"role"`
+	Content    string         `json:"content,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
 }
 
 type chatCompletionResponse struct {
@@ -144,4 +187,87 @@ type chatCompletionResponse struct {
 
 type chatChoice struct {
 	Message chatMessage `json:"message"`
+}
+
+type chatTool struct {
+	Type     string           `json:"type"`
+	Function chatToolFunction `json:"function"`
+}
+
+type chatToolFunction struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Parameters  map[string]interface{} `json:"parameters"`
+}
+
+type chatToolCall struct {
+	ID       string               `json:"id"`
+	Type     string               `json:"type"`
+	Function chatToolCallFunction `json:"function"`
+}
+
+type chatToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+func chatToolsFromModelTools(tools []ModelToolDescriptor) []chatTool {
+	converted := make([]chatTool, 0, len(tools))
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			continue
+		}
+		converted = append(converted, chatTool{
+			Type: "function",
+			Function: chatToolFunction{
+				Name:        name,
+				Description: strings.TrimSpace(tool.Description),
+				Parameters:  tool.Parameters,
+			},
+		})
+	}
+	return converted
+}
+
+func chatToolCallsFromModel(calls []ModelToolCall) []chatToolCall {
+	converted := make([]chatToolCall, 0, len(calls))
+	for _, call := range calls {
+		args := strings.TrimSpace(string(call.Arguments))
+		if args == "" {
+			args = "{}"
+		}
+		converted = append(converted, chatToolCall{
+			ID:   call.ToolCallID,
+			Type: "function",
+			Function: chatToolCallFunction{
+				Name:      call.Name,
+				Arguments: args,
+			},
+		})
+	}
+	return converted
+}
+
+func modelToolCallsFromChat(calls []chatToolCall) ([]ModelToolCall, error) {
+	converted := make([]ModelToolCall, 0, len(calls))
+	for _, call := range calls {
+		if strings.TrimSpace(call.Type) != "function" {
+			return nil, fmt.Errorf("unsupported provider tool call type %q", call.Type)
+		}
+		args := strings.TrimSpace(call.Function.Arguments)
+		if args == "" {
+			args = "{}"
+		}
+		raw := json.RawMessage(args)
+		if !json.Valid(raw) {
+			return nil, fmt.Errorf("provider tool call %q has invalid JSON arguments", call.ID)
+		}
+		converted = append(converted, ModelToolCall{
+			ToolCallID: strings.TrimSpace(call.ID),
+			Name:       strings.TrimSpace(call.Function.Name),
+			Arguments:  raw,
+		})
+	}
+	return converted, nil
 }
