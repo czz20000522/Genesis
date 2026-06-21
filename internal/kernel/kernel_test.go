@@ -1817,6 +1817,51 @@ func TestSubmitTurnRejectsUnsupportedModelToolCall(t *testing.T) {
 	}
 }
 
+func TestSubmitTurnRejectsMixedModelToolBatchBeforeAnyEffect(t *testing.T) {
+	workspace := t.TempDir()
+	toolArgs, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": writeFileCommand("mixed-tool-effect.txt", "effect"),
+	})
+	if err != nil {
+		t.Fatalf("marshal tool args: %v", err)
+	}
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath: ledgerPath,
+		Provider: multiToolCallProvider{calls: []ModelToolCall{
+			{ToolCallID: "call_write", Name: "shell.exec", Arguments: json.RawMessage(toolArgs)},
+			{ToolCallID: "call_email", Name: "email.send", Arguments: json.RawMessage(`{"to":"someone@example.com"}`)},
+		}},
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "mixed-tool-batch",
+		InputItems: []InputItem{{Type: "text", Text: "try mixed tools"}},
+	})
+	if !errors.Is(err, ErrModelToolCallRejected) {
+		t.Fatalf("SubmitTurn error = %v, want ErrModelToolCallRejected", err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "mixed-tool-effect.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("mixed batch created shell effect before rejecting unsupported tool; stat err=%v", err)
+	}
+	projection, err := k.Session("mixed-tool-batch")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want no executed effects for mixed unsupported batch", projection.Operations)
+	}
+}
+
 func TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider(t *testing.T) {
 	var providerContent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1977,6 +2022,10 @@ type singleToolCallProvider struct {
 	call ModelToolCall
 }
 
+type multiToolCallProvider struct {
+	calls []ModelToolCall
+}
+
 func (p singleToolCallProvider) Name() string {
 	return "single-tool-call"
 }
@@ -1989,6 +2038,21 @@ func (p singleToolCallProvider) Complete(_ context.Context, _ ModelRequest) (Mod
 	return ModelResponse{
 		Model:     "single-tool-call-model",
 		ToolCalls: []ModelToolCall{p.call},
+	}, nil
+}
+
+func (p multiToolCallProvider) Name() string {
+	return "multi-tool-call"
+}
+
+func (p multiToolCallProvider) Ready() ProviderStatus {
+	return ProviderStatus{Name: p.Name(), Status: "ok"}
+}
+
+func (p multiToolCallProvider) Complete(_ context.Context, _ ModelRequest) (ModelResponse, error) {
+	return ModelResponse{
+		Model:     "multi-tool-call-model",
+		ToolCalls: p.calls,
 	}, nil
 }
 

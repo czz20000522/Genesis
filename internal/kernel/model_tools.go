@@ -52,33 +52,68 @@ type shellExecToolArguments struct {
 	Command string `json:"command"`
 }
 
-func (k *Kernel) executeModelToolCall(ctx context.Context, sessionID string, turnID string, call ModelToolCall) (ModelToolResult, error) {
+type preparedModelToolCall struct {
+	callID string
+	name   string
+	args   shellExecToolArguments
+}
+
+func (k *Kernel) validateModelToolCalls(calls []ModelToolCall) error {
+	for _, call := range calls {
+		if _, err := k.prepareModelToolCall(call); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (k *Kernel) prepareModelToolCall(call ModelToolCall) (preparedModelToolCall, error) {
 	if strings.TrimSpace(call.Name) != "shell.exec" {
-		return ModelToolResult{}, fmt.Errorf("%w: unsupported tool %q", ErrModelToolCallRejected, call.Name)
+		return preparedModelToolCall{}, fmt.Errorf("%w: unsupported tool %q", ErrModelToolCallRejected, call.Name)
 	}
 	callID := strings.TrimSpace(call.ToolCallID)
 	if callID == "" {
-		return ModelToolResult{}, fmt.Errorf("%w: tool_call_id is required", ErrModelToolCallRejected)
+		return preparedModelToolCall{}, fmt.Errorf("%w: tool_call_id is required", ErrModelToolCallRejected)
 	}
 	if err := validateIdempotencyKey(callID); err != nil {
-		return ModelToolResult{}, fmt.Errorf("%w: invalid tool_call_id: %v", ErrModelToolCallRejected, err)
+		return preparedModelToolCall{}, fmt.Errorf("%w: invalid tool_call_id: %v", ErrModelToolCallRejected, err)
 	}
 	var args shellExecToolArguments
 	if len(call.Arguments) == 0 {
-		return ModelToolResult{}, fmt.Errorf("%w: shell.exec arguments are required", ErrModelToolCallRejected)
+		return preparedModelToolCall{}, fmt.Errorf("%w: shell.exec arguments are required", ErrModelToolCallRejected)
 	}
 	if err := json.Unmarshal(call.Arguments, &args); err != nil {
-		return ModelToolResult{}, fmt.Errorf("%w: invalid shell.exec arguments: %v", ErrModelToolCallRejected, err)
+		return preparedModelToolCall{}, fmt.Errorf("%w: invalid shell.exec arguments: %v", ErrModelToolCallRejected, err)
 	}
 	args.CWD = strings.TrimSpace(args.CWD)
 	if args.CWD == "" {
 		args.CWD = strings.TrimSpace(k.toolPolicy.WorkspaceRoot)
 	}
-	operation, err := k.execShell(ctx, ShellExecRequest{
-		SessionID:      sessionID,
+	if err := validateShellRequest(ShellExecRequest{
+		SessionID:      "model-tool-validation",
 		CWD:            args.CWD,
 		Command:        args.Command,
 		IdempotencyKey: callID,
+	}); err != nil {
+		return preparedModelToolCall{}, fmt.Errorf("%w: invalid shell.exec request: %v", ErrModelToolCallRejected, err)
+	}
+	return preparedModelToolCall{
+		callID: callID,
+		name:   strings.TrimSpace(call.Name),
+		args:   args,
+	}, nil
+}
+
+func (k *Kernel) executeModelToolCall(ctx context.Context, sessionID string, turnID string, call ModelToolCall) (ModelToolResult, error) {
+	prepared, err := k.prepareModelToolCall(call)
+	if err != nil {
+		return ModelToolResult{}, err
+	}
+	operation, err := k.execShell(ctx, ShellExecRequest{
+		SessionID:      sessionID,
+		CWD:            prepared.args.CWD,
+		Command:        prepared.args.Command,
+		IdempotencyKey: prepared.callID,
 	}, turnID)
 	if err != nil {
 		return ModelToolResult{}, err
@@ -88,8 +123,8 @@ func (k *Kernel) executeModelToolCall(ctx context.Context, sessionID string, tur
 		return ModelToolResult{}, err
 	}
 	return ModelToolResult{
-		ToolCallID: callID,
-		Name:       call.Name,
+		ToolCallID: prepared.callID,
+		Name:       prepared.name,
 		Content:    string(content),
 	}, nil
 }

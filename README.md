@@ -26,6 +26,8 @@ The kernel owns only these planes:
 
 External applications are user-space programs. The kernel may receive events from them and may let the active model call their CLIs through governed tools, but it must not become those applications.
 
+Kernel HTTP routes stay unversioned. The durable contract is the task/tool schema and ledger evidence, not a numbered path prefix.
+
 ## Initial Kernel Spike
 
 Build the first runnable kernel binary:
@@ -135,6 +137,8 @@ The HTTP request cannot select `permission_mode` or `workspace_root`; those are 
 When the model requests `shell.exec`, the kernel writes a `model.tool_call` event, executes or blocks the operation, records turn-scoped `operation.*` events, and sends the redacted operation projection back to the provider as structured tool evidence. The provider must then return the final assistant text. `GET /turns/{id}/events` replays the full sequence after restart.
 
 Unsupported model-requested tools fail closed as `tool_call_rejected`; no effect is executed. This does not make email, Feishu, calendar, or other applications kernel features. Those remain external skills, CLIs, and daemons that can be reached through generic governed tools when installed and authorized.
+
+When a provider returns multiple tool calls in one batch, Genesis validates the whole batch before executing any effect. A mixed batch that includes an unsupported or malformed tool fails closed without creating a partial shell effect.
 
 ## Turn Events
 
