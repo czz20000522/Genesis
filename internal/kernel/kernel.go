@@ -237,8 +237,11 @@ var ErrSessionNotFound = errors.New("session not found")
 var ErrLedgerUnavailable = errors.New("ledger unavailable")
 
 func (k *Kernel) appendEvent(event StoredEvent) error {
+	if err := k.ensureLedgerReady(); err != nil {
+		return err
+	}
 	if err := k.ledger.Append(event); err != nil {
-		return fmt.Errorf("%w: %w", ErrLedgerUnavailable, err)
+		return wrapLedgerUnavailable(err)
 	}
 	return nil
 }
@@ -246,9 +249,44 @@ func (k *Kernel) appendEvent(event StoredEvent) error {
 func (k *Kernel) loadEvents() ([]StoredEvent, error) {
 	events, err := k.ledger.Load()
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrLedgerUnavailable, err)
+		return nil, wrapLedgerUnavailable(err)
 	}
 	return events, nil
+}
+
+func (k *Kernel) ensureLedgerReady() error {
+	check := k.ledger.Ready()
+	if check.Status == "ok" {
+		return nil
+	}
+	switch check.Reason {
+	case "ledger_corrupt":
+		return wrapLedgerUnavailable(ErrLedgerCorrupt)
+	case "ledger_unreadable":
+		return wrapLedgerUnavailable(ErrLedgerUnreadable)
+	default:
+		return wrapLedgerUnavailable(ErrLedgerUnwritable)
+	}
+}
+
+func wrapLedgerUnavailable(err error) error {
+	if errors.Is(err, ErrLedgerUnavailable) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrLedgerUnavailable, err)
+}
+
+func ledgerErrorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrLedgerCorrupt):
+		return "ledger_corrupt"
+	case errors.Is(err, ErrLedgerUnreadable):
+		return "ledger_unreadable"
+	case errors.Is(err, ErrLedgerUnwritable):
+		return "ledger_unwritable"
+	default:
+		return "ledger_unavailable"
+	}
 }
 
 func validateTurnRequest(req TurnRequest) error {

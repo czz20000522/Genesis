@@ -285,7 +285,7 @@ func writeError(w http.ResponseWriter, status int, code string, message string) 
 
 func writeKernelUnavailable(w http.ResponseWriter, err error) bool {
 	if errors.Is(err, ErrLedgerUnavailable) {
-		writeError(w, http.StatusServiceUnavailable, "ledger_unwritable", err.Error())
+		writeError(w, http.StatusServiceUnavailable, ledgerErrorCode(err), err.Error())
 		return true
 	}
 	return false

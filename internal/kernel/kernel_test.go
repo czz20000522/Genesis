@@ -318,6 +318,48 @@ func TestHTTPLedgerUnavailableBlocksReadyAndTurn(t *testing.T) {
 	}
 }
 
+func TestHTTPCorruptLedgerBlocksReadyReplayAndAppend(t *testing.T) {
+	k := newTestKernel(t, corruptLedgerPath(t))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	readyResp, err := http.Get(server.URL + "/ready")
+	if err != nil {
+		t.Fatalf("GET /ready failed: %v", err)
+	}
+	defer readyResp.Body.Close()
+	var ready ReadyResponse
+	if err := json.NewDecoder(readyResp.Body).Decode(&ready); err != nil {
+		t.Fatalf("decode ready response: %v", err)
+	}
+	if ready.Status != "blocked" || ready.Ledger.Status != "blocked" || ready.Ledger.Reason != "ledger_corrupt" {
+		t.Fatalf("ready = %+v, want ledger_corrupt blocker", ready)
+	}
+
+	turnBody := []byte(`{"session_id":"corrupt-ledger","input_items":[{"type":"text","text":"hello"}]}`)
+	turnResp, err := postJSONWithAuth(server.URL+"/turn", turnBody)
+	if err != nil {
+		t.Fatalf("POST /turn failed: %v", err)
+	}
+	defer turnResp.Body.Close()
+	assertErrorCode(t, turnResp, http.StatusServiceUnavailable, "ledger_corrupt")
+
+	sessionResp, err := getWithAuth(server.URL + "/sessions/corrupt-ledger")
+	if err != nil {
+		t.Fatalf("GET /sessions failed: %v", err)
+	}
+	defer sessionResp.Body.Close()
+	assertErrorCode(t, sessionResp, http.StatusServiceUnavailable, "ledger_corrupt")
+
+	memoryBody := []byte(`{"session_id":"corrupt-ledger","text":"remember this","source_ref":"turn:corrupt-ledger"}`)
+	memoryResp, err := postJSONWithAuth(server.URL+"/memory/candidates", memoryBody)
+	if err != nil {
+		t.Fatalf("POST /memory/candidates failed: %v", err)
+	}
+	defer memoryResp.Body.Close()
+	assertErrorCode(t, memoryResp, http.StatusServiceUnavailable, "ledger_corrupt")
+}
+
 func TestHTTPRejectsNonJSONContentType(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
@@ -1293,6 +1335,29 @@ func ledgerPathUnderFile(t *testing.T) string {
 		t.Fatalf("write non-directory ledger parent: %v", err)
 	}
 	return filepath.Join(filePath, "events.jsonl")
+}
+
+func corruptLedgerPath(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	if err := os.WriteFile(path, []byte("{bad json\n"), 0o644); err != nil {
+		t.Fatalf("write corrupt ledger: %v", err)
+	}
+	return path
+}
+
+func assertErrorCode(t *testing.T, resp *http.Response, status int, code string) {
+	t.Helper()
+	if resp.StatusCode != status {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, status)
+	}
+	var envelope errorEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if envelope.Error.Code != code {
+		t.Fatalf("error code = %q, want %s", envelope.Error.Code, code)
+	}
 }
 
 func postJSONWithAuth(url string, body []byte) (*http.Response, error) {
