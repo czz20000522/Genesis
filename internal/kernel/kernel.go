@@ -39,14 +39,19 @@ func New(config Config) (*Kernel, error) {
 
 func (k *Kernel) Ready() ReadyResponse {
 	providerStatus := k.provider.Ready()
+	runtimeAuth := ReadyCheck{Status: "ok"}
+	if k.runtimeToken == "" {
+		runtimeAuth = ReadyCheck{Status: "blocked", Reason: "runtime_token_missing"}
+	}
 	status := "ok"
-	if providerStatus.Status != "ok" {
+	if providerStatus.Status != "ok" || runtimeAuth.Status != "ok" {
 		status = "blocked"
 	}
 	return ReadyResponse{
-		Status:     status,
-		Provider:   providerStatus,
-		LedgerPath: k.ledger.Path(),
+		Status:      status,
+		Provider:    providerStatus,
+		RuntimeAuth: runtimeAuth,
+		LedgerPath:  k.ledger.Path(),
 	}
 }
 

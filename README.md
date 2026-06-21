@@ -54,7 +54,7 @@ Minimal HTTP surface:
 
 The phase 1 provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
 
-Protected routes require `Authorization: Bearer <runtime-token>`. `GET /ready` is the only unauthenticated route.
+Protected routes require `Authorization: Bearer <runtime-token>`. `GET /ready` is the only unauthenticated route, but readiness is `blocked` when no runtime token is configured because the kernel cannot accept protected work.
 
 ## Provider Configuration
 

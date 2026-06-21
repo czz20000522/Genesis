@@ -16,13 +16,19 @@ type ToolPolicy struct {
 }
 
 type ReadyResponse struct {
-	Status     string         `json:"status"`
-	Provider   ProviderStatus `json:"provider"`
-	LedgerPath string         `json:"ledger_path"`
+	Status      string         `json:"status"`
+	Provider    ProviderStatus `json:"provider"`
+	RuntimeAuth ReadyCheck     `json:"runtime_auth"`
+	LedgerPath  string         `json:"ledger_path"`
 }
 
 type ProviderStatus struct {
 	Name   string `json:"name"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type ReadyCheck struct {
 	Status string `json:"status"`
 	Reason string `json:"reason,omitempty"`
 }

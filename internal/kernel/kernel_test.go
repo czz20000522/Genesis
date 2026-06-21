@@ -115,6 +115,9 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 	if ready.Status != "ok" || ready.Provider.Name != "fake" || ready.Provider.Status != "ok" {
 		t.Fatalf("ready = %+v, want ok fake provider", ready)
 	}
+	if ready.RuntimeAuth.Status != "ok" {
+		t.Fatalf("runtime auth ready = %+v, want ok", ready.RuntimeAuth)
+	}
 
 	body := []byte(`{"session_id":"http-session","input_items":[{"type":"text","text":"hello over http"}]}`)
 	turnResp, err := postJSONWithAuth(server.URL+"/turn", body)
@@ -227,6 +230,25 @@ func TestHTTPProtectedRoutesFailClosedWithoutConfiguredRuntimeToken(t *testing.T
 	k := newTestKernelWithRuntimeToken(t, filepath.Join(t.TempDir(), "events.jsonl"), "")
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
+
+	readyResp, err := http.Get(server.URL + "/ready")
+	if err != nil {
+		t.Fatalf("GET /ready failed: %v", err)
+	}
+	defer readyResp.Body.Close()
+	if readyResp.StatusCode != http.StatusOK {
+		t.Fatalf("ready status = %d, want 200", readyResp.StatusCode)
+	}
+	var ready ReadyResponse
+	if err := json.NewDecoder(readyResp.Body).Decode(&ready); err != nil {
+		t.Fatalf("decode ready response: %v", err)
+	}
+	if ready.Status != "blocked" {
+		t.Fatalf("ready status = %q, want blocked", ready.Status)
+	}
+	if ready.RuntimeAuth.Status != "blocked" || ready.RuntimeAuth.Reason != "runtime_token_missing" {
+		t.Fatalf("runtime auth ready = %+v, want runtime_token_missing blocker", ready.RuntimeAuth)
+	}
 
 	body := []byte(`{"session_id":"http-session","input_items":[{"type":"text","text":"hello"}]}`)
 	resp, err := postJSONWithAuth(server.URL+"/turn", body)
