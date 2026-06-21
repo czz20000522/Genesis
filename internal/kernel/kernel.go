@@ -61,6 +61,9 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	if err := validateTurnRequest(req); err != nil {
 		return TurnResponse{}, err
 	}
+	if err := scanTurnIngressSecurity(req.InputItems); err != nil {
+		return TurnResponse{}, err
+	}
 	now := k.clock()
 	sessionID := strings.TrimSpace(req.SessionID)
 	if sessionID == "" {

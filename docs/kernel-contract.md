@@ -39,6 +39,8 @@ These names are conceptual. The first implementation may expose HTTP endpoints, 
 
 Owns request normalization, session identity, event emission, idempotency, and turn admission. It does not know which shell submitted the request.
 
+Turn admission includes a generic ingress security scan before memory recall, ledger append, provider calls, or tool effects. High-confidence prompt-injection markers, authority-forgery markers, tool-call forgery markers, and invisible-control text fail closed with a structured blocker. The blocker may expose a stable category/reason code, but it must not expose matching thresholds, raw secret material, or shell-specific policy.
+
 ### Model Gateway
 
 Owns provider configuration, model calls, streaming, retries, provider error projection, and data-egress policy hooks. It does not own prompts as product copy.

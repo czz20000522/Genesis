@@ -95,6 +95,10 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		writeError(w, http.StatusServiceUnavailable, "provider_unavailable", err.Error())
 		return
 	}
+	if errors.Is(err, ErrIngressSecurityBlocked) {
+		writeError(w, http.StatusForbidden, "turn_blocked_by_ingress_security", err.Error())
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
