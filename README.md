@@ -25,3 +25,25 @@ The kernel owns only these planes:
 ## Design Rule
 
 External applications are user-space programs. The kernel may receive events from them and may let the active model call their CLIs through governed tools, but it must not become those applications.
+
+## Phase 1 Spike
+
+Build the first runnable kernel binary:
+
+```powershell
+D:\software\Go\bin\go.exe build -o $env:TEMP\genesisd.exe .\cmd\genesisd
+```
+
+Run it with an explicit ledger path:
+
+```powershell
+$env:TEMP\genesisd.exe -addr 127.0.0.1:8765 -ledger $env:TEMP\genesis-events.jsonl
+```
+
+Minimal HTTP surface:
+
+- `GET /ready`
+- `POST /turn`
+- `GET /sessions/{id}`
+
+The phase 1 provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.

@@ -1,0 +1,179 @@
+package kernel
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+type Kernel struct {
+	ledger   Ledger
+	provider Provider
+	clock    func() time.Time
+}
+
+func New(config Config) (*Kernel, error) {
+	if strings.TrimSpace(config.LedgerPath) == "" {
+		return nil, errors.New("ledger path is required")
+	}
+	provider := config.Provider
+	if provider == nil {
+		provider = FakeProvider{}
+	}
+	clock := config.Clock
+	if clock == nil {
+		clock = func() time.Time { return time.Now().UTC() }
+	}
+	return &Kernel{
+		ledger:   NewJSONLLedger(config.LedgerPath),
+		provider: provider,
+		clock:    clock,
+	}, nil
+}
+
+func (k *Kernel) Ready() ReadyResponse {
+	return ReadyResponse{
+		Status:     "ok",
+		Provider:   k.provider.Name(),
+		LedgerPath: k.ledger.Path(),
+	}
+}
+
+func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse, error) {
+	if err := validateTurnRequest(req); err != nil {
+		return TurnResponse{}, err
+	}
+	now := k.clock()
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		sessionID = newID("sess", now)
+	}
+	turnID := newID("turn", now)
+
+	submitted := StoredEvent{
+		EventID:   newID("evt", now),
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      "turn.submitted",
+		CreatedAt: now,
+		Data: EventData{
+			InputItems: req.InputItems,
+		},
+	}
+	if err := k.ledger.Append(submitted); err != nil {
+		return TurnResponse{}, err
+	}
+
+	modelResp, err := k.provider.Complete(ctx, ModelRequest{
+		SessionID:  sessionID,
+		TurnID:     turnID,
+		InputItems: req.InputItems,
+	})
+	if err != nil {
+		return TurnResponse{}, fmt.Errorf("provider complete: %w", err)
+	}
+
+	completedAt := k.clock()
+	final := FinalMessage{Text: modelResp.Text, Model: modelResp.Model}
+	completed := StoredEvent{
+		EventID:   newID("evt", completedAt),
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      "model.final",
+		CreatedAt: completedAt,
+		Data: EventData{
+			Final: final,
+		},
+	}
+	if err := k.ledger.Append(completed); err != nil {
+		return TurnResponse{}, err
+	}
+
+	return TurnResponse{
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Events: []Event{
+			toEvent(submitted),
+			toEvent(completed),
+		},
+		Final: final,
+	}, nil
+}
+
+func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return SessionProjection{}, errors.New("session id is required")
+	}
+	events, err := k.ledger.Load()
+	if err != nil {
+		return SessionProjection{}, err
+	}
+	projection := SessionProjection{
+		SessionID: sessionID,
+	}
+	turnByID := map[string]int{}
+	for _, event := range events {
+		if event.SessionID != sessionID {
+			continue
+		}
+		projection.Events = append(projection.Events, EventProjection{
+			EventID:   event.EventID,
+			TurnID:    event.TurnID,
+			Type:      event.Type,
+			CreatedAt: event.CreatedAt,
+		})
+		switch event.Type {
+		case "turn.submitted":
+			turnByID[event.TurnID] = len(projection.Turns)
+			projection.Turns = append(projection.Turns, TurnProjection{
+				TurnID:     event.TurnID,
+				Status:     "running",
+				InputItems: event.Data.InputItems,
+				StartedAt:  event.CreatedAt,
+			})
+		case "model.final":
+			idx, ok := turnByID[event.TurnID]
+			if !ok {
+				continue
+			}
+			projection.Turns[idx].Status = "completed"
+			projection.Turns[idx].FinalMessage = event.Data.Final
+			projection.Turns[idx].CompletedAt = event.CreatedAt
+		}
+	}
+	if len(projection.Events) == 0 {
+		return SessionProjection{}, ErrSessionNotFound
+	}
+	return projection, nil
+}
+
+var ErrSessionNotFound = errors.New("session not found")
+
+func validateTurnRequest(req TurnRequest) error {
+	if len(req.InputItems) == 0 {
+		return errors.New("input_items is required")
+	}
+	for i, item := range req.InputItems {
+		if item.Type != "text" {
+			return fmt.Errorf("input_items[%d].type must be text", i)
+		}
+		if strings.TrimSpace(item.Text) == "" {
+			return fmt.Errorf("input_items[%d].text is required", i)
+		}
+	}
+	return nil
+}
+
+func toEvent(event StoredEvent) Event {
+	return Event{
+		EventID:   event.EventID,
+		SessionID: event.SessionID,
+		TurnID:    event.TurnID,
+		Type:      event.Type,
+		CreatedAt: event.CreatedAt,
+		Data:      event.Data,
+	}
+}
