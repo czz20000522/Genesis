@@ -91,15 +91,17 @@ type EventProjection struct {
 }
 
 type ShellExecRequest struct {
-	SessionID string `json:"session_id"`
-	CWD       string `json:"cwd"`
-	Command   string `json:"command"`
+	SessionID      string `json:"session_id"`
+	CWD            string `json:"cwd"`
+	Command        string `json:"command"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
 type OperationProjection struct {
 	OperationID    string    `json:"operation_id"`
 	SessionID      string    `json:"session_id"`
 	Tool           string    `json:"tool"`
+	IdempotencyKey string    `json:"idempotency_key,omitempty"`
 	Status         string    `json:"status"`
 	PermissionMode string    `json:"permission_mode"`
 	CWD            string    `json:"cwd"`

@@ -21,7 +21,7 @@ The first implementation must prove the kernel loop before adding shells or appl
 - Credential refs cannot expose raw secrets to the model or shell output.
 - Prompt-injection text is isolated as user data and may be recorded as ingress risk metadata; authority-forgery attempts in transport schema or hidden control text fail closed at turn admission.
 - A provider failure returns a structured degraded result, not a panic.
-- Duplicate idempotency keys do not execute effects twice.
+- Duplicate tool idempotency keys do not execute effects twice.
 
 ## Not Required In Phase 1
 

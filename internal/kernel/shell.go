@@ -26,14 +26,29 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 	if err := validateShellRequest(req); err != nil {
 		return OperationProjection{}, err
 	}
+	k.operationMu.Lock()
+	defer k.operationMu.Unlock()
+
 	now := k.clock()
 	policy := k.toolPolicy
 	rawCommand := strings.TrimSpace(req.Command)
+	sessionID := strings.TrimSpace(req.SessionID)
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	if idempotencyKey != "" {
+		operation, ok, err := k.operationByIdempotencyKey(sessionID, "shell.exec", idempotencyKey)
+		if err != nil {
+			return OperationProjection{}, err
+		}
+		if ok {
+			return operation, nil
+		}
+	}
 	executionPlan, reason := prepareShellExecution(policy, req)
 	operation := OperationProjection{
 		OperationID:    newID("op", now),
-		SessionID:      strings.TrimSpace(req.SessionID),
+		SessionID:      sessionID,
 		Tool:           "shell.exec",
+		IdempotencyKey: idempotencyKey,
 		Status:         "running",
 		PermissionMode: policy.PermissionMode,
 		CWD:            executionPlan.cwd,
@@ -123,6 +138,56 @@ func validateShellRequest(req ShellExecRequest) error {
 	}
 	if strings.TrimSpace(req.Command) == "" {
 		return errors.New("command is required")
+	}
+	if err := validateIdempotencyKey(req.IdempotencyKey); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (k *Kernel) operationByIdempotencyKey(sessionID string, tool string, key string) (OperationProjection, bool, error) {
+	events, err := k.loadEvents()
+	if err != nil {
+		return OperationProjection{}, false, err
+	}
+	var latest OperationProjection
+	found := false
+	for _, event := range events {
+		if event.SessionID != sessionID || event.Data.Operation == nil {
+			continue
+		}
+		operation := *event.Data.Operation
+		if operation.Tool != tool || operation.IdempotencyKey != key {
+			continue
+		}
+		latest = operation
+		found = true
+	}
+	if !found {
+		return OperationProjection{}, false, nil
+	}
+	return redactOperationEvidence(latest), true, nil
+}
+
+func validateIdempotencyKey(key string) error {
+	if key == "" {
+		return nil
+	}
+	if strings.TrimSpace(key) != key {
+		return errors.New("idempotency_key must not contain leading or trailing whitespace")
+	}
+	if len(key) > 128 {
+		return errors.New("idempotency_key must be 128 characters or fewer")
+	}
+	for _, char := range key {
+		switch {
+		case char >= 'a' && char <= 'z':
+		case char >= 'A' && char <= 'Z':
+		case char >= '0' && char <= '9':
+		case char == '-' || char == '_' || char == '.' || char == ':':
+		default:
+			return errors.New("idempotency_key may contain only letters, numbers, '.', '_', '-', or ':'")
+		}
 	}
 	return nil
 }

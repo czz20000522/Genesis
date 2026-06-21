@@ -41,6 +41,8 @@ Owns request normalization, session identity, event emission, idempotency, and t
 
 Turn admission separates untrusted content from control-plane authority. User or external-application text can contain prompt-injection samples, role labels, tool protocol fragments, logs, or quoted hostile instructions; those strings remain user data and do not grant system, developer, tool, credential, or permission authority. The Interface Kernel may record high-confidence text risks as ingress metadata for inspection. It fails closed only for malformed transport schema, hidden control text, unsupported input item types, or real attempts to set kernel-owned control fields.
 
+Idempotency keys are caller-provided control-plane fields, not model-visible task content. For effectful tool calls, the first admitted `session_id + tool + idempotency_key` owns the effect; retries return the existing operation projection from the ledger without executing the effect again.
+
 ### Model Gateway
 
 Owns provider configuration, model calls, streaming, retries, provider error projection, and data-egress policy hooks. It does not own prompts as product copy.

@@ -572,6 +572,125 @@ func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *test
 	}
 }
 
+func TestExecShellIdempotencyKeySurvivesRestartWithoutRepeatingEffect(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := t.TempDir()
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+
+	first, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "shell-idempotent",
+		CWD:            workspace,
+		Command:        writeFileCommand("idempotent.txt", "first"),
+		IdempotencyKey: "shell-write-1",
+	})
+	if err != nil {
+		t.Fatalf("first ExecShell returned error: %v", err)
+	}
+	if first.Status != "completed" {
+		t.Fatalf("first status = %q, want completed; stderr=%q", first.Status, first.Stderr)
+	}
+
+	restarted := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+	second, err := restarted.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "shell-idempotent",
+		CWD:            workspace,
+		Command:        writeFileCommand("idempotent.txt", "second"),
+		IdempotencyKey: "shell-write-1",
+	})
+	if err != nil {
+		t.Fatalf("second ExecShell returned error: %v", err)
+	}
+	if second.OperationID != first.OperationID {
+		t.Fatalf("second operation id = %q, want %q", second.OperationID, first.OperationID)
+	}
+	if second.Command != first.Command {
+		t.Fatalf("second command = %q, want original command %q", second.Command, first.Command)
+	}
+	content, err := os.ReadFile(filepath.Join(workspace, "idempotent.txt"))
+	if err != nil {
+		t.Fatalf("read idempotent output: %v", err)
+	}
+	if string(content) != "first" {
+		t.Fatalf("file content = %q, want first", string(content))
+	}
+
+	projection, err := restarted.Session("shell-idempotent")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 {
+		t.Fatalf("len(Operations) = %d, want 1", len(projection.Operations))
+	}
+	if len(projection.Events) != 2 {
+		t.Fatalf("len(Events) = %d, want 2 operation events", len(projection.Events))
+	}
+	if projection.Operations[0].IdempotencyKey != "shell-write-1" {
+		t.Fatalf("projected idempotency key = %q, want shell-write-1", projection.Operations[0].IdempotencyKey)
+	}
+}
+
+func TestExecShellBlockedOperationIsIdempotent(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModePlan,
+	})
+
+	first, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "shell-blocked-idempotent",
+		CWD:            t.TempDir(),
+		Command:        "echo first",
+		IdempotencyKey: "blocked-1",
+	})
+	if err != nil {
+		t.Fatalf("first ExecShell returned error: %v", err)
+	}
+	second, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "shell-blocked-idempotent",
+		CWD:            t.TempDir(),
+		Command:        "echo second",
+		IdempotencyKey: "blocked-1",
+	})
+	if err != nil {
+		t.Fatalf("second ExecShell returned error: %v", err)
+	}
+	if second.OperationID != first.OperationID {
+		t.Fatalf("second operation id = %q, want %q", second.OperationID, first.OperationID)
+	}
+	if second.Status != "blocked" || second.BlockedReason != "blocked_by_permission_mode=plan" {
+		t.Fatalf("second operation = %+v, want original blocked operation", second)
+	}
+	projection, err := k.Session("shell-blocked-idempotent")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 || len(projection.Events) != 1 {
+		t.Fatalf("projection = %+v, want one blocked operation event", projection)
+	}
+}
+
+func TestExecShellRejectsInvalidIdempotencyKey(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+
+	_, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "shell-bad-idempotency",
+		CWD:            t.TempDir(),
+		Command:        "echo hello",
+		IdempotencyKey: "bad key",
+	})
+	if err == nil {
+		t.Fatal("ExecShell returned nil error for invalid idempotency key")
+	}
+	if _, err := k.Session("shell-bad-idempotency"); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("Session error = %v, want ErrSessionNotFound", err)
+	}
+}
+
 func TestExecShellDefaultBlocksOutsideWorkspace(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	root := t.TempDir()
@@ -820,6 +939,83 @@ func TestHTTPShellExecAndSessionProjection(t *testing.T) {
 	}
 	if len(projection.Operations) != 1 {
 		t.Fatalf("len(Operations) = %d, want 1", len(projection.Operations))
+	}
+}
+
+func TestHTTPShellExecIdempotencyKeyReturnsExistingOperation(t *testing.T) {
+	workspace := t.TempDir()
+	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	firstPayload, err := json.Marshal(ShellExecRequest{
+		SessionID:      "http-shell-idempotent",
+		CWD:            workspace,
+		Command:        writeFileCommand("idempotent-http.txt", "first"),
+		IdempotencyKey: "http-shell-write-1",
+	})
+	if err != nil {
+		t.Fatalf("marshal first shell request: %v", err)
+	}
+	firstResp, err := postJSONWithAuth(server.URL+"/tools/shell.exec", firstPayload)
+	if err != nil {
+		t.Fatalf("first POST /tools/shell.exec failed: %v", err)
+	}
+	defer firstResp.Body.Close()
+	if firstResp.StatusCode != http.StatusOK {
+		t.Fatalf("first status = %d, want 200", firstResp.StatusCode)
+	}
+	var first OperationProjection
+	if err := json.NewDecoder(firstResp.Body).Decode(&first); err != nil {
+		t.Fatalf("decode first shell response: %v", err)
+	}
+
+	secondPayload, err := json.Marshal(ShellExecRequest{
+		SessionID:      "http-shell-idempotent",
+		CWD:            workspace,
+		Command:        writeFileCommand("idempotent-http.txt", "second"),
+		IdempotencyKey: "http-shell-write-1",
+	})
+	if err != nil {
+		t.Fatalf("marshal second shell request: %v", err)
+	}
+	secondResp, err := postJSONWithAuth(server.URL+"/tools/shell.exec", secondPayload)
+	if err != nil {
+		t.Fatalf("second POST /tools/shell.exec failed: %v", err)
+	}
+	defer secondResp.Body.Close()
+	if secondResp.StatusCode != http.StatusOK {
+		t.Fatalf("second status = %d, want 200", secondResp.StatusCode)
+	}
+	var second OperationProjection
+	if err := json.NewDecoder(secondResp.Body).Decode(&second); err != nil {
+		t.Fatalf("decode second shell response: %v", err)
+	}
+	if second.OperationID != first.OperationID {
+		t.Fatalf("second operation id = %q, want %q", second.OperationID, first.OperationID)
+	}
+	content, err := os.ReadFile(filepath.Join(workspace, "idempotent-http.txt"))
+	if err != nil {
+		t.Fatalf("read idempotent http output: %v", err)
+	}
+	if string(content) != "first" {
+		t.Fatalf("file content = %q, want first", string(content))
+	}
+
+	sessionResp, err := getWithAuth(server.URL + "/sessions/http-shell-idempotent")
+	if err != nil {
+		t.Fatalf("GET /sessions failed: %v", err)
+	}
+	defer sessionResp.Body.Close()
+	var projection SessionProjection
+	if err := json.NewDecoder(sessionResp.Body).Decode(&projection); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+	if len(projection.Operations) != 1 || len(projection.Events) != 2 {
+		t.Fatalf("projection = %+v, want one operation and two events", projection)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -14,6 +15,7 @@ type Kernel struct {
 	runtimeToken string
 	toolPolicy   ToolPolicy
 	clock        func() time.Time
+	operationMu  sync.Mutex
 }
 
 func New(config Config) (*Kernel, error) {

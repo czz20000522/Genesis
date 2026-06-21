@@ -99,6 +99,8 @@ The controlled default command set is intentionally narrow: text output, simple 
 
 The HTTP request cannot select `permission_mode` or `workspace_root`; those are kernel-owned authority fields. Every allowed call first records a `running` operation before process execution, then records completion or failure with tool name, permission mode, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
 
+`shell.exec` accepts an optional `idempotency_key` control-plane field. Within the same `session_id` and tool, the first operation for a key owns the effect. Later retries with the same key return the persisted operation projection and do not execute the command again or append new operation events.
+
 ## Accumulation
 
 The first memory loop is explicit and governed:
