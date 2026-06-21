@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -27,18 +29,19 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 	now := k.clock()
 	policy := k.toolPolicy
 	rawCommand := strings.TrimSpace(req.Command)
+	executionPlan, reason := prepareShellExecution(policy, req)
 	operation := OperationProjection{
 		OperationID:    newID("op", now),
 		SessionID:      strings.TrimSpace(req.SessionID),
 		Tool:           "shell.exec",
 		Status:         "running",
 		PermissionMode: policy.PermissionMode,
-		CWD:            strings.TrimSpace(req.CWD),
+		CWD:            executionPlan.cwd,
 		Command:        rawCommand,
 		StartedAt:      now,
 	}
 
-	if reason := shellBlockReason(policy, req); reason != "" {
+	if reason != "" {
 		operation.Status = "blocked"
 		operation.BlockedReason = reason
 		operation.EndedAt = k.clock()
@@ -53,32 +56,38 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 		return OperationProjection{}, err
 	}
 
-	execCtx, cancel := context.WithTimeout(ctx, maxShellDuration)
-	defer cancel()
-	cmd := platformShellCommand(execCtx, rawCommand)
-	cmd.Dir = operation.CWD
-	var stdout cappedBuffer
-	var stderr cappedBuffer
-	stdout.limit = maxShellOutputBytes
-	stderr.limit = maxShellOutputBytes
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
 	code := 0
-	operation.Stdout = stdout.String()
-	operation.Stderr = stderr.String()
-	operation.EndedAt = k.clock()
-	if err != nil {
-		operation.Status = "failed"
-		code = exitCode(err)
-		if operation.Stderr == "" {
-			operation.Stderr = err.Error()
-		}
+	if executionPlan.controlled != nil {
+		operation.Stdout, operation.Stderr, code = executeControlledShellCommand(*executionPlan.controlled)
 	} else {
-		operation.Status = "completed"
+		execCtx, cancel := context.WithTimeout(ctx, maxShellDuration)
+		defer cancel()
+		cmd := platformShellCommand(execCtx, rawCommand)
+		cmd.Dir = operation.CWD
+		var stdout cappedBuffer
+		var stderr cappedBuffer
+		stdout.limit = maxShellOutputBytes
+		stderr.limit = maxShellOutputBytes
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err := cmd.Run()
+		operation.Stdout = stdout.String()
+		operation.Stderr = stderr.String()
+		if err != nil {
+			code = exitCode(err)
+			if operation.Stderr == "" {
+				operation.Stderr = err.Error()
+			}
+		}
 	}
+	operation.EndedAt = k.clock()
 	operation.ExitCode = &code
+	if code == 0 {
+		operation.Status = "completed"
+	} else {
+		operation.Status = "failed"
+	}
 	operation = redactOperationEvidence(operation)
 	if err := k.appendOperationEvent(operation); err != nil {
 		return OperationProjection{}, err
@@ -89,12 +98,16 @@ func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (Operation
 func (k *Kernel) appendOperationEvent(operation OperationProjection) error {
 	operation = redactOperationEvidence(operation)
 	eventType := "operation." + operation.Status
+	createdAt := operation.EndedAt
+	if createdAt.IsZero() {
+		createdAt = operation.StartedAt
+	}
 	return k.ledger.Append(StoredEvent{
-		EventID:     newID("evt", operation.EndedAt),
+		EventID:     newID("evt", createdAt),
 		SessionID:   operation.SessionID,
 		OperationID: operation.OperationID,
 		Type:        eventType,
-		CreatedAt:   operation.EndedAt,
+		CreatedAt:   createdAt,
 		Data: EventData{
 			Operation: &operation,
 		},
@@ -114,22 +127,27 @@ func validateShellRequest(req ShellExecRequest) error {
 	return nil
 }
 
-func shellBlockReason(policy ToolPolicy, req ShellExecRequest) string {
+type shellExecutionPlan struct {
+	cwd        string
+	controlled *controlledShellCommand
+}
+
+type controlledShellCommand struct {
+	kind   string
+	path   string
+	value  string
+	stdout string
+}
+
+func prepareShellExecution(policy ToolPolicy, req ShellExecRequest) (shellExecutionPlan, string) {
+	plan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
 	switch policy.PermissionMode {
 	case PermissionModePlan:
-		return "blocked_by_permission_mode=plan"
+		return plan, "blocked_by_permission_mode=plan"
 	case PermissionModeDefault:
-		if strings.TrimSpace(policy.WorkspaceRoot) == "" {
-			return "workspace_root_required"
-		}
-		if !pathWithin(req.CWD, policy.WorkspaceRoot) {
-			return "cwd_outside_workspace"
-		}
-		if commandLooksMutating(req.Command) && commandReferencesOutsideWorkspace(req.Command, policy.WorkspaceRoot) {
-			return "command_path_outside_workspace"
-		}
+		return prepareDefaultShellExecution(policy, req)
 	}
-	return ""
+	return plan, ""
 }
 
 func normalizedToolPolicy(policy ToolPolicy) ToolPolicy {
@@ -151,41 +169,29 @@ func normalizedPermissionMode(mode string) string {
 	return mode
 }
 
-func commandLooksMutating(command string) bool {
-	lower := strings.ToLower(command)
-	mutatingMarkers := []string{
-		">", ">>", "| out-file", "| set-content",
-		"set-content", "add-content", "new-item", "remove-item", "move-item", "copy-item",
-		"mkdir", "touch ", "rm ", "del ", "erase ", "rmdir", "mv ", "cp ",
+func prepareDefaultShellExecution(policy ToolPolicy, req ShellExecRequest) (shellExecutionPlan, string) {
+	plan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
+	if strings.TrimSpace(policy.WorkspaceRoot) == "" {
+		return plan, "workspace_root_required"
 	}
-	for _, marker := range mutatingMarkers {
-		if strings.Contains(lower, marker) {
-			return true
-		}
+	if !pathWithin(req.CWD, policy.WorkspaceRoot) {
+		return plan, "cwd_outside_workspace"
 	}
-	return false
-}
-
-func commandReferencesOutsideWorkspace(command string, workspaceRoot string) bool {
-	for _, token := range strings.Fields(command) {
-		token = strings.Trim(token, "\"'`,;()[]{}")
-		if token == "" {
-			continue
-		}
-		candidates := []string{token}
-		if key, value, ok := strings.Cut(token, "="); ok && key != "" && value != "" {
-			candidates = append(candidates, value)
-		}
-		for _, candidate := range candidates {
-			if hasParentTraversal(candidate) {
-				return true
-			}
-			if filepath.IsAbs(candidate) && !pathWithin(candidate, workspaceRoot) {
-				return true
-			}
-		}
+	cwd, err := canonicalPathForContainment(req.CWD)
+	if err != nil {
+		return plan, "cwd_outside_workspace"
 	}
-	return false
+	plan.cwd = cwd
+	fields, err := splitCommandFields(req.Command)
+	if err != nil || len(fields) == 0 {
+		return plan, "unsupported_default_command"
+	}
+	action, reason := controlledDefaultCommand(fields, plan.cwd, policy.WorkspaceRoot)
+	if reason != "" {
+		return plan, reason
+	}
+	plan.controlled = &action
+	return plan, ""
 }
 
 func hasParentTraversal(token string) bool {
@@ -199,19 +205,288 @@ func hasParentTraversal(token string) bool {
 }
 
 func pathWithin(path string, root string) bool {
-	absPath, err := filepath.Abs(path)
+	if pathHasLinkOrReparsePoint(path) || pathHasLinkOrReparsePoint(root) {
+		return false
+	}
+	candidate, err := canonicalPathForContainment(path)
 	if err != nil {
 		return false
 	}
-	absRoot, err := filepath.Abs(root)
+	canonicalRoot, err := canonicalExistingPath(root)
 	if err != nil {
 		return false
 	}
-	rel, err := filepath.Rel(absRoot, absPath)
+	rel, err := filepath.Rel(canonicalRoot, candidate)
 	if err != nil {
 		return false
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
+}
+
+func pathHasLinkOrReparsePoint(path string) bool {
+	current, err := filepath.Abs(path)
+	if err != nil {
+		return true
+	}
+	current = filepath.Clean(current)
+	for {
+		info, err := os.Lstat(current)
+		if err == nil {
+			mode := info.Mode()
+			if mode&os.ModeSymlink != 0 || (runtime.GOOS == "windows" && mode&os.ModeIrregular != 0) {
+				return true
+			}
+		} else if !os.IsNotExist(err) {
+			return true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return false
+		}
+		current = parent
+	}
+}
+
+func canonicalExistingPath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func canonicalPathForContainment(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(absPath))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(filepath.Join(parent, filepath.Base(absPath))), nil
+}
+
+func controlledDefaultCommand(fields []string, cwd string, workspaceRoot string) (controlledShellCommand, string) {
+	name := strings.ToLower(fields[0])
+	switch name {
+	case "echo", "write-output":
+		if hasUnsupportedDefaultToken(fields[1:], false) {
+			return controlledShellCommand{}, "unsupported_default_command"
+		}
+		return controlledShellCommand{kind: "stdout", stdout: strings.Join(fields[1:], " ") + "\n"}, ""
+	case "printf":
+		return controlledPrintfCommand(fields, cwd, workspaceRoot)
+	case "set-content":
+		return controlledSetContentCommand(fields, cwd, workspaceRoot)
+	case "cat", "type", "get-content":
+		return controlledReadCommand(fields, cwd, workspaceRoot)
+	case "pwd":
+		if len(fields) != 1 {
+			return controlledShellCommand{}, "unsupported_default_command"
+		}
+		return controlledShellCommand{kind: "stdout", stdout: cwd + "\n"}, ""
+	default:
+		return controlledShellCommand{}, "unsupported_default_command"
+	}
+}
+
+func controlledPrintfCommand(fields []string, cwd string, workspaceRoot string) (controlledShellCommand, string) {
+	redirectAt := -1
+	for i, field := range fields {
+		if field == ">" {
+			redirectAt = i
+			break
+		}
+	}
+	if redirectAt == -1 {
+		if hasUnsupportedDefaultToken(fields[1:], false) {
+			return controlledShellCommand{}, "unsupported_default_command"
+		}
+		return controlledShellCommand{kind: "stdout", stdout: strings.Join(fields[1:], " ")}, ""
+	}
+	if redirectAt == 1 || redirectAt != len(fields)-2 || hasUnsupportedDefaultToken(fields[1:redirectAt], false) {
+		return controlledShellCommand{}, "unsupported_default_command"
+	}
+	path, reason := resolveWorkspacePath(cwd, workspaceRoot, fields[len(fields)-1])
+	if reason != "" {
+		return controlledShellCommand{}, reason
+	}
+	return controlledShellCommand{kind: "write", path: path, value: strings.Join(fields[1:redirectAt], " ")}, ""
+}
+
+func controlledSetContentCommand(fields []string, cwd string, workspaceRoot string) (controlledShellCommand, string) {
+	pathArg, value, noNewline, ok := parseSetContentFields(fields[1:])
+	if !ok || hasUnsupportedDefaultToken([]string{value}, false) {
+		return controlledShellCommand{}, "unsupported_default_command"
+	}
+	path, reason := resolveWorkspacePath(cwd, workspaceRoot, pathArg)
+	if reason != "" {
+		return controlledShellCommand{}, reason
+	}
+	if !noNewline {
+		value += "\n"
+	}
+	return controlledShellCommand{kind: "write", path: path, value: value}, ""
+}
+
+func controlledReadCommand(fields []string, cwd string, workspaceRoot string) (controlledShellCommand, string) {
+	pathArg, ok := parsePathOnlyFields(fields[1:])
+	if !ok {
+		return controlledShellCommand{}, "unsupported_default_command"
+	}
+	path, reason := resolveWorkspacePath(cwd, workspaceRoot, pathArg)
+	if reason != "" {
+		return controlledShellCommand{}, reason
+	}
+	return controlledShellCommand{kind: "read", path: path}, ""
+}
+
+func parseSetContentFields(fields []string) (string, string, bool, bool) {
+	var pathArg string
+	var value string
+	noNewline := false
+	for i := 0; i < len(fields); i++ {
+		field := fields[i]
+		lower := strings.ToLower(field)
+		switch {
+		case lower == "-literalpath" || lower == "-path":
+			i++
+			if i >= len(fields) {
+				return "", "", false, false
+			}
+			pathArg = fields[i]
+		case strings.HasPrefix(lower, "-literalpath=") || strings.HasPrefix(lower, "-path="):
+			_, pathArg, _ = strings.Cut(field, "=")
+		case lower == "-value":
+			i++
+			if i >= len(fields) {
+				return "", "", false, false
+			}
+			value = fields[i]
+		case strings.HasPrefix(lower, "-value="):
+			_, value, _ = strings.Cut(field, "=")
+		case lower == "-nonewline":
+			noNewline = true
+		default:
+			return "", "", false, false
+		}
+	}
+	return pathArg, value, noNewline, pathArg != "" && value != ""
+}
+
+func parsePathOnlyFields(fields []string) (string, bool) {
+	if len(fields) == 1 {
+		lower := strings.ToLower(fields[0])
+		if strings.HasPrefix(lower, "-literalpath=") || strings.HasPrefix(lower, "-path=") {
+			_, value, ok := strings.Cut(fields[0], "=")
+			return value, ok
+		}
+		return fields[0], true
+	}
+	if len(fields) == 2 {
+		lower := strings.ToLower(fields[0])
+		if lower == "-literalpath" || lower == "-path" {
+			return fields[1], true
+		}
+	}
+	return "", false
+}
+
+func hasUnsupportedDefaultToken(fields []string, allowRedirect bool) bool {
+	for _, field := range fields {
+		if allowRedirect && field == ">" {
+			continue
+		}
+		if strings.ContainsAny(field, "\r\n;|&`$<>") {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveWorkspacePath(cwd string, workspaceRoot string, pathArg string) (string, string) {
+	pathArg = strings.TrimSpace(pathArg)
+	if pathArg == "" {
+		return "", "unsupported_default_command"
+	}
+	if hasParentTraversal(pathArg) {
+		return "", "command_path_outside_workspace"
+	}
+	target := pathArg
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(cwd, target)
+	}
+	if !pathWithin(target, workspaceRoot) {
+		return "", "command_path_outside_workspace"
+	}
+	resolved, err := canonicalPathForContainment(target)
+	if err != nil {
+		return "", "command_path_outside_workspace"
+	}
+	return resolved, ""
+}
+
+func executeControlledShellCommand(command controlledShellCommand) (string, string, int) {
+	switch command.kind {
+	case "stdout":
+		return command.stdout, "", 0
+	case "write":
+		if err := os.WriteFile(command.path, []byte(command.value), 0o644); err != nil {
+			return "", err.Error(), -1
+		}
+		return "", "", 0
+	case "read":
+		data, err := os.ReadFile(command.path)
+		if err != nil {
+			return "", err.Error(), -1
+		}
+		if len(data) > maxShellOutputBytes {
+			data = data[:maxShellOutputBytes]
+		}
+		return string(data), "", 0
+	default:
+		return "", fmt.Sprintf("unsupported controlled shell command kind %q", command.kind), -1
+	}
+}
+
+func splitCommandFields(command string) ([]string, error) {
+	var fields []string
+	var current strings.Builder
+	var quote rune
+	for _, char := range command {
+		switch {
+		case quote != 0:
+			if char == quote {
+				quote = 0
+				continue
+			}
+			current.WriteRune(char)
+		case char == '\'' || char == '"':
+			quote = char
+		case char == ' ' || char == '\t':
+			if current.Len() > 0 {
+				fields = append(fields, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(char)
+		}
+	}
+	if quote != 0 {
+		return nil, errors.New("unterminated quote")
+	}
+	if current.Len() > 0 {
+		fields = append(fields, current.String())
+	}
+	return fields, nil
 }
 
 func platformShellCommand(ctx context.Context, command string) *exec.Cmd {

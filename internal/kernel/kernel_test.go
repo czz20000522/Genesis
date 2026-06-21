@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -408,13 +409,96 @@ func TestExecShellDefaultBlocksMutatingCommandPathEscapesWorkspace(t *testing.T)
 	if _, err := os.Stat(filepath.Join(root, "outside-equal.txt")); !os.IsNotExist(err) {
 		t.Fatalf("blocked equal-form command wrote outside file, stat err = %v", err)
 	}
+
+	absoluteOutsideFile := filepath.Join(root, "absolute-outside.txt")
+	absoluteOperation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID: "shell-escape-absolute",
+		CWD:       workspace,
+		Command:   writeFileCommand(absoluteOutsideFile, "no"),
+	})
+	if err != nil {
+		t.Fatalf("ExecShell with absolute outside path returned error: %v", err)
+	}
+	if absoluteOperation.Status != "blocked" {
+		t.Fatalf("absolute path status = %q, want blocked", absoluteOperation.Status)
+	}
+	if absoluteOperation.BlockedReason != "command_path_outside_workspace" {
+		t.Fatalf("absolute path blocked reason = %q, want command_path_outside_workspace", absoluteOperation.BlockedReason)
+	}
+	if _, err := os.Stat(absoluteOutsideFile); !os.IsNotExist(err) {
+		t.Fatalf("blocked absolute path command wrote outside file, stat err = %v", err)
+	}
+}
+
+func TestExecShellDefaultBlocksLinkedCWDOutsideWorkspace(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	outside := filepath.Join(root, "outside")
+	linkedCWD := filepath.Join(workspace, "linked-outside")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("mkdir outside: %v", err)
+	}
+	createDirectoryLinkForTest(t, outside, linkedCWD)
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+
+	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID: "shell-linked-cwd",
+		CWD:       linkedCWD,
+		Command:   echoCommand("hello"),
+	})
+	if err != nil {
+		t.Fatalf("ExecShell returned error: %v", err)
+	}
+	if operation.Status != "blocked" {
+		t.Fatalf("status = %q, want blocked", operation.Status)
+	}
+	if operation.BlockedReason != "cwd_outside_workspace" {
+		t.Fatalf("blocked reason = %q, want cwd_outside_workspace", operation.BlockedReason)
+	}
+}
+
+func TestExecShellDefaultBlocksRawShellAndEnvironmentAccess(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := t.TempDir()
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+
+	for _, command := range []string{
+		"env",
+		"Write-Output $env:PATH",
+		"echo hello; env",
+	} {
+		operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+			SessionID: "shell-default-unsupported",
+			CWD:       workspace,
+			Command:   command,
+		})
+		if err != nil {
+			t.Fatalf("ExecShell returned error for %q: %v", command, err)
+		}
+		if operation.Status != "blocked" {
+			t.Fatalf("status for %q = %q, want blocked", command, operation.Status)
+		}
+		if operation.BlockedReason != "unsupported_default_command" {
+			t.Fatalf("blocked reason for %q = %q, want unsupported_default_command", command, operation.BlockedReason)
+		}
+	}
 }
 
 func TestExecShellRedactsSecretEvidenceBeforePersistence(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	workspace := t.TempDir()
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
-		PermissionMode: PermissionModeDefault,
+		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
 	})
 
@@ -905,4 +989,24 @@ func secretEchoCommand() string {
 		return `Write-Output 'GENESIS_PROVIDER_API_KEY=sk-secret123'; Write-Output 'Authorization: Bearer tokentest123456'; Write-Output '{"api_key":"sk-jsonsecret"}'`
 	}
 	return `printf '%s\n' 'GENESIS_PROVIDER_API_KEY=sk-secret123' 'Authorization: Bearer tokentest123456' '{"api_key":"sk-jsonsecret"}'`
+}
+
+func createDirectoryLinkForTest(t *testing.T, target string, link string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command("cmd.exe", "/c", "mklink", "/J", link, target)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("create junction failed: %v; output=%s", err, string(output))
+		}
+		t.Cleanup(func() {
+			_ = exec.Command("cmd.exe", "/c", "rmdir", link).Run()
+		})
+		return
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("create symlink failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(link)
+	})
 }

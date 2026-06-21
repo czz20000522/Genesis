@@ -81,8 +81,10 @@ The provider base URL is configuration, not a kernel route. Include whatever pro
 The first kernel tool is `shell.exec`. It is deliberately small:
 
 - `plan` mode blocks shell execution fail-closed.
-- `default` mode requires a kernel-configured workspace root and runs only from inside that workspace.
-- `yolo` mode is explicit high-trust execution and can only be selected by kernel startup configuration.
+- `default` mode requires a kernel-configured workspace root and uses a kernel-controlled command set from inside that workspace. It does not invoke the operating-system shell, expand environment variables, or execute arbitrary interpreters.
+- `yolo` mode is explicit high-trust execution and is the only mode that invokes the operating-system shell. It can only be selected by kernel startup configuration.
+
+The controlled default command set is intentionally narrow: text output, simple file reads, and simple file writes whose real path remains inside the configured workspace. Symlink/junction resolution, parent traversal, absolute path escapes, shell metacharacters, and unsupported commands are blocked before any process is spawned.
 
 The HTTP request cannot select `permission_mode` or `workspace_root`; those are kernel-owned authority fields. Every allowed call first records a `running` operation before process execution, then records completion or failure with tool name, permission mode, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
 
