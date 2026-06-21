@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-TURN-EVENTS-20260622 - P1 - Turn events need a direct observation surface
+
+- Status: ready_for_acceptance.
+- Fix commits: `0680f1a7a`, `eddad96d4`.
+- Evidence: `TestHTTPTurnEventsAfterRestart` failed before implementation with HTTP 404 for `/turns/{id}/events`, then passed after implementation; `go test ./...` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for versioned route or phase labels returned no matches; live HTTP smoke submitted a turn, restarted `genesisd`, read `/turns/{id}/events`, and observed `turn.submitted` then `model.final`, with 401 for missing authorization and 404 for an unknown turn.
+- Acceptance condition: reviewer confirms `GET /turns/{id}/events` is a kernel-owned observation surface for the conceptual `turn.stream` syscall, not a UI timeline owner and not a commitment to SSE/live streaming.
+- Residual risk: this is a read-after-restart event list, not a live push stream. Future shells can consume it immediately, while richer streaming transports should be added only behind the same ledger-owned event truth.
+
 ### recvndQ9cGNIqE - P1 - Stale running shell operations must not trap idempotent retries
 
 - Status: ready_for_acceptance.
