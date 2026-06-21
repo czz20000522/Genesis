@@ -102,7 +102,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 ### recvndyUquaZ5z - P1 - Repo issue and retirement record sync
 
 - Status: ready_for_acceptance.
-- Fix commits: `fed9d405a`, `70b55b559`.
+- Fix commits: `fed9d405a`, `83ff63fbe`.
 - Evidence: active issue ledger exists at `docs/operations/kernel-issues.md`; ready/retirement evidence exists at `docs/operations/kernel-retirement-log.md`; README links both records; `rg` can find current active issue ids and all current `ready_for_acceptance` issue ids under repo docs.
 - Acceptance condition: reviewer confirms Base `已同步到 repo=true` records have corresponding repo evidence and future retirements leave the active issue ledger.
 - Residual risk: this is a manual governance guard. Future agents must update these docs whenever issue state changes.
