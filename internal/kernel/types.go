@@ -116,6 +116,10 @@ type MemoryCandidateRequest struct {
 	SourceRef string `json:"source_ref"`
 }
 
+type MemoryCandidateListResponse struct {
+	Items []MemoryCandidateProjection `json:"items"`
+}
+
 type MemoryApprovalRequest struct {
 	ApprovalAuthority   string `json:"approval_authority"`
 	ApprovalReason      string `json:"approval_reason"`

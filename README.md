@@ -50,6 +50,8 @@ Minimal HTTP surface:
 - `GET /sessions/{id}`
 - `POST /tools/shell.exec`
 - `POST /memory/candidates`
+- `GET /memory/candidates`
+- `GET /memory/candidates/{id}`
 - `POST /memory/candidates/{id}/approve`
 
 The phase 1 provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
@@ -93,6 +95,8 @@ The HTTP request cannot select `permission_mode` or `workspace_root`; those are 
 The first memory loop is explicit and governed:
 
 - `POST /memory/candidates` creates a pending candidate from user-visible text and a required `source_ref`.
+- `GET /memory/candidates?status=pending` lists restart-safe candidates for review; omit `status` to list all candidates.
+- `GET /memory/candidates/{id}` reads one candidate with source and approval evidence.
 - `POST /memory/candidates/{id}/approve` approves a candidate with required `approval_authority`, `approval_reason`, and `approval_evidence_ref`.
 - `POST /turn` recalls only approved candidates and records recalled memory refs on the turn event.
 

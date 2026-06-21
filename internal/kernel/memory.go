@@ -84,6 +84,43 @@ func (k *Kernel) ApproveMemoryCandidate(candidateID string, req MemoryApprovalRe
 	return candidate, nil
 }
 
+func (k *Kernel) MemoryCandidates(status string) ([]MemoryCandidateProjection, error) {
+	status = strings.TrimSpace(status)
+	if status != "" && status != MemoryCandidatePending && status != MemoryCandidateApproved {
+		return nil, fmt.Errorf("unsupported memory candidate status %q", status)
+	}
+	candidates, _, err := k.memoryCandidateList()
+	if err != nil {
+		return nil, err
+	}
+	if status == "" {
+		return candidates, nil
+	}
+	filtered := make([]MemoryCandidateProjection, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Status == status {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered, nil
+}
+
+func (k *Kernel) MemoryCandidate(candidateID string) (MemoryCandidateProjection, error) {
+	candidateID = strings.TrimSpace(candidateID)
+	if candidateID == "" {
+		return MemoryCandidateProjection{}, errors.New("candidate id is required")
+	}
+	candidates, err := k.memoryCandidates()
+	if err != nil {
+		return MemoryCandidateProjection{}, err
+	}
+	candidate, ok := candidates[candidateID]
+	if !ok {
+		return MemoryCandidateProjection{}, ErrMemoryCandidateNotFound
+	}
+	return candidate, nil
+}
+
 func validateMemoryCandidateRequest(req MemoryCandidateRequest) error {
 	if strings.TrimSpace(req.SessionID) == "" {
 		return errors.New("session_id is required")

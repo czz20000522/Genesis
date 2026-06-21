@@ -792,6 +792,87 @@ func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
 	}
 }
 
+func TestHTTPMemoryCandidateListAndReadAfterRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+
+	firstCandidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-source-one",
+		Text:      "我偏好中文回答",
+		SourceRef: "turn:http-memory-source-one",
+	})
+	secondCandidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-source-two",
+		Text:      "我偏好短回答",
+		SourceRef: "turn:http-memory-source-two",
+	})
+	approvalPayload, err := json.Marshal(testApprovalRequest("approval:http-memory-source-one"))
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	approveResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+firstCandidate.CandidateID+"/approve", approvalPayload)
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve status = %d, want 200", approveResp.StatusCode)
+	}
+	server.Close()
+
+	restarted := newTestKernel(t, ledgerPath)
+	restartedServer := httptest.NewServer(Handler(restarted))
+	defer restartedServer.Close()
+
+	pendingResp, err := getWithAuth(restartedServer.URL + "/memory/candidates?status=pending")
+	if err != nil {
+		t.Fatalf("GET pending candidates failed: %v", err)
+	}
+	defer pendingResp.Body.Close()
+	if pendingResp.StatusCode != http.StatusOK {
+		t.Fatalf("pending status = %d, want 200", pendingResp.StatusCode)
+	}
+	var pending MemoryCandidateListResponse
+	if err := json.NewDecoder(pendingResp.Body).Decode(&pending); err != nil {
+		t.Fatalf("decode pending candidates: %v", err)
+	}
+	if len(pending.Items) != 1 || pending.Items[0].CandidateID != secondCandidate.CandidateID {
+		t.Fatalf("pending candidates = %+v, want second candidate only", pending.Items)
+	}
+	if pending.Items[0].SourceRef != "turn:http-memory-source-two" {
+		t.Fatalf("pending source ref = %q, want turn:http-memory-source-two", pending.Items[0].SourceRef)
+	}
+
+	readResp, err := getWithAuth(restartedServer.URL + "/memory/candidates/" + firstCandidate.CandidateID)
+	if err != nil {
+		t.Fatalf("GET memory candidate failed: %v", err)
+	}
+	defer readResp.Body.Close()
+	if readResp.StatusCode != http.StatusOK {
+		t.Fatalf("read status = %d, want 200", readResp.StatusCode)
+	}
+	var approved MemoryCandidateProjection
+	if err := json.NewDecoder(readResp.Body).Decode(&approved); err != nil {
+		t.Fatalf("decode approved candidate: %v", err)
+	}
+	if approved.Status != MemoryCandidateApproved {
+		t.Fatalf("approved status = %q, want approved", approved.Status)
+	}
+	if approved.ApprovalEvidenceRef != "approval:http-memory-source-one" {
+		t.Fatalf("approval evidence ref = %q, want approval:http-memory-source-one", approved.ApprovalEvidenceRef)
+	}
+
+	badStatusResp, err := getWithAuth(restartedServer.URL + "/memory/candidates?status=unknown")
+	if err != nil {
+		t.Fatalf("GET bad status failed: %v", err)
+	}
+	defer badStatusResp.Body.Close()
+	if badStatusResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad status response = %d, want 400", badStatusResp.StatusCode)
+	}
+}
+
 func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
@@ -953,6 +1034,27 @@ func testApprovalRequest(evidenceRef string) MemoryApprovalRequest {
 		ApprovalReason:      "approved in test",
 		ApprovalEvidenceRef: evidenceRef,
 	}
+}
+
+func createMemoryCandidateOverHTTP(t *testing.T, serverURL string, req MemoryCandidateRequest) MemoryCandidateProjection {
+	t.Helper()
+	payload, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal candidate request: %v", err)
+	}
+	resp, err := postJSONWithAuth(serverURL+"/memory/candidates", payload)
+	if err != nil {
+		t.Fatalf("POST /memory/candidates failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("candidate status = %d, want 200", resp.StatusCode)
+	}
+	var candidate MemoryCandidateProjection
+	if err := json.NewDecoder(resp.Body).Decode(&candidate); err != nil {
+		t.Fatalf("decode candidate response: %v", err)
+	}
+	return candidate
 }
 
 func newTestKernel(t *testing.T, ledgerPath string) *Kernel {
