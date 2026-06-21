@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-TOOL-LOOP-20260622 - P0 - Turn loop cannot execute model-requested tools
+
+- Status: ready_for_acceptance.
+- Fix commits: `209c002a8`, `d6d3ffb7e`.
+- Evidence: `TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal` first failed against the old behavior because the OpenAI-compatible request did not include a `shell.exec` tool descriptor and the provider returned HTTP 400. After the fix, the test proves the provider can request `shell.exec`, the kernel executes it through `ToolPolicy`, sends redacted operation evidence back as a tool message, receives the final answer, and replays `turn.submitted`, `model.tool_call`, `operation.running`, `operation.completed`, and `model.final` through `GET /turns/{id}/events` after restart. `TestSubmitTurnRejectsUnsupportedModelToolCall` proves unsupported provider tools fail closed with `tool_call_rejected` and no operation effect. `go test ./...` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for versioned route or phase labels returned no matches.
+- Acceptance condition: reviewer confirms model-requested tools run through the same kernel-owned Tool System authority as direct tool calls, and that provider adapters only translate tool schemas and messages.
+- Residual risk: the initial model tool surface exposes only canonical `shell.exec`. Richer tools, live provider smoke for tool calls, streaming partial events, and long-running tool cancellation remain future kernel work; external applications must still remain skills, CLIs, or daemons outside the kernel.
+
 ### KERNEL-TURN-EVENTS-20260622 - P1 - Turn events need a direct observation surface
 
 - Status: ready_for_acceptance.
