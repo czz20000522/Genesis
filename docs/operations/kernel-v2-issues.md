@@ -33,12 +33,3 @@ D:\software\Go\bin\go.exe test ./...
 
 - Acceptance evidence required: the live smoke `TestLiveOpenAICompatibleProviderThroughKernel` passes, `D:\software\Go\bin\go.exe build -o $env:TEMP\genesisd.exe .\cmd\genesisd` passes, and a route scan shows no versioned kernel route contracts.
 - Residual risk: fake and httptest provider coverage proves kernel control flow but not an external provider account, rate limit, or model behavior.
-
-### recvndyUquaZ5z - P1 - Repo issue and retirement record sync
-
-- Status: in_progress.
-- Type: architecture.
-- Problem: multiple Feishu Base issues are already `ready_for_acceptance`, but the repo did not have a durable active issue ledger or retirement log. Feishu can coordinate review, but repo docs must preserve the authoritative issue status and verification evidence.
-- Fix direction: add this active issue ledger and `docs/operations/kernel-v2-retirement-log.md`, then keep Base `已同步到 repo` true only when a corresponding repo record exists.
-- Acceptance evidence required: this file lists remaining active issues, the retirement log lists every current `ready_for_acceptance` issue with commits and verification evidence, and `rg` can find the referenced issue ids or commits under `docs/`.
-- Residual risk: this document is manual governance. Future issue movement still requires discipline: active issues leave this file only after their retirement record is written.

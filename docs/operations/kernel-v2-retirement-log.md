@@ -99,6 +99,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: readiness reflects whether protected routes can actually accept work.
 - Residual risk: future readiness checks should remain aggregated and fail closed for required kernel planes.
 
+### recvndyUquaZ5z - P1 - Repo issue and retirement record sync
+
+- Status: ready_for_acceptance.
+- Fix commit: `fed9d405a`.
+- Evidence: active issue ledger exists at `docs/operations/kernel-v2-issues.md`; ready/retirement evidence exists at `docs/operations/kernel-v2-retirement-log.md`; README links both records; `rg` can find current active issue ids and all current `ready_for_acceptance` issue ids under repo docs.
+- Acceptance condition: reviewer confirms Base `已同步到 repo=true` records have corresponding repo evidence and future retirements leave the active issue ledger.
+- Residual risk: this is a manual governance guard. Future agents must update these docs whenever issue state changes.
+
 ## Retired
 
 No issue has been user-retired in this branch yet. Move accepted entries from `Ready For Acceptance` to this section only after user or operator acceptance, then remove the same issue from `kernel-v2-issues.md`.
