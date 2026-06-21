@@ -14,4 +14,11 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-No active kernel issue is currently tracked in this branch. New Base issues should be triaged here only when they require kernel code, verification, or user acceptance.
+### recvndQ9cGNIqE - P1 - Stale running shell operations must not trap idempotent retries
+
+- Status: new.
+- Type: architecture.
+- Problem: `shell.exec` idempotency currently returns the latest operation for a matching `session_id + tool + idempotency_key` even when that operation is still `running`. If `genesisd` exits after writing `operation.running` and before writing a terminal event, restart plus retry with the same idempotency key returns the stale running projection, does not re-execute, and does not write a terminal event. The caller cannot tell whether the effect happened, cannot recover the operation, and cannot progress the retry.
+- Expected behavior: stale `running` operations loaded from the append-only ledger must enter an auditable recovery state instead of being treated as completed idempotent results. The minimal acceptable behavior is fail-closed: return a structured stale-operation blocker and record a terminal failure/recovery event without executing the effect again.
+- Verification required: create a ledger containing only an `operation.running` event for `shell.exec`, restart the kernel, and retry `/tools/shell.exec` with the same `session_id + idempotency_key`. The response must not be `200 running`; the file effect must not execute; session projection must show a terminal or recovery-needed operation state; focused tests must cover restart replay and HTTP behavior.
+- Source: Feishu Base record `recvndQ9cGNIqE`.
