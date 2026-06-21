@@ -2,7 +2,7 @@
 
 This file is the repo-owned ledger for active Genesis Kernel issues. Feishu Base is the collaboration inbox; this file is the durable project source for issues that still need code, verification, or user acceptance.
 
-Retired issues must not remain here. Move accepted retirements to `docs/operations/kernel-v2-retirement-log.md` with the fixing commits, verification evidence, residual risks, and retirement reason.
+Retired issues must not remain here. Move accepted retirements to `docs/operations/kernel-retirement-log.md` with the fixing commits, verification evidence, residual risks, and retirement reason.
 
 ## Ledger Rules
 

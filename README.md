@@ -104,7 +104,7 @@ The first recall strategy is intentionally simple text matching. It proves the g
 
 ## Operations Records
 
-- Active kernel issues: `docs/operations/kernel-v2-issues.md`
-- Ready or retired issue evidence: `docs/operations/kernel-v2-retirement-log.md`
+- Active kernel issues: `docs/operations/kernel-issues.md`
+- Ready or retired issue evidence: `docs/operations/kernel-retirement-log.md`
 
 Feishu Base remains a collaboration inbox. The repo records above are the durable project source for active issues, acceptance evidence, and retirement decisions.

@@ -1,13 +1,13 @@
 # Kernel Retirement Log
 
-This file records Genesis Kernel issues that are ready for acceptance or retired. It is the repo-owned companion to `docs/operations/kernel-v2-issues.md`.
+This file records Genesis Kernel issues that are ready for acceptance or retired. It is the repo-owned companion to `docs/operations/kernel-issues.md`.
 
 ## Retirement Rules
 
 - `ready_for_acceptance` means the code and verification evidence are ready for user or operator acceptance, but the issue is not fully retired yet.
-- `retired` means the user or operator accepted the evidence. A retired issue must be absent from `kernel-v2-issues.md`.
+- `retired` means the user or operator accepted the evidence. A retired issue must be absent from `kernel-issues.md`.
 - Every entry must include the issue id, title, fixing commits, verification evidence, residual risk, and retirement reason or retirement condition.
-- If an entry is reopened, move it back to `kernel-v2-issues.md` and mark this log entry as reopened with the reason.
+- If an entry is reopened, move it back to `kernel-issues.md` and mark this log entry as reopened with the reason.
 
 ## Ready For Acceptance
 
@@ -102,11 +102,11 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 ### recvndyUquaZ5z - P1 - Repo issue and retirement record sync
 
 - Status: ready_for_acceptance.
-- Fix commit: `fed9d405a`.
-- Evidence: active issue ledger exists at `docs/operations/kernel-v2-issues.md`; ready/retirement evidence exists at `docs/operations/kernel-v2-retirement-log.md`; README links both records; `rg` can find current active issue ids and all current `ready_for_acceptance` issue ids under repo docs.
+- Fix commits: `fed9d405a`, `70b55b559`.
+- Evidence: active issue ledger exists at `docs/operations/kernel-issues.md`; ready/retirement evidence exists at `docs/operations/kernel-retirement-log.md`; README links both records; `rg` can find current active issue ids and all current `ready_for_acceptance` issue ids under repo docs.
 - Acceptance condition: reviewer confirms Base `已同步到 repo=true` records have corresponding repo evidence and future retirements leave the active issue ledger.
 - Residual risk: this is a manual governance guard. Future agents must update these docs whenever issue state changes.
 
 ## Retired
 
-No issue has been user-retired in this branch yet. Move accepted entries from `Ready For Acceptance` to this section only after user or operator acceptance, then remove the same issue from `kernel-v2-issues.md`.
+No issue has been user-retired in this branch yet. Move accepted entries from `Ready For Acceptance` to this section only after user or operator acceptance, then remove the same issue from `kernel-issues.md`.
