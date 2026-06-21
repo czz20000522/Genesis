@@ -45,6 +45,7 @@ Minimal HTTP surface:
 - `GET /ready`
 - `POST /turn`
 - `GET /sessions/{id}`
+- `POST /tools/shell.exec`
 
 The phase 1 provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
 
@@ -67,3 +68,13 @@ $env:TEMP\genesisd.exe `
 ```
 
 The provider base URL is configuration, not a kernel route. Include whatever provider-specific prefix the upstream service requires in `-provider-base-url`.
+
+## Tool Runtime
+
+The first kernel tool is `shell.exec`. It is deliberately small:
+
+- `plan` mode blocks commands that look mutating.
+- `default` mode requires a workspace root and runs only from inside that workspace.
+- `yolo` mode is explicit high-trust execution.
+
+Every call records an operation with tool name, permission mode, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.

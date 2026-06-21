@@ -43,9 +43,10 @@ type FinalMessage struct {
 }
 
 type SessionProjection struct {
-	SessionID string            `json:"session_id"`
-	Turns     []TurnProjection  `json:"turns"`
-	Events    []EventProjection `json:"events"`
+	SessionID  string                `json:"session_id"`
+	Turns      []TurnProjection      `json:"turns"`
+	Operations []OperationProjection `json:"operations"`
+	Events     []EventProjection     `json:"events"`
 }
 
 type TurnProjection struct {
@@ -58,31 +59,59 @@ type TurnProjection struct {
 }
 
 type EventProjection struct {
-	EventID   string    `json:"event_id"`
-	TurnID    string    `json:"turn_id"`
-	Type      string    `json:"type"`
-	CreatedAt time.Time `json:"created_at"`
+	EventID     string    `json:"event_id"`
+	TurnID      string    `json:"turn_id"`
+	OperationID string    `json:"operation_id,omitempty"`
+	Type        string    `json:"type"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type ShellExecRequest struct {
+	SessionID      string `json:"session_id"`
+	PermissionMode string `json:"permission_mode"`
+	WorkspaceRoot  string `json:"workspace_root,omitempty"`
+	CWD            string `json:"cwd"`
+	Command        string `json:"command"`
+}
+
+type OperationProjection struct {
+	OperationID    string    `json:"operation_id"`
+	SessionID      string    `json:"session_id"`
+	Tool           string    `json:"tool"`
+	Status         string    `json:"status"`
+	PermissionMode string    `json:"permission_mode"`
+	CWD            string    `json:"cwd"`
+	Command        string    `json:"command"`
+	ExitCode       *int      `json:"exit_code,omitempty"`
+	Stdout         string    `json:"stdout,omitempty"`
+	Stderr         string    `json:"stderr,omitempty"`
+	BlockedReason  string    `json:"blocked_reason,omitempty"`
+	StartedAt      time.Time `json:"started_at"`
+	EndedAt        time.Time `json:"ended_at"`
 }
 
 type Event struct {
-	EventID   string      `json:"event_id"`
-	SessionID string      `json:"session_id"`
-	TurnID    string      `json:"turn_id"`
-	Type      string      `json:"type"`
-	CreatedAt time.Time   `json:"created_at"`
-	Data      interface{} `json:"data"`
+	EventID     string      `json:"event_id"`
+	SessionID   string      `json:"session_id"`
+	TurnID      string      `json:"turn_id"`
+	OperationID string      `json:"operation_id,omitempty"`
+	Type        string      `json:"type"`
+	CreatedAt   time.Time   `json:"created_at"`
+	Data        interface{} `json:"data"`
 }
 
 type StoredEvent struct {
-	EventID   string    `json:"event_id"`
-	SessionID string    `json:"session_id"`
-	TurnID    string    `json:"turn_id"`
-	Type      string    `json:"type"`
-	CreatedAt time.Time `json:"created_at"`
-	Data      EventData `json:"data"`
+	EventID     string    `json:"event_id"`
+	SessionID   string    `json:"session_id"`
+	TurnID      string    `json:"turn_id"`
+	OperationID string    `json:"operation_id,omitempty"`
+	Type        string    `json:"type"`
+	CreatedAt   time.Time `json:"created_at"`
+	Data        EventData `json:"data"`
 }
 
 type EventData struct {
-	InputItems []InputItem  `json:"input_items,omitempty"`
-	Final      FinalMessage `json:"final,omitempty"`
+	InputItems []InputItem          `json:"input_items,omitempty"`
+	Final      *FinalMessage        `json:"final,omitempty"`
+	Operation  *OperationProjection `json:"operation,omitempty"`
 }

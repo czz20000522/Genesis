@@ -89,7 +89,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		Type:      "model.final",
 		CreatedAt: completedAt,
 		Data: EventData{
-			Final: final,
+			Final: &final,
 		},
 	}
 	if err := k.ledger.Append(completed); err != nil {
@@ -117,7 +117,10 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 		return SessionProjection{}, err
 	}
 	projection := SessionProjection{
-		SessionID: sessionID,
+		SessionID:  sessionID,
+		Turns:      []TurnProjection{},
+		Operations: []OperationProjection{},
+		Events:     []EventProjection{},
 	}
 	turnByID := map[string]int{}
 	for _, event := range events {
@@ -125,10 +128,11 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 			continue
 		}
 		projection.Events = append(projection.Events, EventProjection{
-			EventID:   event.EventID,
-			TurnID:    event.TurnID,
-			Type:      event.Type,
-			CreatedAt: event.CreatedAt,
+			EventID:     event.EventID,
+			TurnID:      event.TurnID,
+			OperationID: event.OperationID,
+			Type:        event.Type,
+			CreatedAt:   event.CreatedAt,
 		})
 		switch event.Type {
 		case "turn.submitted":
@@ -145,8 +149,14 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 				continue
 			}
 			projection.Turns[idx].Status = "completed"
-			projection.Turns[idx].FinalMessage = event.Data.Final
+			if event.Data.Final != nil {
+				projection.Turns[idx].FinalMessage = *event.Data.Final
+			}
 			projection.Turns[idx].CompletedAt = event.CreatedAt
+		case "operation.completed", "operation.failed", "operation.blocked":
+			if event.Data.Operation != nil {
+				projection.Operations = append(projection.Operations, *event.Data.Operation)
+			}
 		}
 	}
 	if len(projection.Events) == 0 {
@@ -174,11 +184,12 @@ func validateTurnRequest(req TurnRequest) error {
 
 func toEvent(event StoredEvent) Event {
 	return Event{
-		EventID:   event.EventID,
-		SessionID: event.SessionID,
-		TurnID:    event.TurnID,
-		Type:      event.Type,
-		CreatedAt: event.CreatedAt,
-		Data:      event.Data,
+		EventID:     event.EventID,
+		SessionID:   event.SessionID,
+		TurnID:      event.TurnID,
+		OperationID: event.OperationID,
+		Type:        event.Type,
+		CreatedAt:   event.CreatedAt,
+		Data:        event.Data,
 	}
 }

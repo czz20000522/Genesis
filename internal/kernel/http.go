@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const maxTurnRequestBytes = 1024 * 1024
+const maxRequestBytes = 1024 * 1024
 
 func Handler(k *Kernel) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -18,6 +18,8 @@ func Handler(k *Kernel) http.Handler {
 			writeJSON(w, http.StatusOK, k.Ready())
 		case r.Method == http.MethodPost && r.URL.Path == "/turn":
 			handleSubmitTurn(w, r, k)
+		case r.Method == http.MethodPost && r.URL.Path == "/tools/shell.exec":
+			handleExecShell(w, r, k)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/sessions/"):
 			handleGetSession(w, r, k)
 		default:
@@ -27,17 +29,8 @@ func Handler(k *Kernel) http.Handler {
 }
 
 func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxTurnRequestBytes)
-	defer r.Body.Close()
 	var req TurnRequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid JSON: %s", err.Error()))
-		return
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		writeError(w, http.StatusBadRequest, "invalid_request", "request body contains trailing data")
+	if !decodeRequest(w, r, &req) {
 		return
 	}
 	resp, err := k.SubmitTurn(r.Context(), req)
@@ -50,6 +43,35 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func handleExecShell(w http.ResponseWriter, r *http.Request, k *Kernel) {
+	var req ShellExecRequest
+	if !decodeRequest(w, r, &req) {
+		return
+	}
+	operation, err := k.ExecShell(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, operation)
+}
+
+func decodeRequest(w http.ResponseWriter, r *http.Request, target interface{}) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+	defer r.Body.Close()
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid JSON: %s", err.Error()))
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid_request", "request body contains trailing data")
+		return false
+	}
+	return true
 }
 
 func handleGetSession(w http.ResponseWriter, r *http.Request, k *Kernel) {

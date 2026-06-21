@@ -7,7 +7,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -172,7 +175,7 @@ func TestHTTPRejectsOversizedTurnRequest(t *testing.T) {
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
-	body := bytes.Repeat([]byte(" "), maxTurnRequestBytes+1)
+	body := bytes.Repeat([]byte(" "), maxRequestBytes+1)
 	resp, err := http.Post(server.URL+"/turn", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /turn failed: %v", err)
@@ -180,6 +183,180 @@ func TestHTTPRejectsOversizedTurnRequest(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestExecShellPlanBlocksMutatingCommand(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := t.TempDir()
+	k := newTestKernel(t, ledgerPath)
+
+	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "shell-plan",
+		PermissionMode: PermissionModePlan,
+		CWD:            workspace,
+		Command:        "Set-Content -LiteralPath blocked.txt -Value no",
+	})
+	if err != nil {
+		t.Fatalf("ExecShell returned error: %v", err)
+	}
+	if operation.Status != "blocked" {
+		t.Fatalf("status = %q, want blocked", operation.Status)
+	}
+	if operation.BlockedReason != "blocked_by_permission_mode=plan" {
+		t.Fatalf("blocked reason = %q, want plan blocker", operation.BlockedReason)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "blocked.txt")); !os.IsNotExist(err) {
+		t.Fatalf("blocked command wrote file, stat err = %v", err)
+	}
+}
+
+func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := t.TempDir()
+	k := newTestKernel(t, ledgerPath)
+
+	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "shell-default",
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+		CWD:            workspace,
+		Command:        writeFileCommand("output.txt", "ok"),
+	})
+	if err != nil {
+		t.Fatalf("ExecShell returned error: %v", err)
+	}
+	if operation.Status != "completed" {
+		t.Fatalf("status = %q, want completed; stderr=%q", operation.Status, operation.Stderr)
+	}
+	if operation.ExitCode == nil || *operation.ExitCode != 0 {
+		t.Fatalf("exit code = %v, want 0", operation.ExitCode)
+	}
+	content, err := os.ReadFile(filepath.Join(workspace, "output.txt"))
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if string(content) != "ok" {
+		t.Fatalf("output file = %q, want ok", string(content))
+	}
+
+	restarted := newTestKernel(t, ledgerPath)
+	projection, err := restarted.Session("shell-default")
+	if err != nil {
+		t.Fatalf("Session after restart returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 {
+		t.Fatalf("len(Operations) = %d, want 1", len(projection.Operations))
+	}
+	if projection.Operations[0].OperationID != operation.OperationID {
+		t.Fatalf("operation id = %q, want %q", projection.Operations[0].OperationID, operation.OperationID)
+	}
+	if len(projection.Events) != 1 || projection.Events[0].OperationID != operation.OperationID {
+		t.Fatalf("events = %+v, want operation event", projection.Events)
+	}
+}
+
+func TestExecShellDefaultBlocksOutsideWorkspace(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("mkdir outside: %v", err)
+	}
+	k := newTestKernel(t, ledgerPath)
+
+	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "shell-outside",
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+		CWD:            outside,
+		Command:        echoCommand("hello"),
+	})
+	if err != nil {
+		t.Fatalf("ExecShell returned error: %v", err)
+	}
+	if operation.Status != "blocked" {
+		t.Fatalf("status = %q, want blocked", operation.Status)
+	}
+	if operation.BlockedReason != "cwd_outside_workspace" {
+		t.Fatalf("blocked reason = %q, want cwd_outside_workspace", operation.BlockedReason)
+	}
+}
+
+func TestHTTPShellExecAndSessionProjection(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := t.TempDir()
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	payload, err := json.Marshal(ShellExecRequest{
+		SessionID:      "http-shell",
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+		CWD:            workspace,
+		Command:        echoCommand("hello"),
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	resp, err := http.Post(server.URL+"/tools/shell.exec", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("POST /tools/shell.exec failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var operation OperationProjection
+	if err := json.NewDecoder(resp.Body).Decode(&operation); err != nil {
+		t.Fatalf("decode shell response: %v", err)
+	}
+	if operation.Status != "completed" {
+		t.Fatalf("status = %q, want completed; stderr=%q", operation.Status, operation.Stderr)
+	}
+	if !strings.Contains(operation.Stdout, "hello") {
+		t.Fatalf("stdout = %q, want hello", operation.Stdout)
+	}
+
+	sessionResp, err := http.Get(server.URL + "/sessions/http-shell")
+	if err != nil {
+		t.Fatalf("GET /sessions failed: %v", err)
+	}
+	defer sessionResp.Body.Close()
+	if sessionResp.StatusCode != http.StatusOK {
+		t.Fatalf("session status = %d, want 200", sessionResp.StatusCode)
+	}
+	var projection SessionProjection
+	if err := json.NewDecoder(sessionResp.Body).Decode(&projection); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+	if len(projection.Operations) != 1 {
+		t.Fatalf("len(Operations) = %d, want 1", len(projection.Operations))
+	}
+}
+
+func TestHTTPRejectsUnknownShellFields(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	body := []byte(`{"session_id":"bad-shell","permission_mode":"default","cwd":".","command":"echo hello","unexpected":true}`)
+	resp, err := http.Post(server.URL+"/tools/shell.exec", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /tools/shell.exec failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	if _, err := k.Session("bad-shell"); err != ErrSessionNotFound {
+		t.Fatalf("Session error = %v, want ErrSessionNotFound", err)
 	}
 }
 
@@ -296,4 +473,18 @@ func newTestKernel(t *testing.T, ledgerPath string) *Kernel {
 		t.Fatalf("New returned error: %v", err)
 	}
 	return k
+}
+
+func writeFileCommand(filename string, value string) string {
+	if runtime.GOOS == "windows" {
+		return "Set-Content -LiteralPath " + filename + " -Value " + value + " -NoNewline"
+	}
+	return "printf " + value + " > " + filename
+}
+
+func echoCommand(value string) string {
+	if runtime.GOOS == "windows" {
+		return "Write-Output " + value
+	}
+	return "printf " + value
 }
