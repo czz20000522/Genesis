@@ -34,9 +34,14 @@ func New(config Config) (*Kernel, error) {
 }
 
 func (k *Kernel) Ready() ReadyResponse {
+	providerStatus := k.provider.Ready()
+	status := "ok"
+	if providerStatus.Status != "ok" {
+		status = "blocked"
+	}
 	return ReadyResponse{
-		Status:     "ok",
-		Provider:   k.provider.Name(),
+		Status:     status,
+		Provider:   providerStatus,
 		LedgerPath: k.ledger.Path(),
 	}
 }

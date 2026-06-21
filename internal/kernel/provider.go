@@ -8,6 +8,7 @@ import (
 
 type Provider interface {
 	Name() string
+	Ready() ProviderStatus
 	Complete(ctx context.Context, req ModelRequest) (ModelResponse, error)
 }
 
@@ -26,6 +27,13 @@ type FakeProvider struct{}
 
 func (FakeProvider) Name() string {
 	return "fake"
+}
+
+func (p FakeProvider) Ready() ProviderStatus {
+	return ProviderStatus{
+		Name:   p.Name(),
+		Status: "ok",
+	}
 }
 
 func (FakeProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {

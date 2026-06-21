@@ -41,6 +41,10 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	resp, err := k.SubmitTurn(r.Context(), req)
+	if errors.Is(err, ErrProviderUnavailable) {
+		writeError(w, http.StatusServiceUnavailable, "provider_unavailable", err.Error())
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return

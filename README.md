@@ -47,3 +47,23 @@ Minimal HTTP surface:
 - `GET /sessions/{id}`
 
 The phase 1 provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
+
+## Provider Configuration
+
+`genesisd` defaults to the fake provider:
+
+```powershell
+$env:TEMP\genesisd.exe -provider fake
+```
+
+An OpenAI-compatible provider can be selected without changing kernel code:
+
+```powershell
+$env:TEMP\genesisd.exe `
+  -provider openai-compatible `
+  -provider-base-url https://provider.example.com/api `
+  -provider-model example-model `
+  -provider-api-key-env GENESIS_PROVIDER_API_KEY
+```
+
+The provider base URL is configuration, not a kernel route. Include whatever provider-specific prefix the upstream service requires in `-provider-base-url`.
