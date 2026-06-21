@@ -107,6 +107,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: reviewer confirms Base `已同步到 repo=true` records have corresponding repo evidence and future retirements leave the active issue ledger.
 - Residual risk: this is a manual governance guard. Future agents must update these docs whenever issue state changes.
 
+### recvndAOsH7nn4 - P0 - Ledger unavailable must block readiness
+
+- Status: ready_for_acceptance.
+- Fix commit: `35c2111c0`.
+- Evidence: `go test ./...` passed; build passed; `TestReadyBlocksWhenLedgerUnwritable` and `TestHTTPLedgerUnavailableBlocksReadyAndTurn` prove an unwritable ledger makes `/ready.status=blocked` with `ledger.reason=ledger_unwritable`, and `POST /turn` returns 503 `ledger_unwritable` rather than 400 `invalid_request`.
+- Acceptance condition: reviewer confirms required persistence planes participate in readiness aggregation and persistence failure is not classified as caller input error.
+- Residual risk: the current check proves the ledger path can be created/opened for append. It does not implement long-term disk-full prediction, ledger compaction, or malformed-ledger recovery.
+
 ## Retired
 
 No issue has been user-retired in this branch yet. Move accepted entries from `Ready For Acceptance` to this section only after user or operator acceptance, then remove the same issue from `kernel-issues.md`.
