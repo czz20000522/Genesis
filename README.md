@@ -28,6 +28,13 @@ External applications are user-space programs. The kernel may receive events fro
 
 Kernel HTTP routes stay unversioned. The durable contract is the task/tool schema and ledger evidence, not a numbered path prefix.
 
+## Behavior Specs
+
+BDD acceptance specs live under `features/`. They describe expected kernel
+behavior in reviewable Gherkin scenarios before those expectations are wired to
+step definitions. Future automation should drive public kernel commands and
+projections, not private helpers or UI copy.
+
 ## Initial Kernel Spike
 
 Build the first runnable kernel binary:
