@@ -25,14 +25,16 @@ The first implementation must prove the kernel loop before adding shells or appl
 - A provider failure returns a structured degraded result, not a panic.
 - Duplicate turn idempotency keys do not call the provider or execute model-requested tools twice.
 - Duplicate tool idempotency keys do not execute effects twice.
-- Unsupported model-requested tools are rejected before any effect executes.
+- Unsupported or malformed model-requested tools produce repair feedback before any effect executes when a valid `tool_call_id` is available.
 - Missing or malformed external skill metadata does not block turn submission.
-- Unknown skill reads and path-shaped skill read arguments are rejected before any effect executes.
+- Unknown skill reads and path-shaped skill read arguments produce repair feedback before any effect executes.
 - Capability inspection does not expose skill paths, skill bodies, provider credentials, or app-specific outbound APIs.
 
 ## Current Tool Loop Proof
 
 The initial tool loop is deliberately narrow. OpenAI-compatible providers receive canonical `shell.exec` and `skill.read` descriptors. If the provider returns a `shell.exec` tool call, Genesis executes it through the existing Tool System, writes turn-scoped operation events to the ledger, and returns the redacted operation projection to the provider as tool evidence. If the provider returns a `skill.read` tool call, Genesis reads only the configured catalog entry by skill name and returns a bounded redacted instruction envelope as tool evidence. The provider then returns the final assistant text.
+
+The kernel distinguishes invalid tool requests, policy blocks, command exits, and infrastructure failures. Invalid model tool arguments are returned as `tool_request_invalid` repair feedback when possible. Permission denials return `operation.blocked` without execution. Nonzero command exits return `operation.failed` with exit code and bounded stdout/stderr. Kernel or tool runtime failures return `tool_infrastructure_failed` and are not disguised as command stderr.
 
 This proves the kernel loop without making any external application part of the kernel. Future Feishu, email, calendar, or document actions remain external skills and CLIs; Genesis only supplies the governed tool execution path.
 

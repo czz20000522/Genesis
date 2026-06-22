@@ -170,9 +170,6 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			}
 			return TurnResponse{}, errors.New("model tool loop exceeded the maximum number of rounds")
 		}
-		if err := k.appendModelToolCallEvent(sessionID, turnID, modelResp.ToolCalls); err != nil {
-			return TurnResponse{}, err
-		}
 		preparedCalls, err := k.prepareModelToolCalls(modelResp.ToolCalls)
 		if err != nil {
 			failure := TurnError{
@@ -184,12 +181,19 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			}
 			return TurnResponse{}, err
 		}
+		if err := k.appendModelToolCallEvent(sessionID, turnID, modelResp.ToolCalls); err != nil {
+			return TurnResponse{}, err
+		}
 		round := ModelToolRound{Calls: modelResp.ToolCalls}
 		for _, call := range preparedCalls {
 			result, err := k.executePreparedModelToolCall(ctx, sessionID, turnID, call)
 			if err != nil {
+				code := "tool_call_rejected"
+				if errors.Is(err, ErrToolInfrastructureFailed) {
+					code = "tool_infrastructure_failed"
+				}
 				failure := TurnError{
-					Code:    "tool_call_rejected",
+					Code:    code,
 					Message: err.Error(),
 				}
 				if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
@@ -293,7 +297,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 				projection.Turns[idx].Error = event.Data.TurnError
 			}
 			projection.Turns[idx].CompletedAt = event.CreatedAt
-		case "operation.running", "operation.completed", "operation.failed", "operation.blocked":
+		case "operation.running", "operation.completed", "operation.failed", "operation.blocked", "operation.tool_infrastructure_failed":
 			if event.Data.Operation != nil {
 				operation := *event.Data.Operation
 				replaced := false

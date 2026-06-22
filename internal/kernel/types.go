@@ -81,6 +81,18 @@ type ModelToolResult struct {
 	Content    string `json:"content"`
 }
 
+type ToolRequestInvalidProjection struct {
+	Status   string           `json:"status"`
+	Tool     string           `json:"tool"`
+	Executed bool             `json:"executed"`
+	Error    ToolRequestError `json:"error"`
+}
+
+type ToolRequestError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 type SkillDescriptor struct {
 	Name            string `json:"name"`
 	Description     string `json:"description"`
@@ -186,21 +198,49 @@ type ShellExecRequest struct {
 }
 
 type OperationProjection struct {
-	OperationID    string    `json:"operation_id"`
-	SessionID      string    `json:"session_id"`
-	TurnID         string    `json:"turn_id,omitempty"`
-	Tool           string    `json:"tool"`
-	IdempotencyKey string    `json:"idempotency_key,omitempty"`
-	Status         string    `json:"status"`
-	PermissionMode string    `json:"permission_mode"`
-	CWD            string    `json:"cwd"`
-	Command        string    `json:"command"`
-	ExitCode       *int      `json:"exit_code,omitempty"`
-	Stdout         string    `json:"stdout,omitempty"`
-	Stderr         string    `json:"stderr,omitempty"`
-	BlockedReason  string    `json:"blocked_reason,omitempty"`
-	StartedAt      time.Time `json:"started_at"`
-	EndedAt        time.Time `json:"ended_at"`
+	OperationID          string    `json:"operation_id"`
+	SessionID            string    `json:"session_id"`
+	TurnID               string    `json:"turn_id,omitempty"`
+	Tool                 string    `json:"tool"`
+	IdempotencyKey       string    `json:"idempotency_key,omitempty"`
+	Status               string    `json:"status"`
+	PermissionMode       string    `json:"permission_mode"`
+	CWD                  string    `json:"cwd"`
+	Command              string    `json:"command"`
+	ExitCode             *int      `json:"exit_code,omitempty"`
+	Stdout               string    `json:"stdout,omitempty"`
+	Stderr               string    `json:"stderr,omitempty"`
+	StdoutTruncated      bool      `json:"stdout_truncated,omitempty"`
+	StderrTruncated      bool      `json:"stderr_truncated,omitempty"`
+	StdoutOriginalBytes  int       `json:"stdout_original_bytes,omitempty"`
+	StderrOriginalBytes  int       `json:"stderr_original_bytes,omitempty"`
+	StdoutOmittedBytes   int       `json:"stdout_omitted_bytes,omitempty"`
+	StderrOmittedBytes   int       `json:"stderr_omitted_bytes,omitempty"`
+	OutputTruncation     string    `json:"output_truncation,omitempty"`
+	BlockedReason        string    `json:"blocked_reason,omitempty"`
+	InfrastructureReason string    `json:"infrastructure_reason,omitempty"`
+	StartedAt            time.Time `json:"started_at"`
+	EndedAt              time.Time `json:"ended_at"`
+}
+
+type ModelOperationResult struct {
+	Tool                 string `json:"tool"`
+	Status               string `json:"status"`
+	PermissionMode       string `json:"permission_mode"`
+	CWD                  string `json:"cwd"`
+	Command              string `json:"command"`
+	ExitCode             *int   `json:"exit_code,omitempty"`
+	Stdout               string `json:"stdout,omitempty"`
+	Stderr               string `json:"stderr,omitempty"`
+	StdoutTruncated      bool   `json:"stdout_truncated,omitempty"`
+	StderrTruncated      bool   `json:"stderr_truncated,omitempty"`
+	StdoutOriginalBytes  int    `json:"stdout_original_bytes,omitempty"`
+	StderrOriginalBytes  int    `json:"stderr_original_bytes,omitempty"`
+	StdoutOmittedBytes   int    `json:"stdout_omitted_bytes,omitempty"`
+	StderrOmittedBytes   int    `json:"stderr_omitted_bytes,omitempty"`
+	OutputTruncation     string `json:"output_truncation,omitempty"`
+	BlockedReason        string `json:"blocked_reason,omitempty"`
+	InfrastructureReason string `json:"infrastructure_reason,omitempty"`
 }
 
 type WorkSubmitRequest struct {

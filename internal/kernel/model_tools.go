@@ -13,6 +13,7 @@ import (
 const maxModelToolRounds = 4
 
 var ErrModelToolCallRejected = errors.New("model tool call rejected")
+var ErrToolInfrastructureFailed = errors.New("tool infrastructure failed")
 
 func (k *Kernel) modelToolDescriptors() []ModelToolDescriptor {
 	return []ModelToolDescriptor{
@@ -74,20 +75,38 @@ type skillReadToolArguments struct {
 }
 
 type preparedModelToolCall struct {
-	callID    string
-	name      string
-	shellExec *shellExecToolArguments
-	skillRead *SkillReadProjection
+	callID         string
+	name           string
+	requestInvalid *ToolRequestInvalidProjection
+	shellExec      *shellExecToolArguments
+	skillRead      *SkillReadProjection
 }
 
 func (k *Kernel) prepareModelToolCalls(calls []ModelToolCall) ([]preparedModelToolCall, error) {
 	prepared := make([]preparedModelToolCall, 0, len(calls))
+	hasInvalidRequest := false
 	for _, call := range calls {
 		item, err := k.prepareModelToolCall(call)
 		if err != nil {
 			return nil, err
 		}
+		if item.requestInvalid != nil {
+			hasInvalidRequest = true
+		}
 		prepared = append(prepared, item)
+	}
+	if hasInvalidRequest {
+		for i := range prepared {
+			if prepared[i].requestInvalid != nil {
+				continue
+			}
+			prepared[i] = invalidPreparedModelToolCall(
+				prepared[i].callID,
+				prepared[i].name,
+				"tool_batch_not_executed",
+				"tool batch was not executed because at least one tool request was invalid",
+			)
+		}
 	}
 	return prepared, nil
 }
@@ -107,14 +126,14 @@ func (k *Kernel) prepareModelToolCall(call ModelToolCall) (preparedModelToolCall
 	case "skill.read":
 		return k.prepareSkillReadToolCall(callID, name, call.Arguments)
 	default:
-		return preparedModelToolCall{}, fmt.Errorf("%w: unsupported tool %q", ErrModelToolCallRejected, call.Name)
+		return invalidPreparedModelToolCall(callID, name, "unsupported_tool", fmt.Sprintf("unsupported tool %q", call.Name)), nil
 	}
 }
 
 func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 	var args shellExecToolArguments
 	if err := decodeStrictModelToolArguments("shell.exec", arguments, &args); err != nil {
-		return preparedModelToolCall{}, err
+		return invalidPreparedModelToolCall(callID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
 	}
 	args.CWD = strings.TrimSpace(args.CWD)
 	if args.CWD == "" {
@@ -126,7 +145,7 @@ func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments 
 		Command:        args.Command,
 		IdempotencyKey: callID,
 	}); err != nil {
-		return preparedModelToolCall{}, fmt.Errorf("%w: invalid shell.exec request: %v", ErrModelToolCallRejected, err)
+		return invalidPreparedModelToolCall(callID, name, "invalid_shell_exec_request", fmt.Sprintf("invalid shell.exec request: %v", err)), nil
 	}
 	return preparedModelToolCall{
 		callID:    callID,
@@ -138,24 +157,24 @@ func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments 
 func (k *Kernel) prepareSkillReadToolCall(callID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 	var args skillReadToolArguments
 	if err := decodeStrictModelToolArguments("skill.read", arguments, &args); err != nil {
-		return preparedModelToolCall{}, err
+		return invalidPreparedModelToolCall(callID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
 	}
 	args.Name = strings.TrimSpace(args.Name)
 	if args.Name == "" {
-		return preparedModelToolCall{}, fmt.Errorf("%w: skill.read name is required", ErrModelToolCallRejected)
+		return invalidPreparedModelToolCall(callID, name, "invalid_skill_read_request", "skill.read name is required"), nil
 	}
 	if hasInvisibleControlMarker(args.Name) {
-		return preparedModelToolCall{}, fmt.Errorf("%w: skill.read name contains invisible control markers", ErrModelToolCallRejected)
+		return invalidPreparedModelToolCall(callID, name, "invalid_skill_read_request", "skill.read name contains invisible control markers"), nil
 	}
 	if err := validateKernelTextNotSecret("skill.read name", args.Name); err != nil {
-		return preparedModelToolCall{}, fmt.Errorf("%w: %v", ErrModelToolCallRejected, err)
+		return invalidPreparedModelToolCall(callID, name, "invalid_skill_read_request", err.Error()), nil
 	}
 	if _, ok := k.skillDescriptorByName(args.Name); !ok {
-		return preparedModelToolCall{}, fmt.Errorf("%w: unknown skill %q", ErrModelToolCallRejected, args.Name)
+		return invalidPreparedModelToolCall(callID, name, "unknown_skill", fmt.Sprintf("unknown skill %q", args.Name)), nil
 	}
 	projection, err := k.readSkillInstruction(args.Name)
 	if err != nil {
-		return preparedModelToolCall{}, fmt.Errorf("%w: skill.read failed: %v", ErrModelToolCallRejected, err)
+		return invalidPreparedModelToolCall(callID, name, "skill_read_unavailable", "skill.read failed: skill instruction unavailable"), nil
 	}
 	return preparedModelToolCall{
 		callID:    callID,
@@ -180,6 +199,17 @@ func decodeStrictModelToolArguments(tool string, arguments json.RawMessage, targ
 }
 
 func (k *Kernel) executePreparedModelToolCall(ctx context.Context, sessionID string, turnID string, prepared preparedModelToolCall) (ModelToolResult, error) {
+	if prepared.requestInvalid != nil {
+		content, err := json.Marshal(prepared.requestInvalid)
+		if err != nil {
+			return ModelToolResult{}, err
+		}
+		return ModelToolResult{
+			ToolCallID: prepared.callID,
+			Name:       prepared.name,
+			Content:    string(content),
+		}, nil
+	}
 	if prepared.skillRead != nil {
 		content, err := json.Marshal(prepared.skillRead)
 		if err != nil {
@@ -201,9 +231,9 @@ func (k *Kernel) executePreparedModelToolCall(ctx context.Context, sessionID str
 		IdempotencyKey: prepared.callID,
 	}, turnID)
 	if err != nil {
-		return ModelToolResult{}, err
+		return ModelToolResult{}, fmt.Errorf("%w: %w", ErrToolInfrastructureFailed, err)
 	}
-	content, err := json.Marshal(operation)
+	content, err := json.Marshal(modelOperationResult(operation))
 	if err != nil {
 		return ModelToolResult{}, err
 	}
@@ -212,4 +242,52 @@ func (k *Kernel) executePreparedModelToolCall(ctx context.Context, sessionID str
 		Name:       prepared.name,
 		Content:    string(content),
 	}, nil
+}
+
+func modelOperationResult(operation OperationProjection) ModelOperationResult {
+	return ModelOperationResult{
+		Tool:                 operation.Tool,
+		Status:               operation.Status,
+		PermissionMode:       operation.PermissionMode,
+		CWD:                  operation.CWD,
+		Command:              operation.Command,
+		ExitCode:             operation.ExitCode,
+		Stdout:               operation.Stdout,
+		Stderr:               operation.Stderr,
+		StdoutTruncated:      operation.StdoutTruncated,
+		StderrTruncated:      operation.StderrTruncated,
+		StdoutOriginalBytes:  operation.StdoutOriginalBytes,
+		StderrOriginalBytes:  operation.StderrOriginalBytes,
+		StdoutOmittedBytes:   operation.StdoutOmittedBytes,
+		StderrOmittedBytes:   operation.StderrOmittedBytes,
+		OutputTruncation:     operation.OutputTruncation,
+		BlockedReason:        operation.BlockedReason,
+		InfrastructureReason: operation.InfrastructureReason,
+	}
+}
+
+func invalidPreparedModelToolCall(callID string, name string, code string, message string) preparedModelToolCall {
+	tool := strings.TrimSpace(name)
+	if tool == "" {
+		tool = "unknown"
+	}
+	return preparedModelToolCall{
+		callID: callID,
+		name:   tool,
+		requestInvalid: &ToolRequestInvalidProjection{
+			Status:   "tool_request_invalid",
+			Tool:     tool,
+			Executed: false,
+			Error: ToolRequestError{
+				Code:    code,
+				Message: redactEvidenceText(strings.TrimSpace(message)),
+			},
+		},
+	}
+}
+
+func toolRequestInvalidMessage(err error) string {
+	message := err.Error()
+	prefix := ErrModelToolCallRejected.Error() + ": "
+	return strings.TrimPrefix(message, prefix)
 }

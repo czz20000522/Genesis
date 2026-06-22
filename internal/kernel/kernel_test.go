@@ -3508,15 +3508,325 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	}
 }
 
-func TestSubmitTurnRejectsUnsupportedModelToolCall(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
+	workspace := t.TempDir()
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{
+				ToolCallID: "call_missing_command",
+				Name:       "shell.exec",
+				Arguments:  json.RawMessage(`{"cwd":"` + filepath.ToSlash(workspace) + `"}`),
+			},
+		},
+		final: "repair feedback received",
+	}
 	k, err := New(Config{
-		LedgerPath: ledgerPath,
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "invalid-shell-arguments",
+		InputItems: []InputItem{{Type: "text", Text: "try malformed shell call"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "repair feedback received" {
+		t.Fatalf("final text = %q, want repair feedback received", resp.Final.Text)
+	}
+	requests := provider.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("provider requests = %d, want tool repair round", len(requests))
+	}
+	rounds := requests[1].ToolRounds
+	if len(rounds) != 1 || len(rounds[0].Results) != 1 {
+		t.Fatalf("tool rounds = %+v, want one repair result", rounds)
+	}
+	result := rounds[0].Results[0]
+	if result.ToolCallID != "call_missing_command" || result.Name != "shell.exec" {
+		t.Fatalf("tool result = %+v, want shell repair result for call_missing_command", result)
+	}
+	payload := decodeJSONMap(t, result.Content)
+	if payload["status"] != "tool_request_invalid" || payload["tool"] != "shell.exec" || payload["executed"] != false {
+		t.Fatalf("repair payload = %+v, want non-executed tool_request_invalid", payload)
+	}
+	if _, ok := payload["tool_call_id"]; ok {
+		t.Fatalf("repair payload = %+v, must not duplicate tool_call_id inside model-visible content", payload)
+	}
+	errorPayload, ok := payload["error"].(map[string]interface{})
+	if !ok || errorPayload["code"] != "invalid_shell_exec_request" {
+		t.Fatalf("repair error = %+v, want invalid_shell_exec_request", payload["error"])
+	}
+	projection, err := k.Session("invalid-shell-arguments")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want no shell effect for invalid request", projection.Operations)
+	}
+}
+
+func TestSubmitTurnRejectsInvalidToolCallIDBeforeToolCallEvent(t *testing.T) {
+	k, err := New(Config{
+		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
 		Provider: singleToolCallProvider{call: ModelToolCall{
-			ToolCallID: "call_email",
-			Name:       "email.send",
-			Arguments:  json.RawMessage(`{"to":"someone@example.com"}`),
+			ToolCallID: "bad tool call id",
+			Name:       "shell.exec",
+			Arguments:  json.RawMessage(`{"command":"Write-Output hello"}`),
 		}},
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  t.TempDir(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "invalid-tool-call-id",
+		InputItems: []InputItem{{Type: "text", Text: "try invalid tool call id"}},
+	})
+	if !errors.Is(err, ErrModelToolCallRejected) {
+		t.Fatalf("SubmitTurn error = %v, want ErrModelToolCallRejected", err)
+	}
+	projection, err := k.Session("invalid-tool-call-id")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	var eventTypes []string
+	for _, event := range projection.Events {
+		eventTypes = append(eventTypes, event.Type)
+	}
+	wantTypes := []string{"turn.submitted", "turn.failed"}
+	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Fatalf("event types = %v, want %v", eventTypes, wantTypes)
+	}
+}
+
+func TestSubmitTurnFeedsNonZeroShellExitToModel(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": failingShellCommand(),
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_failing_command", Name: "shell.exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "command failure observed",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "nonzero-shell-exit",
+		InputItems: []InputItem{{Type: "text", Text: "run a failing command"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "command failure observed" {
+		t.Fatalf("final text = %q, want command failure observed", resp.Final.Text)
+	}
+	requests := provider.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("provider requests = %d, want tool result round", len(requests))
+	}
+	result := requests[1].ToolRounds[0].Results[0]
+	var operation OperationProjection
+	if err := json.Unmarshal([]byte(result.Content), &operation); err != nil {
+		t.Fatalf("decode operation result: %v; content=%s", err, result.Content)
+	}
+	if operation.Status != "failed" {
+		t.Fatalf("operation status = %q, want failed", operation.Status)
+	}
+	if operation.ExitCode == nil || *operation.ExitCode != 7 {
+		t.Fatalf("exit code = %v, want 7", operation.ExitCode)
+	}
+	if !strings.Contains(operation.Stderr, "GENESIS_TOOL_COMMAND_FAILURE") {
+		t.Fatalf("stderr = %q, want command failure marker", operation.Stderr)
+	}
+	payload := decodeJSONMap(t, result.Content)
+	for _, forbidden := range []string{"operation_id", "session_id", "turn_id", "idempotency_key", "started_at", "ended_at"} {
+		if _, ok := payload[forbidden]; ok {
+			t.Fatalf("tool result payload = %+v, must not expose control-plane field %q", payload, forbidden)
+		}
+	}
+}
+
+func TestExecShellReportsHeadTailTruncationMetadata(t *testing.T) {
+	workspace := t.TempDir()
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "head-tail-truncation",
+		CWD:            workspace,
+		Command:        longStdoutStderrCommand(),
+		IdempotencyKey: "call_head_tail_truncation",
+	})
+	if err != nil {
+		t.Fatalf("ExecShell returned error: %v", err)
+	}
+	if operation.Status != "completed" {
+		t.Fatalf("operation status = %q, want completed; stderr=%q", operation.Status, operation.Stderr)
+	}
+	payload := operationJSONMap(t, operation)
+	assertBoolMapValue(t, payload, "stdout_truncated", true)
+	assertBoolMapValue(t, payload, "stderr_truncated", true)
+	assertStringMapValue(t, payload, "output_truncation", "head_tail")
+	if len([]byte(operation.Stdout)) > maxShellOutputBytes {
+		t.Fatalf("stdout bytes = %d, want <= %d", len([]byte(operation.Stdout)), maxShellOutputBytes)
+	}
+	if len([]byte(operation.Stderr)) > maxShellOutputBytes {
+		t.Fatalf("stderr bytes = %d, want <= %d", len([]byte(operation.Stderr)), maxShellOutputBytes)
+	}
+	if !strings.Contains(operation.Stdout, "GENESIS_STDOUT_HEAD") || !strings.Contains(operation.Stdout, "GENESIS_STDOUT_TAIL") {
+		t.Fatalf("stdout = %q, want head and tail markers", operation.Stdout)
+	}
+	if !strings.Contains(operation.Stderr, "GENESIS_STDERR_HEAD") || !strings.Contains(operation.Stderr, "GENESIS_STDERR_TAIL") {
+		t.Fatalf("stderr = %q, want head and tail markers", operation.Stderr)
+	}
+	assertMapNumberGreaterThan(t, payload, "stdout_original_bytes", len([]byte(operation.Stdout)))
+	assertMapNumberGreaterThan(t, payload, "stderr_original_bytes", len([]byte(operation.Stderr)))
+	assertMapNumberGreaterThan(t, payload, "stdout_omitted_bytes", 0)
+	assertMapNumberGreaterThan(t, payload, "stderr_omitted_bytes", 0)
+}
+
+func TestExecShellControlledReadFailureDoesNotExposeAbsolutePath(t *testing.T) {
+	workspace := t.TempDir()
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID:      "controlled-read-failure",
+		CWD:            workspace,
+		Command:        readMissingFileCommand("missing.txt"),
+		IdempotencyKey: "controlled-read-failure",
+	})
+	if err != nil {
+		t.Fatalf("ExecShell returned error: %v", err)
+	}
+	if operation.Status != "failed" {
+		t.Fatalf("operation status = %q, want failed", operation.Status)
+	}
+	if operation.Stderr == "" {
+		t.Fatal("stderr is empty, want bounded command failure")
+	}
+	for _, forbidden := range pathLeakVariants(workspace) {
+		if strings.Contains(operation.Stderr, forbidden) {
+			t.Fatalf("stderr = %q, must not expose workspace path %q", operation.Stderr, forbidden)
+		}
+	}
+}
+
+func TestSubmitTurnReportsToolInfrastructureFailureSeparately(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": echoCommand("hello"),
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	k, err := New(Config{
+		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider: &toolFeedbackProvider{
+			calls: []ModelToolCall{
+				{ToolCallID: "call_infra_failure", Name: "shell.exec", Arguments: json.RawMessage(arguments)},
+			},
+			final: "should not be reached",
+		},
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	k.ledger = &failOnOperationLedger{}
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "tool-infrastructure-failure",
+		InputItems: []InputItem{{Type: "text", Text: "run shell through failing ledger"}},
+	})
+	if err == nil {
+		t.Fatal("SubmitTurn returned nil error for tool infrastructure failure")
+	}
+	projection, err := k.Session("tool-infrastructure-failure")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want no command failure projection for infrastructure failure", projection.Operations)
+	}
+	if len(projection.Turns) != 1 || projection.Turns[0].Error == nil {
+		t.Fatalf("turns = %+v, want failed turn with tool infrastructure error", projection.Turns)
+	}
+	if projection.Turns[0].Error.Code != "tool_infrastructure_failed" {
+		t.Fatalf("turn error = %+v, want tool_infrastructure_failed", projection.Turns[0].Error)
+	}
+}
+
+func TestSubmitTurnReturnsRepairFeedbackForUnsupportedModelToolCall(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{
+				ToolCallID: "call_email",
+				Name:       "email.send",
+				Arguments:  json.RawMessage(`{"to":"someone@example.com"}`),
+			},
+		},
+		final: "unsupported tool repair received",
+	}
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeDefault,
@@ -3530,12 +3840,20 @@ func TestSubmitTurnRejectsUnsupportedModelToolCall(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
 		SessionID:  "unsupported-tool-call",
 		InputItems: []InputItem{{Type: "text", Text: "send email"}},
 	})
-	if !errors.Is(err, ErrModelToolCallRejected) {
-		t.Fatalf("SubmitTurn error = %v, want ErrModelToolCallRejected", err)
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "unsupported tool repair received" {
+		t.Fatalf("final text = %q, want unsupported tool repair received", resp.Final.Text)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	errorPayload := payload["error"].(map[string]interface{})
+	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "unsupported_tool" {
+		t.Fatalf("repair payload = %+v, want unsupported_tool", payload)
 	}
 	projection, err := k.Session("unsupported-tool-call")
 	if err != nil {
@@ -3544,23 +3862,20 @@ func TestSubmitTurnRejectsUnsupportedModelToolCall(t *testing.T) {
 	if len(projection.Operations) != 0 {
 		t.Fatalf("operations = %+v, want no executed effects", projection.Operations)
 	}
-	if len(projection.Turns) != 1 || projection.Turns[0].Status != "failed" {
-		t.Fatalf("turns = %+v, want one failed turn", projection.Turns)
-	}
-	if projection.Turns[0].Error == nil || projection.Turns[0].Error.Code != "tool_call_rejected" {
-		t.Fatalf("turn error = %+v, want tool_call_rejected", projection.Turns[0].Error)
+	if len(projection.Turns) != 1 || projection.Turns[0].Status != "completed" {
+		t.Fatalf("turns = %+v, want one completed turn after repair feedback", projection.Turns)
 	}
 	eventTypes := make([]string, 0, len(projection.Events))
 	for _, event := range projection.Events {
 		eventTypes = append(eventTypes, event.Type)
 	}
-	wantTypes := []string{"turn.submitted", "model.tool_call", "turn.failed"}
+	wantTypes := []string{"turn.submitted", "model.tool_call", "model.final"}
 	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
 		t.Fatalf("event types = %v, want %v", eventTypes, wantTypes)
 	}
 }
 
-func TestSubmitTurnRejectsMixedModelToolBatchBeforeAnyEffect(t *testing.T) {
+func TestSubmitTurnReturnsRepairFeedbackForMixedModelToolBatchBeforeAnyEffect(t *testing.T) {
 	workspace := t.TempDir()
 	toolArgs, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
@@ -3570,12 +3885,16 @@ func TestSubmitTurnRejectsMixedModelToolBatchBeforeAnyEffect(t *testing.T) {
 		t.Fatalf("marshal tool args: %v", err)
 	}
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	k, err := New(Config{
-		LedgerPath: ledgerPath,
-		Provider: multiToolCallProvider{calls: []ModelToolCall{
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
 			{ToolCallID: "call_write", Name: "shell.exec", Arguments: json.RawMessage(toolArgs)},
 			{ToolCallID: "call_email", Name: "email.send", Arguments: json.RawMessage(`{"to":"someone@example.com"}`)},
-		}},
+		},
+		final: "mixed batch repair received",
+	}
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeDefault,
@@ -3590,11 +3909,21 @@ func TestSubmitTurnRejectsMixedModelToolBatchBeforeAnyEffect(t *testing.T) {
 		SessionID:  "mixed-tool-batch",
 		InputItems: []InputItem{{Type: "text", Text: "try mixed tools"}},
 	})
-	if !errors.Is(err, ErrModelToolCallRejected) {
-		t.Fatalf("SubmitTurn error = %v, want ErrModelToolCallRejected", err)
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(workspace, "mixed-tool-effect.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("mixed batch created shell effect before rejecting unsupported tool; stat err=%v", err)
+	}
+	results := provider.Requests()[1].ToolRounds[0].Results
+	if len(results) != 2 {
+		t.Fatalf("tool results = %+v, want repair result for each call", results)
+	}
+	repairByCallID := toolRepairPayloadByCallID(t, results)
+	writeError := repairByCallID["call_write"]["error"].(map[string]interface{})
+	emailError := repairByCallID["call_email"]["error"].(map[string]interface{})
+	if writeError["code"] != "tool_batch_not_executed" || emailError["code"] != "unsupported_tool" {
+		t.Fatalf("repair payloads = %+v, want batch blocker plus unsupported tool", repairByCallID)
 	}
 	projection, err := k.Session("mixed-tool-batch")
 	if err != nil {
@@ -3605,17 +3934,23 @@ func TestSubmitTurnRejectsMixedModelToolBatchBeforeAnyEffect(t *testing.T) {
 	}
 }
 
-func TestSubmitTurnRejectsUnknownModelToolArgumentFields(t *testing.T) {
+func TestSubmitTurnReturnsRepairFeedbackForUnknownModelToolArgumentFields(t *testing.T) {
 	workspace := t.TempDir()
 	arguments := json.RawMessage(`{"cwd":"` + filepath.ToSlash(workspace) + `","command":"` + writeFileCommand("unknown-arg-effect.txt", "effect") + `","permission_mode":"yolo"}`)
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{
+				ToolCallID: "call_unknown_arg",
+				Name:       "shell.exec",
+				Arguments:  arguments,
+			},
+		},
+		final: "unknown argument repair received",
+	}
 	k, err := New(Config{
-		LedgerPath: ledgerPath,
-		Provider: singleToolCallProvider{call: ModelToolCall{
-			ToolCallID: "call_unknown_arg",
-			Name:       "shell.exec",
-			Arguments:  arguments,
-		}},
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeDefault,
@@ -3630,11 +3965,16 @@ func TestSubmitTurnRejectsUnknownModelToolArgumentFields(t *testing.T) {
 		SessionID:  "unknown-tool-arg",
 		InputItems: []InputItem{{Type: "text", Text: "try unknown tool arg"}},
 	})
-	if !errors.Is(err, ErrModelToolCallRejected) {
-		t.Fatalf("SubmitTurn error = %v, want ErrModelToolCallRejected", err)
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(workspace, "unknown-arg-effect.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("unknown argument call created shell effect before rejection; stat err=%v", err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	errorPayload := payload["error"].(map[string]interface{})
+	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "invalid_tool_arguments" {
+		t.Fatalf("repair payload = %+v, want invalid_tool_arguments", payload)
 	}
 	projection, err := k.Session("unknown-tool-arg")
 	if err != nil {
@@ -3826,6 +4166,35 @@ func (l *staticLedger) Path() string {
 	return "static-ledger"
 }
 
+type failOnOperationLedger struct {
+	mu     sync.Mutex
+	events []StoredEvent
+}
+
+func (l *failOnOperationLedger) Append(event StoredEvent) error {
+	if strings.HasPrefix(event.Type, "operation.") {
+		return ErrLedgerUnwritable
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, event)
+	return nil
+}
+
+func (l *failOnOperationLedger) Load() ([]StoredEvent, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]StoredEvent(nil), l.events...), nil
+}
+
+func (l *failOnOperationLedger) Ready() ReadyCheck {
+	return ReadyCheck{Status: "ok"}
+}
+
+func (l *failOnOperationLedger) Path() string {
+	return "fail-on-operation-ledger"
+}
+
 type reviewRaceLedger struct {
 	mu                         sync.Mutex
 	events                     []StoredEvent
@@ -3908,6 +4277,13 @@ type multiToolCallProvider struct {
 	calls []ModelToolCall
 }
 
+type toolFeedbackProvider struct {
+	mu       sync.Mutex
+	calls    []ModelToolCall
+	final    string
+	requests []ModelRequest
+}
+
 type countingTextProvider struct {
 	mu    sync.Mutex
 	calls int
@@ -3942,6 +4318,41 @@ func (p multiToolCallProvider) Complete(_ context.Context, _ ModelRequest) (Mode
 		Model:     "multi-tool-call-model",
 		ToolCalls: p.calls,
 	}, nil
+}
+
+func (p *toolFeedbackProvider) Name() string {
+	return "tool-feedback"
+}
+
+func (p *toolFeedbackProvider) Ready() ProviderStatus {
+	return ProviderStatus{Name: p.Name(), Status: "ok"}
+}
+
+func (p *toolFeedbackProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, req)
+	callCount := len(p.requests)
+	p.mu.Unlock()
+	if callCount == 1 {
+		return ModelResponse{
+			Model:     "tool-feedback-model",
+			ToolCalls: p.calls,
+		}, nil
+	}
+	final := p.final
+	if final == "" {
+		final = "tool feedback observed"
+	}
+	return ModelResponse{
+		Text:  final,
+		Model: "tool-feedback-model",
+	}, nil
+}
+
+func (p *toolFeedbackProvider) Requests() []ModelRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]ModelRequest(nil), p.requests...)
 }
 
 func (p *countingTextProvider) Name() string {
@@ -4063,6 +4474,64 @@ func assertJSONNumber(t *testing.T, values map[string]interface{}, key string, w
 	}
 }
 
+func assertBoolMapValue(t *testing.T, values map[string]interface{}, key string, want bool) {
+	t.Helper()
+	got, ok := values[key].(bool)
+	if !ok || got != want {
+		t.Fatalf("%s = %#v, want %v", key, values[key], want)
+	}
+}
+
+func assertStringMapValue(t *testing.T, values map[string]interface{}, key string, want string) {
+	t.Helper()
+	got, ok := values[key].(string)
+	if !ok || got != want {
+		t.Fatalf("%s = %#v, want %q", key, values[key], want)
+	}
+}
+
+func assertMapNumberGreaterThan(t *testing.T, values map[string]interface{}, key string, floor int) {
+	t.Helper()
+	got, ok := values[key].(float64)
+	if !ok {
+		t.Fatalf("%s = %#v, want JSON number", key, values[key])
+	}
+	if int(got) <= floor {
+		t.Fatalf("%s = %d, want > %d", key, int(got), floor)
+	}
+}
+
+func decodeJSONMap(t *testing.T, content string) map[string]interface{} {
+	t.Helper()
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &payload); err != nil {
+		t.Fatalf("decode JSON content: %v; content=%s", err, content)
+	}
+	return payload
+}
+
+func toolRepairPayloadByCallID(t *testing.T, results []ModelToolResult) map[string]map[string]interface{} {
+	t.Helper()
+	payloads := make(map[string]map[string]interface{}, len(results))
+	for _, result := range results {
+		payloads[result.ToolCallID] = decodeJSONMap(t, result.Content)
+	}
+	return payloads
+}
+
+func operationJSONMap(t *testing.T, operation OperationProjection) map[string]interface{} {
+	t.Helper()
+	data, err := json.Marshal(operation)
+	if err != nil {
+		t.Fatalf("marshal operation: %v", err)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("decode operation JSON: %v", err)
+	}
+	return payload
+}
+
 func postJSONWithAuth(url string, body []byte) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -4094,6 +4563,27 @@ func echoCommand(value string) string {
 		return "Write-Output " + value
 	}
 	return "printf " + value
+}
+
+func readMissingFileCommand(filename string) string {
+	if runtime.GOOS == "windows" {
+		return "Get-Content -LiteralPath " + filename
+	}
+	return "cat " + filename
+}
+
+func failingShellCommand() string {
+	if runtime.GOOS == "windows" {
+		return `Write-Error 'GENESIS_TOOL_COMMAND_FAILURE'; exit 7`
+	}
+	return `printf '%s\n' 'GENESIS_TOOL_COMMAND_FAILURE' >&2; exit 7`
+}
+
+func longStdoutStderrCommand() string {
+	if runtime.GOOS == "windows" {
+		return `$out = 'GENESIS_STDOUT_HEAD' + ('A' * 70000) + 'GENESIS_STDOUT_TAIL'; $err = 'GENESIS_STDERR_HEAD' + ('B' * 70000) + 'GENESIS_STDERR_TAIL'; [Console]::Out.Write($out); [Console]::Error.Write($err)`
+	}
+	return `printf 'GENESIS_STDOUT_HEAD'; yes A | head -c 70000; printf 'GENESIS_STDOUT_TAIL'; { printf 'GENESIS_STDERR_HEAD'; yes B | head -c 70000; printf 'GENESIS_STDERR_TAIL'; } >&2`
 }
 
 func secretEchoCommand() string {

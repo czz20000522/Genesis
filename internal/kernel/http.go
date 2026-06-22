@@ -143,6 +143,10 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		writeError(w, http.StatusForbidden, "turn_blocked_by_ingress_security", err.Error())
 		return
 	}
+	if errors.Is(err, ErrToolInfrastructureFailed) {
+		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -166,6 +170,10 @@ func handleExecShell(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	}
 	operation, err := k.ExecShell(r.Context(), req)
 	if writeKernelUnavailable(w, err) {
+		return
+	}
+	if errors.Is(err, ErrToolInfrastructureFailed) {
+		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
 		return
 	}
 	if err != nil {

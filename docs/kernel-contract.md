@@ -65,7 +65,7 @@ Provider endpoint paths are upstream configuration, not Genesis route contracts.
 
 Owns tool descriptors, permission gates, shell/process execution, result envelopes, and tool-loop continuation. Tool descriptors describe generic effects; application-specific instructions live in skills.
 
-The first model-visible tool descriptors are canonical `shell.exec` and `skill.read`. Provider adapters may translate them to provider-native function/tool schemas, but they do not own permission, workspace, execution, idempotency, skill-read admission, or evidence semantics. A model-requested effectful tool call is admitted only after the Tool System applies the kernel-owned policy; the resulting operation projection is the structured evidence returned to the model loop.
+The first model-visible tool descriptors are canonical `shell.exec` and `skill.read`. Provider adapters may translate them to provider-native function/tool schemas, but they do not own permission, workspace, execution, idempotency, skill-read admission, or evidence semantics. A model-requested effectful tool call is admitted only after the Tool System applies the kernel-owned policy; the resulting model-facing operation evidence is returned to the model loop. Full ledger operation projection remains available to authorized inspection surfaces, but model-facing tool results do not duplicate control-plane handles such as operation id, session id, turn id, idempotency key, or event timestamps.
 
 External skill packages are user-space assets, not kernel applications. The kernel may be configured with explicit skill roots and may scan `SKILL.md` front matter into a read-only skill catalog for model context. This model-visible catalog is metadata only: name and description. The instruction path is an internal read handle and is not exposed to the model. Skill metadata is treated as untrusted before injection; authority-shaped, prompt-injection-shaped, hidden-control, duplicate-name, linked-path, or secret-shaped metadata is excluded rather than repaired into context.
 
@@ -75,9 +75,18 @@ Skill bodies are not scanned with the same prompt-injection reject rules as cata
 
 Skill catalog diagnostics are inspection evidence only. The kernel may report path-free exclusion reasons such as missing root, linked path, malformed metadata, unsafe metadata, or duplicate name so an operator can repair the installation, but those diagnostics do not expose the excluded path or body and do not silently repair metadata into model context.
 
-Model-requested tool call batches are preflighted as a unit before any effect executes. If any call in the batch is unsupported or malformed, the entire batch fails closed and no earlier call in that batch may create an operation or external effect.
+Model-requested tool call batches are preflighted as a unit before any effect executes. If any call in the batch is unsupported or malformed, the entire batch fails closed and no call in that batch may create an operation or external effect. When the provider supplied a valid `tool_call_id`, the kernel returns a structured `tool_request_invalid` tool result so the model can repair the request; the provider tool-result envelope carries the call id, so the repair JSON content does not duplicate it. Calls in the same rejected batch that were otherwise valid receive `tool_batch_not_executed` feedback instead of being executed.
 
-Unsupported provider tool calls are rejected as turn failures before any effect runs. The kernel does not add application-specific outbound APIs for email, Feishu, calendar, documents, or similar domains; installed skills and external CLIs remain user-space capabilities reachable through generic governed tools.
+Provider tool calls without a valid `tool_call_id`, or tool protocol states that cannot be associated with a model-visible tool result, are fatal provider protocol failures. The kernel does not add application-specific outbound APIs for email, Feishu, calendar, documents, or similar domains; installed skills and external CLIs remain user-space capabilities reachable through generic governed tools.
+
+Tool result taxonomy follows a terminal-equivalent boundary:
+
+- `tool_request_invalid`: the model's tool request failed kernel schema or admission checks and was not executed. The result is repair feedback for the model when protocol state allows it.
+- `operation.blocked`: the request was valid but permission or policy denied execution. No command effect occurred, and the blocked reason is returned as operation evidence.
+- `operation.failed`: the command was accepted and executed, but the command process exited nonzero. The kernel returns `exit_code`, `stdout`, and `stderr` as observed command evidence and does not judge command semantics.
+- `tool_infrastructure_failed`: the shell runtime, ledger, or tool runtime infrastructure failed. This is not represented as command stderr or a normal command exit. Model Gateway provider errors remain provider failures, not tool results.
+
+Long stdout and stderr are bounded with a head/tail policy. Operation evidence reports `stdout_truncated` or `stderr_truncated`, original byte counts, omitted byte counts, and `output_truncation=head_tail` when truncation occurs.
 
 ### WorkRegistry
 

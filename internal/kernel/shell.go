@@ -83,7 +83,9 @@ func (k *Kernel) execShell(ctx context.Context, req ShellExecRequest, turnID str
 
 	code := 0
 	if executionPlan.controlled != nil {
-		operation.Stdout, operation.Stderr, code = executeControlledShellCommand(*executionPlan.controlled)
+		stdout, stderr, exitCode := executeControlledShellCommand(*executionPlan.controlled)
+		code = exitCode
+		applyOperationOutputCapture(&operation, stdout, stderr)
 	} else {
 		execCtx, cancel := context.WithTimeout(ctx, maxShellDuration)
 		defer cancel()
@@ -97,12 +99,20 @@ func (k *Kernel) execShell(ctx context.Context, req ShellExecRequest, turnID str
 		cmd.Stderr = &stderr
 
 		err := cmd.Run()
-		operation.Stdout = stdout.String()
-		operation.Stderr = stderr.String()
+		applyOperationOutputCapture(&operation, stdout.Capture(), stderr.Capture())
 		if err != nil {
-			code = exitCode(err)
-			if operation.Stderr == "" {
-				operation.Stderr = err.Error()
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				code = exitErr.ExitCode()
+			} else {
+				operation.EndedAt = k.clock()
+				operation.Status = "tool_infrastructure_failed"
+				operation.InfrastructureReason = "shell_runtime_failed"
+				operation = redactOperationEvidence(operation)
+				if appendErr := k.appendOperationEvent(operation); appendErr != nil {
+					return OperationProjection{}, appendErr
+				}
+				return OperationProjection{}, fmt.Errorf("%w: shell runtime failed: %v", ErrToolInfrastructureFailed, err)
 			}
 		}
 	}
@@ -522,26 +532,23 @@ func resolveWorkspacePath(cwd string, workspaceRoot string, pathArg string) (str
 	return resolved, ""
 }
 
-func executeControlledShellCommand(command controlledShellCommand) (string, string, int) {
+func executeControlledShellCommand(command controlledShellCommand) (capturedOutput, capturedOutput, int) {
 	switch command.kind {
 	case "stdout":
-		return command.stdout, "", 0
+		return captureBytes([]byte(command.stdout), maxShellOutputBytes), capturedOutput{}, 0
 	case "write":
 		if err := os.WriteFile(command.path, []byte(command.value), 0o644); err != nil {
-			return "", err.Error(), -1
+			return capturedOutput{}, captureBytes([]byte("write failed"), maxShellOutputBytes), -1
 		}
-		return "", "", 0
+		return capturedOutput{}, capturedOutput{}, 0
 	case "read":
 		data, err := os.ReadFile(command.path)
 		if err != nil {
-			return "", err.Error(), -1
+			return capturedOutput{}, captureBytes([]byte("read failed"), maxShellOutputBytes), -1
 		}
-		if len(data) > maxShellOutputBytes {
-			data = data[:maxShellOutputBytes]
-		}
-		return string(data), "", 0
+		return captureBytes(data, maxShellOutputBytes), capturedOutput{}, 0
 	default:
-		return "", fmt.Sprintf("unsupported controlled shell command kind %q", command.kind), -1
+		return capturedOutput{}, captureBytes([]byte(fmt.Sprintf("unsupported controlled shell command kind %q", command.kind)), maxShellOutputBytes), -1
 	}
 }
 
@@ -584,31 +591,133 @@ func platformShellCommand(ctx context.Context, command string) *exec.Cmd {
 	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
 }
 
-func exitCode(err error) int {
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-	return -1
-}
-
 type cappedBuffer struct {
-	limit int
-	buf   bytes.Buffer
+	limit     int
+	full      bytes.Buffer
+	head      []byte
+	tail      []byte
+	total     int
+	truncated bool
 }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
-	remaining := b.limit - b.buf.Len()
-	if remaining > 0 {
-		if len(p) > remaining {
-			_, _ = b.buf.Write(p[:remaining])
-		} else {
-			_, _ = b.buf.Write(p)
-		}
+	written := len(p)
+	if written == 0 {
+		return 0, nil
 	}
-	return len(p), nil
+	if b.limit <= 0 {
+		b.total += written
+		b.truncated = true
+		return written, nil
+	}
+	b.total += written
+	if !b.truncated && b.full.Len()+written <= b.limit {
+		_, _ = b.full.Write(p)
+		return written, nil
+	}
+	if !b.truncated {
+		combined := make([]byte, 0, b.full.Len()+written)
+		combined = append(combined, b.full.Bytes()...)
+		combined = append(combined, p...)
+		b.full.Reset()
+		b.initializeHeadTail(combined)
+		return written, nil
+	}
+	b.appendTail(p)
+	return written, nil
 }
 
 func (b *cappedBuffer) String() string {
-	return b.buf.String()
+	return b.Capture().Text
+}
+
+func (b *cappedBuffer) Capture() capturedOutput {
+	if !b.truncated {
+		return capturedOutput{
+			Text:          b.full.String(),
+			OriginalBytes: b.full.Len(),
+		}
+	}
+	text := string(append(append([]byte(nil), b.head...), b.tail...))
+	return capturedOutput{
+		Text:          text,
+		Truncated:     true,
+		OriginalBytes: b.total,
+		OmittedBytes:  maxInt(0, b.total-len(b.head)-len(b.tail)),
+	}
+}
+
+func (b *cappedBuffer) initializeHeadTail(data []byte) {
+	b.truncated = true
+	headLimit, tailLimit := headTailLimits(b.limit)
+	if headLimit > len(data) {
+		headLimit = len(data)
+	}
+	b.head = append([]byte(nil), data[:headLimit]...)
+	if tailLimit > len(data)-headLimit {
+		tailLimit = len(data) - headLimit
+	}
+	if tailLimit > 0 {
+		b.tail = append([]byte(nil), data[len(data)-tailLimit:]...)
+	}
+}
+
+func (b *cappedBuffer) appendTail(data []byte) {
+	_, tailLimit := headTailLimits(b.limit)
+	if tailLimit <= 0 {
+		return
+	}
+	b.tail = append(b.tail, data...)
+	if len(b.tail) > tailLimit {
+		b.tail = append([]byte(nil), b.tail[len(b.tail)-tailLimit:]...)
+	}
+}
+
+type capturedOutput struct {
+	Text          string
+	Truncated     bool
+	OriginalBytes int
+	OmittedBytes  int
+}
+
+func captureBytes(data []byte, limit int) capturedOutput {
+	var buffer cappedBuffer
+	buffer.limit = limit
+	_, _ = buffer.Write(data)
+	return buffer.Capture()
+}
+
+func applyOperationOutputCapture(operation *OperationProjection, stdout capturedOutput, stderr capturedOutput) {
+	operation.Stdout = stdout.Text
+	operation.Stderr = stderr.Text
+	if stdout.Truncated {
+		operation.StdoutTruncated = true
+		operation.StdoutOriginalBytes = stdout.OriginalBytes
+		operation.StdoutOmittedBytes = stdout.OmittedBytes
+		operation.OutputTruncation = "head_tail"
+	}
+	if stderr.Truncated {
+		operation.StderrTruncated = true
+		operation.StderrOriginalBytes = stderr.OriginalBytes
+		operation.StderrOmittedBytes = stderr.OmittedBytes
+		operation.OutputTruncation = "head_tail"
+	}
+}
+
+func headTailLimits(limit int) (int, int) {
+	if limit <= 0 {
+		return 0, 0
+	}
+	headLimit := limit / 2
+	if headLimit == 0 {
+		headLimit = 1
+	}
+	return headLimit, limit - headLimit
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
