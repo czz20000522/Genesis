@@ -3,11 +3,13 @@ package kernel
 import (
 	"context"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
 	defaultAutoCompactRatio = 0.8
 	defaultRecentTurnLimit  = 2
+	defaultRecentTailTokens = 16384
 	defaultSkillIndexChars  = 1200
 )
 
@@ -41,6 +43,16 @@ func normalizedContextPolicy(policy ContextPolicy) ContextPolicy {
 	if policy.RecentTurnLimit <= 0 {
 		policy.RecentTurnLimit = defaultRecentTurnLimit
 	}
+	if policy.RecentTailTokens == 0 {
+		policy.RecentTailTokens = defaultRecentTailTokens
+		maxByWindow := int(float64(policy.ContextWindowTokens) * 0.5)
+		if maxByWindow > 0 && maxByWindow < policy.RecentTailTokens {
+			policy.RecentTailTokens = maxByWindow
+		}
+	}
+	if policy.RecentTailTokens < 0 {
+		policy.RecentTailTokens = 0
+	}
 	return policy
 }
 
@@ -67,10 +79,7 @@ func (k *Kernel) maybeCompactSession(ctx context.Context, sessionID string, trig
 	latest := latestSessionContextCompaction(events, sessionID, "")
 	turns := sameSessionCompletedConversationTurns(events, sessionID, "")
 	eligible := turnsAfterCompactedTurn(turns, latest.CompactedThroughTurnID)
-	if len(eligible) <= k.contextPolicy.RecentTurnLimit {
-		return
-	}
-	region := eligible[:len(eligible)-k.contextPolicy.RecentTurnLimit]
+	region := compactionRegion(eligible, k.contextPolicy)
 	if len(region) == 0 {
 		return
 	}
@@ -127,6 +136,76 @@ func (k *Kernel) maybeCompactSession(ctx context.Context, sessionID string, trig
 	}); err != nil {
 		k.appendContextCompactionFailed(sessionID, triggeringTurnID, started, err.Error())
 	}
+}
+
+func compactionRegion(turns []conversationHistoryTurn, policy ContextPolicy) []conversationHistoryTurn {
+	if len(turns) == 0 {
+		return nil
+	}
+	floor := policy.RecentTurnLimit
+	if floor <= 0 {
+		floor = defaultRecentTurnLimit
+	}
+	if len(turns) <= floor {
+		return nil
+	}
+	tailStart := len(turns) - floor
+	if policy.RecentTailTokens > 0 {
+		tailStart = recentTailStartByTokenBudget(turns, policy.RecentTailTokens, floor)
+	}
+	if tailStart <= 0 {
+		return nil
+	}
+	return turns[:tailStart]
+}
+
+func recentTailStartByTokenBudget(turns []conversationHistoryTurn, budget int, minimumTurns int) int {
+	if len(turns) == 0 {
+		return 0
+	}
+	if minimumTurns < 0 {
+		minimumTurns = 0
+	}
+	start := len(turns)
+	usedTokens := 0
+	keptTurns := 0
+	for index := len(turns) - 1; index >= 0; index-- {
+		turnTokens := estimateConversationTurnTokens(turns[index])
+		if keptTurns >= minimumTurns && usedTokens+turnTokens > budget {
+			break
+		}
+		usedTokens += turnTokens
+		start = index
+		keptTurns++
+	}
+	if len(turns)-start < minimumTurns {
+		start = len(turns) - minimumTurns
+		if start < 0 {
+			start = 0
+		}
+	}
+	return start
+}
+
+func estimateConversationTurnTokens(turn conversationHistoryTurn) int {
+	estimated := 4 + estimateCompactionTextTokens(turn.UserText) + estimateCompactionTextTokens(turn.AssistantText)
+	if estimated < 1 {
+		return 1
+	}
+	return estimated
+}
+
+func estimateCompactionTextTokens(text string) int {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 0
+	}
+	byteEstimate := (len(text) + 3) / 4
+	runeEstimate := utf8.RuneCountInString(text)
+	if runeEstimate > byteEstimate {
+		return runeEstimate
+	}
+	return byteEstimate
 }
 
 func (k *Kernel) appendContextCompactionFailed(sessionID string, turnID string, started ContextCompactionProjection, reason string) {
