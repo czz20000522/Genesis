@@ -66,6 +66,7 @@ Minimal HTTP surface:
 - `GET /memory/candidates/{id}`
 - `POST /memory/candidates/{id}/approve`
 - `POST /memory/candidates/{id}/reject`
+- `POST /memory/candidates/{id}/supersede`
 
 The initial provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
 

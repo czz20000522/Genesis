@@ -3,7 +3,6 @@ package kernel
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -13,11 +12,6 @@ const (
 )
 
 var ErrWorkNotFound = errors.New("work not found")
-
-var (
-	workRefPattern       = regexp.MustCompile(`^(turn|review|work|operation|memory|event):[A-Za-z0-9][A-Za-z0-9._:/=-]{0,190}$`)
-	workAuthorityPattern = regexp.MustCompile(`^(runtime|operator|user|daemon|system):[A-Za-z0-9][A-Za-z0-9._:/=-]{0,190}$`)
-)
 
 func (k *Kernel) SubmitWork(req WorkSubmitRequest) (WorkProjection, error) {
 	if err := validateWorkSubmitRequest(req); err != nil {
@@ -174,26 +168,15 @@ func validateWorkCancelRequest(req WorkCancelRequest) error {
 }
 
 func validateWorkRef(field string, value string) error {
-	value = strings.TrimSpace(value)
-	if !workRefPattern.MatchString(value) {
-		return fmt.Errorf("%s must be a kernel ref", field)
-	}
-	return validateWorkTextNotSecret(field, value)
+	return validateKernelRef(field, value)
 }
 
 func validateWorkAuthority(value string) error {
-	value = strings.TrimSpace(value)
-	if !workAuthorityPattern.MatchString(value) {
-		return errors.New("cancel_authority must be a kernel authority ref")
-	}
-	return validateWorkTextNotSecret("cancel_authority", value)
+	return validateKernelAuthority("cancel_authority", value)
 }
 
 func validateWorkTextNotSecret(field string, value string) error {
-	if redactEvidenceText(value) != value {
-		return fmt.Errorf("%s must not contain secret-shaped content", field)
-	}
-	return nil
+	return validateKernelTextNotSecret(field, value)
 }
 
 func (k *Kernel) workByIdempotencyKey(sessionID string, key string) (WorkProjection, bool, error) {

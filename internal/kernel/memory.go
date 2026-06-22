@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -246,6 +247,12 @@ func validateMemoryCandidateRequest(req MemoryCandidateRequest) error {
 	if strings.TrimSpace(req.SourceRef) == "" {
 		return errors.New("source_ref is required")
 	}
+	if err := validateKernelTextNotSecret("session_id", req.SessionID); err != nil {
+		return err
+	}
+	if err := validateKernelRef("source_ref", req.SourceRef); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -259,6 +266,15 @@ func validateMemoryApprovalRequest(req MemoryApprovalRequest) error {
 	if strings.TrimSpace(req.ApprovalEvidenceRef) == "" {
 		return errors.New("approval_evidence_ref is required")
 	}
+	if err := validateKernelAuthority("approval_authority", req.ApprovalAuthority); err != nil {
+		return err
+	}
+	if err := validateKernelTextNotSecret("approval_reason", req.ApprovalReason); err != nil {
+		return err
+	}
+	if err := validateKernelRef("approval_evidence_ref", req.ApprovalEvidenceRef); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -271,6 +287,15 @@ func validateMemoryRejectionRequest(req MemoryRejectionRequest) error {
 	}
 	if strings.TrimSpace(req.RejectionEvidenceRef) == "" {
 		return errors.New("rejection_evidence_ref is required")
+	}
+	if err := validateKernelAuthority("rejection_authority", req.RejectionAuthority); err != nil {
+		return err
+	}
+	if err := validateKernelTextNotSecret("rejection_reason", req.RejectionReason); err != nil {
+		return err
+	}
+	if err := validateKernelRef("rejection_evidence_ref", req.RejectionEvidenceRef); err != nil {
+		return err
 	}
 	return nil
 }
@@ -290,6 +315,18 @@ func validateMemorySupersessionRequest(req MemorySupersessionRequest) error {
 	}
 	if strings.TrimSpace(req.SupersessionEvidenceRef) == "" {
 		return errors.New("supersession_evidence_ref is required")
+	}
+	if err := validateKernelRef("replacement_source_ref", req.ReplacementSourceRef); err != nil {
+		return err
+	}
+	if err := validateKernelAuthority("supersession_authority", req.SupersessionAuthority); err != nil {
+		return err
+	}
+	if err := validateKernelTextNotSecret("supersession_reason", req.SupersessionReason); err != nil {
+		return err
+	}
+	if err := validateKernelRef("supersession_evidence_ref", req.SupersessionEvidenceRef); err != nil {
+		return err
 	}
 	return nil
 }
@@ -368,6 +405,9 @@ func mergeMemoryCandidateProjection(current MemoryCandidateProjection, incoming 
 	if !exists {
 		return incoming, nil
 	}
+	if !sameMemoryCandidateCore(current, incoming) {
+		return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
+	}
 	if current.Status == MemoryCandidateSuperseded {
 		if incoming.Status == MemoryCandidateSuperseded && sameMemorySupersessionDecision(current, incoming) {
 			return current, nil
@@ -378,48 +418,72 @@ func mergeMemoryCandidateProjection(current MemoryCandidateProjection, incoming 
 	case MemoryCandidateSuperseded:
 		return incoming, nil
 	case MemoryCandidateApproved:
-		if current.Status == MemoryCandidateRejected {
+		if current.Status == MemoryCandidateRejected || current.Status == MemoryCandidateSuperseded {
 			return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
 		}
 		if current.Status == MemoryCandidateApproved && !sameMemoryApprovalDecision(current, incoming) {
 			return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
 		}
+		if current.Status == MemoryCandidateApproved {
+			return current, nil
+		}
 		return incoming, nil
 	case MemoryCandidateRejected:
-		if current.Status == MemoryCandidateApproved {
+		if current.Status == MemoryCandidateApproved || current.Status == MemoryCandidateSuperseded {
 			return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
 		}
 		if current.Status == MemoryCandidateRejected && !sameMemoryRejectionDecision(current, incoming) {
 			return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
 		}
-		return incoming, nil
-	case MemoryCandidatePending:
-		if current.Status == MemoryCandidateApproved || current.Status == MemoryCandidateRejected {
+		if current.Status == MemoryCandidateRejected {
 			return current, nil
 		}
 		return incoming, nil
+	case MemoryCandidatePending:
+		if current.Status != MemoryCandidatePending {
+			return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
+		}
+		return current, nil
 	default:
-		return incoming, nil
+		return MemoryCandidateProjection{}, fmt.Errorf("unsupported memory candidate status %q", incoming.Status)
 	}
+}
+
+func sameMemoryCandidateCore(left MemoryCandidateProjection, right MemoryCandidateProjection) bool {
+	return left.CandidateID == right.CandidateID &&
+		left.SessionID == right.SessionID &&
+		left.Text == right.Text &&
+		left.SourceRef == right.SourceRef &&
+		left.CreatedAt.Equal(right.CreatedAt)
 }
 
 func sameMemoryApprovalDecision(left MemoryCandidateProjection, right MemoryCandidateProjection) bool {
 	return left.ApprovalAuthority == right.ApprovalAuthority &&
 		left.ApprovalReason == right.ApprovalReason &&
-		left.ApprovalEvidenceRef == right.ApprovalEvidenceRef
+		left.ApprovalEvidenceRef == right.ApprovalEvidenceRef &&
+		sameOptionalTime(left.ApprovedAt, right.ApprovedAt)
 }
 
 func sameMemoryRejectionDecision(left MemoryCandidateProjection, right MemoryCandidateProjection) bool {
 	return left.RejectionAuthority == right.RejectionAuthority &&
 		left.RejectionReason == right.RejectionReason &&
-		left.RejectionEvidenceRef == right.RejectionEvidenceRef
+		left.RejectionEvidenceRef == right.RejectionEvidenceRef &&
+		sameOptionalTime(left.RejectedAt, right.RejectedAt)
 }
 
 func sameMemorySupersessionDecision(left MemoryCandidateProjection, right MemoryCandidateProjection) bool {
 	return left.SupersessionAuthority == right.SupersessionAuthority &&
 		left.SupersessionReason == right.SupersessionReason &&
 		left.SupersessionEvidenceRef == right.SupersessionEvidenceRef &&
-		left.ReplacementCandidateID == right.ReplacementCandidateID
+		left.ReplacementCandidateID == right.ReplacementCandidateID &&
+		sameOptionalTime(left.SupersededAt, right.SupersededAt)
+}
+
+func sameOptionalTime(left *time.Time, right *time.Time) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Equal(*right)
 }
 
 func existingMemorySupersession(candidate MemoryCandidateProjection, candidates map[string]MemoryCandidateProjection) (MemorySupersessionProjection, error) {

@@ -1742,6 +1742,46 @@ func TestCreateMemoryCandidateRequiresSourceRef(t *testing.T) {
 	}
 }
 
+func TestHTTPCreateMemoryCandidateRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	cases := map[string]MemoryCandidateRequest{
+		"invalid source ref": {
+			SessionID: "bad-memory-source",
+			Text:      "memory",
+			SourceRef: "free text",
+		},
+		"secret session id": {
+			SessionID: "api_key=sk-memory-secret",
+			Text:      "memory",
+			SourceRef: "turn:bad-memory-secret-session",
+		},
+		"secret source ref": {
+			SessionID: "bad-memory-secret-source",
+			Text:      "memory",
+			SourceRef: "turn:api_key=sk-memory-secret",
+		},
+	}
+	for name, req := range cases {
+		t.Run(name, func(t *testing.T) {
+			payload, err := json.Marshal(req)
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+			resp, err := postJSONWithAuth(server.URL+"/memory/candidates", payload)
+			if err != nil {
+				t.Fatalf("POST candidate failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", resp.StatusCode)
+			}
+		})
+	}
+}
+
 func TestApprovedMemoryCandidateRecallsAcrossSessionsAfterRestart(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
@@ -2430,6 +2470,82 @@ func TestMemoryReplayRejectsReviewAfterSupersede(t *testing.T) {
 	}
 }
 
+func TestMemoryReplayRejectsDuplicateSupersedeWithModifiedReplacement(t *testing.T) {
+	createdAt := time.Date(2026, 6, 22, 3, 30, 0, 0, time.UTC)
+	supersededAt := createdAt.Add(time.Minute)
+	original := MemoryCandidateProjection{
+		CandidateID: "mem-duplicate-supersede-original",
+		SessionID:   "memory-duplicate-supersede",
+		Text:        "old memory",
+		SourceRef:   "turn:memory-duplicate-supersede",
+		Status:      MemoryCandidatePending,
+		CreatedAt:   createdAt,
+	}
+	replacement := MemoryCandidateProjection{
+		CandidateID: "mem-duplicate-supersede-replacement",
+		SessionID:   original.SessionID,
+		Text:        "new memory",
+		SourceRef:   "review:duplicate-supersede-source",
+		Status:      MemoryCandidatePending,
+		CreatedAt:   supersededAt,
+	}
+	superseded := original
+	superseded.Status = MemoryCandidateSuperseded
+	superseded.SupersessionAuthority = "runtime:test"
+	superseded.SupersessionReason = "replace old memory"
+	superseded.SupersessionEvidenceRef = "review:duplicate-supersede"
+	superseded.ReplacementCandidateID = replacement.CandidateID
+	superseded.SupersededAt = &supersededAt
+	mutatedReplacement := replacement
+	mutatedReplacement.Text = "silently mutated replacement"
+
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:     "evt-duplicate-supersede-created",
+				SessionID:   original.SessionID,
+				CandidateID: original.CandidateID,
+				Type:        "memory.candidate.created",
+				CreatedAt:   createdAt,
+				Data:        EventData{MemoryCandidate: &original},
+			},
+			StoredEvent{
+				EventID:     "evt-duplicate-supersede-first",
+				SessionID:   original.SessionID,
+				CandidateID: original.CandidateID,
+				Type:        "memory.candidate.superseded",
+				CreatedAt:   supersededAt,
+				Data: EventData{
+					MemoryCandidate:            &superseded,
+					ReplacementMemoryCandidate: &replacement,
+				},
+			},
+			StoredEvent{
+				EventID:     "evt-duplicate-supersede-mutated",
+				SessionID:   original.SessionID,
+				CandidateID: original.CandidateID,
+				Type:        "memory.candidate.superseded",
+				CreatedAt:   supersededAt.Add(time.Minute),
+				Data: EventData{
+					MemoryCandidate:            &superseded,
+					ReplacementMemoryCandidate: &mutatedReplacement,
+				},
+			},
+		),
+		provider:     FakeProvider{},
+		runtimeToken: testRuntimeToken,
+		toolPolicy:   normalizedToolPolicy(ToolPolicy{}),
+		clock:        time.Now,
+	}
+
+	if _, err := k.MemoryCandidate(replacement.CandidateID); err == nil || !strings.Contains(err.Error(), "competing memory review evidence") {
+		t.Fatalf("MemoryCandidate error = %v, want competing memory review evidence", err)
+	}
+	if _, err := k.Session(original.SessionID); err == nil || !strings.Contains(err.Error(), "competing memory review evidence") {
+		t.Fatalf("Session error = %v, want competing memory review evidence", err)
+	}
+}
+
 func TestHTTPSupersededMemoryCandidateCannotBeApprovedOrRejected(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
@@ -2469,6 +2585,39 @@ func TestHTTPSupersededMemoryCandidateCannotBeApprovedOrRejected(t *testing.T) {
 	defer rejectResp.Body.Close()
 	if rejectResp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("reject superseded status = %d, want 400", rejectResp.StatusCode)
+	}
+}
+
+func TestHTTPMemoryCandidateSupersedeRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	candidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-supersede-bad-audit",
+		Text:      "old memory",
+		SourceRef: "turn:http-memory-supersede-bad-audit",
+	})
+	cases := map[string][]byte{
+		"invalid replacement source ref": []byte(`{"replacement_text":"new memory","replacement_source_ref":"free text","supersession_authority":"runtime:test","supersession_reason":"replace","supersession_evidence_ref":"review:valid-supersede"}`),
+		"invalid authority":              []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:valid-replacement","supersession_authority":"root","supersession_reason":"replace","supersession_evidence_ref":"review:valid-supersede"}`),
+		"invalid evidence ref":           []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:valid-replacement","supersession_authority":"runtime:test","supersession_reason":"replace","supersession_evidence_ref":"free text"}`),
+		"secret replacement source ref":  []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:api_key=sk-memory-secret","supersession_authority":"runtime:test","supersession_reason":"replace","supersession_evidence_ref":"review:valid-supersede"}`),
+		"secret authority":               []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:valid-replacement","supersession_authority":"runtime:api_key=sk-memory-secret","supersession_reason":"replace","supersession_evidence_ref":"review:valid-supersede"}`),
+		"secret reason":                  []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:valid-replacement","supersession_authority":"runtime:test","supersession_reason":"Authorization: Bearer tokentest123456","supersession_evidence_ref":"review:valid-supersede"}`),
+		"secret evidence ref":            []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:valid-replacement","supersession_authority":"runtime:test","supersession_reason":"replace","supersession_evidence_ref":"review:api_key=sk-memory-secret"}`),
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			resp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/supersede", body)
+			if err != nil {
+				t.Fatalf("POST supersede failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", resp.StatusCode)
+			}
+		})
 	}
 }
 
@@ -2576,6 +2725,65 @@ func TestConcurrentMemoryReviewWritesOnlyOneTerminalDecision(t *testing.T) {
 	}
 }
 
+func TestConcurrentMemorySupersedeWritesOnlyOneTerminalDecision(t *testing.T) {
+	createdAt := time.Date(2026, 6, 22, 1, 10, 0, 0, time.UTC)
+	candidate := MemoryCandidateProjection{
+		CandidateID: "mem-supersede-race",
+		SessionID:   "memory-supersede-race",
+		Text:        "race-sensitive memory",
+		SourceRef:   "turn:memory-supersede-race",
+		Status:      MemoryCandidatePending,
+		CreatedAt:   createdAt,
+	}
+	ledger := newReviewRaceLedger(StoredEvent{
+		EventID:     "evt-supersede-race-created",
+		SessionID:   candidate.SessionID,
+		CandidateID: candidate.CandidateID,
+		Type:        "memory.candidate.created",
+		CreatedAt:   createdAt,
+		Data:        EventData{MemoryCandidate: &candidate},
+	})
+	k := &Kernel{
+		ledger:       ledger,
+		provider:     FakeProvider{},
+		runtimeToken: testRuntimeToken,
+		toolPolicy:   normalizedToolPolicy(ToolPolicy{}),
+		clock: func() time.Time {
+			return time.Date(2026, 6, 22, 1, 11, 0, 0, time.UTC)
+		},
+	}
+
+	results := make(chan error, 2)
+	go func() {
+		_, err := k.SupersedeMemoryCandidate(candidate.CandidateID, MemorySupersessionRequest{
+			ReplacementText:         "replacement memory",
+			ReplacementSourceRef:    "review:supersede-race-source",
+			SupersessionAuthority:   "runtime:test",
+			SupersessionReason:      "replace in race",
+			SupersessionEvidenceRef: "review:supersede-race",
+		})
+		results <- err
+	}()
+	<-ledger.firstTerminalAppendStarted
+	go func() {
+		_, err := k.ApproveMemoryCandidate(candidate.CandidateID, testApprovalRequest("approval:supersede-race"))
+		results <- err
+	}()
+
+	successes := 0
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful terminal review decisions = %d, want 1", successes)
+	}
+	if terminalEvents := ledger.terminalReviewEvents(candidate.CandidateID); len(terminalEvents) != 1 {
+		t.Fatalf("terminal review events = %+v, want exactly one terminal event", terminalEvents)
+	}
+}
+
 func TestHTTPRejectMemoryCandidateRejectsMissingEvidence(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
@@ -2588,6 +2796,61 @@ func TestHTTPRejectMemoryCandidateRejectsMissingEvidence(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestHTTPRejectMemoryCandidateRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	cases := map[string]MemoryRejectionRequest{
+		"invalid authority": {
+			RejectionAuthority:   "runtime",
+			RejectionReason:      "reject",
+			RejectionEvidenceRef: "review:valid-memory-rejection",
+		},
+		"invalid evidence ref": {
+			RejectionAuthority:   "runtime:test",
+			RejectionReason:      "reject",
+			RejectionEvidenceRef: "free text",
+		},
+		"secret authority": {
+			RejectionAuthority:   "runtime:api_key=sk-memory-secret",
+			RejectionReason:      "reject",
+			RejectionEvidenceRef: "review:valid-memory-rejection",
+		},
+		"secret reason": {
+			RejectionAuthority:   "runtime:test",
+			RejectionReason:      "Authorization: Bearer tokentest123456",
+			RejectionEvidenceRef: "review:valid-memory-rejection",
+		},
+		"secret evidence ref": {
+			RejectionAuthority:   "runtime:test",
+			RejectionReason:      "reject",
+			RejectionEvidenceRef: "review:api_key=sk-memory-secret",
+		},
+	}
+	for name, req := range cases {
+		t.Run(name, func(t *testing.T) {
+			candidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+				SessionID: "http-memory-reject-bad-audit-" + strings.ReplaceAll(name, " ", "-"),
+				Text:      "memory",
+				SourceRef: "turn:http-memory-reject-bad-audit",
+			})
+			payload, err := json.Marshal(req)
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+			resp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/reject", payload)
+			if err != nil {
+				t.Fatalf("POST reject failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", resp.StatusCode)
+			}
+		})
 	}
 }
 
@@ -2622,6 +2885,61 @@ func TestHTTPApproveMemoryCandidateRejectsMissingEvidence(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestHTTPApproveMemoryCandidateRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	cases := map[string]MemoryApprovalRequest{
+		"invalid authority": {
+			ApprovalAuthority:   "runtime",
+			ApprovalReason:      "approve",
+			ApprovalEvidenceRef: "approval:valid-memory-approval",
+		},
+		"invalid evidence ref": {
+			ApprovalAuthority:   "runtime:test",
+			ApprovalReason:      "approve",
+			ApprovalEvidenceRef: "free text",
+		},
+		"secret authority": {
+			ApprovalAuthority:   "runtime:api_key=sk-memory-secret",
+			ApprovalReason:      "approve",
+			ApprovalEvidenceRef: "approval:valid-memory-approval",
+		},
+		"secret reason": {
+			ApprovalAuthority:   "runtime:test",
+			ApprovalReason:      "Authorization: Bearer tokentest123456",
+			ApprovalEvidenceRef: "approval:valid-memory-approval",
+		},
+		"secret evidence ref": {
+			ApprovalAuthority:   "runtime:test",
+			ApprovalReason:      "approve",
+			ApprovalEvidenceRef: "approval:api_key=sk-memory-secret",
+		},
+	}
+	for name, req := range cases {
+		t.Run(name, func(t *testing.T) {
+			candidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+				SessionID: "http-memory-approve-bad-audit-" + strings.ReplaceAll(name, " ", "-"),
+				Text:      "memory",
+				SourceRef: "turn:http-memory-approve-bad-audit",
+			})
+			payload, err := json.Marshal(req)
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+			resp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/approve", payload)
+			if err != nil {
+				t.Fatalf("POST approve failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", resp.StatusCode)
+			}
+		})
 	}
 }
 
@@ -3230,7 +3548,7 @@ func newReviewRaceLedger(events ...StoredEvent) *reviewRaceLedger {
 }
 
 func (l *reviewRaceLedger) Append(event StoredEvent) error {
-	if event.Type == "memory.candidate.approved" || event.Type == "memory.candidate.rejected" {
+	if isMemoryReviewTerminalEvent(event.Type) {
 		l.firstAppendOnce.Do(func() {
 			close(l.firstTerminalAppendStarted)
 		})
@@ -3272,11 +3590,17 @@ func (l *reviewRaceLedger) terminalReviewEvents(candidateID string) []StoredEven
 	defer l.mu.Unlock()
 	var terminal []StoredEvent
 	for _, event := range l.events {
-		if event.CandidateID == candidateID && (event.Type == "memory.candidate.approved" || event.Type == "memory.candidate.rejected") {
+		if event.CandidateID == candidateID && isMemoryReviewTerminalEvent(event.Type) {
 			terminal = append(terminal, event)
 		}
 	}
 	return terminal
+}
+
+func isMemoryReviewTerminalEvent(eventType string) bool {
+	return eventType == "memory.candidate.approved" ||
+		eventType == "memory.candidate.rejected" ||
+		eventType == "memory.candidate.superseded"
 }
 
 type singleToolCallProvider struct {
