@@ -1912,6 +1912,134 @@ func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
 	}
 }
 
+func TestHTTPMemoryRecallReturnsApprovedOnlyAfterRestartWithoutLedgerAppend(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+
+	approved := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-recall-approved",
+		Text:      "共享口令蓝色",
+		SourceRef: "turn:http-memory-recall-approved",
+	})
+	approvePayload, err := json.Marshal(testApprovalRequest("approval:http-memory-recall-approved"))
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	approveResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+approved.CandidateID+"/approve", approvePayload)
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve status = %d, want 200", approveResp.StatusCode)
+	}
+
+	createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-recall-pending",
+		Text:      "共享口令绿色",
+		SourceRef: "turn:http-memory-recall-pending",
+	})
+	rejected := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-recall-rejected",
+		Text:      "共享口令红色",
+		SourceRef: "turn:http-memory-recall-rejected",
+	})
+	rejectResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+rejected.CandidateID+"/reject", []byte(`{"rejection_authority":"runtime:test","rejection_reason":"not true","rejection_evidence_ref":"review:http-memory-recall-rejected"}`))
+	if err != nil {
+		t.Fatalf("POST reject failed: %v", err)
+	}
+	rejectResp.Body.Close()
+	if rejectResp.StatusCode != http.StatusOK {
+		t.Fatalf("reject status = %d, want 200", rejectResp.StatusCode)
+	}
+	superseded := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-recall-superseded",
+		Text:      "共享口令黄色",
+		SourceRef: "turn:http-memory-recall-superseded",
+	})
+	supersedeResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+superseded.CandidateID+"/supersede", []byte(`{"replacement_text":"共享口令紫色","replacement_source_ref":"review:http-memory-recall-replacement","supersession_authority":"runtime:test","supersession_reason":"replacement remains pending","supersession_evidence_ref":"review:http-memory-recall-superseded"}`))
+	if err != nil {
+		t.Fatalf("POST supersede failed: %v", err)
+	}
+	supersedeResp.Body.Close()
+	if supersedeResp.StatusCode != http.StatusOK {
+		t.Fatalf("supersede status = %d, want 200", supersedeResp.StatusCode)
+	}
+	server.Close()
+
+	restarted := newTestKernel(t, ledgerPath)
+	restartedServer := httptest.NewServer(Handler(restarted))
+	defer restartedServer.Close()
+	eventsBefore, err := restarted.loadEvents()
+	if err != nil {
+		t.Fatalf("load events before recall: %v", err)
+	}
+
+	recallResp, err := postJSONWithAuth(restartedServer.URL+"/memory/recall", []byte(`{"input_items":[{"type":"text","text":"共享口令是什么？蓝色绿色红色黄色紫色"}]}`))
+	if err != nil {
+		t.Fatalf("POST /memory/recall failed: %v", err)
+	}
+	defer recallResp.Body.Close()
+	if recallResp.StatusCode != http.StatusOK {
+		t.Fatalf("recall status = %d, want 200", recallResp.StatusCode)
+	}
+	var recall struct {
+		Items []MemoryRecall `json:"items"`
+	}
+	if err := json.NewDecoder(recallResp.Body).Decode(&recall); err != nil {
+		t.Fatalf("decode recall response: %v", err)
+	}
+	if len(recall.Items) != 1 {
+		t.Fatalf("recall items = %+v, want approved candidate only", recall.Items)
+	}
+	if recall.Items[0].CandidateID != approved.CandidateID ||
+		recall.Items[0].Text != "共享口令蓝色" ||
+		recall.Items[0].Source != "turn:http-memory-recall-approved" {
+		t.Fatalf("recall item = %+v, want approved candidate source", recall.Items[0])
+	}
+	eventsAfter, err := restarted.loadEvents()
+	if err != nil {
+		t.Fatalf("load events after recall: %v", err)
+	}
+	if len(eventsAfter) != len(eventsBefore) {
+		t.Fatalf("event count after recall = %d, want unchanged %d", len(eventsAfter), len(eventsBefore))
+	}
+}
+
+func TestHTTPMemoryRecallRejectsBadInputAndAuth(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	unauthorized, err := http.Post(server.URL+"/memory/recall", "application/json", strings.NewReader(`{"input_items":[{"type":"text","text":"hello"}]}`))
+	if err != nil {
+		t.Fatalf("unauthorized POST /memory/recall failed: %v", err)
+	}
+	defer unauthorized.Body.Close()
+	if unauthorized.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want 401", unauthorized.StatusCode)
+	}
+
+	badTypeResp, err := postJSONWithAuth(server.URL+"/memory/recall", []byte(`{"input_items":[{"type":"image","text":"not supported"}]}`))
+	if err != nil {
+		t.Fatalf("POST bad recall input failed: %v", err)
+	}
+	defer badTypeResp.Body.Close()
+	if badTypeResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad type status = %d, want 400", badTypeResp.StatusCode)
+	}
+
+	hiddenControlResp, err := postJSONWithAuth(server.URL+"/memory/recall", []byte(`{"input_items":[{"type":"text","text":"hidden\u200bcontrol"}]}`))
+	if err != nil {
+		t.Fatalf("POST hidden recall input failed: %v", err)
+	}
+	defer hiddenControlResp.Body.Close()
+	if hiddenControlResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("hidden control status = %d, want 403", hiddenControlResp.StatusCode)
+	}
+}
+
 func TestHTTPMemoryCandidateListAndReadAfterRestart(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)

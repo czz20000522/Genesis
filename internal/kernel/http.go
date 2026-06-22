@@ -58,6 +58,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleGetMemoryCandidate(w, r, k)
+		case r.Method == http.MethodPost && r.URL.Path == "/memory/recall":
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
+			handleRecallMemories(w, r, k)
 		case r.Method == http.MethodPost && isMemoryApprovePath(r.URL.Path):
 			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
 				return
@@ -262,6 +267,26 @@ func handleGetMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kernel)
 		return
 	}
 	writeJSON(w, http.StatusOK, candidate)
+}
+
+func handleRecallMemories(w http.ResponseWriter, r *http.Request, k *Kernel) {
+	var req MemoryRecallRequest
+	if !decodeRequest(w, r, &req) {
+		return
+	}
+	recalls, err := k.RecallMemories(req)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
+	if errors.Is(err, ErrIngressSecurityBlocked) {
+		writeError(w, http.StatusForbidden, "memory_recall_blocked_by_ingress_security", err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, recalls)
 }
 
 func handleApproveMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kernel) {

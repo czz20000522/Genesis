@@ -191,6 +191,14 @@ type MemoryCandidateListResponse struct {
 	Items []MemoryCandidateProjection `json:"items"`
 }
 
+type MemoryRecallRequest struct {
+	InputItems []InputItem `json:"input_items"`
+}
+
+type MemoryRecallResponse struct {
+	Items []MemoryRecall `json:"items"`
+}
+
 type MemoryApprovalRequest struct {
 	ApprovalAuthority   string `json:"approval_authority"`
 	ApprovalReason      string `json:"approval_reason"`

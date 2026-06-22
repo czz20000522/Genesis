@@ -237,6 +237,20 @@ func (k *Kernel) MemoryCandidate(candidateID string) (MemoryCandidateProjection,
 	return candidate, nil
 }
 
+func (k *Kernel) RecallMemories(req MemoryRecallRequest) (MemoryRecallResponse, error) {
+	if err := validateTurnRequest(TurnRequest{InputItems: req.InputItems}); err != nil {
+		return MemoryRecallResponse{}, err
+	}
+	if _, err := scanTurnIngressSecurity(req.InputItems); err != nil {
+		return MemoryRecallResponse{}, err
+	}
+	recalls, err := k.recallMemories(req.InputItems)
+	if err != nil {
+		return MemoryRecallResponse{}, err
+	}
+	return MemoryRecallResponse{Items: recalls}, nil
+}
+
 func validateMemoryCandidateRequest(req MemoryCandidateRequest) error {
 	if strings.TrimSpace(req.SessionID) == "" {
 		return errors.New("session_id is required")
