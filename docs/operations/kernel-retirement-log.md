@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-CAPABILITIES-20260622 - P1 - Shells and daemons need a protected kernel capability projection
+
+- Status: ready_for_acceptance.
+- Fix commits: `2654f0877`, `65f004277`.
+- Evidence: `TestHTTPCapabilitiesRequiresRuntimeAuth` first failed because `/capabilities` returned 404, then passed after implementation and proves the route requires the runtime bearer token. `TestHTTPCapabilitiesProjectsToolsAndSkillCatalogWithoutPaths` proves authenticated inspection returns canonical `shell.exec` and `skill.read` capability names plus safe skill name/description metadata, while excluding `instruction_path`, `ledger_path`, filesystem paths, and skill bodies. `TestHTTPCapabilitiesReportsPathFreeSkillExclusions` proves missing roots, malformed metadata, unsafe metadata, linked paths, and duplicate skill names are projected only as path-free reason/count diagnostics. `TestHTTPCapabilitiesSanitizesProviderInspectionStatus` and `TestHTTPCapabilitiesSanitizesCredentialShapedProviderTokens` were added after security review found provider readiness strings could leak secret-shaped single tokens; they now prove path-shaped provider names, `secret://...`, `Authorization: Bearer ...`, bare `sk-...`, and embedded `sk-proj-...` tokens are replaced with safe inspection fallbacks. `TestToolCapabilityKindDefaultsUnknown` proves future tools are not silently classified as effectful capabilities unless explicitly mapped. `go test ./internal/kernel -run "TestHTTPCapabilities|TestToolCapabilityKindDefaultsUnknown" -count=1` passed; `go test ./... -count=1` passed; `go build ./...` passed; `go test -race ./internal/kernel -count=1` passed; `git diff --check` passed; the repository scan for numbered route prefixes returned no matches. Independent architecture review reported no kernel/app boundary blocker. Independent security review initially found the provider inspection sanitizer leak; after the credential-shaped token fix it reported no blocking findings.
+- Acceptance condition: reviewer confirms `GET /capabilities` is a protected Readiness/Inspection surface derived from kernel-owned provider/runtime/ledger readiness, canonical tool descriptors, and safe skill catalog metadata; it is not an app registry, Feishu/email/WebUI adapter, or second owner for external outbound communication.
+- Residual risk: provider inspection reasons are guarded by shape and credential detection rather than a dedicated enum type. Current production provider reasons are fixed `provider_*` codes; future providers must not return arbitrary raw error text through `ProviderStatus` without updating this contract.
+
 ### KERNEL-SKILL-READ-20260622 - P0 - Model loop needs governed skill instruction retrieval
 
 - Status: ready_for_acceptance.
