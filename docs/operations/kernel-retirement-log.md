@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-MEMORY-RECALL-20260622 - P1 - Memory recall needs an explicit kernel observation surface
+
+- Status: ready_for_acceptance.
+- Fix commits: `0ec14a963`, `094a67559`.
+- Evidence: `TestHTTPMemoryRecallReturnsApprovedOnlyAfterRestartWithoutLedgerAppend` first failed with HTTP 404 for `POST /memory/recall`, then passed after implementation. It proves the protected recall preview returns approved memory refs after restart, excludes pending, rejected, superseded, and pending replacement candidates that would otherwise match the same query, and does not append ledger events. `TestHTTPMemoryRecallRejectsBadInputAndAuth` proves missing runtime auth returns 401, unsupported input item types return 400 before recall, and hidden control text returns 403. Existing turn recall and ingress tests still pass. `go test ./internal/kernel -run "TestHTTPMemoryRecall" -count=1 -v` passed; `go test ./internal/kernel -run "TestHTTPMemory|TestApprovedMemory|TestUnapprovedMemory|TestSubmitTurnRecordsIngressRisk|TestHTTPAcceptsRiskyUserData|TestHTTPRejectsNestedControlField|TestHTTPBlocksInvisibleIngressMarker" -count=1 -v` passed; `go test ./...` passed; `go test -race ./internal/kernel -count=1` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for numbered route or kernel version labels returned no matches.
+- Acceptance condition: reviewer confirms `POST /memory/recall` is a read-only Accumulation observation surface for the conceptual `memory.recall` syscall, not a shell-owned memory owner, model turn, vector search project, or application-specific recall workflow.
+- Residual risk: recall policy is still the intentionally simple first-pass text matcher. The route previews current policy only; future richer recall policy, ranking, source existence checks, or audit events need separate contracts.
+
 ### KERNEL-MEMORY-SUPERSEDE-20260622 - P1 - Memory review needs explicit supersession
 
 - Status: ready_for_acceptance.
