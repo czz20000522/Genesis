@@ -168,6 +168,7 @@ type TurnProjection struct {
 	Status           string         `json:"status"`
 	InputItems       []InputItem    `json:"input_items"`
 	IngressRisks     []IngressRisk  `json:"ingress_risks,omitempty"`
+	ModelInputKinds  []string       `json:"model_input_kinds,omitempty"`
 	RecalledMemories []MemoryRecall `json:"recalled_memories,omitempty"`
 	FinalMessage     FinalMessage   `json:"final,omitempty"`
 	Error            *TurnError     `json:"error,omitempty"`
@@ -369,6 +370,7 @@ type EventData struct {
 	IdempotencyKey             string                     `json:"idempotency_key,omitempty"`
 	InputItems                 []InputItem                `json:"input_items,omitempty"`
 	IngressRisks               []IngressRisk              `json:"ingress_risks,omitempty"`
+	ModelInputKinds            []string                   `json:"model_input_kinds,omitempty"`
 	RecalledMemories           []MemoryRecall             `json:"recalled_memories,omitempty"`
 	ModelToolCalls             []ModelToolCallRecord      `json:"model_tool_calls,omitempty"`
 	Final                      *FinalMessage              `json:"final,omitempty"`

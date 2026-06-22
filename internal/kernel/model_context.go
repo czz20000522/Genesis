@@ -4,22 +4,36 @@ import (
 	"strings"
 )
 
-func modelInputItems(userItems []InputItem, memories []MemoryRecall, skills []SkillDescriptor) []InputItem {
-	items := cloneInputItems(userItems)
+func modelInputItems(userItems []InputItem, memories []MemoryRecall, skills []SkillDescriptor) []ModelInputItem {
 	skillContext := skillCatalogContext(skills)
 	memoryContext := approvedMemoryContext(memories)
-	if skillContext == "" && memoryContext == "" {
-		return items
-	}
-	withContext := make([]InputItem, 0, len(items)+2)
+	withContext := make([]ModelInputItem, 0, len(userItems)+2)
 	if skillContext != "" {
-		withContext = append(withContext, InputItem{Type: "text", Text: skillContext})
+		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindSkillCatalogContext, Text: skillContext})
 	}
 	if memoryContext != "" {
-		withContext = append(withContext, InputItem{Type: "text", Text: memoryContext})
+		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindApprovedMemoryContext, Text: memoryContext})
 	}
-	withContext = append(withContext, items...)
+	for _, item := range userItems {
+		if item.Type == "text" && item.Text != "" {
+			withContext = append(withContext, ModelInputItem{Kind: ModelInputKindUserText, Text: item.Text})
+		}
+	}
 	return withContext
+}
+
+func modelInputKinds(items []ModelInputItem) []string {
+	kinds := make([]string, 0, len(items))
+	for _, item := range items {
+		kind := strings.TrimSpace(item.Kind)
+		if kind != "" {
+			kinds = append(kinds, kind)
+		}
+	}
+	if len(kinds) == 0 {
+		return nil
+	}
+	return kinds
 }
 
 func skillCatalogContext(skills []SkillDescriptor) string {
@@ -57,6 +71,12 @@ func approvedMemoryContext(memories []MemoryRecall) string {
 
 func cloneInputItems(items []InputItem) []InputItem {
 	cloned := make([]InputItem, len(items))
+	copy(cloned, items)
+	return cloned
+}
+
+func cloneModelInputItems(items []ModelInputItem) []ModelInputItem {
+	cloned := make([]ModelInputItem, len(items))
 	copy(cloned, items)
 	return cloned
 }

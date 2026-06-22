@@ -63,6 +63,8 @@ The local binary resolves provider startup from Genesis-owned model gateway conf
 
 Provider endpoint paths are upstream configuration, not Genesis route contracts. The kernel's own HTTP transport remains unversioned.
 
+The canonical model request carries provenance for each input fragment. Initial kinds are `user_text`, `approved_memory_context`, and `skill_catalog_context`. Public `turn.submit` input remains user or external-application content only; approved memory summaries and skill catalog summaries are kernel-built context fragments. Session and turn-event inspection may expose the ordered `model_input_kinds` list so operators can explain what context categories reached the provider, but it must not expose hidden control fields, skill instruction paths, or full skill bodies.
+
 ### Tool System
 
 Owns tool descriptors, permission gates, shell/process execution, result envelopes, and tool-loop continuation. Tool descriptors describe generic effects; application-specific instructions live in skills.

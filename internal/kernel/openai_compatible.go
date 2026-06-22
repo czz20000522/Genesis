@@ -158,10 +158,10 @@ func chatMessagesFromModelRequest(req ModelRequest) []chatMessage {
 	return messages
 }
 
-func modelUserText(items []InputItem) string {
+func modelUserText(items []ModelInputItem) string {
 	var parts []string
 	for _, item := range items {
-		if item.Type == "text" && item.Text != "" {
+		if item.Text != "" {
 			parts = append(parts, item.Text)
 		}
 	}

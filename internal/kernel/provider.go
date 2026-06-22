@@ -18,9 +18,20 @@ var ErrProviderUnavailable = errors.New("provider unavailable")
 type ModelRequest struct {
 	SessionID  string
 	TurnID     string
-	InputItems []InputItem
+	InputItems []ModelInputItem
 	Tools      []ModelToolDescriptor
 	ToolRounds []ModelToolRound
+}
+
+const (
+	ModelInputKindUserText              = "user_text"
+	ModelInputKindApprovedMemoryContext = "approved_memory_context"
+	ModelInputKindSkillCatalogContext   = "skill_catalog_context"
+)
+
+type ModelInputItem struct {
+	Kind string
+	Text string
 }
 
 type ModelResponse struct {
@@ -46,7 +57,7 @@ func (p FakeProvider) Ready() ProviderStatus {
 func (FakeProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
 	var parts []string
 	for _, item := range req.InputItems {
-		if item.Type == "text" && item.Text != "" {
+		if item.Text != "" {
 			parts = append(parts, item.Text)
 		}
 	}

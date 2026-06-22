@@ -94,7 +94,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	}
 	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
 	var turnID string
-	var recalledMemories []MemoryRecall
+	var inputItems []ModelInputItem
 	if idempotencyKey != "" {
 		var existing TurnResponse
 		var ok bool
@@ -102,7 +102,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		existing, ok, err = k.turnByIdempotencyKey(sessionID, idempotencyKey)
 		if err == nil && !ok {
 			turnID = newID("turn", now)
-			recalledMemories, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now)
+			_, inputItems, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now)
 		}
 		k.turnMu.Unlock()
 		if err != nil || ok {
@@ -110,13 +110,12 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		}
 	} else {
 		turnID = newID("turn", now)
-		recalledMemories, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now)
+		_, inputItems, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now)
 		if err != nil {
 			return TurnResponse{}, err
 		}
 	}
 
-	inputItems := modelInputItems(req.InputItems, recalledMemories, k.skillCatalog)
 	toolRounds := []ModelToolRound{}
 	for roundIndex := 0; roundIndex <= maxModelToolRounds; roundIndex++ {
 		modelResp, err := k.provider.Complete(ctx, ModelRequest{
@@ -208,11 +207,12 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	return TurnResponse{}, errors.New("unreachable model tool loop state")
 }
 
-func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string, idempotencyKey string, ingressRisks []IngressRisk, now time.Time) ([]MemoryRecall, error) {
+func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string, idempotencyKey string, ingressRisks []IngressRisk, now time.Time) ([]MemoryRecall, []ModelInputItem, error) {
 	recalledMemories, err := k.recallMemories(req.InputItems)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	modelInputs := modelInputItems(req.InputItems, recalledMemories, k.skillCatalog)
 	submitted := StoredEvent{
 		EventID:   newID("evt", now),
 		SessionID: sessionID,
@@ -223,13 +223,14 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 			IdempotencyKey:   idempotencyKey,
 			InputItems:       req.InputItems,
 			IngressRisks:     ingressRisks,
+			ModelInputKinds:  modelInputKinds(modelInputs),
 			RecalledMemories: recalledMemories,
 		},
 	}
 	if err := k.appendEvent(submitted); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return recalledMemories, nil
+	return recalledMemories, modelInputs, nil
 }
 
 func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
@@ -274,6 +275,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 				Status:           "running",
 				InputItems:       event.Data.InputItems,
 				IngressRisks:     event.Data.IngressRisks,
+				ModelInputKinds:  event.Data.ModelInputKinds,
 				RecalledMemories: event.Data.RecalledMemories,
 				StartedAt:        event.CreatedAt,
 			})

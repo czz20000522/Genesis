@@ -39,6 +39,11 @@ func TestKernelInjectsSkillCatalogBeforeProviderWithoutSkillBodies(t *testing.T)
 	if resp.Final.Text != "skill-aware answer" {
 		t.Fatalf("final text = %q, want provider response", resp.Final.Text)
 	}
+	kinds := provider.InputKinds()
+	wantKinds := []string{ModelInputKindSkillCatalogContext, ModelInputKindUserText}
+	if strings.Join(kinds, ",") != strings.Join(wantKinds, ",") {
+		t.Fatalf("model input kinds = %v, want %v", kinds, wantKinds)
+	}
 
 	content := provider.InputText()
 	if !strings.Contains(content, "Available external skills:") {
@@ -56,6 +61,92 @@ func TestKernelInjectsSkillCatalogBeforeProviderWithoutSkillBodies(t *testing.T)
 	for _, forbidden := range []string{filepath.Clean(larkSkillPath), filepath.Clean(mailSkillPath), "FULL LARK BODY MUST NOT BE INJECTED", "FULL MAIL BODY MUST NOT BE INJECTED", "broken"} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("provider content = %q, must not contain %q", content, forbidden)
+		}
+	}
+}
+
+func TestTurnEvidenceRecordsModelInputKindsWithoutSkillPaths(t *testing.T) {
+	root := t.TempDir()
+	skillPath := writeSkillForTest(t, root, "lark-im", "lark-im", "Send and read chat messages", "FULL LARK BODY MUST NOT BE PROJECTED")
+	provider := &capturingProvider{text: "context provenance answer"}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		SkillRoots:   []string{root},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
+		SessionID: "context-provenance-source",
+		Text:      "prefer concise replies",
+		SourceRef: "turn:context-provenance-source",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemoryCandidate returned error: %v", err)
+	}
+	if _, err := k.ApproveMemoryCandidate(candidate.CandidateID, testApprovalRequest("approval:context-provenance-source")); err != nil {
+		t.Fatalf("ApproveMemoryCandidate returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "context-provenance-consumer",
+		InputItems: []InputItem{{Type: "text", Text: "Do you remember prefer concise replies?"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	wantKinds := []string{ModelInputKindSkillCatalogContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}
+	if got := strings.Join(provider.InputKinds(), ","); got != strings.Join(wantKinds, ",") {
+		t.Fatalf("provider input kinds = %v, want %v", provider.InputKinds(), wantKinds)
+	}
+
+	projection, err := k.Session("context-provenance-consumer")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Turns) != 1 {
+		t.Fatalf("turns = %+v, want one turn", projection.Turns)
+	}
+	turn := projection.Turns[0]
+	if got := strings.Join(turn.ModelInputKinds, ","); got != strings.Join(wantKinds, ",") {
+		t.Fatalf("projection model input kinds = %v, want %v", turn.ModelInputKinds, wantKinds)
+	}
+	if len(turn.InputItems) != 1 || turn.InputItems[0].Text != "Do you remember prefer concise replies?" {
+		t.Fatalf("projection input items = %+v, want public user input only", turn.InputItems)
+	}
+	if len(turn.RecalledMemories) != 1 || turn.RecalledMemories[0].Source != "turn:context-provenance-source" {
+		t.Fatalf("projection recalled memories = %+v, want approved memory evidence", turn.RecalledMemories)
+	}
+
+	events, err := k.TurnEvents(resp.TurnID)
+	if err != nil {
+		t.Fatalf("TurnEvents returned error: %v", err)
+	}
+	if len(events) == 0 || events[0].Type != "turn.submitted" {
+		t.Fatalf("events = %+v, want first turn.submitted", events)
+	}
+	submitted, ok := events[0].Data.(EventData)
+	if !ok {
+		t.Fatalf("submitted data type = %T, want EventData", events[0].Data)
+	}
+	if got := strings.Join(submitted.ModelInputKinds, ","); got != strings.Join(wantKinds, ",") {
+		t.Fatalf("submitted model input kinds = %v, want %v", submitted.ModelInputKinds, wantKinds)
+	}
+
+	sessionJSON, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatalf("marshal projection: %v", err)
+	}
+	eventsJSON, err := json.Marshal(events)
+	if err != nil {
+		t.Fatalf("marshal events: %v", err)
+	}
+	forbiddenValues := append(pathLeakVariants(skillPath), "FULL LARK BODY MUST NOT BE PROJECTED", "instruction_path", "Available external skills:")
+	for _, forbidden := range forbiddenValues {
+		if strings.Contains(string(sessionJSON), forbidden) || strings.Contains(string(eventsJSON), forbidden) {
+			t.Fatalf("inspection leaked %q; session=%s events=%s", forbidden, string(sessionJSON), string(eventsJSON))
 		}
 	}
 }
@@ -776,7 +867,7 @@ func writeMalformedSkillForTest(t *testing.T, root string, dir string) {
 
 type capturingProvider struct {
 	text       string
-	inputItems []InputItem
+	inputItems []ModelInputItem
 }
 
 func (p *capturingProvider) Name() string {
@@ -788,7 +879,7 @@ func (p *capturingProvider) Ready() ProviderStatus {
 }
 
 func (p *capturingProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
-	p.inputItems = cloneInputItems(req.InputItems)
+	p.inputItems = cloneModelInputItems(req.InputItems)
 	return ModelResponse{
 		Text:  p.text,
 		Model: "capturing-model",
@@ -798,11 +889,19 @@ func (p *capturingProvider) Complete(_ context.Context, req ModelRequest) (Model
 func (p *capturingProvider) InputText() string {
 	var parts []string
 	for _, item := range p.inputItems {
-		if item.Type == "text" && item.Text != "" {
+		if item.Text != "" {
 			parts = append(parts, item.Text)
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func (p *capturingProvider) InputKinds() []string {
+	kinds := make([]string, 0, len(p.inputItems))
+	for _, item := range p.inputItems {
+		kinds = append(kinds, item.Kind)
+	}
+	return kinds
 }
 
 type skillReadLoopProvider struct {
