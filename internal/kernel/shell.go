@@ -78,11 +78,10 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		operation.Status = "blocked"
 		operation.BlockedReason = reason
 		operation.EndedAt = k.clock()
-		operation = redactOperationEvidence(operation)
 		if err := k.appendOperationEvent(operation); err != nil {
 			return OperationProjection{}, err
 		}
-		return operation, nil
+		return redactOperationEvidence(operation), nil
 	}
 
 	if err := k.appendOperationEvent(operation); err != nil {
@@ -102,7 +101,6 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 			operation.EndedAt = k.clock()
 			operation.Status = "tool_infrastructure_failed"
 			operation.InfrastructureReason = "shell_runtime_failed"
-			operation = redactOperationEvidence(operation)
 			if appendErr := k.appendOperationEvent(operation); appendErr != nil {
 				return OperationProjection{}, appendErr
 			}
@@ -116,11 +114,10 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 	} else {
 		operation.Status = "failed"
 	}
-	operation = redactOperationEvidence(operation)
 	if err := k.appendOperationEvent(operation); err != nil {
 		return OperationProjection{}, err
 	}
-	return operation, nil
+	return redactOperationEvidence(operation), nil
 }
 
 func (k *Kernel) failStaleRunningOperation(operation OperationProjection) (OperationProjection, error) {
@@ -128,15 +125,13 @@ func (k *Kernel) failStaleRunningOperation(operation OperationProjection) (Opera
 	operation.BlockedReason = staleRunningOperationReason
 	operation.Stderr = staleRunningOperationReason
 	operation.EndedAt = k.clock()
-	operation = redactOperationEvidence(operation)
 	if err := k.appendOperationEvent(operation); err != nil {
 		return OperationProjection{}, err
 	}
-	return operation, nil
+	return redactOperationEvidence(operation), nil
 }
 
 func (k *Kernel) appendOperationEvent(operation OperationProjection) error {
-	operation = redactOperationEvidence(operation)
 	eventType := "operation." + operation.Status
 	createdAt := operation.EndedAt
 	if createdAt.IsZero() {

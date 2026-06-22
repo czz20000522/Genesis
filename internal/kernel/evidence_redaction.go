@@ -7,6 +7,14 @@ var evidenceRedactionRules = []struct {
 	replacement string
 }{
 	{
+		pattern:     regexp.MustCompile(`\bsk-(?:proj-)?[A-Za-z0-9_-]{6,}\b`),
+		replacement: `[REDACTED]`,
+	},
+	{
+		pattern:     regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`),
+		replacement: `[REDACTED]`,
+	},
+	{
 		pattern:     regexp.MustCompile(`(?i)(authorization\s*:\s*bearer\s+)[^\s"']+`),
 		replacement: `${1}[REDACTED]`,
 	},

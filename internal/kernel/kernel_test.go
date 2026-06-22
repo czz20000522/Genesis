@@ -759,6 +759,120 @@ func TestObservabilityProjectionsSeparateRawAuditAndProviderContext(t *testing.T
 	}
 }
 
+func TestSessionProjectionRedactsTopLevelReadModels(t *testing.T) {
+	now := time.Date(2026, 6, 22, 7, 0, 0, 0, time.UTC)
+	secret := "sk-proj-sessionsecret123456"
+	jwt := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abcdefghijklmnopqrstuvwx0123456789.ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	exitCode := 0
+	k := &Kernel{ledger: newStaticLedger(
+		StoredEvent{
+			EventID:   "evt_session_submitted",
+			SessionID: "session-redacted",
+			TurnID:    "turn_session_redacted",
+			Type:      "turn.submitted",
+			CreatedAt: now,
+			Data: EventData{
+				InputItems:       []InputItem{{Type: "text", Text: "user text " + secret}},
+				RecalledMemories: []MemoryRecall{{CandidateID: "mem_session", Text: "memory " + jwt, Source: "turn:source"}},
+			},
+		},
+		StoredEvent{
+			EventID:   "evt_session_final",
+			SessionID: "session-redacted",
+			TurnID:    "turn_session_redacted",
+			Type:      "model.final",
+			CreatedAt: now.Add(time.Second),
+			Data: EventData{Final: &FinalMessage{
+				Text:  "final " + secret,
+				Model: "test-model",
+			}},
+		},
+		StoredEvent{
+			EventID:     "evt_session_operation",
+			SessionID:   "session-redacted",
+			TurnID:      "turn_session_redacted",
+			OperationID: "op_session_redacted",
+			Type:        "operation.completed",
+			CreatedAt:   now.Add(2 * time.Second),
+			Data: EventData{Operation: &OperationProjection{
+				OperationID:    "op_session_redacted",
+				SessionID:      "session-redacted",
+				TurnID:         "turn_session_redacted",
+				Tool:           "shell_exec",
+				Status:         "completed",
+				PermissionMode: PermissionModeYolo,
+				CWD:            "C:/workspace",
+				Command:        "echo " + secret,
+				ExitCode:       &exitCode,
+				Stdout:         "stdout " + jwt,
+				StartedAt:      now,
+				EndedAt:        now.Add(2 * time.Second),
+			}},
+		},
+		StoredEvent{
+			EventID:   "evt_session_work",
+			SessionID: "session-redacted",
+			WorkID:    "work_session_redacted",
+			Type:      "work.submitted",
+			CreatedAt: now.Add(3 * time.Second),
+			Data: EventData{Work: &WorkProjection{
+				WorkID:    "work_session_redacted",
+				SessionID: "session-redacted",
+				Title:     "work " + secret,
+				SourceRef: "turn:source",
+				Status:    "open",
+				CreatedAt: now.Add(3 * time.Second),
+			}},
+		},
+		StoredEvent{
+			EventID:     "evt_session_memory",
+			SessionID:   "session-redacted",
+			CandidateID: "mem_session",
+			Type:        "memory.candidate.created",
+			CreatedAt:   now.Add(4 * time.Second),
+			Data: EventData{MemoryCandidate: &MemoryCandidateProjection{
+				CandidateID: "mem_session",
+				SessionID:   "session-redacted",
+				Text:        "candidate " + jwt,
+				SourceRef:   "turn:source",
+				Status:      MemoryCandidatePending,
+				CreatedAt:   now.Add(4 * time.Second),
+			}},
+		},
+	)}
+
+	projection, err := k.Session("session-redacted")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	projectionJSON, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatalf("marshal session projection: %v", err)
+	}
+	for _, forbidden := range []string{secret, jwt} {
+		if strings.Contains(string(projectionJSON), forbidden) {
+			t.Fatalf("session projection leaked %q: %s", forbidden, string(projectionJSON))
+		}
+	}
+	if !strings.Contains(string(projectionJSON), "[REDACTED]") {
+		t.Fatalf("session projection missing redaction marker: %s", string(projectionJSON))
+	}
+}
+
+func TestEvidenceRedactionCoversBareProviderKeysAndJWT(t *testing.T) {
+	jwt := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abcdefghijklmnopqrstuvwx0123456789.ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	text := "bare sk-proj-redactionsecret123 and " + jwt
+	redacted := redactEvidenceText(text)
+	for _, forbidden := range []string{"sk-proj-redactionsecret123", jwt} {
+		if strings.Contains(redacted, forbidden) {
+			t.Fatalf("redacted text leaked %q: %s", forbidden, redacted)
+		}
+	}
+	if strings.Count(redacted, "[REDACTED]") != 2 {
+		t.Fatalf("redacted text = %q, want two redaction markers", redacted)
+	}
+}
+
 func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T) {
 	root := t.TempDir()
 	skillPath := writeSkillForTest(t, root, "lark-im", "lark-im", "Send chat messages through installed CLI", "FULL SKILL BODY MUST NOT BE PROJECTED")
@@ -1640,7 +1754,7 @@ func TestExecShellDefaultBlocksRawShellAndEnvironmentAccess(t *testing.T) {
 	}
 }
 
-func TestExecShellRedactsSecretEvidenceBeforePersistence(t *testing.T) {
+func TestExecShellRedactsSecretEvidenceInReturnedProjectionButPreservesLedgerTruth(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	workspace := t.TempDir()
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
@@ -1667,12 +1781,29 @@ func TestExecShellRedactsSecretEvidenceBeforePersistence(t *testing.T) {
 		if strings.Contains(operation.Command, leaked) || strings.Contains(operation.Stdout, leaked) || strings.Contains(operation.Stderr, leaked) {
 			t.Fatalf("operation evidence leaked %q: %+v", leaked, operation)
 		}
-		if strings.Contains(string(ledgerData), leaked) {
-			t.Fatalf("ledger leaked %q: %s", leaked, string(ledgerData))
+		if !strings.Contains(string(ledgerData), leaked) {
+			t.Fatalf("ledger lost raw evidence %q: %s", leaked, string(ledgerData))
 		}
 	}
-	if !strings.Contains(operation.Command+operation.Stdout+string(ledgerData), "[REDACTED]") {
-		t.Fatalf("redaction marker missing from operation/ledger evidence")
+	if !strings.Contains(operation.Command+operation.Stdout, "[REDACTED]") {
+		t.Fatalf("redaction marker missing from returned operation evidence")
+	}
+
+	session, err := k.Session("shell-redaction")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	sessionJSON, err := json.Marshal(session)
+	if err != nil {
+		t.Fatalf("marshal session projection: %v", err)
+	}
+	for _, leaked := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
+		if strings.Contains(string(sessionJSON), leaked) {
+			t.Fatalf("session projection leaked %q: %s", leaked, string(sessionJSON))
+		}
+	}
+	if !strings.Contains(string(sessionJSON), "[REDACTED]") {
+		t.Fatalf("redaction marker missing from session projection: %s", string(sessionJSON))
 	}
 }
 

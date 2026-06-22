@@ -266,6 +266,61 @@ func redactMemoryRecalls(items []MemoryRecall) []MemoryRecall {
 	return out
 }
 
+func redactSessionProjection(projection SessionProjection) SessionProjection {
+	for i := range projection.Turns {
+		projection.Turns[i].InputItems = redactInputItems(projection.Turns[i].InputItems)
+		projection.Turns[i].RecalledMemories = redactMemoryRecalls(projection.Turns[i].RecalledMemories)
+		projection.Turns[i].FinalMessage = redactFinalMessage(projection.Turns[i].FinalMessage)
+		if projection.Turns[i].Error != nil {
+			copied := redactTurnError(*projection.Turns[i].Error)
+			projection.Turns[i].Error = &copied
+		}
+	}
+	for i := range projection.Operations {
+		projection.Operations[i] = redactOperationEvidence(projection.Operations[i])
+	}
+	for i := range projection.Works {
+		projection.Works[i] = redactWorkProjection(projection.Works[i])
+	}
+	for i := range projection.MemoryCandidates {
+		projection.MemoryCandidates[i] = redactMemoryCandidateProjection(projection.MemoryCandidates[i])
+	}
+	for i := range projection.Events {
+		projection.Events[i].Data = inspectionEventData(projection.Events[i].Data)
+	}
+	return projection
+}
+
+func redactFinalMessage(message FinalMessage) FinalMessage {
+	message.Text = redactEvidenceText(message.Text)
+	return message
+}
+
+func redactTurnError(turnError TurnError) TurnError {
+	turnError.Message = redactEvidenceText(turnError.Message)
+	return turnError
+}
+
+func redactWorkProjection(work WorkProjection) WorkProjection {
+	work.Title = redactEvidenceText(work.Title)
+	work.SourceRef = redactEvidenceText(work.SourceRef)
+	work.CancelReason = redactEvidenceText(work.CancelReason)
+	work.CancelEvidenceRef = redactEvidenceText(work.CancelEvidenceRef)
+	return work
+}
+
+func redactMemoryCandidateProjection(candidate MemoryCandidateProjection) MemoryCandidateProjection {
+	candidate.Text = redactEvidenceText(candidate.Text)
+	candidate.SourceRef = redactEvidenceText(candidate.SourceRef)
+	candidate.ApprovalReason = redactEvidenceText(candidate.ApprovalReason)
+	candidate.ApprovalEvidenceRef = redactEvidenceText(candidate.ApprovalEvidenceRef)
+	candidate.RejectionReason = redactEvidenceText(candidate.RejectionReason)
+	candidate.RejectionEvidenceRef = redactEvidenceText(candidate.RejectionEvidenceRef)
+	candidate.SupersessionReason = redactEvidenceText(candidate.SupersessionReason)
+	candidate.SupersessionEvidenceRef = redactEvidenceText(candidate.SupersessionEvidenceRef)
+	return candidate
+}
+
 func cloneToolSpecs(items []ToolSpec) []ToolSpec {
 	out := make([]ToolSpec, 0, len(items))
 	for _, item := range items {
@@ -323,13 +378,11 @@ func inspectionEventData(data EventData) EventData {
 		next.ToolResult = &copied
 	}
 	if data.Final != nil {
-		copied := *data.Final
-		copied.Text = redactEvidenceText(copied.Text)
+		copied := redactFinalMessage(*data.Final)
 		next.Final = &copied
 	}
 	if data.TurnError != nil {
-		copied := *data.TurnError
-		copied.Message = redactEvidenceText(copied.Message)
+		copied := redactTurnError(*data.TurnError)
 		next.TurnError = &copied
 	}
 	if data.Operation != nil {
@@ -343,29 +396,15 @@ func inspectionEventData(data EventData) EventData {
 		next.Operation = &copied
 	}
 	if data.Work != nil {
-		copied := *data.Work
-		copied.Title = redactEvidenceText(copied.Title)
-		copied.SourceRef = redactEvidenceText(copied.SourceRef)
-		copied.CancelReason = redactEvidenceText(copied.CancelReason)
-		copied.CancelEvidenceRef = redactEvidenceText(copied.CancelEvidenceRef)
+		copied := redactWorkProjection(*data.Work)
 		next.Work = &copied
 	}
 	if data.MemoryCandidate != nil {
-		copied := *data.MemoryCandidate
-		copied.Text = redactEvidenceText(copied.Text)
-		copied.SourceRef = redactEvidenceText(copied.SourceRef)
-		copied.ApprovalReason = redactEvidenceText(copied.ApprovalReason)
-		copied.ApprovalEvidenceRef = redactEvidenceText(copied.ApprovalEvidenceRef)
-		copied.RejectionReason = redactEvidenceText(copied.RejectionReason)
-		copied.RejectionEvidenceRef = redactEvidenceText(copied.RejectionEvidenceRef)
-		copied.SupersessionReason = redactEvidenceText(copied.SupersessionReason)
-		copied.SupersessionEvidenceRef = redactEvidenceText(copied.SupersessionEvidenceRef)
+		copied := redactMemoryCandidateProjection(*data.MemoryCandidate)
 		next.MemoryCandidate = &copied
 	}
 	if data.ReplacementMemoryCandidate != nil {
-		copied := *data.ReplacementMemoryCandidate
-		copied.Text = redactEvidenceText(copied.Text)
-		copied.SourceRef = redactEvidenceText(copied.SourceRef)
+		copied := redactMemoryCandidateProjection(*data.ReplacementMemoryCandidate)
 		next.ReplacementMemoryCandidate = &copied
 	}
 	return next

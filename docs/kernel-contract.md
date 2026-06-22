@@ -51,7 +51,7 @@ The first protected inspection transport is `GET /capabilities`. It is part of R
 
 Owns request normalization, session identity, event emission, idempotency, and turn admission. It does not know which shell submitted the request.
 
-Session events are the primary fact stream for turn-scoped execution. Session, turn, operation, work, and memory views are read models derived from ledger events, not separate sources of truth. `GET /sessions/{id}` may retain object projections for ergonomic inspection, but its ordered `events` list carries typed event payloads so shells can render or replay the canonical sequence without reassembling facts from unrelated projection arrays.
+Session events are the primary fact stream for turn-scoped execution. Session, turn, operation, work, and memory views are read models derived from ledger events, not separate sources of truth. `GET /sessions/{id}` may retain object projections for ergonomic inspection, but those top-level objects and its ordered `events` list are redacted inspection projections, not raw ledger records. Shells can render or replay the canonical sequence without reassembling facts from unrelated projection arrays, but they must not treat session JSON as the append-only evidence store.
 
 Short synchronous tool calls are represented as `tool.call` followed by `tool.result`. The `tool.call` event owns the model-provided tool slot, and `tool.result.tool_result.for_event_id` points back to that event id. Operation events may appear between them as execution evidence for effectful tools. Long-running kernel-owned jobs are separate future events; short tools do not create jobs merely to report a result.
 
@@ -107,6 +107,8 @@ Tool result taxonomy follows a terminal-equivalent boundary:
 - `permission_denied`: the request was structurally valid but permission or policy denied execution. No command effect occurred. The model-visible result contains minimal repair feedback; the full `operation.blocked` evidence with policy reason remains in session/operation inspection.
 - `operation.failed`: the command was accepted and executed, but the command process exited nonzero. The kernel returns `exit_code`, `stdout`, and `stderr` as observed command evidence and does not judge command semantics.
 - `tool_infrastructure_failed`: the shell runtime, ledger, or tool runtime infrastructure failed. This is not represented as command stderr or a normal command exit. Model Gateway provider errors remain provider failures, not tool results.
+
+The local append-only ledger preserves shell operation command/stdout/stderr as observed so restart replay and later audit can distinguish kernel truth from display policy. HTTP responses, session projections, raw event inspection, audit replay, and model-visible tool results consume redacted and bounded projections of that ledger evidence. Redaction is a projection policy; it must not mutate shell operation events before they are appended.
 
 Long stdout and stderr are bounded with a head/tail policy. Operation evidence reports `stdout_truncated` or `stderr_truncated`, original byte counts, omitted byte counts, and `output_truncation=head_tail` when truncation occurs. The model-visible stdout or stderr text also includes a visible omission marker such as `[... N bytes omitted ...]` between the preserved head and tail content.
 

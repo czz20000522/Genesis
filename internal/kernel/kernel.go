@@ -426,7 +426,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 	if len(projection.Events) == 0 {
 		return SessionProjection{}, ErrSessionNotFound
 	}
-	return projection, nil
+	return redactSessionProjection(projection), nil
 }
 
 var ErrSessionNotFound = errors.New("session not found")
