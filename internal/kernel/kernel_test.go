@@ -3945,6 +3945,9 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	if toolCallData.ToolCall == nil || toolCallData.ToolCall.Tool != "shell_exec" || toolCallData.ToolCall.ToolCallID == "" {
 		t.Fatalf("tool call event = %+v, want canonical shell_exec", toolCallData.ToolCall)
 	}
+	if toolCallData.ToolCall.ToolCallID != events[1].EventID || toolCallData.ToolCall.ProviderToolCallID != "call_write_file" {
+		t.Fatalf("tool call event = %+v, want event id identity and provider correlation", toolCallData.ToolCall)
+	}
 	if !strings.Contains(toolCallData.ToolCall.Arguments, "tool-result.txt") {
 		t.Fatalf("tool call arguments = %s, want provider replay arguments", toolCallData.ToolCall.Arguments)
 	}
@@ -3954,6 +3957,9 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	}
 	if toolResultData.ToolResult == nil || toolResultData.ToolResult.ForEventID != events[1].EventID || toolResultData.ToolResult.Status != "completed" {
 		t.Fatalf("tool result event = %+v, want result linked to %s", toolResultData.ToolResult, events[1].EventID)
+	}
+	if toolResultData.ToolResult.ToolCallID != events[1].EventID || toolResultData.ToolResult.ProviderToolCallID != "call_write_file" {
+		t.Fatalf("tool result event = %+v, want event id identity and provider correlation", toolResultData.ToolResult)
 	}
 	if toolCallData.ToolCall.Arguments != string(toolArgs) {
 		t.Fatalf("tool call event arguments = %s, want original provider arguments %s", toolCallData.ToolCall.Arguments, string(toolArgs))
@@ -3970,6 +3976,67 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	}
 	if session.Events[4].Data.ToolResult == nil || session.Events[4].Data.ToolResult.ForEventID != session.Events[1].EventID {
 		t.Fatalf("session tool.result event = %+v, want for_event_id=%s", session.Events[4].Data.ToolResult, session.Events[1].EventID)
+	}
+}
+
+func TestSubmitTurnUsesToolCallEventIDWhenProviderIDMissing(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": writeFileCommand("missing-provider-id.txt", "event-id"),
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "event id tool slot observed",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "missing-provider-tool-id",
+		InputItems: []InputItem{{Type: "text", Text: "write file without provider tool id"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "event id tool slot observed" {
+		t.Fatalf("final text = %q, want event id tool slot observed", resp.Final.Text)
+	}
+	requests := provider.Requests()
+	if len(requests) != 2 || len(requests[1].ToolRounds) != 1 || len(requests[1].ToolRounds[0].Results) != 1 {
+		t.Fatalf("provider requests = %+v, want tool result round", requests)
+	}
+	result := requests[1].ToolRounds[0].Results[0]
+	if result.ToolCallID == "" || result.ProviderToolCallID != "" {
+		t.Fatalf("tool result = %+v, want kernel event id and no provider correlation id", result)
+	}
+	projection, err := k.Session("missing-provider-tool-id")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Events) < 5 || projection.Events[1].Data.ToolCall == nil || projection.Events[4].Data.ToolResult == nil {
+		t.Fatalf("events = %+v, want tool.call and tool.result payloads", projection.Events)
+	}
+	if projection.Events[1].Data.ToolCall.ToolCallID != projection.Events[1].EventID || projection.Events[1].Data.ToolCall.ProviderToolCallID != "" {
+		t.Fatalf("tool.call = %+v, want event id identity without provider id", projection.Events[1].Data.ToolCall)
+	}
+	if projection.Events[4].Data.ToolResult.ToolCallID != projection.Events[1].EventID || projection.Events[4].Data.ToolResult.ForEventID != projection.Events[1].EventID {
+		t.Fatalf("tool.result = %+v, want event id identity and for_event_id link", projection.Events[4].Data.ToolResult)
 	}
 }
 
@@ -4157,8 +4224,8 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 		t.Fatalf("tool rounds = %+v, want one repair result", rounds)
 	}
 	result := rounds[0].Results[0]
-	if result.ToolCallID != "call_missing_command" || result.Name != "shell_exec" {
-		t.Fatalf("tool result = %+v, want shell repair result for call_missing_command", result)
+	if result.ToolCallID == "call_missing_command" || result.ProviderToolCallID != "call_missing_command" || result.Name != "shell_exec" {
+		t.Fatalf("tool result = %+v, want event-id kernel identity plus provider correlation for call_missing_command", result)
 	}
 	payload := decodeJSONMap(t, result.Content)
 	if payload["status"] != "tool_request_invalid" || payload["tool"] != "shell_exec" || payload["executed"] != false {
@@ -4180,42 +4247,50 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 	}
 }
 
-func TestSubmitTurnRejectsInvalidToolCallIDBeforeToolCallEvent(t *testing.T) {
+func TestSubmitTurnUsesKernelEventIDForUnsafeProviderToolCallID(t *testing.T) {
+	workspace := t.TempDir()
 	k, err := New(Config{
 		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
-		Provider: singleToolCallProvider{call: ModelToolCall{
-			ToolCallID: "bad tool call id",
-			Name:       "shell_exec",
-			Arguments:  json.RawMessage(`{"command":"Write-Output hello"}`),
-		}},
+		Provider: &toolFeedbackProvider{
+			calls: []ModelToolCall{{
+				ToolCallID: "bad tool call id",
+				Name:       "shell_exec",
+				Arguments:  json.RawMessage(`{"command":"` + echoCommand("hello") + `"}`),
+			}},
+			final: "unsafe provider id did not become kernel identity",
+		},
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeDefault,
-			WorkspaceRoot:  t.TempDir(),
+			WorkspaceRoot:  workspace,
 		},
 	})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	_, err = k.SubmitTurn(context.Background(), TurnRequest{
-		SessionID:  "invalid-tool-call-id",
-		InputItems: []InputItem{{Type: "text", Text: "try invalid tool call id"}},
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "unsafe-provider-tool-call-id",
+		InputItems: []InputItem{{Type: "text", Text: "try unsafe provider tool call id"}},
 	})
-	if !errors.Is(err, ErrModelToolCallRejected) {
-		t.Fatalf("SubmitTurn error = %v, want ErrModelToolCallRejected", err)
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
-	projection, err := k.Session("invalid-tool-call-id")
+	if resp.Final.Text != "unsafe provider id did not become kernel identity" {
+		t.Fatalf("final text = %q, want unsafe provider id did not become kernel identity", resp.Final.Text)
+	}
+	projection, err := k.Session("unsafe-provider-tool-call-id")
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
 	}
-	var eventTypes []string
-	for _, event := range projection.Events {
-		eventTypes = append(eventTypes, event.Type)
+	if len(projection.Events) < 5 || projection.Events[1].Data.ToolCall == nil || projection.Events[4].Data.ToolResult == nil {
+		t.Fatalf("events = %+v, want tool call/result payloads", projection.Events)
 	}
-	wantTypes := []string{"turn.submitted", "turn.failed"}
-	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
-		t.Fatalf("event types = %v, want %v", eventTypes, wantTypes)
+	if projection.Events[1].Data.ToolCall.ToolCallID != projection.Events[1].EventID || projection.Events[1].Data.ToolCall.ProviderToolCallID != "bad tool call id" {
+		t.Fatalf("tool.call = %+v, want event id identity and unsafe provider correlation preserved", projection.Events[1].Data.ToolCall)
+	}
+	if projection.Events[4].Data.ToolResult.ToolCallID != projection.Events[1].EventID || projection.Events[4].Data.ToolResult.ProviderToolCallID != "bad tool call id" {
+		t.Fatalf("tool.result = %+v, want event id identity and provider correlation", projection.Events[4].Data.ToolResult)
 	}
 }
 
@@ -5457,7 +5532,11 @@ func toolRepairPayloadByCallID(t *testing.T, results []ModelToolResult) map[stri
 	t.Helper()
 	payloads := make(map[string]map[string]interface{}, len(results))
 	for _, result := range results {
-		payloads[result.ToolCallID] = decodeJSONMap(t, result.Content)
+		key := result.ProviderToolCallID
+		if key == "" {
+			key = result.ToolCallID
+		}
+		payloads[key] = decodeJSONMap(t, result.Content)
 	}
 	return payloads
 }

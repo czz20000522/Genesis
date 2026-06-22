@@ -22,6 +22,7 @@ type shellExecToolArguments struct {
 
 type preparedModelToolCall struct {
 	callID         string
+	providerCallID string
 	name           string
 	requestInvalid *ToolRequestInvalidProjection
 	execute        func(context.Context, string, string) (ModelToolResult, error)
@@ -66,12 +67,14 @@ func (g ToolGateway) PrepareBatch(calls []ModelToolCall) ([]preparedModelToolCal
 			if prepared[i].requestInvalid != nil {
 				continue
 			}
+			providerCallID := prepared[i].providerCallID
 			prepared[i] = invalidPreparedModelToolCall(
 				prepared[i].callID,
 				prepared[i].name,
 				"tool_batch_not_executed",
 				"tool batch was not executed because at least one tool request was invalid",
 			)
+			prepared[i].providerCallID = providerCallID
 		}
 	}
 	return prepared, nil
@@ -88,9 +91,16 @@ func (g ToolGateway) prepareCall(call ModelToolCall) (preparedModelToolCall, err
 	}
 	definition, ok := g.registry.Resolve(name)
 	if !ok {
-		return invalidPreparedModelToolCall(callID, name, "unsupported_tool", fmt.Sprintf("unsupported tool %q", call.Name)), nil
+		prepared := invalidPreparedModelToolCall(callID, name, "unsupported_tool", fmt.Sprintf("unsupported tool %q", call.Name))
+		prepared.providerCallID = strings.TrimSpace(call.ProviderToolCallID)
+		return prepared, nil
 	}
-	return definition.Prepare(g.kernel, callID, name, call.Arguments)
+	prepared, err := definition.Prepare(g.kernel, callID, name, call.Arguments)
+	if err != nil {
+		return preparedModelToolCall{}, err
+	}
+	prepared.providerCallID = strings.TrimSpace(call.ProviderToolCallID)
+	return prepared, nil
 }
 
 func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
@@ -128,9 +138,10 @@ func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments 
 				return ModelToolResult{}, err
 			}
 			return ModelToolResult{
-				ToolCallID: callID,
-				Name:       name,
-				Content:    string(content),
+				ToolCallID:         callID,
+				ProviderToolCallID: "",
+				Name:               name,
+				Content:            string(content),
 			}, nil
 		},
 	}, nil
@@ -158,15 +169,23 @@ func (g ToolGateway) Execute(ctx context.Context, sessionID string, turnID strin
 			return ModelToolResult{}, err
 		}
 		return ModelToolResult{
-			ToolCallID: prepared.callID,
-			Name:       prepared.name,
-			Content:    string(content),
+			ToolCallID:         prepared.callID,
+			ProviderToolCallID: prepared.providerCallID,
+			Name:               prepared.name,
+			Content:            string(content),
 		}, nil
 	}
 	if prepared.execute == nil {
 		return ModelToolResult{}, fmt.Errorf("%w: prepared tool %q has no executable payload", ErrModelToolCallRejected, prepared.name)
 	}
-	return prepared.execute(ctx, sessionID, turnID)
+	result, err := prepared.execute(ctx, sessionID, turnID)
+	if err != nil {
+		return ModelToolResult{}, err
+	}
+	if strings.TrimSpace(result.ProviderToolCallID) == "" {
+		result.ProviderToolCallID = prepared.providerCallID
+	}
+	return result, nil
 }
 
 func modelOperationResult(operation OperationProjection) interface{} {
@@ -203,8 +222,9 @@ func invalidPreparedModelToolCall(callID string, name string, code string, messa
 		tool = "unknown"
 	}
 	return preparedModelToolCall{
-		callID: callID,
-		name:   tool,
+		callID:         callID,
+		providerCallID: "",
+		name:           tool,
 		requestInvalid: &ToolRequestInvalidProjection{
 			Status:   "tool_request_invalid",
 			Tool:     tool,

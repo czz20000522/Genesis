@@ -150,7 +150,7 @@ func chatMessagesFromModelRequest(req ModelRequest) []chatMessage {
 		for _, result := range round.Results {
 			messages = append(messages, chatMessage{
 				Role:       "tool",
-				ToolCallID: result.ToolCallID,
+				ToolCallID: providerToolResultID(result),
 				Content:    result.Content,
 			})
 		}
@@ -272,7 +272,7 @@ func chatToolCallsFromModel(calls []ModelToolCall) []chatToolCall {
 			args = "{}"
 		}
 		converted = append(converted, chatToolCall{
-			ID:   call.ToolCallID,
+			ID:   providerToolCallIDForReplay(call),
 			Type: "function",
 			Function: chatToolCallFunction{
 				Name:      strings.TrimSpace(call.Name),
@@ -295,10 +295,25 @@ func modelToolCallsFromChat(calls []chatToolCall) ([]ModelToolCall, error) {
 		}
 		raw := json.RawMessage(args)
 		converted = append(converted, ModelToolCall{
-			ToolCallID: strings.TrimSpace(call.ID),
-			Name:       strings.TrimSpace(call.Function.Name),
-			Arguments:  raw,
+			ToolCallID:         strings.TrimSpace(call.ID),
+			ProviderToolCallID: strings.TrimSpace(call.ID),
+			Name:               strings.TrimSpace(call.Function.Name),
+			Arguments:          raw,
 		})
 	}
 	return converted, nil
+}
+
+func providerToolCallIDForReplay(call ModelToolCall) string {
+	if id := strings.TrimSpace(call.ProviderToolCallID); id != "" {
+		return id
+	}
+	return strings.TrimSpace(call.ToolCallID)
+}
+
+func providerToolResultID(result ModelToolResult) string {
+	if id := strings.TrimSpace(result.ProviderToolCallID); id != "" {
+		return id
+	}
+	return strings.TrimSpace(result.ToolCallID)
 }

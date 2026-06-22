@@ -177,7 +177,20 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			}
 			return TurnResponse{}, errors.New("model tool loop exceeded the maximum number of rounds")
 		}
-		preparedCalls, err := toolGateway.PrepareBatch(modelResp.ToolCalls)
+		normalizedCalls, toolCallEventIDs, err := k.appendToolCallEvents(sessionID, turnID, modelResp.ToolCalls)
+		if err != nil {
+			if errors.Is(err, ErrModelToolCallRejected) {
+				failure := TurnError{
+					Code:    "tool_call_rejected",
+					Message: err.Error(),
+				}
+				if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
+					return TurnResponse{}, appendErr
+				}
+			}
+			return TurnResponse{}, err
+		}
+		preparedCalls, err := toolGateway.PrepareBatch(normalizedCalls)
 		if err != nil {
 			failure := TurnError{
 				Code:    "tool_call_rejected",
@@ -186,10 +199,6 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
 				return TurnResponse{}, appendErr
 			}
-			return TurnResponse{}, err
-		}
-		toolCallEventIDs, err := k.appendToolCallEvents(sessionID, turnID, modelResp.ToolCalls)
-		if err != nil {
 			return TurnResponse{}, err
 		}
 		for _, call := range preparedCalls {
@@ -536,12 +545,22 @@ func (k *Kernel) appendTurnFailure(sessionID string, turnID string, failure Turn
 	})
 }
 
-func (k *Kernel) appendToolCallEvents(sessionID string, turnID string, calls []ModelToolCall) (map[string]string, error) {
+func (k *Kernel) appendToolCallEvents(sessionID string, turnID string, calls []ModelToolCall) ([]ModelToolCall, map[string]string, error) {
+	if err := validateProviderToolCallBatch(calls); err != nil {
+		return nil, nil, err
+	}
+	normalized := make([]ModelToolCall, 0, len(calls))
 	eventIDs := make(map[string]string, len(calls))
 	for _, call := range calls {
 		createdAt := k.clock()
-		callID := strings.TrimSpace(call.ToolCallID)
 		eventID := newID("evt", createdAt)
+		providerCallID := providerToolCallID(call)
+		normalizedCall := ModelToolCall{
+			ToolCallID:         eventID,
+			ProviderToolCallID: providerCallID,
+			Name:               call.Name,
+			Arguments:          append(json.RawMessage(nil), call.Arguments...),
+		}
 		if err := k.appendEvent(StoredEvent{
 			EventID:   eventID,
 			SessionID: sessionID,
@@ -550,17 +569,19 @@ func (k *Kernel) appendToolCallEvents(sessionID string, turnID string, calls []M
 			CreatedAt: createdAt,
 			Data: EventData{
 				ToolCall: &ToolCallProjection{
-					ToolCallID: callID,
-					Tool:       strings.TrimSpace(call.Name),
-					Arguments:  string(call.Arguments),
+					ToolCallID:         eventID,
+					ProviderToolCallID: providerCallID,
+					Tool:               strings.TrimSpace(call.Name),
+					Arguments:          string(call.Arguments),
 				},
 			},
 		}); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		eventIDs[callID] = eventID
+		normalized = append(normalized, normalizedCall)
+		eventIDs[eventID] = eventID
 	}
-	return eventIDs, nil
+	return normalized, eventIDs, nil
 }
 
 func (k *Kernel) appendToolResultEvent(sessionID string, turnID string, result ModelToolResult, forEventID string) error {
@@ -573,14 +594,37 @@ func (k *Kernel) appendToolResultEvent(sessionID string, turnID string, result M
 		CreatedAt: createdAt,
 		Data: EventData{
 			ToolResult: &ToolResultProjection{
-				ToolCallID: strings.TrimSpace(result.ToolCallID),
-				Tool:       strings.TrimSpace(result.Name),
-				ForEventID: strings.TrimSpace(forEventID),
-				Status:     toolResultStatus(result.Content),
-				Content:    result.Content,
+				ToolCallID:         strings.TrimSpace(result.ToolCallID),
+				ProviderToolCallID: strings.TrimSpace(result.ProviderToolCallID),
+				Tool:               strings.TrimSpace(result.Name),
+				ForEventID:         strings.TrimSpace(forEventID),
+				Status:             toolResultStatus(result.Content),
+				Content:            result.Content,
 			},
 		},
 	})
+}
+
+func validateProviderToolCallBatch(calls []ModelToolCall) error {
+	seen := map[string]bool{}
+	for _, call := range calls {
+		id := providerToolCallID(call)
+		if id == "" {
+			continue
+		}
+		if seen[id] {
+			return fmt.Errorf("%w: duplicate provider tool_call_id %q", ErrModelToolCallRejected, id)
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
+func providerToolCallID(call ModelToolCall) string {
+	if id := strings.TrimSpace(call.ProviderToolCallID); id != "" {
+		return id
+	}
+	return strings.TrimSpace(call.ToolCallID)
 }
 
 func toolResultStatus(content string) string {
@@ -614,18 +658,20 @@ func modelToolRoundsFromStoredEvents(events []StoredEvent, turnID string) []Mode
 				continue
 			}
 			current.Calls = append(current.Calls, ModelToolCall{
-				ToolCallID: event.Data.ToolCall.ToolCallID,
-				Name:       event.Data.ToolCall.Tool,
-				Arguments:  json.RawMessage(event.Data.ToolCall.Arguments),
+				ToolCallID:         event.Data.ToolCall.ToolCallID,
+				ProviderToolCallID: event.Data.ToolCall.ProviderToolCallID,
+				Name:               event.Data.ToolCall.Tool,
+				Arguments:          json.RawMessage(event.Data.ToolCall.Arguments),
 			})
 		case "tool.result":
 			if event.Data.ToolResult == nil {
 				continue
 			}
 			current.Results = append(current.Results, ModelToolResult{
-				ToolCallID: event.Data.ToolResult.ToolCallID,
-				Name:       event.Data.ToolResult.Tool,
-				Content:    event.Data.ToolResult.Content,
+				ToolCallID:         event.Data.ToolResult.ToolCallID,
+				ProviderToolCallID: event.Data.ToolResult.ProviderToolCallID,
+				Name:               event.Data.ToolResult.Tool,
+				Content:            event.Data.ToolResult.Content,
 			})
 			if len(current.Calls) > 0 && len(current.Results) == len(current.Calls) {
 				rounds = append(rounds, current)
