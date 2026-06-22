@@ -169,9 +169,10 @@ The first memory loop is explicit and governed:
 - `GET /memory/candidates/{id}` reads one candidate with source and approval evidence.
 - `POST /memory/candidates/{id}/approve` approves a candidate with required `approval_authority`, `approval_reason`, and `approval_evidence_ref`.
 - `POST /memory/candidates/{id}/reject` rejects a candidate with required `rejection_authority`, `rejection_reason`, and `rejection_evidence_ref`.
+- `POST /memory/candidates/{id}/supersede` marks one candidate as superseded with required authority/reason/evidence and atomically creates a replacement pending candidate.
 - `POST /turn` recalls only approved candidates and records recalled memory refs on the turn event.
 
-Rejected candidates are restart-safe review decisions and are not recalled. The first recall strategy is intentionally simple text matching. It proves the governance, provenance, and restart-safe replay loop before adding vector indexes, supersession, or richer memory policy.
+Rejected and superseded candidates are restart-safe review decisions and are not recalled. A replacement candidate created by supersession remains pending until separately approved. The first recall strategy is intentionally simple text matching. It proves the governance, provenance, and restart-safe replay loop before adding vector indexes or richer memory policy.
 
 ## Operations Records
 

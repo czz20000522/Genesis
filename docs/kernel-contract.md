@@ -81,6 +81,8 @@ Owns memory candidates, approval state, safe recall, source refs, and supersessi
 
 Candidate review decisions are durable owner evidence. Approved candidates may enter recall under context policy; rejected candidates are explicit review outcomes and must remain excluded from recall. A rejected candidate cannot later be approved through the minimal review surface; a future supersession flow must create an explicit replacement decision instead of mutating rejected truth into approved truth.
 
+The first supersession flow is a single kernel ledger decision. Superseding a candidate marks the original candidate as `superseded` with authority, reason, evidence, and replacement candidate id, while creating one replacement candidate in `pending` state from the supplied replacement text and source ref. The replacement does not enter recall until it is independently approved. Supersession is not a text edit, hidden approval, or migration shim for rejected truth.
+
 ### Auth/Credential Plane
 
 Owns runtime client authentication, credential refs, redaction, and secret resolution for authorized effects. Provider-specific account setup belongs to shells or external applications unless it becomes a generic credential primitive.
