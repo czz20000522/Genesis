@@ -24,6 +24,7 @@ type ContextPolicy struct {
 	ContextWindowTokens int
 	AutoCompactRatio    float64
 	RecentTurnLimit     int
+	RecentTailTokens    int
 	SkillIndexChars     int
 }
 
@@ -491,23 +492,35 @@ type StoredEvent struct {
 }
 
 type EventData struct {
-	IdempotencyKey             string                       `json:"idempotency_key,omitempty"`
-	InputItems                 []InputItem                  `json:"input_items,omitempty"`
-	IngressRisks               []IngressRisk                `json:"ingress_risks,omitempty"`
-	ModelInputKinds            []string                     `json:"model_input_kinds,omitempty"`
-	ToolManifest               []ToolSpec                   `json:"tool_manifest,omitempty"`
-	SkillCatalog               []SkillCatalogItemProjection `json:"skill_catalog,omitempty"`
-	RuntimeContext             *ContextRuntimeSnapshot      `json:"runtime_context,omitempty"`
-	RecalledMemories           []MemoryRecall               `json:"recalled_memories,omitempty"`
-	ToolCall                   *ToolCallProjection          `json:"tool_call,omitempty"`
-	ToolResult                 *ToolResultProjection        `json:"tool_result,omitempty"`
-	ContextCompaction          *ContextCompactionProjection `json:"context_compaction,omitempty"`
-	Final                      *FinalMessage                `json:"final,omitempty"`
-	TurnError                  *TurnError                   `json:"turn_error,omitempty"`
-	Operation                  *OperationProjection         `json:"operation,omitempty"`
-	Work                       *WorkProjection              `json:"work,omitempty"`
-	MemoryCandidate            *MemoryCandidateProjection   `json:"memory_candidate,omitempty"`
-	ReplacementMemoryCandidate *MemoryCandidateProjection   `json:"replacement_memory_candidate,omitempty"`
+	IdempotencyKey             string                            `json:"idempotency_key,omitempty"`
+	InputItems                 []InputItem                       `json:"input_items,omitempty"`
+	IngressRisks               []IngressRisk                     `json:"ingress_risks,omitempty"`
+	ModelInputKinds            []string                          `json:"model_input_kinds,omitempty"`
+	ToolManifest               []ToolSpec                        `json:"tool_manifest,omitempty"`
+	SkillCatalog               []SkillCatalogItemProjection      `json:"skill_catalog,omitempty"`
+	RuntimeContext             *ContextRuntimeSnapshot           `json:"runtime_context,omitempty"`
+	RecalledMemories           []MemoryRecall                    `json:"recalled_memories,omitempty"`
+	ToolCall                   *ToolCallProjection               `json:"tool_call,omitempty"`
+	ToolResult                 *ToolResultProjection             `json:"tool_result,omitempty"`
+	ModelContextAccounting     *ModelContextAccountingProjection `json:"model_context_accounting,omitempty"`
+	ContextCompaction          *ContextCompactionProjection      `json:"context_compaction,omitempty"`
+	Final                      *FinalMessage                     `json:"final,omitempty"`
+	TurnError                  *TurnError                        `json:"turn_error,omitempty"`
+	Operation                  *OperationProjection              `json:"operation,omitempty"`
+	Work                       *WorkProjection                   `json:"work,omitempty"`
+	MemoryCandidate            *MemoryCandidateProjection        `json:"memory_candidate,omitempty"`
+	ReplacementMemoryCandidate *MemoryCandidateProjection        `json:"replacement_memory_candidate,omitempty"`
+}
+
+type ModelContextAccountingProjection struct {
+	RoundIndex                int         `json:"round_index,omitempty"`
+	Model                     string      `json:"model,omitempty"`
+	ModelInputKinds           []string    `json:"model_input_kinds,omitempty"`
+	HistoryTurnIDs            []string    `json:"history_turn_ids,omitempty"`
+	CompactedThroughTurnID    string      `json:"compacted_through_turn_id,omitempty"`
+	Usage                     *TokenUsage `json:"usage,omitempty"`
+	ProcessedInputTokens      int         `json:"processed_input_tokens,omitempty"`
+	ProcessedInputTokenSource string      `json:"processed_input_token_source,omitempty"`
 }
 
 type ContextCompactionProjection struct {

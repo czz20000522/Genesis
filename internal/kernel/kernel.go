@@ -137,6 +137,9 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			}
 			return TurnResponse{}, providerCompleteError(err)
 		}
+		if err := k.appendModelContextAccounting(sessionID, turnID, roundIndex, providerContext, modelResp); err != nil {
+			return TurnResponse{}, err
+		}
 		if len(modelResp.ToolCalls) == 0 {
 			completedAt := k.clock()
 			final := FinalMessage{Text: modelResp.Text, Model: modelResp.Model, Usage: modelResp.Usage}
@@ -153,7 +156,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			if err := k.appendEvent(completed); err != nil {
 				return TurnResponse{}, err
 			}
-			k.maybeCompactSession(ctx, sessionID, turnID, final)
+			k.maybeSubmitAutoContextCompaction(ctx, sessionID, turnID, final)
 			events, err := k.TurnEvents(turnID)
 			if err != nil {
 				return TurnResponse{}, err
@@ -677,6 +680,43 @@ func (k *Kernel) ProviderContextProjection(turnID string) (ProviderContextProjec
 	return projection, nil
 }
 
+func (k *Kernel) appendModelContextAccounting(sessionID string, turnID string, roundIndex int, providerContext ProviderContextProjection, response ModelResponse) error {
+	if response.Usage == nil {
+		return nil
+	}
+	now := k.clock()
+	accounting := ModelContextAccountingProjection{
+		RoundIndex:             roundIndex,
+		Model:                  strings.TrimSpace(response.Model),
+		ModelInputKinds:        modelInputKinds(providerContext.InputItems),
+		HistoryTurnIDs:         append([]string(nil), providerContext.HistoryTurnIDs...),
+		CompactedThroughTurnID: providerContext.CompactedThroughTurnID,
+		Usage:                  cloneTokenUsage(response.Usage),
+	}
+	if response.Usage.CacheMissTokens > 0 {
+		accounting.ProcessedInputTokens = response.Usage.CacheMissTokens
+		accounting.ProcessedInputTokenSource = "prompt_cache_miss_tokens"
+	}
+	return k.appendEvent(StoredEvent{
+		EventID:   newID("evt", now),
+		SessionID: strings.TrimSpace(sessionID),
+		TurnID:    strings.TrimSpace(turnID),
+		Type:      "model.context.accounted",
+		CreatedAt: now,
+		Data: EventData{
+			ModelContextAccounting: &accounting,
+		},
+	})
+}
+
+func cloneTokenUsage(usage *TokenUsage) *TokenUsage {
+	if usage == nil {
+		return nil
+	}
+	cloned := *usage
+	return &cloned
+}
+
 func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID string, policy ContextPolicy) (ProviderContextProjection, bool) {
 	projection := ProviderContextProjection{TurnID: turnID}
 	found := false
@@ -694,9 +734,11 @@ func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID stri
 	if !found {
 		return ProviderContextProjection{}, false
 	}
-	historyContext := sameSessionConversationHistoryContext(events, projection.SessionID, turnID)
-	projection.InputItems = modelInputItemsFromSubmittedEvent(submitted, historyContext, policy.SkillIndexChars)
+	history := sameSessionConversationHistoryProjection(events, projection.SessionID, turnID)
+	projection.InputItems = modelInputItemsFromSubmittedEvent(submitted, history.Text, policy.SkillIndexChars)
 	projection.ToolRounds = modelToolRoundsFromStoredEvents(events, turnID)
+	projection.HistoryTurnIDs = history.TurnIDs()
+	projection.CompactedThroughTurnID = history.CompactedThroughTurnID
 	return projection, true
 }
 
@@ -720,10 +762,34 @@ func modelInputItemsFromSubmittedEvent(data EventData, historyContext string, sk
 }
 
 func sameSessionConversationHistoryContext(events []StoredEvent, sessionID string, beforeTurnID string) string {
+	return sameSessionConversationHistoryProjection(events, sessionID, beforeTurnID).Text
+}
+
+type sameSessionHistoryProjection struct {
+	Text                   string
+	CompactedThroughTurnID string
+	Turns                  []conversationHistoryTurn
+}
+
+func (p sameSessionHistoryProjection) TurnIDs() []string {
+	ids := make([]string, 0, len(p.Turns))
+	for _, turn := range p.Turns {
+		if strings.TrimSpace(turn.TurnID) != "" {
+			ids = append(ids, turn.TurnID)
+		}
+	}
+	return ids
+}
+
+func sameSessionConversationHistoryProjection(events []StoredEvent, sessionID string, beforeTurnID string) sameSessionHistoryProjection {
 	compaction := latestSessionContextCompaction(events, sessionID, beforeTurnID)
 	turns := sameSessionCompletedConversationTurns(events, sessionID, beforeTurnID)
 	turns = turnsAfterCompactedTurn(turns, compaction.CompactedThroughTurnID)
-	return conversationHistoryContextWithSummary(compaction.Summary, turns)
+	return sameSessionHistoryProjection{
+		Text:                   conversationHistoryContextWithSummary(compaction.Summary, turns),
+		CompactedThroughTurnID: compaction.CompactedThroughTurnID,
+		Turns:                  turns,
+	}
 }
 
 func sameSessionCompletedConversationTurns(events []StoredEvent, sessionID string, beforeTurnID string) []conversationHistoryTurn {

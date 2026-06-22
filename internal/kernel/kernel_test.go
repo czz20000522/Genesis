@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -331,6 +332,124 @@ func TestAutoCompactionFailureIsRecordedAndRetried(t *testing.T) {
 	}
 	if len(provider.compactionRequests) < 2 {
 		t.Fatalf("compaction requests = %d, want retry on later turn", len(provider.compactionRequests))
+	}
+}
+
+func TestModelGatewayRecordsProviderBackedContextAccounting(t *testing.T) {
+	provider := &compactionProvider{
+		normalUsages: []*TokenUsage{
+			{InputTokens: 12, OutputTokens: 2, TotalTokens: 14, CacheHitTokens: 7, CacheMissTokens: 5},
+			{InputTokens: 24, OutputTokens: 3, TotalTokens: 27, CacheHitTokens: 18, CacheMissTokens: 6},
+		},
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	first, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "context-accounting",
+		InputItems: []InputItem{{Type: "text", Text: "first accounted turn"}},
+	})
+	if err != nil {
+		t.Fatalf("first SubmitTurn returned error: %v", err)
+	}
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "context-accounting",
+		InputItems: []InputItem{{Type: "text", Text: "second accounted turn"}},
+	}); err != nil {
+		t.Fatalf("second SubmitTurn returned error: %v", err)
+	}
+
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	var accountings []ModelContextAccountingProjection
+	for _, event := range events {
+		if event.Type == "model.context.accounted" && event.Data.ModelContextAccounting != nil {
+			accountings = append(accountings, *event.Data.ModelContextAccounting)
+		}
+	}
+	if len(accountings) != 2 {
+		t.Fatalf("accounting events = %+v, want 2", accountings)
+	}
+	if accountings[0].Usage == nil || accountings[0].Usage.InputTokens != 12 || accountings[0].Usage.CacheHitTokens != 7 || accountings[0].Usage.CacheMissTokens != 5 {
+		t.Fatalf("first accounting usage = %+v, want provider usage/cache facts", accountings[0].Usage)
+	}
+	if accountings[0].ProcessedInputTokens != 5 || accountings[0].ProcessedInputTokenSource != "prompt_cache_miss_tokens" {
+		t.Fatalf("first processed accounting = %+v, want provider cache miss source", accountings[0])
+	}
+	if len(accountings[0].HistoryTurnIDs) != 0 {
+		t.Fatalf("first history turn ids = %+v, want none", accountings[0].HistoryTurnIDs)
+	}
+	if len(accountings[1].HistoryTurnIDs) != 1 || accountings[1].HistoryTurnIDs[0] != first.TurnID {
+		t.Fatalf("second history turn ids = %+v, want first turn id %s", accountings[1].HistoryTurnIDs, first.TurnID)
+	}
+	if !reflect.DeepEqual(accountings[1].ModelInputKinds, []string{ModelInputKindConversationHistoryContext, ModelInputKindUserText}) {
+		t.Fatalf("second model input kinds = %+v", accountings[1].ModelInputKinds)
+	}
+}
+
+func TestAutoCompactionUsesProviderBackedExchangeAccountingForRecentTail(t *testing.T) {
+	provider := &compactionProvider{
+		normalUsages: []*TokenUsage{
+			{InputTokens: 20, OutputTokens: 1, TotalTokens: 21, CacheHitTokens: 0, CacheMissTokens: 8},
+			{InputTokens: 30, OutputTokens: 1, TotalTokens: 31, CacheHitTokens: 18, CacheMissTokens: 8},
+			{InputTokens: 45, OutputTokens: 1, TotalTokens: 46, CacheHitTokens: 23, CacheMissTokens: 30},
+			{InputTokens: 90, OutputTokens: 1, TotalTokens: 91, CacheHitTokens: 80, CacheMissTokens: 8},
+			{InputTokens: 35, OutputTokens: 1, TotalTokens: 36, CacheHitTokens: 25, CacheMissTokens: 10},
+		},
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ContextPolicy: ContextPolicy{
+			ContextWindowTokens: 100,
+			AutoCompactRatio:    0.5,
+			RecentTurnLimit:     1,
+			RecentTailTokens:    40,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	for _, text := range []string{
+		"first should compact",
+		"second should compact",
+		"third should stay by provider accounting",
+		"fourth triggers compaction",
+		"fifth reads compacted context",
+	} {
+		if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+			SessionID:  "provider-accounted-tail",
+			InputItems: []InputItem{{Type: "text", Text: text}},
+		}); err != nil {
+			t.Fatalf("SubmitTurn(%q) returned error: %v", text, err)
+		}
+	}
+
+	if len(provider.compactionRequests) == 0 {
+		t.Fatalf("compaction requests = 0, want compaction")
+	}
+	source := modelUserText(provider.compactionRequests[0].InputItems)
+	if !strings.Contains(source, "first should compact") || !strings.Contains(source, "second should compact") {
+		t.Fatalf("compaction source = %q, want first two turns", source)
+	}
+	if strings.Contains(source, "third should stay by provider accounting") {
+		t.Fatalf("compaction source = %q, must not compact provider-budgeted third turn", source)
+	}
+	fifthContext := modelUserText(provider.normalRequests[4].InputItems)
+	if !strings.Contains(fifthContext, "summary of compacted earlier context") ||
+		!strings.Contains(fifthContext, "third should stay by provider accounting") ||
+		!strings.Contains(fifthContext, "fourth triggers compaction") {
+		t.Fatalf("fifth context = %q, want summary plus provider-budgeted tail", fifthContext)
 	}
 }
 
@@ -6606,6 +6725,8 @@ func newTestKernelWithRuntimeTokenAndPolicy(t *testing.T, ledgerPath string, tok
 
 type compactionProvider struct {
 	normalRequests          []ModelRequest
+	normalUsages            []*TokenUsage
+	normalAttemptNumber     int
 	compactionRequests      []ModelRequest
 	failCompactionAttempts  int
 	compactionAttemptNumber int
@@ -6633,10 +6754,15 @@ func (p *compactionProvider) Complete(_ context.Context, req ModelRequest) (Mode
 		}, nil
 	}
 	p.normalRequests = append(p.normalRequests, req)
+	usage := &TokenUsage{InputTokens: 9, OutputTokens: 1, TotalTokens: 10}
+	if p.normalAttemptNumber < len(p.normalUsages) {
+		usage = p.normalUsages[p.normalAttemptNumber]
+	}
+	p.normalAttemptNumber++
 	return ModelResponse{
 		Text:  "normal answer",
 		Model: "chat-model",
-		Usage: &TokenUsage{InputTokens: 9, OutputTokens: 1, TotalTokens: 10},
+		Usage: usage,
 	}, nil
 }
 

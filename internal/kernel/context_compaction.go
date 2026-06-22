@@ -41,6 +41,9 @@ func normalizedContextPolicy(policy ContextPolicy) ContextPolicy {
 	if policy.RecentTurnLimit <= 0 {
 		policy.RecentTurnLimit = defaultRecentTurnLimit
 	}
+	if policy.RecentTailTokens < 0 {
+		policy.RecentTailTokens = 0
+	}
 	return policy
 }
 
@@ -55,10 +58,32 @@ func (p ContextPolicy) autoCompactLimit() int {
 	return limit
 }
 
-func (k *Kernel) maybeCompactSession(ctx context.Context, sessionID string, triggeringTurnID string, final FinalMessage) {
+type ContextCompactionCommand struct {
+	SessionID         string
+	TriggeringTurnID  string
+	Trigger           string
+	SourceInputTokens int
+}
+
+func (k *Kernel) maybeSubmitAutoContextCompaction(ctx context.Context, sessionID string, triggeringTurnID string, final FinalMessage) {
 	limit := k.contextPolicy.autoCompactLimit()
 	if limit <= 0 || final.Usage == nil || final.Usage.InputTokens < limit {
 		return
+	}
+	k.runContextCompaction(ctx, ContextCompactionCommand{
+		SessionID:         sessionID,
+		TriggeringTurnID:  triggeringTurnID,
+		Trigger:           contextCompactionTriggerAuto,
+		SourceInputTokens: final.Usage.InputTokens,
+	})
+}
+
+func (k *Kernel) runContextCompaction(ctx context.Context, command ContextCompactionCommand) {
+	sessionID := strings.TrimSpace(command.SessionID)
+	triggeringTurnID := strings.TrimSpace(command.TriggeringTurnID)
+	trigger := strings.TrimSpace(command.Trigger)
+	if trigger == "" {
+		trigger = contextCompactionTriggerAuto
 	}
 	events, err := k.loadEvents()
 	if err != nil {
@@ -67,17 +92,18 @@ func (k *Kernel) maybeCompactSession(ctx context.Context, sessionID string, trig
 	latest := latestSessionContextCompaction(events, sessionID, "")
 	turns := sameSessionCompletedConversationTurns(events, sessionID, "")
 	eligible := turnsAfterCompactedTurn(turns, latest.CompactedThroughTurnID)
-	region := compactionRegion(eligible, k.contextPolicy)
+	accounting := modelContextAccountingByTurn(events, sessionID)
+	region := compactionRegion(eligible, k.contextPolicy, accounting)
 	if len(region) == 0 {
 		return
 	}
 	startedAt := k.clock()
 	started := ContextCompactionProjection{
-		Trigger:                contextCompactionTriggerAuto,
+		Trigger:                trigger,
 		Status:                 contextCompactionStatusRunning,
 		CompactedThroughTurnID: region[len(region)-1].TurnID,
 		CompactedTurnCount:     len(region),
-		SourceInputTokens:      final.Usage.InputTokens,
+		SourceInputTokens:      command.SourceInputTokens,
 	}
 	if err := k.appendEvent(StoredEvent{
 		EventID:   newID("evt", startedAt),
@@ -103,12 +129,12 @@ func (k *Kernel) maybeCompactSession(ctx context.Context, sessionID string, trig
 	}
 	now := k.clock()
 	compacted := ContextCompactionProjection{
-		Trigger:                contextCompactionTriggerAuto,
+		Trigger:                trigger,
 		Status:                 contextCompactionStatusCompleted,
 		Summary:                strings.TrimSpace(response.Text),
 		CompactedThroughTurnID: region[len(region)-1].TurnID,
 		CompactedTurnCount:     len(region),
-		SourceInputTokens:      final.Usage.InputTokens,
+		SourceInputTokens:      command.SourceInputTokens,
 		Model:                  response.Model,
 		Usage:                  response.Usage,
 	}
@@ -126,7 +152,7 @@ func (k *Kernel) maybeCompactSession(ctx context.Context, sessionID string, trig
 	}
 }
 
-func compactionRegion(turns []conversationHistoryTurn, policy ContextPolicy) []conversationHistoryTurn {
+func compactionRegion(turns []conversationHistoryTurn, policy ContextPolicy, accountingByTurn map[string]ModelContextAccountingProjection) []conversationHistoryTurn {
 	if len(turns) == 0 {
 		return nil
 	}
@@ -138,10 +164,56 @@ func compactionRegion(turns []conversationHistoryTurn, policy ContextPolicy) []c
 		return nil
 	}
 	regionEnd := len(turns) - floor
+	if policy.RecentTailTokens > 0 {
+		regionEnd = compactionRegionEndByProviderAccounting(turns, floor, policy.RecentTailTokens, accountingByTurn)
+	}
 	if regionEnd <= 0 {
 		return nil
 	}
 	return turns[:regionEnd]
+}
+
+func compactionRegionEndByProviderAccounting(turns []conversationHistoryTurn, floor int, tokenBudget int, accountingByTurn map[string]ModelContextAccountingProjection) int {
+	regionEnd := len(turns) - floor
+	if tokenBudget <= 0 || len(accountingByTurn) == 0 {
+		return regionEnd
+	}
+	used := 0
+	kept := 0
+	for index := len(turns) - 1; index >= 0; index-- {
+		accounting, ok := accountingByTurn[turns[index].TurnID]
+		if !ok || accounting.ProcessedInputTokens <= 0 {
+			if kept >= floor {
+				break
+			}
+			return regionEnd
+		}
+		if kept >= floor && used+accounting.ProcessedInputTokens > tokenBudget {
+			break
+		}
+		used += accounting.ProcessedInputTokens
+		regionEnd = index
+		kept++
+	}
+	if len(turns)-regionEnd < floor {
+		regionEnd = len(turns) - floor
+	}
+	return regionEnd
+}
+
+func modelContextAccountingByTurn(events []StoredEvent, sessionID string) map[string]ModelContextAccountingProjection {
+	sessionID = strings.TrimSpace(sessionID)
+	accountingByTurn := map[string]ModelContextAccountingProjection{}
+	if sessionID == "" {
+		return accountingByTurn
+	}
+	for _, event := range events {
+		if event.SessionID != sessionID || event.Type != "model.context.accounted" || event.Data.ModelContextAccounting == nil {
+			continue
+		}
+		accountingByTurn[event.TurnID] = *event.Data.ModelContextAccounting
+	}
+	return accountingByTurn
 }
 
 func (k *Kernel) appendContextCompactionFailed(sessionID string, turnID string, started ContextCompactionProjection, reason string) {

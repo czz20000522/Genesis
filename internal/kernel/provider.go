@@ -24,11 +24,13 @@ type ModelRequest struct {
 }
 
 type ProviderContextProjection struct {
-	SessionID    string
-	TurnID       string
-	InputItems   []ModelInputItem
-	ToolManifest []ToolSpec
-	ToolRounds   []ModelToolRound
+	SessionID              string
+	TurnID                 string
+	InputItems             []ModelInputItem
+	ToolManifest           []ToolSpec
+	ToolRounds             []ModelToolRound
+	HistoryTurnIDs         []string
+	CompactedThroughTurnID string
 }
 
 func (p ProviderContextProjection) ModelRequest() ModelRequest {
