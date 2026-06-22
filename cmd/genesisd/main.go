@@ -36,7 +36,6 @@ func main() {
 	contextWindowTokens := flag.Int("context-window-tokens", envIntOrDefault("GENESIS_CONTEXT_WINDOW_TOKENS", 0), "model context window in tokens; 0 disables auto compaction")
 	autoCompactRatio := flag.Float64("auto-compact-ratio", envFloatOrDefault("GENESIS_AUTO_COMPACT_RATIO", 0), "auto compact when input tokens reach this fraction of context window; default 0.8 when context window is set")
 	compactRecentTurns := flag.Int("compact-recent-turns", envIntOrDefault("GENESIS_COMPACT_RECENT_TURNS", 0), "recent completed turns to keep verbatim after compaction; default 2 when compaction is enabled")
-	compactRecentTailTokens := flag.Int("compact-recent-tail-tokens", envIntOrDefault("GENESIS_COMPACT_RECENT_TAIL_TOKENS", 0), "estimated token budget for recent completed turns kept verbatim after compaction; 0 uses kernel default, negative keeps only compact-recent-turns")
 	skillIndexChars := flag.Int("skill-index-chars", envIntOrDefault("GENESIS_SKILL_INDEX_CHARS", 0), "maximum characters of model-visible external skill index; 0 uses kernel default, negative disables")
 	skillRoots := pathListFlag(defaultSkillRoots())
 	flag.Var(&skillRoots, "skill-root", "external skill root to scan for SKILL.md metadata; repeatable")
@@ -70,7 +69,6 @@ func main() {
 			ContextWindowTokens: *contextWindowTokens,
 			AutoCompactRatio:    *autoCompactRatio,
 			RecentTurnLimit:     *compactRecentTurns,
-			RecentTailTokens:    *compactRecentTailTokens,
 			SkillIndexChars:     *skillIndexChars,
 		},
 		SkillRoots: skillRoots.Values(),

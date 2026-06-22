@@ -24,7 +24,6 @@ type ContextPolicy struct {
 	ContextWindowTokens int
 	AutoCompactRatio    float64
 	RecentTurnLimit     int
-	RecentTailTokens    int
 	SkillIndexChars     int
 }
 

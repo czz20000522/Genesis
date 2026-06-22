@@ -207,7 +207,6 @@ func TestAutoCompactionProjectsSummaryPlusRecentTail(t *testing.T) {
 			ContextWindowTokens: 10,
 			AutoCompactRatio:    0.5,
 			RecentTurnLimit:     1,
-			RecentTailTokens:    -1,
 		},
 	})
 	if err != nil {
@@ -292,7 +291,6 @@ func TestAutoCompactionFailureIsRecordedAndRetried(t *testing.T) {
 			ContextWindowTokens: 10,
 			AutoCompactRatio:    0.5,
 			RecentTurnLimit:     1,
-			RecentTailTokens:    -1,
 		},
 	})
 	if err != nil {
@@ -333,109 +331,6 @@ func TestAutoCompactionFailureIsRecordedAndRetried(t *testing.T) {
 	}
 	if len(provider.compactionRequests) < 2 {
 		t.Fatalf("compaction requests = %d, want retry on later turn", len(provider.compactionRequests))
-	}
-}
-
-func TestAutoCompactionUsesTokenBudgetedRecentTail(t *testing.T) {
-	provider := &compactionProvider{
-		normalInputTokens: []int{10, 10, 10, 90, 10},
-	}
-	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
-		Provider:     provider,
-		RuntimeToken: testRuntimeToken,
-		ContextPolicy: ContextPolicy{
-			ContextWindowTokens: 100,
-			AutoCompactRatio:    0.5,
-			RecentTurnLimit:     1,
-			RecentTailTokens:    12,
-		},
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-
-	thirdLargeTurn := strings.Repeat("third older turn should be compacted ", 12)
-	for _, text := range []string{
-		"first old turn",
-		"second old turn",
-		thirdLargeTurn,
-		"fourth tiny tail",
-		"fifth sees compacted context",
-	} {
-		if _, err := k.SubmitTurn(context.Background(), TurnRequest{
-			SessionID:  "compact-token-tail",
-			InputItems: []InputItem{{Type: "text", Text: text}},
-		}); err != nil {
-			t.Fatalf("SubmitTurn(%q) returned error: %v", text, err)
-		}
-	}
-
-	if len(provider.normalRequests) < 5 {
-		t.Fatalf("normal requests = %d, want 5", len(provider.normalRequests))
-	}
-	fifthContext := modelUserText(provider.normalRequests[4].InputItems)
-	for _, want := range []string{
-		"Compacted earlier conversation:",
-		"summary of compacted earlier context",
-		"fourth tiny tail",
-		"fifth sees compacted context",
-	} {
-		if !strings.Contains(fifthContext, want) {
-			t.Fatalf("fifth context = %q, want %q", fifthContext, want)
-		}
-	}
-	trimmedThirdLargeTurn := strings.TrimSpace(thirdLargeTurn)
-	if strings.Contains(fifthContext, trimmedThirdLargeTurn) {
-		t.Fatalf("fifth context = %q, must not retain large turn beyond tail budget", fifthContext)
-	}
-	if len(provider.compactionRequests) == 0 || !strings.Contains(modelUserText(provider.compactionRequests[0].InputItems), trimmedThirdLargeTurn) {
-		t.Fatalf("compaction source = %+v, want large third turn folded into summary source", provider.compactionRequests)
-	}
-}
-
-func TestAutoCompactionKeepsNewestTurnWholeWhenTailBudgetIsSmall(t *testing.T) {
-	provider := &compactionProvider{
-		normalInputTokens: []int{10, 90, 10},
-	}
-	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
-		Provider:     provider,
-		RuntimeToken: testRuntimeToken,
-		ContextPolicy: ContextPolicy{
-			ContextWindowTokens: 100,
-			AutoCompactRatio:    0.5,
-			RecentTurnLimit:     1,
-			RecentTailTokens:    1,
-		},
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-
-	largeNewestTurn := strings.Repeat("newest turn must remain whole ", 20)
-	for _, text := range []string{
-		"old turn to compact",
-		largeNewestTurn,
-		"after compaction",
-	} {
-		if _, err := k.SubmitTurn(context.Background(), TurnRequest{
-			SessionID:  "compact-whole-turn",
-			InputItems: []InputItem{{Type: "text", Text: text}},
-		}); err != nil {
-			t.Fatalf("SubmitTurn(%q) returned error: %v", text, err)
-		}
-	}
-
-	if len(provider.normalRequests) < 3 {
-		t.Fatalf("normal requests = %d, want 3", len(provider.normalRequests))
-	}
-	thirdContext := modelUserText(provider.normalRequests[2].InputItems)
-	if !strings.Contains(thirdContext, strings.TrimSpace(largeNewestTurn)) {
-		t.Fatalf("third context = %q, want entire newest turn kept despite tiny tail budget", thirdContext)
-	}
-	if strings.Contains(thirdContext, "old turn to compact") {
-		t.Fatalf("third context = %q, must not retain older compacted turn", thirdContext)
 	}
 }
 
@@ -6711,8 +6606,6 @@ func newTestKernelWithRuntimeTokenAndPolicy(t *testing.T, ledgerPath string, tok
 
 type compactionProvider struct {
 	normalRequests          []ModelRequest
-	normalInputTokens       []int
-	normalAttemptNumber     int
 	compactionRequests      []ModelRequest
 	failCompactionAttempts  int
 	compactionAttemptNumber int
@@ -6740,15 +6633,10 @@ func (p *compactionProvider) Complete(_ context.Context, req ModelRequest) (Mode
 		}, nil
 	}
 	p.normalRequests = append(p.normalRequests, req)
-	inputTokens := 9
-	if p.normalAttemptNumber < len(p.normalInputTokens) {
-		inputTokens = p.normalInputTokens[p.normalAttemptNumber]
-	}
-	p.normalAttemptNumber++
 	return ModelResponse{
 		Text:  "normal answer",
 		Model: "chat-model",
-		Usage: &TokenUsage{InputTokens: inputTokens, OutputTokens: 1, TotalTokens: inputTokens + 1},
+		Usage: &TokenUsage{InputTokens: 9, OutputTokens: 1, TotalTokens: 10},
 	}, nil
 }
 
