@@ -74,6 +74,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: reviewer confirms public turn input remains user/application content, while kernel-built memory and skill context are distinguishable in canonical model request and authorized inspection evidence without elevating user-space skill/memory text to system authority.
 - Residual risk: provider transport currently flattens typed fragments into one OpenAI-compatible user message. That is intentional for the current provider protocol; future providers may preserve richer message boundaries only if Model Gateway keeps provenance ownership and adapters remain transport translators.
 
+### KERNEL-BUILD-BROKEN-MODEL-INPUT-PROVENANCE-20260622 - P0 - ModelInputItem provenance refactor must compile
+
+- Status: ready_for_acceptance.
+- Fix commits: `1c8ec0d88`, `ba66248fd`.
+- Evidence: The temporary dirty provenance refactor left several tests and provider stubs on the old `InputItem` contract. Commit `1c8ec0d88` completed the migration by updating fake provider, OpenAI-compatible provider tests, skill catalog provider stubs, typed model context assembly, and session/turn evidence. Verification passed after the migration: focused provenance/provider tests; `go test ./... -count=1`; `go test -race ./internal/kernel -count=1`; `go build ./...`; `git diff --check`; the repository scan for numbered route prefixes or kernel version labels returned no matches. Commit `ba66248fd` records the matching acceptance evidence.
+- Acceptance condition: reviewer confirms the working tree is clean, the Go kernel compiles, and the ModelInputItem provenance refactor is either fully submitted or absent rather than left as a broken dirty diff.
+- Residual risk: this was a transient integration break caught during review, not a separate runtime design gap. Future large contract migrations should keep focused compile/test checkpoints before exposing the branch for acceptance.
+
 ### KERNEL-CAPABILITIES-20260622 - P1 - Shells and daemons need a protected kernel capability projection
 
 - Status: ready_for_acceptance.
