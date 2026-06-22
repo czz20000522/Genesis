@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1623,6 +1624,26 @@ func TestHTTPMemoryCandidateRejectAndReadAfterRestart(t *testing.T) {
 	if strings.Contains(turn.Final.Text, "红色雨伞") {
 		t.Fatalf("rejected memory was recalled in final text: %q", turn.Final.Text)
 	}
+
+	sourceProjectionResp, err := getWithAuth(restartedServer.URL + "/sessions/http-memory-reject-source")
+	if err != nil {
+		t.Fatalf("GET rejected source session failed: %v", err)
+	}
+	defer sourceProjectionResp.Body.Close()
+	if sourceProjectionResp.StatusCode != http.StatusOK {
+		t.Fatalf("source session status = %d, want 200", sourceProjectionResp.StatusCode)
+	}
+	var sourceProjection SessionProjection
+	if err := json.NewDecoder(sourceProjectionResp.Body).Decode(&sourceProjection); err != nil {
+		t.Fatalf("decode rejected source session: %v", err)
+	}
+	if len(sourceProjection.MemoryCandidates) != 1 {
+		t.Fatalf("len(MemoryCandidates) = %d, want one rejected candidate", len(sourceProjection.MemoryCandidates))
+	}
+	if sourceProjection.MemoryCandidates[0].Status != MemoryCandidateRejected ||
+		sourceProjection.MemoryCandidates[0].RejectionEvidenceRef != "review:reject-memory" {
+		t.Fatalf("session rejected candidate = %+v, want rejected evidence projection", sourceProjection.MemoryCandidates[0])
+	}
 }
 
 func TestHTTPRejectedMemoryCandidateCannotBeApproved(t *testing.T) {
@@ -1668,6 +1689,156 @@ func TestHTTPRejectedMemoryCandidateCannotBeApproved(t *testing.T) {
 	}
 	if readBack["status"] != "rejected" {
 		t.Fatalf("candidate status after rejected approval = %#v, want rejected", readBack["status"])
+	}
+}
+
+func TestHTTPApprovedMemoryCandidateCannotBeRejected(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	candidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-approve-then-reject",
+		Text:      "approved memory should stay approved",
+		SourceRef: "turn:http-memory-approve-then-reject",
+	})
+	approvalPayload, err := json.Marshal(testApprovalRequest("approval:approve-then-reject"))
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	approveResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/approve", approvalPayload)
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve status = %d, want 200", approveResp.StatusCode)
+	}
+
+	rejectResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/reject", []byte(`{"rejection_authority":"runtime:test","rejection_reason":"not true","rejection_evidence_ref":"review:approve-then-reject"}`))
+	if err != nil {
+		t.Fatalf("POST reject failed: %v", err)
+	}
+	defer rejectResp.Body.Close()
+	if rejectResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("reject status = %d, want 400", rejectResp.StatusCode)
+	}
+
+	readResp, err := getWithAuth(server.URL + "/memory/candidates/" + candidate.CandidateID)
+	if err != nil {
+		t.Fatalf("GET memory candidate failed: %v", err)
+	}
+	defer readResp.Body.Close()
+	var readBack MemoryCandidateProjection
+	if err := json.NewDecoder(readResp.Body).Decode(&readBack); err != nil {
+		t.Fatalf("decode memory candidate: %v", err)
+	}
+	if readBack.Status != MemoryCandidateApproved || readBack.ApprovalEvidenceRef != "approval:approve-then-reject" {
+		t.Fatalf("candidate after rejected rejection = %+v, want approved evidence", readBack)
+	}
+}
+
+func TestRejectMemoryCandidateIsIdempotentWithoutAppendingDuplicateEvent(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
+		SessionID: "memory-duplicate-reject",
+		Text:      "duplicate rejection should not append",
+		SourceRef: "turn:memory-duplicate-reject",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemoryCandidate returned error: %v", err)
+	}
+
+	first, err := k.RejectMemoryCandidate(candidate.CandidateID, MemoryRejectionRequest{
+		RejectionAuthority:   "runtime:test",
+		RejectionReason:      "not true",
+		RejectionEvidenceRef: "review:first-reject",
+	})
+	if err != nil {
+		t.Fatalf("first RejectMemoryCandidate returned error: %v", err)
+	}
+	second, err := k.RejectMemoryCandidate(candidate.CandidateID, MemoryRejectionRequest{
+		RejectionAuthority:   "runtime:test",
+		RejectionReason:      "different reason must not overwrite",
+		RejectionEvidenceRef: "review:second-reject",
+	})
+	if err != nil {
+		t.Fatalf("second RejectMemoryCandidate returned error: %v", err)
+	}
+	if second.RejectionEvidenceRef != first.RejectionEvidenceRef {
+		t.Fatalf("second rejection evidence = %q, want original %q", second.RejectionEvidenceRef, first.RejectionEvidenceRef)
+	}
+
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	rejectionEvents := 0
+	for _, event := range events {
+		if event.Type == "memory.candidate.rejected" && event.CandidateID == candidate.CandidateID {
+			rejectionEvents++
+		}
+	}
+	if rejectionEvents != 1 {
+		t.Fatalf("rejection event count = %d, want 1", rejectionEvents)
+	}
+}
+
+func TestConcurrentMemoryReviewWritesOnlyOneTerminalDecision(t *testing.T) {
+	createdAt := time.Date(2026, 6, 22, 1, 0, 0, 0, time.UTC)
+	candidate := MemoryCandidateProjection{
+		CandidateID: "mem-review-race",
+		SessionID:   "memory-review-race",
+		Text:        "race-sensitive memory",
+		SourceRef:   "turn:memory-review-race",
+		Status:      MemoryCandidatePending,
+		CreatedAt:   createdAt,
+	}
+	ledger := newReviewRaceLedger(StoredEvent{
+		EventID:     "evt-review-race-created",
+		SessionID:   candidate.SessionID,
+		CandidateID: candidate.CandidateID,
+		Type:        "memory.candidate.created",
+		CreatedAt:   createdAt,
+		Data:        EventData{MemoryCandidate: &candidate},
+	})
+	k := &Kernel{
+		ledger:       ledger,
+		provider:     FakeProvider{},
+		runtimeToken: testRuntimeToken,
+		toolPolicy:   normalizedToolPolicy(ToolPolicy{}),
+		clock: func() time.Time {
+			return time.Date(2026, 6, 22, 1, 1, 0, 0, time.UTC)
+		},
+	}
+
+	results := make(chan error, 2)
+	go func() {
+		_, err := k.ApproveMemoryCandidate(candidate.CandidateID, testApprovalRequest("approval:race"))
+		results <- err
+	}()
+	<-ledger.firstTerminalAppendStarted
+	go func() {
+		_, err := k.RejectMemoryCandidate(candidate.CandidateID, MemoryRejectionRequest{
+			RejectionAuthority:   "runtime:test",
+			RejectionReason:      "not true",
+			RejectionEvidenceRef: "review:race",
+		})
+		results <- err
+	}()
+
+	successes := 0
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful terminal review decisions = %d, want 1", successes)
+	}
+	if terminalEvents := ledger.terminalReviewEvents(candidate.CandidateID); len(terminalEvents) != 1 {
+		t.Fatalf("terminal review events = %+v, want exactly one terminal event", terminalEvents)
 	}
 }
 
@@ -2279,6 +2450,74 @@ func createMemoryCandidateOverHTTP(t *testing.T, serverURL string, req MemoryCan
 		t.Fatalf("decode candidate response: %v", err)
 	}
 	return candidate
+}
+
+type reviewRaceLedger struct {
+	mu                         sync.Mutex
+	events                     []StoredEvent
+	firstTerminalAppendStarted chan struct{}
+	secondReviewLoadObserved   chan struct{}
+	firstAppendOnce            sync.Once
+	secondLoadOnce             sync.Once
+}
+
+func newReviewRaceLedger(events ...StoredEvent) *reviewRaceLedger {
+	copied := append([]StoredEvent(nil), events...)
+	return &reviewRaceLedger{
+		events:                     copied,
+		firstTerminalAppendStarted: make(chan struct{}),
+		secondReviewLoadObserved:   make(chan struct{}),
+	}
+}
+
+func (l *reviewRaceLedger) Append(event StoredEvent) error {
+	if event.Type == "memory.candidate.approved" || event.Type == "memory.candidate.rejected" {
+		l.firstAppendOnce.Do(func() {
+			close(l.firstTerminalAppendStarted)
+		})
+		select {
+		case <-l.secondReviewLoadObserved:
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, event)
+	return nil
+}
+
+func (l *reviewRaceLedger) Load() ([]StoredEvent, error) {
+	l.mu.Lock()
+	events := append([]StoredEvent(nil), l.events...)
+	l.mu.Unlock()
+	select {
+	case <-l.firstTerminalAppendStarted:
+		l.secondLoadOnce.Do(func() {
+			close(l.secondReviewLoadObserved)
+		})
+	default:
+	}
+	return events, nil
+}
+
+func (l *reviewRaceLedger) Ready() ReadyCheck {
+	return ReadyCheck{Status: "ok"}
+}
+
+func (l *reviewRaceLedger) Path() string {
+	return "review-race-ledger"
+}
+
+func (l *reviewRaceLedger) terminalReviewEvents(candidateID string) []StoredEvent {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var terminal []StoredEvent
+	for _, event := range l.events {
+		if event.CandidateID == candidateID && (event.Type == "memory.candidate.approved" || event.Type == "memory.candidate.rejected") {
+			terminal = append(terminal, event)
+		}
+	}
+	return terminal
 }
 
 type singleToolCallProvider struct {

@@ -52,6 +52,9 @@ func (k *Kernel) ApproveMemoryCandidate(candidateID string, req MemoryApprovalRe
 	if err := validateMemoryApprovalRequest(req); err != nil {
 		return MemoryCandidateProjection{}, err
 	}
+	k.memoryReviewMu.Lock()
+	defer k.memoryReviewMu.Unlock()
+
 	candidates, err := k.memoryCandidates()
 	if err != nil {
 		return MemoryCandidateProjection{}, err
@@ -96,6 +99,9 @@ func (k *Kernel) RejectMemoryCandidate(candidateID string, req MemoryRejectionRe
 	if err := validateMemoryRejectionRequest(req); err != nil {
 		return MemoryCandidateProjection{}, err
 	}
+	k.memoryReviewMu.Lock()
+	defer k.memoryReviewMu.Unlock()
+
 	candidates, err := k.memoryCandidates()
 	if err != nil {
 		return MemoryCandidateProjection{}, err

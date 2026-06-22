@@ -10,12 +10,13 @@ import (
 )
 
 type Kernel struct {
-	ledger       Ledger
-	provider     Provider
-	runtimeToken string
-	toolPolicy   ToolPolicy
-	clock        func() time.Time
-	operationMu  sync.Mutex
+	ledger         Ledger
+	provider       Provider
+	runtimeToken   string
+	toolPolicy     ToolPolicy
+	clock          func() time.Time
+	operationMu    sync.Mutex
+	memoryReviewMu sync.Mutex
 }
 
 func New(config Config) (*Kernel, error) {
