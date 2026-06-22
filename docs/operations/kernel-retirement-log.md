@@ -12,6 +12,42 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-BOUNDARY-REFERENCE-ALIGNMENT-20260622 - P1 - Kernel changes need reference-alignment notes against Codex and Reasonix
+
+- Status: ready_for_acceptance.
+- Fix commits: `b8a013be4`.
+- Reference alignment: Codex is the reference for terminal-equivalent tool results, approval/sandbox rigor, and protocol separation; Reasonix is the reference for registry-driven provider/tool/plugin loading and frontend-agnostic control. Genesis now requires issue records to compare those control-plane ideas explicitly instead of relying on review memory or superficial name matching.
+- Evidence: `TestArchitectureBoundaryKernelIssuesRequireReferenceAlignment` proves every active `KERNEL-*` issue has a `Reference alignment` field and future `KERNEL-BOUNDARY-*` retirement entries retain that field. The test intentionally checks structure rather than prose quality, so governance does not become a content judge. Verification passed: focused architecture boundary tests; `go test ./... -count=1`; `go build ./...`; `go test -race ./internal/kernel -count=1`; `git diff --check`; versioned route scan returned no matches.
+- Acceptance condition: reviewer confirms future kernel boundary work cannot enter the repo issue ledger without an explicit Codex/Reasonix/intentionally-different comparison.
+- Residual risk: the test proves the field exists, not that the comparison is wise. Human review still owns architectural judgment.
+
+### KERNEL-BOUNDARY-SHELL-MINI-RUNTIME-20260622 - P1 - Default shell mode risks becoming a mini shell implementation
+
+- Status: ready_for_acceptance.
+- Fix commits: `bdf879293`.
+- Reference alignment: Codex keeps terminal execution behind a governed process/sandbox path and returns terminal-equivalent results; Reasonix treats shell execution as a tool behind permission/sandbox gates. Genesis now keeps `shell.go` focused on operation orchestration and moves default-mode command parsing, workspace containment, link checks, and raw host-shell execution behind separate runtime adapter files.
+- Evidence: `TestArchitectureBoundaryControlledShellAllowlistStaysSmall` locks the tiny default allowlist; `TestArchitectureBoundaryShellGoOnlyOwnsOrchestration` prevents `shell.go` from importing filesystem/process/path/runtime/syscall packages or redeclaring adapter/parser/runtime functions; `TestArchitectureBoundaryShellRuntimeHasNoApplicationAliases` prevents application/channel aliases in shell runtime files. `TestExecShellDefaultBlocksHardlinkAlias`, `TestExecShellDefaultBlocksRawShellAndEnvironmentAccess`, and existing workspace escape/link tests prove default mode remains controlled rather than a broad shell. Verification passed: focused shell/architecture tests; `go test ./... -count=1`; `go build ./...`; `go test -race ./internal/kernel -count=1`; `git diff --check`; versioned route and shell runtime application-alias scans returned no matches.
+- Acceptance condition: reviewer confirms `shell.exec` remains a generic terminal/process primitive and that Feishu, email, calendar, document, or channel behavior must arrive through user-space skills, CLIs, or daemons rather than kernel command parsers.
+- Residual risk: default mode still contains a deliberately small controlled adapter for local workspace safety. Replacing it with a true sandbox/process adapter remains future work, and any allowlist expansion must pass Tool Registry and Permission Gate review.
+
+### KERNEL-BOUNDARY-PERMISSION-GATE-20260622 - P0 - Permission policy is embedded in shell execution instead of a generic gate
+
+- Status: ready_for_acceptance.
+- Fix commits: `0729dc4b0`.
+- Reference alignment: Reasonix separates pure permission policy/gates from tool implementations; Codex separates approval/sandbox decisions from concrete exec result handling. Genesis now asks a kernel-owned authority gate before effects, so `shell.exec` is one effectful tool under the gate rather than the owner of permission semantics.
+- Evidence: `authorizeKernelTool` now allows read tools, blocks effect tools in `plan`, allows effect tools in `default` and `yolo`, and fails closed for unknown modes/kinds. `TestArchitectureBoundaryAuthorityGateUsesToolKind` proves those decisions flow from tool kind; `TestExecShellPlanBlocksMutatingCommand` proves shell execution respects the generic gate; `TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal` proves model-requested shell tools pass through the same kernel tool path. Verification passed: focused registry/gate/tool-loop tests; `go test ./... -count=1`; `go build ./...`; `go test -race ./internal/kernel -count=1`; `git diff --check`; versioned route scan returned no matches.
+- Acceptance condition: reviewer confirms read/effect classification and permission decisions are no longer owned by shell-specific code and future effectful tools must reuse the same gate.
+- Residual risk: the gate is intentionally minimal for the current kernel spike. Richer approval prompts, per-tool capability grants, and sandbox profiles need separate contracts before broadening tool execution.
+
+### KERNEL-BOUNDARY-TOOL-REGISTRY-20260622 - P0 - Tool descriptors are still hardcoded in the kernel instead of owned by a registry
+
+- Status: ready_for_acceptance.
+- Fix commits: `0729dc4b0`.
+- Reference alignment: Reasonix registers built-ins and plugin tools into a runtime registry; Codex ties model-visible tool metadata to executor contracts. Genesis now has a small `kernelToolDefinition` registry binding descriptor, read/effect kind, and prepare handler for canonical kernel tools.
+- Evidence: `kernelToolDefinitions` is now the source for `shell.exec` and `skill.read`; model descriptors, capability projection, and model tool preflight project from that registry. `TestArchitectureBoundaryToolRegistryBindsSurface` proves every visible tool has descriptor, kind, parameter schema, and handler binding; `TestArchitectureBoundaryCapabilitiesProjectFromToolRegistry` proves capability projection follows the registry; `TestArchitectureBoundaryModelVisibleToolsStayGeneric` prevents Feishu/email/calendar-like application names from entering descriptors. Verification passed: focused registry/gate/tool-loop tests; `go test ./... -count=1`; `go build ./...`; `go test -race ./internal/kernel -count=1`; `git diff --check`; versioned route scan returned no matches.
+- Acceptance condition: reviewer confirms adding a model-visible kernel tool now requires one registry entry with descriptor, kind, and handler binding, and provider/capability surfaces cannot drift through parallel switches.
+- Residual risk: the registry is deliberately in-process and static for the spike. Dynamic plugin loading, signed external tools, and richer per-tool policy remain future contracts.
+
 ### KERNEL-BOUNDARY-SEMANTIC-TEXT-20260622 - P0 - Semantic text must not be rejected by secret-shaped heuristics
 
 - Status: ready_for_acceptance.
