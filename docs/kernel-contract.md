@@ -71,6 +71,10 @@ Unsupported provider tool calls are rejected as turn failures before any effect 
 
 Owns durable work state, cancellation, recovery, status projection, and execution evidence. It does not own application business data.
 
+The first WorkRegistry transport is intentionally a record ledger, not a scheduler. `work.submit` creates a kernel-owned work record with `session_id`, user-visible `title`, and required `source_ref`. `work.cancel` records an explicit terminal cancellation decision with `cancel_authority`, `cancel_reason`, and `cancel_evidence_ref`. Work records are projected through their source session and can be read after restart.
+
+WorkRegistry does not execute background jobs in the first kernel spike. Shells, external daemons, and future applications may submit work records as resumable coordination evidence, but application task semantics, Feishu task objects, calendar events, desktop notifications, queue workers, retries, leases, and scheduler policy remain outside the kernel until they prove generic kernel ownership.
+
 ### Accumulation
 
 Owns memory candidates, approval state, safe recall, source refs, and supersession. It does not silently turn model output into truth.
