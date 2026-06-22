@@ -14,6 +14,7 @@ The first implementation must prove the kernel loop before adding shells or appl
 8. WorkRegistry can show the turn/work status after restart.
 9. Accumulation can create a memory candidate, approve it, and recall it in a later turn.
 10. Configured user-space skill roots can make installed external skill metadata visible to the model, and the model can read a selected skill's bounded instructions through a governed read-only tool without adding application-specific kernel code.
+11. Authorized shells and daemons can inspect the current kernel capability surface without parsing prompts, local files, or application-specific code.
 
 ## Required Negative Paths
 
@@ -27,6 +28,7 @@ The first implementation must prove the kernel loop before adding shells or appl
 - Unsupported model-requested tools are rejected before any effect executes.
 - Missing or malformed external skill metadata does not block turn submission.
 - Unknown skill reads and path-shaped skill read arguments are rejected before any effect executes.
+- Capability inspection does not expose skill paths, skill bodies, provider credentials, or app-specific outbound APIs.
 
 ## Current Tool Loop Proof
 
@@ -37,6 +39,10 @@ This proves the kernel loop without making any external application part of the 
 ## Current Skill Catalog Proof
 
 The initial skill catalog is deliberately metadata-first. `genesisd` can scan configured skill roots for `SKILL.md` front matter and inject a concise list of available user-space skills into model context. The injected context names the skill and summarizes what it is for; filesystem paths remain internal. Full skill bodies are not injected into every turn. When the model needs the instructions, it must call `skill.read` with the catalog skill name; the kernel then returns bounded redacted user-space instructions as tool evidence. The kernel does not execute those skills by itself and does not add application-specific tool descriptors.
+
+## Current Inspection Proof
+
+`GET /capabilities` is a protected Readiness/Inspection surface. It returns provider, runtime auth, and ledger status, plus canonical kernel tool capability names and a path-free skill catalog projection. The route is for shells, desktop apps, and external daemons that need to know what the kernel can currently do; it is not a Feishu, email, desktop, or WebUI adapter.
 
 ## Not Required Initially
 

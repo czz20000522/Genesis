@@ -37,6 +37,8 @@ Kernel-owned HTTP paths are not versioned. Contract evolution belongs in typed r
 
 The first HTTP transport for `turn.stream` is `GET /turns/{id}/events`. It reads ordered turn events from the kernel ledger. It is intentionally a minimal observation surface, not a streaming protocol commitment and not a shell/UI timeline owner.
 
+The first protected inspection transport is `GET /capabilities`. It is part of Readiness/Inspection, not an application registry. It lets authorized shells, desktop apps, or external daemons inspect provider/runtime/ledger status, canonical kernel tool capability names, and a safe skill catalog projection. It must not expose filesystem paths, provider credentials, raw secret refs, skill bodies, or application-specific outbound APIs.
+
 ## Kernel Planes
 
 ### Interface Kernel
@@ -70,6 +72,8 @@ External skill packages are user-space assets, not kernel applications. The kern
 `skill.read` is a read-only governed tool for retrieving a configured skill's bounded instruction body by catalog skill name. It does not accept arbitrary filesystem paths, does not return filesystem paths, does not grant permission, does not execute CLIs, and does not make skill prose authoritative. The returned instruction envelope is redacted and explicitly labeled as user-space instructions before it is returned as model tool evidence. The catalog does not load full skill bodies into every turn or create Feishu, email, calendar, document, or channel-specific kernel code.
 
 Skill bodies are not scanned with the same prompt-injection reject rules as catalog metadata because legitimate skill instructions may include defensive examples of hostile text. The hard boundary is authority separation: metadata injected into baseline context is filtered; full bodies require an explicit `skill.read` call, are bounded, reject hidden-control content, revalidate the original front matter, redact secret-shaped text, and remain untrusted user-space tool evidence.
+
+Skill catalog diagnostics are inspection evidence only. The kernel may report path-free exclusion reasons such as missing root, linked path, malformed metadata, unsafe metadata, or duplicate name so an operator can repair the installation, but those diagnostics do not expose the excluded path or body and do not silently repair metadata into model context.
 
 Model-requested tool call batches are preflighted as a unit before any effect executes. If any call in the batch is unsupported or malformed, the entire batch fails closed and no earlier call in that batch may create an operation or external effect.
 

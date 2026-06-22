@@ -10,16 +10,17 @@ import (
 )
 
 type Kernel struct {
-	ledger         Ledger
-	provider       Provider
-	runtimeToken   string
-	toolPolicy     ToolPolicy
-	skillCatalog   []SkillDescriptor
-	clock          func() time.Time
-	turnMu         sync.Mutex
-	operationMu    sync.Mutex
-	memoryReviewMu sync.Mutex
-	workMu         sync.Mutex
+	ledger          Ledger
+	provider        Provider
+	runtimeToken    string
+	toolPolicy      ToolPolicy
+	skillCatalog    []SkillDescriptor
+	skillExclusions []SkillCatalogExclusionProjection
+	clock           func() time.Time
+	turnMu          sync.Mutex
+	operationMu     sync.Mutex
+	memoryReviewMu  sync.Mutex
+	workMu          sync.Mutex
 }
 
 func New(config Config) (*Kernel, error) {
@@ -34,13 +35,15 @@ func New(config Config) (*Kernel, error) {
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
+	skillCatalog := loadSkillCatalogWithDiagnostics(config.SkillRoots)
 	return &Kernel{
-		ledger:       NewJSONLLedger(config.LedgerPath),
-		provider:     provider,
-		runtimeToken: strings.TrimSpace(config.RuntimeToken),
-		toolPolicy:   normalizedToolPolicy(config.ToolPolicy),
-		skillCatalog: loadSkillCatalog(config.SkillRoots),
-		clock:        clock,
+		ledger:          NewJSONLLedger(config.LedgerPath),
+		provider:        provider,
+		runtimeToken:    strings.TrimSpace(config.RuntimeToken),
+		toolPolicy:      normalizedToolPolicy(config.ToolPolicy),
+		skillCatalog:    skillCatalog.Items,
+		skillExclusions: skillCatalog.Exclusions,
+		clock:           clock,
 	}, nil
 }
 
@@ -61,6 +64,18 @@ func (k *Kernel) Ready() ReadyResponse {
 		RuntimeAuth: runtimeAuth,
 		Ledger:      ledgerStatus,
 		LedgerPath:  k.ledger.Path(),
+	}
+}
+
+func (k *Kernel) Capabilities() CapabilitiesResponse {
+	ready := k.Ready()
+	return CapabilitiesResponse{
+		Status:       ready.Status,
+		Provider:     safeProviderStatusForInspection(ready.Provider),
+		RuntimeAuth:  ready.RuntimeAuth,
+		Ledger:       ready.Ledger,
+		Tools:        k.toolCapabilityProjections(),
+		SkillCatalog: k.skillCatalogProjection(),
 	}
 }
 

@@ -27,6 +27,15 @@ type ReadyResponse struct {
 	LedgerPath  string         `json:"ledger_path"`
 }
 
+type CapabilitiesResponse struct {
+	Status       string                     `json:"status"`
+	Provider     ProviderStatus             `json:"provider"`
+	RuntimeAuth  ReadyCheck                 `json:"runtime_auth"`
+	Ledger       ReadyCheck                 `json:"ledger"`
+	Tools        []ToolCapabilityProjection `json:"tools"`
+	SkillCatalog SkillCatalogProjection     `json:"skill_catalog"`
+}
+
 type ProviderStatus struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
@@ -76,6 +85,29 @@ type SkillDescriptor struct {
 	Name            string `json:"name"`
 	Description     string `json:"description"`
 	InstructionPath string `json:"-"`
+}
+
+type ToolCapabilityProjection struct {
+	Name   string `json:"name"`
+	Kind   string `json:"kind"`
+	Status string `json:"status"`
+}
+
+type SkillCatalogProjection struct {
+	Status     string                            `json:"status"`
+	Count      int                               `json:"count"`
+	Items      []SkillCatalogItemProjection      `json:"items"`
+	Exclusions []SkillCatalogExclusionProjection `json:"exclusions,omitempty"`
+}
+
+type SkillCatalogItemProjection struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type SkillCatalogExclusionProjection struct {
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
 }
 
 type SkillReadProjection struct {

@@ -18,6 +18,11 @@ func Handler(k *Kernel) http.Handler {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/ready":
 			writeJSON(w, http.StatusOK, k.Ready())
+		case r.Method == http.MethodGet && r.URL.Path == "/capabilities":
+			if !authorizeRuntimeRequest(w, r, k) {
+				return
+			}
+			writeJSON(w, http.StatusOK, k.Capabilities())
 		case r.Method == http.MethodPost && r.URL.Path == "/turn":
 			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
 				return
