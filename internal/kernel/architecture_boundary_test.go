@@ -333,6 +333,42 @@ func TestArchitectureBoundaryCoreLoopHasNoProviderNativeWireTerms(t *testing.T) 
 	}
 }
 
+func TestArchitectureBoundaryProviderWireTermsStayInsideAdapterFiles(t *testing.T) {
+	root := kernelPackageDir(t)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read kernel package dir: %v", err)
+	}
+	allowedProviderAdapterFiles := map[string]bool{
+		"openai_compatible.go": true,
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		if allowedProviderAdapterFiles[name] {
+			continue
+		}
+		content := readRepoText(t, root, name)
+		for _, forbidden := range []string{
+			"/chat/completions",
+			"chatCompletion",
+			"chatTool",
+			"tool_choice",
+			"prompt_tokens",
+			"completion_tokens",
+			"DeepSeek",
+			"OpenRouter",
+			"openai-responses",
+		} {
+			if strings.Contains(content, forbidden) {
+				t.Fatalf("%s contains provider wire term %q; provider compatibility belongs in adapter/translator files", name, forbidden)
+			}
+		}
+	}
+}
+
 type markdownIssueSection struct {
 	id   string
 	body string

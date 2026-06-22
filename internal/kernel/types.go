@@ -73,6 +73,63 @@ type ModelToolCall struct {
 	Arguments       json.RawMessage `json:"arguments,omitempty"`
 }
 
+func (c ModelToolCall) MarshalJSON() ([]byte, error) {
+	type payload struct {
+		ToolCallID      string          `json:"tool_call_id,omitempty"`
+		ToolCallEventID string          `json:"tool_call_event_id,omitempty"`
+		Name            string          `json:"name"`
+		Arguments       json.RawMessage `json:"arguments,omitempty"`
+		RawArguments    string          `json:"raw_arguments,omitempty"`
+	}
+	next := payload{
+		ToolCallID:      c.ToolCallID,
+		ToolCallEventID: c.ToolCallEventID,
+		Name:            c.Name,
+	}
+	if len(c.Arguments) > 0 {
+		if json.Valid(c.Arguments) {
+			next.Arguments = append(json.RawMessage(nil), c.Arguments...)
+		} else {
+			next.RawArguments = string(c.Arguments)
+		}
+	}
+	return json.Marshal(next)
+}
+
+func (c *ModelToolCall) UnmarshalJSON(data []byte) error {
+	type payload struct {
+		ToolCallID      string           `json:"tool_call_id"`
+		ToolCallEventID string           `json:"tool_call_event_id,omitempty"`
+		Name            string           `json:"name"`
+		Arguments       *json.RawMessage `json:"arguments,omitempty"`
+		ArgumentsJSON   *json.RawMessage `json:"arguments_json,omitempty"`
+		RawArguments    *string          `json:"raw_arguments,omitempty"`
+	}
+	var next payload
+	if err := json.Unmarshal(data, &next); err != nil {
+		return err
+	}
+	c.ToolCallID = next.ToolCallID
+	c.ToolCallEventID = next.ToolCallEventID
+	c.Name = next.Name
+	c.Arguments = nil
+	switch {
+	case next.RawArguments != nil:
+		c.Arguments = json.RawMessage(*next.RawArguments)
+	case next.ArgumentsJSON != nil:
+		c.Arguments = append(json.RawMessage(nil), (*next.ArgumentsJSON)...)
+	case next.Arguments != nil:
+		raw := []byte(*next.Arguments)
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil {
+			c.Arguments = json.RawMessage(text)
+		} else {
+			c.Arguments = append(json.RawMessage(nil), raw...)
+		}
+	}
+	return nil
+}
+
 type ModelToolRound struct {
 	Calls   []ModelToolCall   `json:"calls"`
 	Results []ModelToolResult `json:"results"`

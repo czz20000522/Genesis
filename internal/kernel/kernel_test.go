@@ -3750,6 +3750,61 @@ func TestCommandProviderToolLoopThroughKernel(t *testing.T) {
 	}
 }
 
+func TestCommandProviderMalformedArgumentsReturnRepairFeedback(t *testing.T) {
+	workspace := t.TempDir()
+	provider := NewCommandProvider(ProviderCommandConfig{
+		Command:        os.Args[0],
+		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "malformed-tool-args"},
+		Model:          "command-model",
+		RequestTimeout: 5 * time.Second,
+		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
+	})
+
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "command-provider-malformed-args",
+		InputItems: []InputItem{{Type: "text", Text: "try malformed command provider args"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "command provider saw repair invalid_tool_arguments" {
+		t.Fatalf("final text = %q, want command provider repair feedback", resp.Final.Text)
+	}
+	projection, err := k.Session("command-provider-malformed-args")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want no shell effect for malformed provider-command arguments", projection.Operations)
+	}
+	if len(projection.Events) != 4 {
+		t.Fatalf("events = %+v, want turn/tool call/tool result/final", projection.Events)
+	}
+	if projection.Events[1].Data.ToolCall == nil || projection.Events[1].Data.ToolCall.ProviderToolCallID != "call_bad_command_provider_args" {
+		t.Fatalf("tool.call = %+v, want provider correlation", projection.Events[1].Data.ToolCall)
+	}
+	if projection.Events[2].Data.ToolResult == nil ||
+		projection.Events[2].Data.ToolResult.ProviderToolCallID != "call_bad_command_provider_args" ||
+		projection.Events[2].Data.ToolResult.ToolCallEventID != projection.Events[1].EventID ||
+		projection.Events[2].Data.ToolResult.ForEventID != projection.Events[1].EventID ||
+		projection.Events[2].Data.ToolResult.Status != "tool_request_invalid" {
+		t.Fatalf("tool.result = %+v, want repair linked to tool.call", projection.Events[2].Data.ToolResult)
+	}
+}
+
 func commandProviderTestRequest() ModelRequest {
 	return ModelRequest{
 		SessionID:  "command-session",
@@ -4750,53 +4805,65 @@ func TestSubmitTurnRejectsDuplicateToolCallIDBeforeAnyEffect(t *testing.T) {
 }
 
 func TestSubmitTurnReturnsRepairFeedbackForUnknownModelToolArgumentFields(t *testing.T) {
-	workspace := t.TempDir()
-	arguments := json.RawMessage(`{"cwd":"` + filepath.ToSlash(workspace) + `","command":"` + writeFileCommand("unknown-arg-effect.txt", "effect") + `","permission_mode":"yolo"}`)
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	provider := &toolFeedbackProvider{
-		calls: []ModelToolCall{
-			{
-				ToolCallID: "call_unknown_arg",
-				Name:       "shell_exec",
-				Arguments:  arguments,
-			},
-		},
-		final: "unknown argument repair received",
-	}
-	k, err := New(Config{
-		LedgerPath:   ledgerPath,
-		Provider:     provider,
-		RuntimeToken: testRuntimeToken,
-		ToolPolicy: ToolPolicy{
-			PermissionMode: PermissionModeDefault,
-			WorkspaceRoot:  workspace,
-		},
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
+	for _, field := range []string{
+		"permission_mode",
+		"event_id",
+		"operation_id",
+		"lease_id",
+		"task_id",
+		"tool_call_event_id",
+		"provider_tool_call_id",
+	} {
+		t.Run(field, func(t *testing.T) {
+			workspace := t.TempDir()
+			arguments := json.RawMessage(`{"cwd":"` + filepath.ToSlash(workspace) + `","command":"` + writeFileCommand("unknown-arg-effect.txt", "effect") + `","` + field + `":"model-supplied"}`)
+			ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+			provider := &toolFeedbackProvider{
+				calls: []ModelToolCall{
+					{
+						ToolCallID: "call_unknown_arg_" + field,
+						Name:       "shell_exec",
+						Arguments:  arguments,
+					},
+				},
+				final: "unknown argument repair received",
+			}
+			k, err := New(Config{
+				LedgerPath:   ledgerPath,
+				Provider:     provider,
+				RuntimeToken: testRuntimeToken,
+				ToolPolicy: ToolPolicy{
+					PermissionMode: PermissionModeDefault,
+					WorkspaceRoot:  workspace,
+				},
+			})
+			if err != nil {
+				t.Fatalf("New returned error: %v", err)
+			}
 
-	_, err = k.SubmitTurn(context.Background(), TurnRequest{
-		SessionID:  "unknown-tool-arg",
-		InputItems: []InputItem{{Type: "text", Text: "try unknown tool arg"}},
-	})
-	if err != nil {
-		t.Fatalf("SubmitTurn returned error: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(workspace, "unknown-arg-effect.txt")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("unknown argument call created shell effect before rejection; stat err=%v", err)
-	}
-	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
-	errorPayload := payload["error"].(map[string]interface{})
-	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "invalid_tool_arguments" {
-		t.Fatalf("repair payload = %+v, want invalid_tool_arguments", payload)
-	}
-	projection, err := k.Session("unknown-tool-arg")
-	if err != nil {
-		t.Fatalf("Session returned error: %v", err)
-	}
-	if len(projection.Operations) != 0 {
-		t.Fatalf("operations = %+v, want no executed effects for unknown model tool argument", projection.Operations)
+			_, err = k.SubmitTurn(context.Background(), TurnRequest{
+				SessionID:  "unknown-tool-arg-" + field,
+				InputItems: []InputItem{{Type: "text", Text: "try unknown tool arg"}},
+			})
+			if err != nil {
+				t.Fatalf("SubmitTurn returned error: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(workspace, "unknown-arg-effect.txt")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("unknown argument call created shell effect before rejection; stat err=%v", err)
+			}
+			payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+			errorPayload := payload["error"].(map[string]interface{})
+			if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "invalid_tool_arguments" {
+				t.Fatalf("repair payload = %+v, want invalid_tool_arguments", payload)
+			}
+			projection, err := k.Session("unknown-tool-arg-" + field)
+			if err != nil {
+				t.Fatalf("Session returned error: %v", err)
+			}
+			if len(projection.Operations) != 0 {
+				t.Fatalf("operations = %+v, want no executed effects for unknown model tool argument", projection.Operations)
+			}
+		})
 	}
 }
 
@@ -5114,6 +5181,41 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 			Kind:  providerCommandResponseKindFinal,
 			Model: req.Model,
 			Text:  "command provider saw tool status " + status,
+		})
+	case "malformed-tool-args":
+		if len(req.ToolRounds) == 0 {
+			writeProviderCommandHelperResponse(t, providerCommandResponse{
+				Kind:  providerCommandResponseKindToolCalls,
+				Model: req.Model,
+				ToolCalls: []ModelToolCall{{
+					ToolCallID: "call_bad_command_provider_args",
+					Name:       "shell_exec",
+					Arguments:  json.RawMessage(`{"command":`),
+				}},
+			})
+			return
+		}
+		if len(req.ToolRounds) != 1 || len(req.ToolRounds[0].Calls) != 1 || len(req.ToolRounds[0].Results) != 1 {
+			t.Fatalf("tool rounds = %+v, want malformed call plus one repair result", req.ToolRounds)
+		}
+		call := req.ToolRounds[0].Calls[0]
+		result := req.ToolRounds[0].Results[0]
+		if call.ToolCallID != "call_bad_command_provider_args" || call.ToolCallEventID == "" || string(call.Arguments) != `{"command":` {
+			t.Fatalf("tool round call = %+v arguments=%q, want provider echo plus raw malformed arguments", call, string(call.Arguments))
+		}
+		if result.ToolCallID != "call_bad_command_provider_args" || result.ToolCallEventID != call.ToolCallEventID {
+			t.Fatalf("tool round result = %+v, want provider echo plus same event id %q", result, call.ToolCallEventID)
+		}
+		payload := decodeJSONMap(t, result.Content)
+		errorPayload, _ := payload["error"].(map[string]interface{})
+		code, _ := errorPayload["code"].(string)
+		if payload["status"] != "tool_request_invalid" || code != "invalid_tool_arguments" {
+			t.Fatalf("repair payload = %+v, want invalid_tool_arguments", payload)
+		}
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  providerCommandResponseKindFinal,
+			Model: req.Model,
+			Text:  "command provider saw repair " + code,
 		})
 	default:
 		t.Fatalf("unknown helper mode %q args=%v", mode, os.Args)

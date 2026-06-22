@@ -172,9 +172,6 @@ func (r providerCommandResponse) toModelResponse(defaultModel string) (ModelResp
 			if strings.TrimSpace(call.Name) == "" {
 				return ModelResponse{}, errors.New("provider command tool call missing name")
 			}
-			if len(call.Arguments) > 0 && !json.Valid(call.Arguments) {
-				return ModelResponse{}, fmt.Errorf("provider command tool call %q has invalid JSON arguments", call.ToolCallID)
-			}
 		}
 		return ModelResponse{
 			Model:     model,
