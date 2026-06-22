@@ -3640,6 +3640,20 @@ func TestCommandProviderDoesNotInheritDaemonEnvironment(t *testing.T) {
 	t.Setenv("GENESIS_PROVIDER_COMMAND_SENTINEL", "leaked")
 	provider := NewCommandProvider(ProviderCommandConfig{
 		Command:        os.Args[0],
+		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "env-default-clean"},
+		Model:          "command-model",
+		RequestTimeout: 5 * time.Second,
+	})
+	resp, err := provider.Complete(context.Background(), commandProviderTestRequest())
+	if err != nil {
+		t.Fatalf("Complete with default env returned error: %v", err)
+	}
+	if resp.Text != "env default clean" {
+		t.Fatalf("default env response = %q, want env default clean", resp.Text)
+	}
+
+	provider = NewCommandProvider(ProviderCommandConfig{
+		Command:        os.Args[0],
 		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "env-clean"},
 		Model:          "command-model",
 		RequestTimeout: 5 * time.Second,
@@ -3661,6 +3675,69 @@ func TestCommandProviderDoesNotInheritDaemonEnvironment(t *testing.T) {
 	})
 	if _, err := provider.Complete(context.Background(), commandProviderTestRequest()); err != nil {
 		t.Fatalf("Complete with explicit env returned error: %v", err)
+	}
+}
+
+func TestProviderCommandFailureRedactsStderrFromTurnAndHTTP(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	provider := NewCommandProvider(ProviderCommandConfig{
+		Command:        os.Args[0],
+		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "stderr-secret"},
+		Model:          "command-model",
+		RequestTimeout: 5 * time.Second,
+		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
+	})
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	resp, err := postJSONWithAuth(server.URL+"/turn", []byte(`{"session_id":"provider-command-secret-stderr","input_items":[{"type":"text","text":"trigger provider command stderr"}]}`))
+	if err != nil {
+		t.Fatalf("POST /turn failed: %v", err)
+	}
+	defer resp.Body.Close()
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	for _, leaked := range []string{"sk-provider-stderr", "tokentest123456", "sk-jsonstderr"} {
+		if strings.Contains(string(responseBody), leaked) {
+			t.Fatalf("HTTP response leaked %q: %s", leaked, string(responseBody))
+		}
+	}
+	if !strings.Contains(string(responseBody), "[REDACTED]") {
+		t.Fatalf("HTTP response = %s, want redaction marker", string(responseBody))
+	}
+
+	projection, err := k.Session("provider-command-secret-stderr")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	sessionJSON, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatalf("marshal session projection: %v", err)
+	}
+	ledgerData, err := os.ReadFile(ledgerPath)
+	if err != nil {
+		t.Fatalf("read ledger: %v", err)
+	}
+	for _, leaked := range []string{"sk-provider-stderr", "tokentest123456", "sk-jsonstderr"} {
+		if strings.Contains(string(sessionJSON), leaked) {
+			t.Fatalf("session projection leaked %q: %s", leaked, string(sessionJSON))
+		}
+		if strings.Contains(string(ledgerData), leaked) {
+			t.Fatalf("ledger leaked %q: %s", leaked, string(ledgerData))
+		}
+	}
+	if !strings.Contains(string(sessionJSON), "[REDACTED]") || !strings.Contains(string(ledgerData), "[REDACTED]") {
+		t.Fatalf("session/ledger missing redaction marker: session=%s ledger=%s", string(sessionJSON), string(ledgerData))
 	}
 }
 
@@ -5070,7 +5147,8 @@ func TestLiveOpenAICompatibleProviderToolLoopThroughKernel(t *testing.T) {
 }
 
 func TestProviderCommandAdapterHelper(t *testing.T) {
-	if os.Getenv("GENESIS_PROVIDER_COMMAND_HELPER") != "1" {
+	mode := providerCommandHelperMode()
+	if os.Getenv("GENESIS_PROVIDER_COMMAND_HELPER") != "1" && mode != "env-default-clean" {
 		return
 	}
 	payload, err := io.ReadAll(os.Stdin)
@@ -5094,13 +5172,6 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 		t.Fatalf("tool manifest = %+v, want shell_exec", req.ToolManifest)
 	}
 
-	mode := ""
-	if len(os.Args) > 0 {
-		mode = os.Args[len(os.Args)-1]
-	}
-	if len(os.Args) >= 2 && os.Args[len(os.Args)-2] == "tool-loop" {
-		mode = "tool-loop"
-	}
 	switch mode {
 	case "final":
 		writeProviderCommandHelperResponse(t, providerCommandResponse{
@@ -5117,6 +5188,15 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 			Kind:  providerCommandResponseKindFinal,
 			Model: req.Model,
 			Text:  "env clean",
+		})
+	case "env-default-clean":
+		if value := os.Getenv("GENESIS_PROVIDER_COMMAND_SENTINEL"); value != "" {
+			t.Fatalf("provider command inherited daemon sentinel env %q", value)
+		}
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  providerCommandResponseKindFinal,
+			Model: req.Model,
+			Text:  "env default clean",
 		})
 	case "env-explicit":
 		if value := os.Getenv("GENESIS_PROVIDER_COMMAND_SENTINEL"); value != "explicit" {
@@ -5151,6 +5231,9 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 		})
 	case "exit-nonzero":
 		_, _ = os.Stderr.WriteString("adapter failed deliberately\n")
+		os.Exit(3)
+	case "stderr-secret":
+		_, _ = os.Stderr.WriteString("GENESIS_PROVIDER_API_KEY=sk-provider-stderr\nAuthorization: Bearer tokentest123456\n{\"api_key\":\"sk-jsonstderr\"}\n")
 		os.Exit(3)
 	case "oversized-stdout":
 		_, _ = os.Stdout.WriteString(strings.Repeat("x", maxProviderCommandOutputBytes+1))
@@ -5220,6 +5303,17 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 	default:
 		t.Fatalf("unknown helper mode %q args=%v", mode, os.Args)
 	}
+}
+
+func providerCommandHelperMode() string {
+	mode := ""
+	if len(os.Args) > 0 {
+		mode = os.Args[len(os.Args)-1]
+	}
+	if len(os.Args) >= 2 && os.Args[len(os.Args)-2] == "tool-loop" {
+		mode = "tool-loop"
+	}
+	return mode
 }
 
 func writeProviderCommandHelperResponse(t *testing.T, resp providerCommandResponse) {

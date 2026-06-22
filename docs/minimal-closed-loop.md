@@ -25,7 +25,6 @@ The first implementation must prove the kernel loop before adding shells or appl
 - A provider failure returns a structured degraded result, not a panic.
 - Duplicate turn idempotency keys do not call the provider or execute model-requested tools twice.
 - Duplicate tool idempotency keys do not execute effects twice.
-- Unsupported or malformed model-requested tools produce repair feedback before any effect executes when a valid `tool_call_id` is available.
 - Missing or malformed external skill metadata does not block turn submission.
 - Unsupported or malformed model-requested tool calls produce repair feedback before any effect executes when protocol state allows it.
 - Capability inspection does not expose skill paths, skill bodies, provider credentials, or app-specific outbound APIs.

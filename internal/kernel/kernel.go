@@ -138,7 +138,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
 				return TurnResponse{}, appendErr
 			}
-			return TurnResponse{}, fmt.Errorf("provider complete: %w", err)
+			return TurnResponse{}, providerCompleteError(err)
 		}
 		if len(modelResp.ToolCalls) == 0 {
 			completedAt := k.clock()
@@ -757,8 +757,16 @@ func turnFailureFromProviderError(err error) TurnError {
 	}
 	return TurnError{
 		Code:    code,
-		Message: err.Error(),
+		Message: redactEvidenceText(err.Error()),
 	}
+}
+
+func providerCompleteError(err error) error {
+	message := redactEvidenceText(err.Error())
+	if errors.Is(err, ErrProviderUnavailable) {
+		return fmt.Errorf("provider complete: %w: %s", ErrProviderUnavailable, message)
+	}
+	return fmt.Errorf("provider complete: %s", message)
 }
 
 func toEvent(event StoredEvent) Event {

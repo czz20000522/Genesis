@@ -17,10 +17,10 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Status: ready_for_acceptance.
 - Fix commits: `b533a889c`, `d6886250d`.
 - Reference alignment: Codex preserves provider protocol pairing while returning recoverable function-call argument errors through tool output when the loop can continue. Reasonix keeps provider tool-call ids for pairing and repairs malformed or missing tool-result pairing at the provider boundary rather than promoting malformed tool arguments into provider infrastructure failures.
-- Evidence: `provider_command` no longer rejects invalid raw tool arguments in `toModelResponse`. `ModelToolCall` now preserves malformed raw argument text across the JSON command boundary using `raw_arguments` on marshal and by accepting string, raw, or `arguments_json` shapes on unmarshal. ToolGateway receives malformed arguments, writes `tool.call`, returns `tool_request_invalid`, writes linked `tool.result`, and executes no shell operation.
+- Evidence: `provider_command` no longer rejects invalid raw tool arguments in `toModelResponse`. `ModelToolCall` now has one command-boundary shape for malformed arguments: valid JSON arguments use `arguments`, while malformed argument text uses `raw_arguments`. ToolGateway receives malformed arguments, writes `tool.call`, returns `tool_request_invalid`, writes linked `tool.result`, and executes no shell operation.
 - Verification: `TestCommandProviderMalformedArgumentsReturnRepairFeedback`; `TestOpenAICompatibleMalformedToolArgumentsReturnRepairFeedback`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments`; `TestCommandProviderToolLoopThroughKernel`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
 - Acceptance condition: reviewer confirms malformed provider-command tool arguments are repair feedback when a tool slot can be correlated, not provider command failure, and no external effect occurs.
-- Residual risk: provider command adapters still need to choose whether to emit `arguments`, `arguments_json`, or `raw_arguments`; all three shapes are accepted for the current command boundary.
+- Residual risk: provider command adapters must emit malformed argument text through `raw_arguments`; sending malformed text through `arguments` is not the command-boundary contract.
 
 ### KERNEL-MODEL-SYSTEM-FIELD-BOUNDARY-20260622 - P1 - Model schemas must expose semantic fields only
 

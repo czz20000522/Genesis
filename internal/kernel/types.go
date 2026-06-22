@@ -102,7 +102,6 @@ func (c *ModelToolCall) UnmarshalJSON(data []byte) error {
 		ToolCallEventID string           `json:"tool_call_event_id,omitempty"`
 		Name            string           `json:"name"`
 		Arguments       *json.RawMessage `json:"arguments,omitempty"`
-		ArgumentsJSON   *json.RawMessage `json:"arguments_json,omitempty"`
 		RawArguments    *string          `json:"raw_arguments,omitempty"`
 	}
 	var next payload
@@ -116,16 +115,8 @@ func (c *ModelToolCall) UnmarshalJSON(data []byte) error {
 	switch {
 	case next.RawArguments != nil:
 		c.Arguments = json.RawMessage(*next.RawArguments)
-	case next.ArgumentsJSON != nil:
-		c.Arguments = append(json.RawMessage(nil), (*next.ArgumentsJSON)...)
 	case next.Arguments != nil:
-		raw := []byte(*next.Arguments)
-		var text string
-		if err := json.Unmarshal(raw, &text); err == nil {
-			c.Arguments = json.RawMessage(text)
-		} else {
-			c.Arguments = append(json.RawMessage(nil), raw...)
-		}
+		c.Arguments = append(json.RawMessage(nil), (*next.Arguments)...)
 	}
 	return nil
 }

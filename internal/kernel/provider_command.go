@@ -98,7 +98,7 @@ func (p *CommandProvider) Complete(ctx context.Context, req ModelRequest) (Model
 	cmd := exec.CommandContext(runCtx, p.command, p.args...)
 	cmd.Stdin = bytes.NewReader(encoded)
 	cmd.Dir = p.workingDir
-	cmd.Env = append([]string(nil), p.env...)
+	cmd.Env = providerCommandEnvironment(p.env)
 	var stdout cappedBuffer
 	var stderr cappedBuffer
 	stdout.limit = maxProviderCommandOutputBytes
@@ -109,7 +109,11 @@ func (p *CommandProvider) Complete(ctx context.Context, req ModelRequest) (Model
 		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 			return ModelResponse{}, fmt.Errorf("provider command timed out: %w", runCtx.Err())
 		}
-		return ModelResponse{}, fmt.Errorf("provider command failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+		stderrText := strings.TrimSpace(redactEvidenceText(stderr.String()))
+		if stderrText != "" {
+			return ModelResponse{}, fmt.Errorf("provider command failed: %w: %s", err, stderrText)
+		}
+		return ModelResponse{}, fmt.Errorf("provider command failed: %w", err)
 	}
 	captured := stdout.Capture()
 	if captured.Truncated {
@@ -120,6 +124,13 @@ func (p *CommandProvider) Complete(ctx context.Context, req ModelRequest) (Model
 		return ModelResponse{}, fmt.Errorf("decode provider command response: %w", err)
 	}
 	return response.toModelResponse(p.model)
+}
+
+func providerCommandEnvironment(env []string) []string {
+	if len(env) == 0 {
+		return []string{}
+	}
+	return append([]string(nil), env...)
 }
 
 func providerCommandExists(command string) bool {
