@@ -39,7 +39,7 @@ func (k *Kernel) execShell(ctx context.Context, req ShellExecRequest, turnID str
 	sessionID := strings.TrimSpace(req.SessionID)
 	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
 	if idempotencyKey != "" {
-		operation, ok, err := k.operationByIdempotencyKey(sessionID, "shell.exec", idempotencyKey)
+		operation, ok, err := k.operationByIdempotencyKey(sessionID, "shell_exec", idempotencyKey)
 		if err != nil {
 			return OperationProjection{}, err
 		}
@@ -50,9 +50,9 @@ func (k *Kernel) execShell(ctx context.Context, req ShellExecRequest, turnID str
 			return operation, nil
 		}
 	}
-	definition, ok := lookupKernelTool("shell.exec")
+	definition, ok := lookupKernelTool("shell_exec")
 	if !ok {
-		return OperationProjection{}, fmt.Errorf("%w: shell.exec is not registered", ErrToolInfrastructureFailed)
+		return OperationProjection{}, fmt.Errorf("%w: shell_exec is not registered", ErrToolInfrastructureFailed)
 	}
 	authorization := authorizeKernelTool(policy, definition)
 	executionPlan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
@@ -64,7 +64,7 @@ func (k *Kernel) execShell(ctx context.Context, req ShellExecRequest, turnID str
 		OperationID:    newID("op", now),
 		SessionID:      sessionID,
 		TurnID:         strings.TrimSpace(turnID),
-		Tool:           "shell.exec",
+		Tool:           "shell_exec",
 		IdempotencyKey: idempotencyKey,
 		Status:         "running",
 		PermissionMode: policy.PermissionMode,

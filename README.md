@@ -76,7 +76,7 @@ Minimal HTTP surface:
 - `POST /turn`
 - `GET /turns/{id}/events`
 - `GET /sessions/{id}`
-- `POST /tools/shell.exec`
+- `POST /tools/shell_exec`
 - `POST /work`
 - `GET /work/{id}`
 - `POST /work/{id}/cancel`
@@ -113,7 +113,7 @@ $env:GENESIS_SKILL_ROOTS = "$HOME\.agents\skills;$HOME\.genesis\skills"
 $env:TEMP\genesisd.exe -skill-root D:\tools\custom-skills
 ```
 
-This does not make Feishu, email, calendar, or any other application a kernel feature. The initial kernel exposes skill metadata only; full skill-body hydration is deferred until a generic resource/context contract exists. Installed CLIs are still invoked through governed tools such as `shell.exec` under kernel permission policy.
+This does not make Feishu, email, calendar, or any other application a kernel feature. The initial kernel exposes skill metadata only; full skill-body hydration is deferred until a generic resource/context contract exists. Installed CLIs are still invoked through governed tools such as `shell_exec` under kernel permission policy.
 
 ## Provider Configuration
 
@@ -166,7 +166,7 @@ The command output contains paths, profile ids, route ids, and the `secret://...
 
 ## Tool Runtime
 
-The first kernel tool is `shell.exec`. It is deliberately small:
+The first kernel tool is `shell_exec`. It is deliberately small:
 
 - `plan` mode blocks shell execution fail-closed.
 - `default` mode requires a kernel-configured workspace root and uses a kernel-controlled command set from inside that workspace. It does not invoke the operating-system shell, expand environment variables, or execute arbitrary interpreters.
@@ -176,13 +176,13 @@ The controlled default command set is intentionally narrow: text output, simple 
 
 The HTTP request cannot select `permission_mode` or `workspace_root`; those are kernel-owned authority fields. Every allowed call first records a `running` operation before process execution, then records completion or failure with tool name, permission mode, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
 
-`shell.exec` accepts an optional `idempotency_key` control-plane field. Within the same `session_id` and tool, the first operation for a key owns the effect. Later retries with the same key return the persisted operation projection and do not execute the command again or append new operation events.
+`shell_exec` accepts an optional `idempotency_key` control-plane field. Within the same `session_id` and tool, the first operation for a key owns the effect. Later retries with the same key return the persisted operation projection and do not execute the command again or append new operation events.
 
 ### Model Tool Loop
 
-`POST /turn` now supports the same governed `shell.exec` tool through the model loop. The Model Gateway exposes a canonical `shell.exec` descriptor to OpenAI-compatible providers, normalizes provider tool calls, and hands them to the Tool System. The Tool System applies the same `ToolPolicy` used by direct `POST /tools/shell.exec` calls.
+`POST /turn` now supports the same governed `shell_exec` tool through the model loop. The Model Gateway exposes a canonical `shell_exec` descriptor to OpenAI-compatible providers, normalizes provider tool calls, and hands them to the Tool System. The Tool System applies the same `ToolPolicy` used by direct `POST /tools/shell_exec` calls.
 
-When the model requests `shell.exec`, the kernel writes a `model.tool_call` event, executes or blocks the operation, records turn-scoped `operation.*` events, and sends the redacted operation projection back to the provider as structured tool evidence. The provider must then return the final assistant text. `GET /turns/{id}/events` replays the full sequence after restart.
+When the model requests `shell_exec`, the kernel writes a `model.tool_call` event, executes or blocks the operation, records turn-scoped `operation.*` events, and sends the redacted operation projection back to the provider as structured tool evidence. The provider must then return the final assistant text. `GET /turns/{id}/events` replays the full sequence after restart.
 
 Unsupported model-requested tools fail closed as `tool_call_rejected`; no effect is executed. This does not make email, Feishu, calendar, or other applications kernel features. Those remain external skills, CLIs, and daemons that can be reached through generic governed tools when installed and authorized.
 

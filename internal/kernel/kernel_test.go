@@ -939,7 +939,7 @@ func TestExecShellStaleRunningIdempotencyKeyFailsClosedAfterRestart(t *testing.T
 	stale := OperationProjection{
 		OperationID:    "op-stale-running",
 		SessionID:      "shell-stale-idempotent",
-		Tool:           "shell.exec",
+		Tool:           "shell_exec",
 		IdempotencyKey: "stale-key",
 		Status:         "running",
 		PermissionMode: PermissionModeDefault,
@@ -1321,9 +1321,9 @@ func TestHTTPShellExecAndSessionProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
-	resp, err := postJSONWithAuth(server.URL+"/tools/shell.exec", payload)
+	resp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", payload)
 	if err != nil {
-		t.Fatalf("POST /tools/shell.exec failed: %v", err)
+		t.Fatalf("POST /tools/shell_exec failed: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -1375,9 +1375,9 @@ func TestHTTPShellExecIdempotencyKeyReturnsExistingOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal first shell request: %v", err)
 	}
-	firstResp, err := postJSONWithAuth(server.URL+"/tools/shell.exec", firstPayload)
+	firstResp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", firstPayload)
 	if err != nil {
-		t.Fatalf("first POST /tools/shell.exec failed: %v", err)
+		t.Fatalf("first POST /tools/shell_exec failed: %v", err)
 	}
 	defer firstResp.Body.Close()
 	if firstResp.StatusCode != http.StatusOK {
@@ -1397,9 +1397,9 @@ func TestHTTPShellExecIdempotencyKeyReturnsExistingOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal second shell request: %v", err)
 	}
-	secondResp, err := postJSONWithAuth(server.URL+"/tools/shell.exec", secondPayload)
+	secondResp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", secondPayload)
 	if err != nil {
-		t.Fatalf("second POST /tools/shell.exec failed: %v", err)
+		t.Fatalf("second POST /tools/shell_exec failed: %v", err)
 	}
 	defer secondResp.Body.Close()
 	if secondResp.StatusCode != http.StatusOK {
@@ -1444,7 +1444,7 @@ func TestHTTPShellExecStaleRunningIdempotencyKeyReturnsFailedOperation(t *testin
 	stale := OperationProjection{
 		OperationID:    "op-http-stale-running",
 		SessionID:      "http-shell-stale",
-		Tool:           "shell.exec",
+		Tool:           "shell_exec",
 		IdempotencyKey: "http-stale-key",
 		Status:         "running",
 		PermissionMode: PermissionModeDefault,
@@ -1472,9 +1472,9 @@ func TestHTTPShellExecStaleRunningIdempotencyKeyReturnsFailedOperation(t *testin
 	if err != nil {
 		t.Fatalf("marshal stale shell request: %v", err)
 	}
-	resp, err := postJSONWithAuth(server.URL+"/tools/shell.exec", payload)
+	resp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", payload)
 	if err != nil {
-		t.Fatalf("POST /tools/shell.exec failed: %v", err)
+		t.Fatalf("POST /tools/shell_exec failed: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -1499,9 +1499,9 @@ func TestHTTPRejectsUnknownShellFields(t *testing.T) {
 	defer server.Close()
 
 	body := []byte(`{"session_id":"bad-shell","permission_mode":"default","cwd":".","command":"echo hello","unexpected":true}`)
-	resp, err := postJSONWithAuth(server.URL+"/tools/shell.exec", body)
+	resp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", body)
 	if err != nil {
-		t.Fatalf("POST /tools/shell.exec failed: %v", err)
+		t.Fatalf("POST /tools/shell_exec failed: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -3589,12 +3589,12 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 		case 1:
 			tools, ok := req["tools"].([]interface{})
 			if !ok || len(tools) == 0 {
-				http.Error(w, "missing shell.exec tool descriptor", http.StatusBadRequest)
+				http.Error(w, "missing shell_exec tool descriptor", http.StatusBadRequest)
 				return
 			}
 			toolNames := providerToolNamesFromRequest(t, tools)
-			if containsString(toolNames, "shell.exec") || !containsString(toolNames, "shell_exec") {
-				t.Fatalf("provider tool names = %v, want provider-safe shell_exec and no canonical dotted name", toolNames)
+			if !containsString(toolNames, "shell_exec") {
+				t.Fatalf("provider tool names = %v, want canonical shell_exec", toolNames)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"model": "served-model",
@@ -3645,7 +3645,7 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 				t.Fatalf("tool message = %#v, want shell tool result for call_write_file", toolMessage)
 			}
 			content, _ := toolMessage["content"].(string)
-			if !strings.Contains(content, `"tool":"shell.exec"`) || !strings.Contains(content, `"status":"completed"`) {
+			if !strings.Contains(content, `"tool":"shell_exec"`) || !strings.Contains(content, `"status":"completed"`) {
 				t.Fatalf("tool evidence content = %q, want completed shell operation evidence", content)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3727,8 +3727,8 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	if !ok {
 		t.Fatalf("model tool call data = %#v, want EventData", events[1].Data)
 	}
-	if len(modelToolCallData.ModelToolCalls) != 1 || modelToolCallData.ModelToolCalls[0].Tool != "shell.exec" {
-		t.Fatalf("model tool call event = %+v, want canonical shell.exec", modelToolCallData.ModelToolCalls)
+	if len(modelToolCallData.ModelToolCalls) != 1 || modelToolCallData.ModelToolCalls[0].Tool != "shell_exec" {
+		t.Fatalf("model tool call event = %+v, want canonical shell_exec", modelToolCallData.ModelToolCalls)
 	}
 }
 
@@ -3765,7 +3765,7 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 		calls: []ModelToolCall{
 			{
 				ToolCallID: "call_missing_command",
-				Name:       "shell.exec",
+				Name:       "shell_exec",
 				Arguments:  json.RawMessage(`{"cwd":"` + filepath.ToSlash(workspace) + `"}`),
 			},
 		},
@@ -3803,11 +3803,11 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 		t.Fatalf("tool rounds = %+v, want one repair result", rounds)
 	}
 	result := rounds[0].Results[0]
-	if result.ToolCallID != "call_missing_command" || result.Name != "shell.exec" {
+	if result.ToolCallID != "call_missing_command" || result.Name != "shell_exec" {
 		t.Fatalf("tool result = %+v, want shell repair result for call_missing_command", result)
 	}
 	payload := decodeJSONMap(t, result.Content)
-	if payload["status"] != "tool_request_invalid" || payload["tool"] != "shell.exec" || payload["executed"] != false {
+	if payload["status"] != "tool_request_invalid" || payload["tool"] != "shell_exec" || payload["executed"] != false {
 		t.Fatalf("repair payload = %+v, want non-executed tool_request_invalid", payload)
 	}
 	if _, ok := payload["tool_call_id"]; ok {
@@ -3831,7 +3831,7 @@ func TestSubmitTurnRejectsInvalidToolCallIDBeforeToolCallEvent(t *testing.T) {
 		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
 		Provider: singleToolCallProvider{call: ModelToolCall{
 			ToolCallID: "bad tool call id",
-			Name:       "shell.exec",
+			Name:       "shell_exec",
 			Arguments:  json.RawMessage(`{"command":"Write-Output hello"}`),
 		}},
 		RuntimeToken: testRuntimeToken,
@@ -3876,7 +3876,7 @@ func TestSubmitTurnFeedsNonZeroShellExitToModel(t *testing.T) {
 	}
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
-			{ToolCallID: "call_failing_command", Name: "shell.exec", Arguments: json.RawMessage(arguments)},
+			{ToolCallID: "call_failing_command", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
 		},
 		final: "command failure observed",
 	}
@@ -4038,7 +4038,7 @@ func TestSubmitTurnReportsToolInfrastructureFailureSeparately(t *testing.T) {
 		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{
-				{ToolCallID: "call_infra_failure", Name: "shell.exec", Arguments: json.RawMessage(arguments)},
+				{ToolCallID: "call_infra_failure", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
 			},
 			final: "should not be reached",
 		},
@@ -4150,7 +4150,7 @@ func TestSubmitTurnReturnsRepairFeedbackForMixedModelToolBatchBeforeAnyEffect(t 
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
-			{ToolCallID: "call_write", Name: "shell.exec", Arguments: json.RawMessage(toolArgs)},
+			{ToolCallID: "call_write", Name: "shell_exec", Arguments: json.RawMessage(toolArgs)},
 			{ToolCallID: "call_email", Name: "email.send", Arguments: json.RawMessage(`{"to":"someone@example.com"}`)},
 		},
 		final: "mixed batch repair received",
@@ -4205,7 +4205,7 @@ func TestSubmitTurnReturnsRepairFeedbackForUnknownModelToolArgumentFields(t *tes
 		calls: []ModelToolCall{
 			{
 				ToolCallID: "call_unknown_arg",
-				Name:       "shell.exec",
+				Name:       "shell_exec",
 				Arguments:  arguments,
 			},
 		},
@@ -4431,8 +4431,8 @@ func TestLiveOpenAICompatibleProviderToolLoopThroughKernel(t *testing.T) {
 		t.Fatalf("operations = %+v, want one shell operation", projection.Operations)
 	}
 	operation := projection.Operations[0]
-	if operation.Tool != "shell.exec" || operation.Status != "completed" || !strings.Contains(operation.Stdout, "GENESIS_LIVE_TOOL_LOOP_OK") {
-		t.Fatalf("operation = %+v, want completed canonical shell.exec with marker stdout", operation)
+	if operation.Tool != "shell_exec" || operation.Status != "completed" || !strings.Contains(operation.Stdout, "GENESIS_LIVE_TOOL_LOOP_OK") {
+		t.Fatalf("operation = %+v, want completed canonical shell_exec with marker stdout", operation)
 	}
 	events, err := k.TurnEvents(resp.TurnID)
 	if err != nil {

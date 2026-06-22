@@ -192,8 +192,8 @@ func TestHTTPCapabilitiesRequiresRuntimeAuth(t *testing.T) {
 }
 
 func TestToolCapabilityKindDefaultsUnknown(t *testing.T) {
-	if got := toolCapabilityKind("shell.exec"); got != "effect" {
-		t.Fatalf("shell.exec kind = %q, want effect", got)
+	if got := toolCapabilityKind("shell_exec"); got != "effect" {
+		t.Fatalf("shell_exec kind = %q, want effect", got)
 	}
 	if got := toolCapabilityKind("future.tool"); got != "unknown" {
 		t.Fatalf("future.tool kind = %q, want unknown", got)
@@ -250,7 +250,7 @@ func TestHTTPCapabilitiesProjectsToolsAndSkillCatalogWithoutPaths(t *testing.T) 
 	if payload.Status != "ok" || payload.RuntimeAuth.Status != "ok" {
 		t.Fatalf("capabilities = %+v, want ok runtime auth", payload)
 	}
-	for _, want := range []string{"shell.exec"} {
+	for _, want := range []string{"shell_exec"} {
 		if !capabilityHasTool(payload.Tools, want) {
 			t.Fatalf("tools = %+v, want %s", payload.Tools, want)
 		}
@@ -490,8 +490,8 @@ func TestSubmitTurnDoesNotExposeSkillReadAsModelTool(t *testing.T) {
 		t.Fatalf("final text = %q, want provider response", resp.Final.Text)
 	}
 	toolNames := provider.ToolNames()
-	if !containsString(toolNames, "shell.exec") {
-		t.Fatalf("tool names = %v, want shell.exec", toolNames)
+	if !containsString(toolNames, "shell_exec") {
+		t.Fatalf("tool names = %v, want shell_exec", toolNames)
 	}
 	for _, forbidden := range []string{"skill.read", "skill_read"} {
 		if containsString(toolNames, forbidden) {
@@ -513,7 +513,7 @@ func TestSubmitTurnReturnsUnsupportedSkillReadFeedbackBeforeShellEffect(t *testi
 	}
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
-			{ToolCallID: "call_write", Name: "shell.exec", Arguments: json.RawMessage(toolArgs)},
+			{ToolCallID: "call_write", Name: "shell_exec", Arguments: json.RawMessage(toolArgs)},
 			{ToolCallID: "call_unknown_skill", Name: "skill.read", Arguments: json.RawMessage(`{"name":"missing"}`)},
 		},
 		final: "unknown skill repair received",
@@ -693,7 +693,7 @@ func TestSubmitTurnReturnsRepairFeedbackForChangedSkillReadBatchBeforeShellEffec
 	}
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
-			{ToolCallID: "call_write_changed_skill", Name: "shell.exec", Arguments: json.RawMessage(toolArgs)},
+			{ToolCallID: "call_write_changed_skill", Name: "shell_exec", Arguments: json.RawMessage(toolArgs)},
 			{ToolCallID: "call_changed_skill", Name: "skill.read", Arguments: json.RawMessage(`{"name":"mail"}`)},
 		},
 		final: "changed skill repair received",

@@ -255,7 +255,7 @@ func chatToolsFromModelTools(tools []ModelToolDescriptor) []chatTool {
 		converted = append(converted, chatTool{
 			Type: "function",
 			Function: chatToolFunction{
-				Name:        openAICompatibleToolName(name),
+				Name:        name,
 				Description: strings.TrimSpace(tool.Description),
 				Parameters:  tool.Parameters,
 			},
@@ -275,7 +275,7 @@ func chatToolCallsFromModel(calls []ModelToolCall) []chatToolCall {
 			ID:   call.ToolCallID,
 			Type: "function",
 			Function: chatToolCallFunction{
-				Name:      openAICompatibleToolName(call.Name),
+				Name:      strings.TrimSpace(call.Name),
 				Arguments: args,
 			},
 		})
@@ -299,27 +299,9 @@ func modelToolCallsFromChat(calls []chatToolCall) ([]ModelToolCall, error) {
 		}
 		converted = append(converted, ModelToolCall{
 			ToolCallID: strings.TrimSpace(call.ID),
-			Name:       canonicalToolNameFromOpenAICompatible(call.Function.Name),
+			Name:       strings.TrimSpace(call.Function.Name),
 			Arguments:  raw,
 		})
 	}
 	return converted, nil
-}
-
-func openAICompatibleToolName(name string) string {
-	switch strings.TrimSpace(name) {
-	case "shell.exec":
-		return "shell_exec"
-	default:
-		return strings.TrimSpace(name)
-	}
-}
-
-func canonicalToolNameFromOpenAICompatible(name string) string {
-	switch strings.TrimSpace(name) {
-	case "shell_exec":
-		return "shell.exec"
-	default:
-		return strings.TrimSpace(name)
-	}
 }

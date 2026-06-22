@@ -17,7 +17,7 @@ func kernelToolDefinitions() []kernelToolDefinition {
 	return []kernelToolDefinition{
 		{
 			Descriptor: ModelToolDescriptor{
-				Name:        "shell.exec",
+				Name:        "shell_exec",
 				Description: "Execute a small governed shell command. Permission mode and workspace root are controlled by the Genesis kernel.",
 				Parameters: map[string]interface{}{
 					"type": "object",

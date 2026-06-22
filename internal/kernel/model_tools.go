@@ -85,7 +85,7 @@ func (k *Kernel) prepareModelToolCall(call ModelToolCall) (preparedModelToolCall
 
 func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 	var args shellExecToolArguments
-	if err := decodeStrictModelToolArguments("shell.exec", arguments, &args); err != nil {
+	if err := decodeStrictModelToolArguments("shell_exec", arguments, &args); err != nil {
 		return invalidPreparedModelToolCall(callID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
 	}
 	args.CWD = strings.TrimSpace(args.CWD)
@@ -98,7 +98,7 @@ func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments 
 		Command:        args.Command,
 		IdempotencyKey: callID,
 	}); err != nil {
-		return invalidPreparedModelToolCall(callID, name, "invalid_shell_exec_request", fmt.Sprintf("invalid shell.exec request: %v", err)), nil
+		return invalidPreparedModelToolCall(callID, name, "invalid_shell_exec_request", fmt.Sprintf("invalid shell_exec request: %v", err)), nil
 	}
 	return preparedModelToolCall{
 		callID: callID,

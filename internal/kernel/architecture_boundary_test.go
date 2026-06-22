@@ -87,6 +87,9 @@ func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
 		if name == "" {
 			t.Fatalf("tool registry entry has empty name: %+v", definition)
 		}
+		if strings.Contains(name, ".") {
+			t.Fatalf("tool %q uses a dotted id; canonical tool ids must be provider-safe", name)
+		}
 		if seen[name] {
 			t.Fatalf("tool registry has duplicate tool name %q", name)
 		}
@@ -133,9 +136,9 @@ func TestArchitectureBoundaryCapabilitiesProjectFromToolRegistry(t *testing.T) {
 }
 
 func TestArchitectureBoundaryAuthorityGateUsesToolKind(t *testing.T) {
-	shell, ok := lookupKernelTool("shell.exec")
+	shell, ok := lookupKernelTool("shell_exec")
 	if !ok {
-		t.Fatal("shell.exec is not registered")
+		t.Fatal("shell_exec is not registered")
 	}
 
 	blocked := authorizeKernelTool(ToolPolicy{PermissionMode: PermissionModePlan}, shell)
