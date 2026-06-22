@@ -12,6 +12,17 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-CONTEXT-COMPACTION-REFINE-20260622 - P1 - Context compaction needs production-grade selection and retry evidence
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `7641953d0`.
+- Reference alignment: Codex keeps compaction execution in core/session logic while app shells only trigger a typed core operation; Reasonix records cache/context behavior and compaction lifecycle events outside frontend ownership. Genesis now follows the same control-plane split: Model Gateway records provider usage and tool-round accounting, while the kernel compaction runner owns selection, retry deferral, summary source construction, and compaction evidence.
+- Evidence: `ContextPolicy.RetryBackoffTurns` now normalizes to a bounded default and failed summarizer attempts record `context.compaction.failed`; the next eligible trigger can record `context.compaction.deferred` with previous failure and remaining backoff evidence before a later retry. `model.context.accounted` now records provider-visible tool round, call, and result counts in addition to provider usage and processed input tokens. The compaction source is built from completed conversation turns and preserves model-visible tool call/result pairs before the assistant final answer without exposing kernel event or operation ids. Completed compaction records triggering `source_usage` and cache-stability metrics for sampled compacted turns. `docs/kernel-contract.md`, `docs/minimal-closed-loop.md`, `docs/field-reference.md`, and `features/kernel/context_compaction.feature` now describe those behaviors.
+- Verification: `TestAutoCompactionBacksOffAfterSummarizerFailure`; `TestModelGatewayAccountsToolRoundBoundaries`; `TestAutoCompactionRecordsUsageEconomicsAndCacheStability`; `TestCompactionSourcePreservesCompletedToolCallResultPairs`; focused compaction/accounting suite; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `CGO_ENABLED=1 D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
+- Acceptance condition: reviewer confirms compaction remains kernel-owned, provider usage remains provider-backed, tool call/result pairs are preserved at complete-turn boundaries, and the new cache/backoff evidence is sufficient for inspection without leaking internal summaries into user timelines.
+- Residual risk: this still does not judge summary quality or optimize long-session economics against a live provider. Those remain operator/product acceptance tasks and should become deterministic tests only when a machine-checkable kernel behavior is identified.
+
 ### KERNEL-PROVIDER-CONTEXT-SESSION-HISTORY-20260622 - P1 - Provider context must define and preserve same-session conversation history
 
 - Status: ready_for_acceptance.
