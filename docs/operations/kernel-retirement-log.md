@@ -12,6 +12,28 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-PROVIDER-GATEWAY-EVENT-PROJECTION-20260622 - P1 - Provider gateway should be driven by provider-visible event projection
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `0eb426a42`, `0721b4116`.
+- Reference alignment: Codex separates provider/model-visible context from host event identity, and Reasonix separates controller facts from provider and frontend projections. Genesis now rebuilds provider context from the ledger while omitting kernel-owned event, operation, permission, and audit identity from the provider-visible request.
+- Evidence: `ProviderContextProjection` and `Kernel.ProviderContextProjection` derive provider-visible inputs, tool manifest, and tool rounds from stored events before each provider call. The turn loop sends that projection through `ModelRequest` to providers; `modelToolRoundsFromStoredEvents` no longer exposes `tool_call_event_id`; `provider_command` and OpenAI-compatible adapters consume model-visible tool call ids plus result content, not raw ledger or audit identity. Review fix `0721b4116` keeps shell ledger truth separate from redacted projections so provider context, audit replay, event inspection, and session projection cannot accidentally share one over-rich object. `docs/kernel-contract.md` now defines provider context as a projection boundary rather than a raw owner struct.
+- Verification: `TestObservabilityProjectionsSeparateRawAuditAndProviderContext`; `TestSessionProjectionRedactsTopLevelReadModels`; `TestEvidenceRedactionCoversBareProviderKeysAndJWT`; `TestExecShellRedactsSecretEvidenceInReturnedProjectionButPreservesLedgerTruth`; `TestSubmitTurnUsesToolCallEventIDWhenProviderIDMissing`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments`; `D:\software\Go\bin\go.exe test ./internal/kernel -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `CGO_ENABLED=1 D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
+- Acceptance condition: reviewer confirms provider adapters are driven by provider-visible context only and future provider work extends this projection instead of reading raw ledger, session projections, audit replay, or UI timeline objects.
+- Residual risk: future streaming, reasoning-delta, compression, and richer memory-context events need explicit projection extension. The current implementation covers the active turn, tool call, tool result, and final-response event types.
+
+### KERNEL-EVENT-OBSERVABILITY-POLICY-20260622 - P1 - Separate UI timeline, raw event inspection, audit log, and provider context projections
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `0eb426a42`, `0721b4116`.
+- Reference alignment: Codex and Reasonix keep transcript/timeline, protocol or raw event inspection, audit evidence, and provider context separate. Genesis now follows the same boundary: ordinary shells use `/sessions/{id}/timeline`, authorized debugging can use `/turns/{id}/events`, replay/export can use `/turns/{id}/audit`, and providers receive only `ProviderContextProjection`.
+- Evidence: `AuditReplayResponse`, `Kernel.AuditReplay`, and `GET /turns/{id}/audit` provide replay facts, operation statuses, provider-context input kinds, final usage, failure codes, and truncation metadata. `TurnEvents` and idempotency replay now return inspection events with redacted payload text. `inspectionEventData`, `toInspectionEvent`, and `redactSessionProjection` keep raw event envelopes and session top-level read models inspectable without exposing credential-shaped text. `ProviderContextProjection` omits audit, permission, raw operation, and kernel event identity while preserving model-visible tool result content. `shell_exec` now appends raw observed command/stdout/stderr to the local ledger, then returns and projects redacted evidence; redaction is a projection policy rather than a ledger mutation.
+- Verification: `TestObservabilityProjectionsSeparateRawAuditAndProviderContext`; `TestSessionProjectionRedactsTopLevelReadModels`; `TestEvidenceRedactionCoversBareProviderKeysAndJWT`; `TestExecShellRedactsSecretEvidenceInReturnedProjectionButPreservesLedgerTruth`; `D:\software\Go\bin\go.exe test ./internal/kernel -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `CGO_ENABLED=1 D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
+- Acceptance condition: reviewer confirms UI shells can use timeline for chat cards, raw event inspection for authorized debugging, audit replay for export/replay facts, and provider context for model continuation without one over-rich object serving every audience.
+- Residual risk: the local append-only ledger intentionally preserves raw shell operation evidence for replay and audit truth. Future raw ledger export or remote sync must define a separate privileged surface rather than reusing session, event inspection, audit, timeline, or provider-context projections.
+
 ### KERNEL-LIVE-LLM-FIRST-RUN-ACCEPTANCE-20260622 - P0 - Real LLM must have a user-executable first-run acceptance path
 
 - Status: ready_for_acceptance.
