@@ -25,16 +25,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Verification: Runtime/model loop calls only the gateway for tool execution; unregistered tools return structured model repair feedback when a provider tool-call slot exists; generated tool manifest comes from the registry; `go test -count=1 ./...` and build pass.
 - Reference alignment: Codex keeps tool execution behind governed runtime/tool abstractions rather than direct model-loop shell calls. Reasonix exposes tools through registry/plugin descriptors rather than hardcoding each tool into the controller.
 
-### KERNEL-TOOL-NAMING-UNDERSCORE-20260622 - P1 - Canonical tool ids should not keep dotted names
-
-- Status: new.
-- Type: architecture.
-- Problem: The kernel currently treats `shell.exec` and `skill.read` as canonical ids while provider adapters translate them to `shell_exec` and `skill_read`. This creates two active names for the same tool and makes adapter compatibility a permanent contract surface.
-- Suggestion: Choose one canonical tool id shape. Current Base feedback recommends underscore ids, at least `shell_exec`, across registry, capability projection, ledger/session events, provider tools, docs, tests, and HTTP route naming policy.
-- Evidence: Feishu Base record `recvnfTd7Nf0yF`.
-- Verification: Active contracts, registry, capability projection, provider requests, ledger/session event tool fields, and tests use the single canonical id. Dotted ids appear only as rejected/retirement history. `go test -count=1 ./...` passes.
-- Reference alignment: Codex tool names are provider-safe identifiers such as `exec_command` and `apply_patch`; Reasonix uses names such as `read_file`, `write_file`, and `bash_output`. Genesis should not preserve a second dotted kernel name when provider-safe ids work as the canonical contract.
-
 ### KERNEL-SESSION-EVENT-STREAM-UNIFICATION-20260622 - P1 - Session facts should converge on typed event stream
 
 - Status: new.

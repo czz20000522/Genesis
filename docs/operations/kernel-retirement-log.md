@@ -91,6 +91,15 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: reviewer confirms skill packages remain user-space context assets, not default model-visible kernel tools, and future full skill instruction loading must be designed as a generic resource/context boundary rather than a skill-specific syscall.
 - Residual risk: the skill catalog currently provides only name/description metadata. Real use of complex external skills may need a future context hydration contract, but adding it requires a separate owner decision and must not create Feishu/email/calendar/document-specific kernel adapters.
 
+### KERNEL-TOOL-NAMING-UNDERSCORE-20260622 - P1 - Canonical tool ids should not keep dotted names
+
+- Status: ready_for_acceptance.
+- Fix commits: `bbcc60636`.
+- Reference alignment: Codex tool names are provider-safe identifiers such as `exec_command` and `apply_patch`; Reasonix uses names such as `read_file`, `write_file`, and `bash_output`. Genesis now uses a provider-safe canonical id for the surviving default tool rather than maintaining separate kernel and provider names.
+- Evidence: The default tool id is now `shell_exec` in the registry, provider tool specs, model tool calls/results, operation ledger evidence, session projection, capability projection, README, contract docs, and HTTP route `POST /tools/shell_exec`. The OpenAI-compatible adapter no longer has dotted-name mapping functions. `TestArchitectureBoundaryToolRegistryBindsSurface` now fails any dotted tool id at the registry boundary. `TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal` proves provider request, assistant tool replay, and model-visible operation evidence use `shell_exec`. `TestLiveOpenAICompatibleProviderToolLoopThroughKernel` passed against the real configured provider using `shell_exec`. Verification passed: focused naming/provider/HTTP tests; `go test ./... -count=1`; `go test -race ./internal/kernel -count=1`; `go build ./...`; gated live provider tool-loop smoke; `git diff --check`; active code/current docs scans for dotted shell id and adapter mapping functions returned no matches; the versioned route scan returned no matches.
+- Acceptance condition: reviewer confirms there is no active dotted shell tool contract, no route alias, no adapter-local canonical-name translation, and no `skill_read` rename because skill-specific instruction reads were removed from the default tool surface first.
+- Residual risk: historical ready/retirement records still mention older dotted ids as evidence. Those are documentation history, not active contracts.
+
 ### KERNEL-CAPABILITIES-20260622 - P1 - Shells and daemons need a protected kernel capability projection
 
 - Status: ready_for_acceptance.
