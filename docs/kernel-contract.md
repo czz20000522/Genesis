@@ -43,6 +43,8 @@ The first HTTP transport for `turn.stream` is `GET /turns/{id}/events`. It reads
 
 Owns request normalization, session identity, event emission, idempotency, and turn admission. It does not know which shell submitted the request.
 
+Turn idempotency is scoped to explicit `session_id + turn.submit + idempotency_key`. The key is a caller-provided control-plane retry boundary and is not model-visible input. Retrying a completed or failed turn with the same key returns the ledger-backed original turn evidence without calling the provider or executing tools again. A key without an explicit session id is invalid because the caller could not reliably address the same logical retry scope.
+
 Turn admission separates untrusted content from control-plane authority. User or external-application text can contain prompt-injection samples, role labels, tool protocol fragments, logs, or quoted hostile instructions; those strings remain user data and do not grant system, developer, tool, credential, or permission authority. The Interface Kernel may record high-confidence text risks as ingress metadata for inspection. It fails closed only for malformed transport schema, hidden control text, unsupported input item types, or real attempts to set kernel-owned control fields.
 
 Idempotency keys are caller-provided control-plane fields, not model-visible task content. For effectful tool calls, the first admitted `session_id + tool + idempotency_key` owns the effect; retries return the existing operation projection from the ledger without executing the effect again.

@@ -73,6 +73,8 @@ The initial provider is intentionally fake. It proves admission, event persisten
 
 Protected routes require `Authorization: Bearer <runtime-token>`. `GET /ready` is the only unauthenticated route, but readiness is `blocked` when no runtime token is configured because the kernel cannot accept protected work.
 
+`POST /turn` accepts an optional `idempotency_key` when `session_id` is explicit. This key belongs to the Interface Kernel control plane. Retrying the same logical turn returns the original ledger-backed result and must not call the provider or execute tools a second time.
+
 ## Provider Configuration
 
 `genesisd` defaults to Genesis-owned model gateway configuration. It reads `models.json` from the Genesis config root, resolves the selected role/profile, selects the gateway route, and resolves the route credential from the Genesis local secret store.
