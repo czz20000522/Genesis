@@ -43,7 +43,15 @@ func (g ToolGateway) CapabilityProjections() []ToolCapabilityProjection {
 func (g ToolGateway) PrepareBatch(calls []ModelToolCall) ([]preparedModelToolCall, error) {
 	prepared := make([]preparedModelToolCall, 0, len(calls))
 	hasInvalidRequest := false
+	seenCallIDs := map[string]bool{}
 	for _, call := range calls {
+		callID := strings.TrimSpace(call.ToolCallID)
+		if callID != "" {
+			if seenCallIDs[callID] {
+				return nil, fmt.Errorf("%w: duplicate tool_call_id %q", ErrModelToolCallRejected, callID)
+			}
+			seenCallIDs[callID] = true
+		}
 		item, err := g.prepareCall(call)
 		if err != nil {
 			return nil, err
@@ -161,25 +169,31 @@ func (g ToolGateway) Execute(ctx context.Context, sessionID string, turnID strin
 	return prepared.execute(ctx, sessionID, turnID)
 }
 
-func modelOperationResult(operation OperationProjection) ModelOperationResult {
+func modelOperationResult(operation OperationProjection) interface{} {
+	if operation.Status == "blocked" {
+		return ToolRequestInvalidProjection{
+			Status:   "permission_denied",
+			Tool:     operation.Tool,
+			Executed: false,
+			Error: ToolRequestError{
+				Code:    "permission_denied",
+				Message: "tool execution was blocked by kernel policy",
+			},
+		}
+	}
 	return ModelOperationResult{
-		Tool:                 operation.Tool,
-		Status:               operation.Status,
-		PermissionMode:       operation.PermissionMode,
-		CWD:                  operation.CWD,
-		Command:              operation.Command,
-		ExitCode:             operation.ExitCode,
-		Stdout:               operation.Stdout,
-		Stderr:               operation.Stderr,
-		StdoutTruncated:      operation.StdoutTruncated,
-		StderrTruncated:      operation.StderrTruncated,
-		StdoutOriginalBytes:  operation.StdoutOriginalBytes,
-		StderrOriginalBytes:  operation.StderrOriginalBytes,
-		StdoutOmittedBytes:   operation.StdoutOmittedBytes,
-		StderrOmittedBytes:   operation.StderrOmittedBytes,
-		OutputTruncation:     operation.OutputTruncation,
-		BlockedReason:        operation.BlockedReason,
-		InfrastructureReason: operation.InfrastructureReason,
+		Status:              operation.Status,
+		Executed:            true,
+		ExitCode:            operation.ExitCode,
+		Stdout:              operation.Stdout,
+		Stderr:              operation.Stderr,
+		StdoutTruncated:     operation.StdoutTruncated,
+		StderrTruncated:     operation.StderrTruncated,
+		StdoutOriginalBytes: operation.StdoutOriginalBytes,
+		StderrOriginalBytes: operation.StderrOriginalBytes,
+		StdoutOmittedBytes:  operation.StdoutOmittedBytes,
+		StderrOmittedBytes:  operation.StderrOmittedBytes,
+		OutputTruncation:    operation.OutputTruncation,
 	}
 }
 

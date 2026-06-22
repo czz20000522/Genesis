@@ -552,7 +552,7 @@ func (k *Kernel) appendToolCallEvents(sessionID string, turnID string, calls []M
 				ToolCall: &ToolCallProjection{
 					ToolCallID: callID,
 					Tool:       strings.TrimSpace(call.Name),
-					Arguments:  append(json.RawMessage(nil), call.Arguments...),
+					Arguments:  string(call.Arguments),
 				},
 			},
 		}); err != nil {
@@ -616,7 +616,7 @@ func modelToolRoundsFromStoredEvents(events []StoredEvent, turnID string) []Mode
 			current.Calls = append(current.Calls, ModelToolCall{
 				ToolCallID: event.Data.ToolCall.ToolCallID,
 				Name:       event.Data.ToolCall.Tool,
-				Arguments:  append(json.RawMessage(nil), event.Data.ToolCall.Arguments...),
+				Arguments:  json.RawMessage(event.Data.ToolCall.Arguments),
 			})
 		case "tool.result":
 			if event.Data.ToolResult == nil {

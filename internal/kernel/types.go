@@ -222,23 +222,18 @@ type OperationProjection struct {
 }
 
 type ModelOperationResult struct {
-	Tool                 string `json:"tool"`
-	Status               string `json:"status"`
-	PermissionMode       string `json:"permission_mode"`
-	CWD                  string `json:"cwd"`
-	Command              string `json:"command"`
-	ExitCode             *int   `json:"exit_code,omitempty"`
-	Stdout               string `json:"stdout,omitempty"`
-	Stderr               string `json:"stderr,omitempty"`
-	StdoutTruncated      bool   `json:"stdout_truncated,omitempty"`
-	StderrTruncated      bool   `json:"stderr_truncated,omitempty"`
-	StdoutOriginalBytes  int    `json:"stdout_original_bytes,omitempty"`
-	StderrOriginalBytes  int    `json:"stderr_original_bytes,omitempty"`
-	StdoutOmittedBytes   int    `json:"stdout_omitted_bytes,omitempty"`
-	StderrOmittedBytes   int    `json:"stderr_omitted_bytes,omitempty"`
-	OutputTruncation     string `json:"output_truncation,omitempty"`
-	BlockedReason        string `json:"blocked_reason,omitempty"`
-	InfrastructureReason string `json:"infrastructure_reason,omitempty"`
+	Status              string `json:"status"`
+	Executed            bool   `json:"executed"`
+	ExitCode            *int   `json:"exit_code,omitempty"`
+	Stdout              string `json:"stdout,omitempty"`
+	Stderr              string `json:"stderr,omitempty"`
+	StdoutTruncated     bool   `json:"stdout_truncated,omitempty"`
+	StderrTruncated     bool   `json:"stderr_truncated,omitempty"`
+	StdoutOriginalBytes int    `json:"stdout_original_bytes,omitempty"`
+	StderrOriginalBytes int    `json:"stderr_original_bytes,omitempty"`
+	StdoutOmittedBytes  int    `json:"stdout_omitted_bytes,omitempty"`
+	StderrOmittedBytes  int    `json:"stderr_omitted_bytes,omitempty"`
+	OutputTruncation    string `json:"output_truncation,omitempty"`
 }
 
 type WorkSubmitRequest struct {
@@ -380,9 +375,9 @@ type EventData struct {
 }
 
 type ToolCallProjection struct {
-	ToolCallID string          `json:"tool_call_id"`
-	Tool       string          `json:"tool"`
-	Arguments  json.RawMessage `json:"arguments,omitempty"`
+	ToolCallID string `json:"tool_call_id"`
+	Tool       string `json:"tool"`
+	Arguments  string `json:"arguments,omitempty"`
 }
 
 type ToolResultProjection struct {

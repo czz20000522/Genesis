@@ -3636,6 +3636,44 @@ func TestCommandProviderRejectsInvalidAdapterResults(t *testing.T) {
 	}
 }
 
+func TestCommandProviderDoesNotInheritDaemonEnvironment(t *testing.T) {
+	t.Setenv("GENESIS_PROVIDER_COMMAND_SENTINEL", "leaked")
+	provider := NewCommandProvider(ProviderCommandConfig{
+		Command:        os.Args[0],
+		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "env-clean"},
+		Model:          "command-model",
+		RequestTimeout: 5 * time.Second,
+		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
+	})
+	if _, err := provider.Complete(context.Background(), commandProviderTestRequest()); err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	provider = NewCommandProvider(ProviderCommandConfig{
+		Command:        os.Args[0],
+		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "env-explicit"},
+		Model:          "command-model",
+		RequestTimeout: 5 * time.Second,
+		Env: []string{
+			"GENESIS_PROVIDER_COMMAND_HELPER=1",
+			"GENESIS_PROVIDER_COMMAND_SENTINEL=explicit",
+		},
+	})
+	if _, err := provider.Complete(context.Background(), commandProviderTestRequest()); err != nil {
+		t.Fatalf("Complete with explicit env returned error: %v", err)
+	}
+}
+
+func TestCommandProviderAppliesDefaultTimeout(t *testing.T) {
+	provider := NewCommandProvider(ProviderCommandConfig{
+		Command: os.Args[0],
+		Model:   "command-model",
+	})
+	if provider.requestTimeout != defaultProviderCommandTimeout {
+		t.Fatalf("request timeout = %s, want %s", provider.requestTimeout, defaultProviderCommandTimeout)
+	}
+}
+
 func TestCommandProviderToolLoopThroughKernel(t *testing.T) {
 	workspace := t.TempDir()
 	toolCommand := writeFileCommand("command-provider-tool.txt", "command-tool-value")
@@ -3709,6 +3747,21 @@ func TestCommandProviderToolLoopThroughKernel(t *testing.T) {
 	toolResultData, ok := events[4].Data.(EventData)
 	if !ok || toolResultData.ToolResult == nil || toolResultData.ToolResult.ForEventID != events[1].EventID {
 		t.Fatalf("tool.result event = %#v, want link to %s", events[4].Data, events[1].EventID)
+	}
+}
+
+func commandProviderTestRequest() ModelRequest {
+	return ModelRequest{
+		SessionID:  "command-session",
+		TurnID:     "turn-command",
+		InputItems: []ModelInputItem{{Kind: ModelInputKindUserText, Text: "hello command provider"}},
+		ToolManifest: []ToolSpec{{
+			Name:            "shell_exec",
+			Description:     "execute a governed shell command",
+			InputSchema:     map[string]interface{}{"type": "object"},
+			SideEffectLevel: "write",
+			ExecutionKind:   "sandboxed_process",
+		}},
 	}
 }
 
@@ -3801,8 +3854,14 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 				t.Fatalf("tool message = %#v, want shell tool result for call_write_file", toolMessage)
 			}
 			content, _ := toolMessage["content"].(string)
-			if !strings.Contains(content, `"tool":"shell_exec"`) || !strings.Contains(content, `"status":"completed"`) {
-				t.Fatalf("tool evidence content = %q, want completed shell operation evidence", content)
+			payload := decodeJSONMap(t, content)
+			if payload["status"] != "completed" || payload["executed"] != true {
+				t.Fatalf("tool evidence content = %q, want completed minimal shell result", content)
+			}
+			for _, forbidden := range []string{"tool", "permission_mode", "cwd", "command", "operation_id", "blocked_reason", "infrastructure_reason"} {
+				if _, ok := payload[forbidden]; ok {
+					t.Fatalf("tool evidence payload = %+v, must not expose %q to model", payload, forbidden)
+				}
 			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"model": "served-model",
@@ -3886,8 +3945,8 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	if toolCallData.ToolCall == nil || toolCallData.ToolCall.Tool != "shell_exec" || toolCallData.ToolCall.ToolCallID == "" {
 		t.Fatalf("tool call event = %+v, want canonical shell_exec", toolCallData.ToolCall)
 	}
-	if !strings.Contains(string(toolCallData.ToolCall.Arguments), "tool-result.txt") {
-		t.Fatalf("tool call arguments = %s, want provider replay arguments", string(toolCallData.ToolCall.Arguments))
+	if !strings.Contains(toolCallData.ToolCall.Arguments, "tool-result.txt") {
+		t.Fatalf("tool call arguments = %s, want provider replay arguments", toolCallData.ToolCall.Arguments)
 	}
 	toolResultData, ok := events[4].Data.(EventData)
 	if !ok {
@@ -3896,8 +3955,8 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	if toolResultData.ToolResult == nil || toolResultData.ToolResult.ForEventID != events[1].EventID || toolResultData.ToolResult.Status != "completed" {
 		t.Fatalf("tool result event = %+v, want result linked to %s", toolResultData.ToolResult, events[1].EventID)
 	}
-	if string(toolCallData.ToolCall.Arguments) != string(toolArgs) {
-		t.Fatalf("tool call event arguments = %s, want original provider arguments %s", string(toolCallData.ToolCall.Arguments), string(toolArgs))
+	if toolCallData.ToolCall.Arguments != string(toolArgs) {
+		t.Fatalf("tool call event arguments = %s, want original provider arguments %s", toolCallData.ToolCall.Arguments, string(toolArgs))
 	}
 	session, err := restarted.Session("provider-tool-loop")
 	if err != nil {
@@ -3911,6 +3970,119 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	}
 	if session.Events[4].Data.ToolResult == nil || session.Events[4].Data.ToolResult.ForEventID != session.Events[1].EventID {
 		t.Fatalf("session tool.result event = %+v, want for_event_id=%s", session.Events[4].Data.ToolResult, session.Events[1].EventID)
+	}
+}
+
+func TestOpenAICompatibleMalformedToolArgumentsReturnRepairFeedback(t *testing.T) {
+	callCount := 0
+	var repairContent string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		var req map[string]interface{}
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch callCount {
+		case 1:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"model": "served-model",
+				"choices": []interface{}{
+					map[string]interface{}{
+						"message": map[string]interface{}{
+							"role": "assistant",
+							"tool_calls": []interface{}{
+								map[string]interface{}{
+									"id":   "call_bad_json",
+									"type": "function",
+									"function": map[string]interface{}{
+										"name":      "shell_exec",
+										"arguments": `{"command":`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+		case 2:
+			messages, ok := req["messages"].([]interface{})
+			if !ok || len(messages) != 3 {
+				t.Fatalf("second request messages = %#v, want user, assistant tool call, tool result", req["messages"])
+			}
+			toolMessage, ok := messages[2].(map[string]interface{})
+			if !ok || toolMessage["tool_call_id"] != "call_bad_json" {
+				t.Fatalf("tool message = %#v, want repair for call_bad_json", messages[2])
+			}
+			repairContent, _ = toolMessage["content"].(string)
+			payload := decodeJSONMap(t, repairContent)
+			errorPayload, _ := payload["error"].(map[string]interface{})
+			if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "invalid_tool_arguments" {
+				t.Fatalf("repair payload = %+v, want invalid_tool_arguments", payload)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"model": "served-model",
+				"choices": []interface{}{
+					map[string]interface{}{"message": map[string]interface{}{"role": "assistant", "content": "malformed args repaired"}},
+				},
+			})
+		default:
+			t.Fatalf("unexpected provider call %d", callCount)
+		}
+	}))
+	defer server.Close()
+
+	k, err := New(Config{
+		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+			BaseURL: server.URL,
+			APIKey:  "test-key",
+			Model:   "test-model",
+		}),
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  t.TempDir(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "openai-malformed-tool-args",
+		InputItems: []InputItem{{Type: "text", Text: "try malformed tool args"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "malformed args repaired" {
+		t.Fatalf("final text = %q, want malformed args repaired", resp.Final.Text)
+	}
+	if repairContent == "" {
+		t.Fatal("provider did not receive repair feedback")
+	}
+	projection, err := k.Session("openai-malformed-tool-args")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want no shell operation for malformed args", projection.Operations)
+	}
+	var eventTypes []string
+	for _, event := range projection.Events {
+		eventTypes = append(eventTypes, event.Type)
+	}
+	wantTypes := []string{"turn.submitted", "tool.call", "tool.result", "model.final"}
+	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Fatalf("event types = %v, want %v", eventTypes, wantTypes)
+	}
+	if projection.Events[2].Data.ToolResult == nil || projection.Events[2].Data.ToolResult.Status != "tool_request_invalid" || projection.Events[2].Data.ToolResult.ForEventID != projection.Events[1].EventID {
+		t.Fatalf("tool.result = %+v, want invalid repair linked to tool.call", projection.Events[2].Data.ToolResult)
 	}
 }
 
@@ -4090,24 +4262,80 @@ func TestSubmitTurnFeedsNonZeroShellExitToModel(t *testing.T) {
 		t.Fatalf("provider requests = %d, want tool result round", len(requests))
 	}
 	result := requests[1].ToolRounds[0].Results[0]
-	var operation OperationProjection
-	if err := json.Unmarshal([]byte(result.Content), &operation); err != nil {
-		t.Fatalf("decode operation result: %v; content=%s", err, result.Content)
-	}
-	if operation.Status != "failed" {
-		t.Fatalf("operation status = %q, want failed", operation.Status)
-	}
-	if operation.ExitCode == nil || *operation.ExitCode != 7 {
-		t.Fatalf("exit code = %v, want 7", operation.ExitCode)
-	}
-	if !strings.Contains(operation.Stderr, "GENESIS_TOOL_COMMAND_FAILURE") {
-		t.Fatalf("stderr = %q, want command failure marker", operation.Stderr)
-	}
 	payload := decodeJSONMap(t, result.Content)
-	for _, forbidden := range []string{"operation_id", "session_id", "turn_id", "idempotency_key", "started_at", "ended_at"} {
+	if payload["status"] != "failed" || payload["executed"] != true {
+		t.Fatalf("tool result payload = %+v, want failed executed command", payload)
+	}
+	assertJSONNumber(t, payload, "exit_code", 7)
+	stderr, _ := payload["stderr"].(string)
+	if !strings.Contains(stderr, "GENESIS_TOOL_COMMAND_FAILURE") {
+		t.Fatalf("stderr = %q, want command failure marker", stderr)
+	}
+	for _, forbidden := range []string{"tool", "operation_id", "session_id", "turn_id", "idempotency_key", "started_at", "ended_at", "permission_mode", "cwd", "command", "blocked_reason", "infrastructure_reason"} {
 		if _, ok := payload[forbidden]; ok {
 			t.Fatalf("tool result payload = %+v, must not expose control-plane field %q", payload, forbidden)
 		}
+	}
+}
+
+func TestSubmitTurnReturnsMinimalPermissionDeniedToolResult(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": echoCommand("blocked"),
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_plan_blocked", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "permission feedback received",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModePlan,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "model-visible-permission-denied",
+		InputItems: []InputItem{{Type: "text", Text: "try blocked shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "permission feedback received" {
+		t.Fatalf("final text = %q, want permission feedback received", resp.Final.Text)
+	}
+	result := provider.Requests()[1].ToolRounds[0].Results[0]
+	payload := decodeJSONMap(t, result.Content)
+	if payload["status"] != "permission_denied" || payload["executed"] != false {
+		t.Fatalf("tool result payload = %+v, want minimal permission_denied", payload)
+	}
+	errorPayload, ok := payload["error"].(map[string]interface{})
+	if !ok || errorPayload["code"] != "permission_denied" {
+		t.Fatalf("tool result error = %+v, want permission_denied", payload["error"])
+	}
+	for _, forbidden := range []string{"permission_mode", "blocked_reason", "operation_id", "cwd", "command", "started_at", "ended_at", "infrastructure_reason"} {
+		if _, ok := payload[forbidden]; ok {
+			t.Fatalf("tool result payload = %+v, must not expose %q to model", payload, forbidden)
+		}
+	}
+	projection, err := k.Session("model-visible-permission-denied")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 || projection.Operations[0].Status != "blocked" || projection.Operations[0].PermissionMode != PermissionModePlan || projection.Operations[0].BlockedReason == "" {
+		t.Fatalf("operations = %+v, want full blocked operation evidence in inspection projection", projection.Operations)
 	}
 }
 
@@ -4379,6 +4607,70 @@ func TestSubmitTurnReturnsRepairFeedbackForMixedModelToolBatchBeforeAnyEffect(t 
 	}
 	if len(projection.Operations) != 0 {
 		t.Fatalf("operations = %+v, want no executed effects for mixed unsupported batch", projection.Operations)
+	}
+}
+
+func TestSubmitTurnRejectsDuplicateToolCallIDBeforeAnyEffect(t *testing.T) {
+	workspace := t.TempDir()
+	firstArgs, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": writeFileCommand("duplicate-first.txt", "first"),
+	})
+	if err != nil {
+		t.Fatalf("marshal first args: %v", err)
+	}
+	secondArgs, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": writeFileCommand("duplicate-second.txt", "second"),
+	})
+	if err != nil {
+		t.Fatalf("marshal second args: %v", err)
+	}
+	k, err := New(Config{
+		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider: &toolFeedbackProvider{
+			calls: []ModelToolCall{
+				{ToolCallID: "call_duplicate", Name: "shell_exec", Arguments: json.RawMessage(firstArgs)},
+				{ToolCallID: "call_duplicate", Name: "shell_exec", Arguments: json.RawMessage(secondArgs)},
+			},
+			final: "should not be reached",
+		},
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "duplicate-tool-call-id",
+		InputItems: []InputItem{{Type: "text", Text: "try duplicate tool call ids"}},
+	})
+	if !errors.Is(err, ErrModelToolCallRejected) {
+		t.Fatalf("SubmitTurn error = %v, want ErrModelToolCallRejected", err)
+	}
+	for _, file := range []string{"duplicate-first.txt", "duplicate-second.txt"} {
+		if _, err := os.Stat(filepath.Join(workspace, file)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("duplicate batch created %s before rejection; stat err=%v", file, err)
+		}
+	}
+	projection, err := k.Session("duplicate-tool-call-id")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	var eventTypes []string
+	for _, event := range projection.Events {
+		eventTypes = append(eventTypes, event.Type)
+	}
+	wantTypes := []string{"turn.submitted", "turn.failed"}
+	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Fatalf("event types = %v, want no tool.call before duplicate-id rejection", eventTypes)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want no shell operation for duplicate-id batch", projection.Operations)
 	}
 }
 
@@ -4674,6 +4966,24 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 			Model: req.Model,
 			Text:  "command final: " + req.InputItems[0].Text,
 			Usage: &TokenUsage{InputTokens: 7, OutputTokens: 3, TotalTokens: 10},
+		})
+	case "env-clean":
+		if value := os.Getenv("GENESIS_PROVIDER_COMMAND_SENTINEL"); value != "" {
+			t.Fatalf("provider command inherited daemon sentinel env %q", value)
+		}
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  providerCommandResponseKindFinal,
+			Model: req.Model,
+			Text:  "env clean",
+		})
+	case "env-explicit":
+		if value := os.Getenv("GENESIS_PROVIDER_COMMAND_SENTINEL"); value != "explicit" {
+			t.Fatalf("provider command explicit env = %q, want explicit", value)
+		}
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  providerCommandResponseKindFinal,
+			Model: req.Model,
+			Text:  "env explicit",
 		})
 	case "bad-json":
 		_, _ = os.Stdout.WriteString("not-json\n")

@@ -294,9 +294,6 @@ func modelToolCallsFromChat(calls []chatToolCall) ([]ModelToolCall, error) {
 			args = "{}"
 		}
 		raw := json.RawMessage(args)
-		if !json.Valid(raw) {
-			return nil, fmt.Errorf("provider tool call %q has invalid JSON arguments", call.ID)
-		}
 		converted = append(converted, ModelToolCall{
 			ToolCallID: strings.TrimSpace(call.ID),
 			Name:       strings.TrimSpace(call.Function.Name),

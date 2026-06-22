@@ -18,6 +18,7 @@ const (
 	providerCommandResponseKindFinal     = "final"
 	providerCommandResponseKindToolCalls = "tool_calls"
 	maxProviderCommandOutputBytes        = 64 * 1024
+	defaultProviderCommandTimeout        = 60 * time.Second
 )
 
 type ProviderCommandConfig struct {
@@ -39,13 +40,17 @@ type CommandProvider struct {
 }
 
 func NewCommandProvider(config ProviderCommandConfig) *CommandProvider {
+	timeout := config.RequestTimeout
+	if timeout <= 0 {
+		timeout = defaultProviderCommandTimeout
+	}
 	return &CommandProvider{
 		command:        strings.TrimSpace(config.Command),
 		args:           append([]string(nil), config.Args...),
 		env:            append([]string(nil), config.Env...),
 		workingDir:     strings.TrimSpace(config.WorkingDir),
 		model:          strings.TrimSpace(config.Model),
-		requestTimeout: config.RequestTimeout,
+		requestTimeout: timeout,
 	}
 }
 
@@ -87,17 +92,13 @@ func (p *CommandProvider) Complete(ctx context.Context, req ModelRequest) (Model
 		return ModelResponse{}, err
 	}
 
-	runCtx := ctx
-	cancel := func() {}
-	if p.requestTimeout > 0 {
-		runCtx, cancel = context.WithTimeout(ctx, p.requestTimeout)
-	}
+	runCtx, cancel := context.WithTimeout(ctx, p.requestTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, p.command, p.args...)
 	cmd.Stdin = bytes.NewReader(encoded)
 	cmd.Dir = p.workingDir
-	cmd.Env = append(os.Environ(), p.env...)
+	cmd.Env = append([]string(nil), p.env...)
 	var stdout cappedBuffer
 	var stderr cappedBuffer
 	stdout.limit = maxProviderCommandOutputBytes
