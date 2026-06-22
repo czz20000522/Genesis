@@ -12,6 +12,36 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-MALFORMED-TOOL-ARGS-REPAIR-20260622 - P1 - Malformed provider-command arguments should become model repair feedback
+
+- Status: ready_for_acceptance.
+- Fix commits: `b533a889c`, `d6886250d`.
+- Reference alignment: Codex preserves provider protocol pairing while returning recoverable function-call argument errors through tool output when the loop can continue. Reasonix keeps provider tool-call ids for pairing and repairs malformed or missing tool-result pairing at the provider boundary rather than promoting malformed tool arguments into provider infrastructure failures.
+- Evidence: `provider_command` no longer rejects invalid raw tool arguments in `toModelResponse`. `ModelToolCall` now preserves malformed raw argument text across the JSON command boundary using `raw_arguments` on marshal and by accepting string, raw, or `arguments_json` shapes on unmarshal. ToolGateway receives malformed arguments, writes `tool.call`, returns `tool_request_invalid`, writes linked `tool.result`, and executes no shell operation.
+- Verification: `TestCommandProviderMalformedArgumentsReturnRepairFeedback`; `TestOpenAICompatibleMalformedToolArgumentsReturnRepairFeedback`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments`; `TestCommandProviderToolLoopThroughKernel`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
+- Acceptance condition: reviewer confirms malformed provider-command tool arguments are repair feedback when a tool slot can be correlated, not provider command failure, and no external effect occurs.
+- Residual risk: provider command adapters still need to choose whether to emit `arguments`, `arguments_json`, or `raw_arguments`; all three shapes are accepted for the current command boundary.
+
+### KERNEL-MODEL-SYSTEM-FIELD-BOUNDARY-20260622 - P1 - Model schemas must expose semantic fields only
+
+- Status: ready_for_acceptance.
+- Fix commits: `d6886250d`.
+- Reference alignment: Codex keeps tool input schemas focused on model-action payloads while host identifiers, approvals, sandbox state, and event ids stay host-owned. Reasonix provider/tool abstractions keep provider call ids for pairing but do not ask models to generate host lifecycle ids.
+- Evidence: `docs/kernel-contract.md` now defines semantic/user-supplied fields versus system-bound/audit-only fields. `shell_exec` continues to expose only `command` and optional `cwd` in the model-visible schema. Strict tool argument decoding rejects injected control-plane fields such as `permission_mode`, `event_id`, `operation_id`, `lease_id`, `task_id`, `tool_call_event_id`, and `provider_tool_call_id` as repairable invalid tool arguments without executing effects.
+- Verification: `TestSubmitTurnReturnsRepairFeedbackForUnknownModelToolArgumentFields`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
+- Acceptance condition: reviewer confirms model-visible tool schemas contain only semantic action inputs and model-supplied control-plane fields cannot override kernel-generated event, operation, lease, task, provider, or audit identity.
+- Residual risk: this entry covers the current kernel tool schema. Future WorkRegistry or Accumulation model-visible schemas must apply the same field classification before becoming active tool surfaces.
+
+### KERNEL-PROVIDER-GATEWAY-TRANSLATOR-20260622 - P1 - Provider wire compatibility belongs behind gateway translators
+
+- Status: ready_for_acceptance.
+- Fix commits: `10c11da35`, `d6886250d`.
+- Reference alignment: Codex keeps provider wire protocol handling behind API/client/protocol modules while the core tool loop consumes typed items. Reasonix registers provider implementations behind a provider abstraction and keeps OpenAI/Anthropic wire terms inside provider packages. Genesis now treats `provider_command` as the preferred provider boundary and constrains provider-native wire terms to adapter/translator files.
+- Evidence: `provider_command` remains the long-lived command boundary for external provider translators, while the built-in OpenAI-compatible adapter is treated as an adapter/translator file. `TestArchitectureBoundaryProviderWireTermsStayInsideAdapterFiles` scans runtime Go files and fails if `/chat/completions`, chat-completion structs, token usage wire names, DeepSeek, OpenRouter, or `openai-responses` terms appear outside the explicit adapter file allowlist. `TestArchitectureBoundaryCoreLoopHasNoProviderNativeWireTerms` continues to guard the turn loop, ToolGateway, provider interface, command provider, tool registry, and core types.
+- Verification: `TestArchitectureBoundaryProviderWireTermsStayInsideAdapterFiles`; `TestArchitectureBoundaryCoreLoopHasNoProviderNativeWireTerms`; `TestCommandProviderToolLoopThroughKernel`; `TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
+- Acceptance condition: reviewer confirms adding DeepSeek/OpenAI Responses/OpenRouter compatibility now requires an adapter/translator boundary or provider command process and cannot be implemented by adding vendor wire branches to the kernel turn loop or core tool path.
+- Residual risk: the built-in OpenAI-compatible adapter still lives in the `internal/kernel` package as a local operator convenience. Moving it to a separate Go package can be a later cleanup, but current guards prevent its wire terms from spreading into core kernel files.
+
 ### KERNEL-TOOL-CALL-EVENT-ID-20260622 - P1 - Tool call identity should be kernel event id
 
 - Status: ready_for_acceptance.
@@ -42,16 +72,6 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: reviewer confirms model-visible tool results contain terminal-equivalent output or minimal repair feedback only, while authorized inspection surfaces still expose permission and audit evidence.
 - Residual risk: provider-native ids are now correlation fields only, covered by `KERNEL-TOOL-CALL-EVENT-ID-20260622`. Future tool state must continue to avoid treating those ids as kernel identity or idempotency keys.
 
-### KERNEL-MALFORMED-TOOL-ARGS-REPAIR-20260622 - P1 - Malformed tool arguments should become model-visible tool result repair feedback
-
-- Status: ready_for_acceptance.
-- Fix commits: `b533a889c`.
-- Reference alignment: Codex returns structured tool-call errors to the model when protocol state can continue, and terminal execution errors are not confused with provider failures. Reasonix typed tool dispatch keeps validation feedback inside the tool path. Genesis now classifies malformed tool args as tool request invalid when a correlated tool slot exists.
-- Evidence: the OpenAI-compatible adapter no longer rejects invalid JSON arguments before ToolGateway. Raw tool arguments are stored in `tool.call` event payloads as strings so invalid JSON can be recorded without corrupting the JSONL ledger. ToolGateway strict decoding then returns `tool_request_invalid` through `tool.result`; no shell operation or external effect occurs.
-- Verification: `TestOpenAICompatibleMalformedToolArgumentsReturnRepairFeedback`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
-- Acceptance condition: reviewer confirms malformed model tool arguments with a correlated tool call produce repair feedback and ordered `tool.call -> tool.result` events rather than provider failure or shell effects.
-- Residual risk: provider protocol states without any usable tool slot still fail as provider protocol failures. Provider-native ids are now correlation fields only, covered by `KERNEL-TOOL-CALL-EVENT-ID-20260622`.
-
 ### KERNEL-SESSION-EVENT-STREAM-UNIFICATION-20260622 - P1 - Session facts should converge on typed event stream
 
 - Status: ready_for_acceptance.
@@ -70,7 +90,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: `ToolRegistry` now exposes `ToolSpec` records with `name`, `description`, `input_schema`, `side_effect_level`, and `execution_kind`; `ToolGateway` owns provider tool batch preflight and execution. `SubmitTurn` calls only `ToolGateway.ToolManifest`, `ToolGateway.PrepareBatch`, and `ToolGateway.Execute` for model tool handling. Direct `POST /tools/shell_exec` also enters the same gateway before shell execution. `TestArchitectureBoundaryToolRegistryBindsSurface` and `TestArchitectureBoundaryToolRegistryRejectsIncompleteSpecs` prove tool specs cannot omit required registry fields or use provider-unsafe dotted ids. `TestSubmitTurnProjectsRegisteredToolManifestWithSkillCatalog` proves the provider sees the registry-generated manifest, not a hand-built provider descriptor. Existing generic unsupported-tool and mixed-batch tests continue to prove unregistered tools return model repair feedback without executing effects. Long-term tests that locked retired tool names were removed; active code/docs scans now return no matches for retired tool ids or old registry helper names outside this retirement log.
 - Verification: `go test ./internal/kernel -count=1`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active code/docs retired-concept scan returned no matches.
 - Acceptance condition: reviewer confirms runtime, provider adapters, direct HTTP tool transport, capability projection, and permission gates all derive from `ToolRegistry`/`ToolGateway`, and future tools cannot be added by special-casing concrete tool implementations inside the turn loop.
-- Residual risk: provider protocol extraction is tracked separately by `KERNEL-PROVIDER-COMMAND-ADAPTER-20260622`.
+- Residual risk: provider command extraction is now covered by `KERNEL-PROVIDER-COMMAND-ADAPTER-20260622`; future provider wire compatibility must remain behind command or adapter translator boundaries.
 
 ### KERNEL-BOUNDARY-REFERENCE-ALIGNMENT-20260622 - P1 - Kernel changes need reference-alignment notes against Codex and Reasonix
 
