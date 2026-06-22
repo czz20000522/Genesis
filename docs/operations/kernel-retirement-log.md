@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-SKILL-METADATA-SECURITY-20260622 - P1 - Skill catalog metadata must not inject authority-shaped context
+
+- Status: ready_for_acceptance.
+- Fix commits: `fc27be8df`, `152c7d102`.
+- Evidence: `TestSkillCatalogRejectsAuthorityAndSecretShapedMetadata` first failed because prompt-injection-shaped, role-marker, tool-protocol, and secret-shaped skill descriptions all entered the catalog. After the fix, it proves only safe skill metadata is injected, while `Ignore previous instructions`, `system:`, `tool_call_id`, invisible-control text, secret-shaped metadata, and full skill bodies are absent from the skill catalog context. Existing `TestKernelInjectsSkillCatalogBeforeProviderWithoutSkillBodies`, `TestMissingAndMalformedSkillCatalogDoesNotBlockTurn`, `TestModelInputItemsInjectsApprovedMemoryContextBeforeProvider`, and `TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider` passed, proving safe catalog injection, fail-soft missing/malformed roots, approved memory context, and provider request construction still work. `go test ./...` passed; `go test -race ./internal/kernel -count=1` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for numbered route or kernel version labels returned no matches.
+- Acceptance condition: reviewer confirms skill front matter is treated as untrusted user-space metadata before it becomes kernel-built model context, and that unsafe skill metadata is excluded rather than redacted into trusted context or allowed to block the whole turn.
+- Residual risk: filtering is syntactic and conservative. It does not provide signed skill trust, live skill reload, skill ranking, per-turn skill selection, or full skill body governance; those remain separate kernel contracts if needed.
+
 ### KERNEL-SKILL-CATALOG-20260622 - P0 - Model context needs generic external skill discovery
 
 - Status: ready_for_acceptance.
