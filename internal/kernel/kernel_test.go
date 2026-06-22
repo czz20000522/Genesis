@@ -1690,7 +1690,7 @@ func TestHTTPCreateWorkRequiresSourceRef(t *testing.T) {
 	}
 }
 
-func TestHTTPCreateWorkRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) {
+func TestHTTPCreateWorkRejectsInvalidControlRefs(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -1698,7 +1698,6 @@ func TestHTTPCreateWorkRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) 
 	for name, body := range map[string][]byte{
 		"invalid source ref": []byte(`{"session_id":"bad-work-ref","title":"bad source","source_ref":"free text"}`),
 		"secret session id":  []byte(`{"session_id":"api_key=sk-work-secret","title":"bad session secret","source_ref":"turn:bad-work-secret-session"}`),
-		"secret title":       []byte(`{"session_id":"bad-work-secret","title":"api_key=sk-work-secret","source_ref":"turn:bad-work-secret"}`),
 		"secret source ref":  []byte(`{"session_id":"bad-work-secret-ref","title":"bad source secret","source_ref":"turn:api_key=sk-work-secret"}`),
 	} {
 		resp, err := postJSONWithAuth(server.URL+"/work", body)
@@ -1835,7 +1834,7 @@ func TestConcurrentWorkCancelWritesOnlyOneTerminalDecision(t *testing.T) {
 	}
 }
 
-func TestHTTPCancelWorkRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) {
+func TestHTTPCancelWorkRejectsInvalidControlRefs(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -1860,7 +1859,6 @@ func TestHTTPCancelWorkRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) 
 	for name, body := range map[string][]byte{
 		"invalid authority":       []byte(`{"cancel_authority":"root","cancel_reason":"bad authority","cancel_evidence_ref":"review:bad-authority"}`),
 		"invalid evidence ref":    []byte(`{"cancel_authority":"runtime:test","cancel_reason":"bad evidence","cancel_evidence_ref":"free text"}`),
-		"secret cancel reason":    []byte(`{"cancel_authority":"runtime:test","cancel_reason":"Authorization: Bearer tokentest123456","cancel_evidence_ref":"review:secret-reason"}`),
 		"secret evidence ref":     []byte(`{"cancel_authority":"runtime:test","cancel_reason":"bad secret evidence","cancel_evidence_ref":"review:api_key=sk-work-secret"}`),
 		"secret cancel authority": []byte(`{"cancel_authority":"runtime:api_key=sk-work-secret","cancel_reason":"bad secret authority","cancel_evidence_ref":"review:secret-authority"}`),
 	} {
@@ -1872,6 +1870,158 @@ func TestHTTPCancelWorkRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) 
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%s: status = %d, want 400", name, resp.StatusCode)
 		}
+	}
+}
+
+func TestSemanticTextFieldsAllowSecretShapedContent(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	secretTitle := "Investigate GENESIS_PROVIDER_API_KEY=sk-work-secret as quoted user text"
+	createPayload, err := json.Marshal(WorkSubmitRequest{
+		SessionID: "semantic-text-work",
+		Title:     secretTitle,
+		SourceRef: "turn:semantic-text-work",
+	})
+	if err != nil {
+		t.Fatalf("marshal work request: %v", err)
+	}
+	createResp, err := postJSONWithAuth(server.URL+"/work", createPayload)
+	if err != nil {
+		t.Fatalf("POST /work failed: %v", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusOK {
+		t.Fatalf("create status = %d, want 200", createResp.StatusCode)
+	}
+	var work WorkProjection
+	if err := json.NewDecoder(createResp.Body).Decode(&work); err != nil {
+		t.Fatalf("decode work: %v", err)
+	}
+	if work.Title != secretTitle {
+		t.Fatalf("work title = %q, want semantic text preserved", work.Title)
+	}
+
+	cancelReason := "User quoted Authorization: Bearer tokentest123456 while canceling"
+	cancelPayload, err := json.Marshal(WorkCancelRequest{
+		CancelAuthority:   "runtime:test",
+		CancelReason:      cancelReason,
+		CancelEvidenceRef: "review:semantic-text-work",
+	})
+	if err != nil {
+		t.Fatalf("marshal cancel request: %v", err)
+	}
+	cancelResp, err := postJSONWithAuth(server.URL+"/work/"+work.WorkID+"/cancel", cancelPayload)
+	if err != nil {
+		t.Fatalf("POST /work cancel failed: %v", err)
+	}
+	defer cancelResp.Body.Close()
+	if cancelResp.StatusCode != http.StatusOK {
+		t.Fatalf("cancel status = %d, want 200", cancelResp.StatusCode)
+	}
+	var canceled WorkProjection
+	if err := json.NewDecoder(cancelResp.Body).Decode(&canceled); err != nil {
+		t.Fatalf("decode canceled work: %v", err)
+	}
+	if canceled.CancelReason != cancelReason {
+		t.Fatalf("cancel reason = %q, want semantic text preserved", canceled.CancelReason)
+	}
+
+	approvalReason := "Reviewer quoted api_key=sk-memory-secret but approved the candidate"
+	approvedCandidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "semantic-text-memory-approval",
+		Text:      "approved memory",
+		SourceRef: "turn:semantic-text-memory-approval",
+	})
+	approvalPayload, err := json.Marshal(MemoryApprovalRequest{
+		ApprovalAuthority:   "runtime:test",
+		ApprovalReason:      approvalReason,
+		ApprovalEvidenceRef: "approval:semantic-text-memory",
+	})
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	approvalResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+approvedCandidate.CandidateID+"/approve", approvalPayload)
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	defer approvalResp.Body.Close()
+	if approvalResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve status = %d, want 200", approvalResp.StatusCode)
+	}
+	var approved MemoryCandidateProjection
+	if err := json.NewDecoder(approvalResp.Body).Decode(&approved); err != nil {
+		t.Fatalf("decode approved candidate: %v", err)
+	}
+	if approved.ApprovalReason != approvalReason {
+		t.Fatalf("approval reason = %q, want semantic text preserved", approved.ApprovalReason)
+	}
+
+	rejectionReason := "Rejected because the statement only quoted Authorization: Bearer tokentest123456"
+	rejectedCandidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "semantic-text-memory-rejection",
+		Text:      "rejected memory",
+		SourceRef: "turn:semantic-text-memory-rejection",
+	})
+	rejectionPayload, err := json.Marshal(MemoryRejectionRequest{
+		RejectionAuthority:   "runtime:test",
+		RejectionReason:      rejectionReason,
+		RejectionEvidenceRef: "review:semantic-text-memory",
+	})
+	if err != nil {
+		t.Fatalf("marshal rejection request: %v", err)
+	}
+	rejectionResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+rejectedCandidate.CandidateID+"/reject", rejectionPayload)
+	if err != nil {
+		t.Fatalf("POST reject failed: %v", err)
+	}
+	defer rejectionResp.Body.Close()
+	if rejectionResp.StatusCode != http.StatusOK {
+		t.Fatalf("reject status = %d, want 200", rejectionResp.StatusCode)
+	}
+	var rejected MemoryCandidateProjection
+	if err := json.NewDecoder(rejectionResp.Body).Decode(&rejected); err != nil {
+		t.Fatalf("decode rejected candidate: %v", err)
+	}
+	if rejected.RejectionReason != rejectionReason {
+		t.Fatalf("rejection reason = %q, want semantic text preserved", rejected.RejectionReason)
+	}
+
+	supersessionReason := "Superseded after reviewing GENESIS_PROVIDER_API_KEY=sk-memory-secret in source text"
+	supersededCandidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "semantic-text-memory-supersession",
+		Text:      "old memory",
+		SourceRef: "turn:semantic-text-memory-supersession",
+	})
+	replacementText := "replacement mentions api_key=sk-replacement-secret as semantic content"
+	supersessionPayload, err := json.Marshal(MemorySupersessionRequest{
+		ReplacementText:         replacementText,
+		ReplacementSourceRef:    "review:semantic-text-memory-replacement",
+		SupersessionAuthority:   "runtime:test",
+		SupersessionReason:      supersessionReason,
+		SupersessionEvidenceRef: "review:semantic-text-memory",
+	})
+	if err != nil {
+		t.Fatalf("marshal supersession request: %v", err)
+	}
+	supersessionResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+supersededCandidate.CandidateID+"/supersede", supersessionPayload)
+	if err != nil {
+		t.Fatalf("POST supersede failed: %v", err)
+	}
+	defer supersessionResp.Body.Close()
+	if supersessionResp.StatusCode != http.StatusOK {
+		t.Fatalf("supersede status = %d, want 200", supersessionResp.StatusCode)
+	}
+	var supersession MemorySupersessionProjection
+	if err := json.NewDecoder(supersessionResp.Body).Decode(&supersession); err != nil {
+		t.Fatalf("decode supersession: %v", err)
+	}
+	if supersession.Superseded.SupersessionReason != supersessionReason {
+		t.Fatalf("supersession reason = %q, want semantic text preserved", supersession.Superseded.SupersessionReason)
+	}
+	if supersession.Replacement.Text != replacementText {
+		t.Fatalf("replacement text = %q, want semantic text preserved", supersession.Replacement.Text)
 	}
 }
 
@@ -1911,7 +2061,7 @@ func TestCreateMemoryCandidateRequiresSourceRef(t *testing.T) {
 	}
 }
 
-func TestHTTPCreateMemoryCandidateRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) {
+func TestHTTPCreateMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -2885,7 +3035,7 @@ func TestHTTPSupersededMemoryCandidateCannotBeApprovedOrRejected(t *testing.T) {
 	}
 }
 
-func TestHTTPMemoryCandidateSupersedeRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) {
+func TestHTTPMemoryCandidateSupersedeRejectsInvalidControlRefs(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -2901,7 +3051,6 @@ func TestHTTPMemoryCandidateSupersedeRejectsInvalidAuditRefsAndSecretShapedText(
 		"invalid evidence ref":           []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:valid-replacement","supersession_authority":"runtime:test","supersession_reason":"replace","supersession_evidence_ref":"free text"}`),
 		"secret replacement source ref":  []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:api_key=sk-memory-secret","supersession_authority":"runtime:test","supersession_reason":"replace","supersession_evidence_ref":"review:valid-supersede"}`),
 		"secret authority":               []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:valid-replacement","supersession_authority":"runtime:api_key=sk-memory-secret","supersession_reason":"replace","supersession_evidence_ref":"review:valid-supersede"}`),
-		"secret reason":                  []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:valid-replacement","supersession_authority":"runtime:test","supersession_reason":"Authorization: Bearer tokentest123456","supersession_evidence_ref":"review:valid-supersede"}`),
 		"secret evidence ref":            []byte(`{"replacement_text":"new memory","replacement_source_ref":"review:valid-replacement","supersession_authority":"runtime:test","supersession_reason":"replace","supersession_evidence_ref":"review:api_key=sk-memory-secret"}`),
 	}
 	for name, body := range cases {
@@ -3096,7 +3245,7 @@ func TestHTTPRejectMemoryCandidateRejectsMissingEvidence(t *testing.T) {
 	}
 }
 
-func TestHTTPRejectMemoryCandidateRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) {
+func TestHTTPRejectMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -3115,11 +3264,6 @@ func TestHTTPRejectMemoryCandidateRejectsInvalidAuditRefsAndSecretShapedText(t *
 		"secret authority": {
 			RejectionAuthority:   "runtime:api_key=sk-memory-secret",
 			RejectionReason:      "reject",
-			RejectionEvidenceRef: "review:valid-memory-rejection",
-		},
-		"secret reason": {
-			RejectionAuthority:   "runtime:test",
-			RejectionReason:      "Authorization: Bearer tokentest123456",
 			RejectionEvidenceRef: "review:valid-memory-rejection",
 		},
 		"secret evidence ref": {
@@ -3185,7 +3329,7 @@ func TestHTTPApproveMemoryCandidateRejectsMissingEvidence(t *testing.T) {
 	}
 }
 
-func TestHTTPApproveMemoryCandidateRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) {
+func TestHTTPApproveMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -3204,11 +3348,6 @@ func TestHTTPApproveMemoryCandidateRejectsInvalidAuditRefsAndSecretShapedText(t 
 		"secret authority": {
 			ApprovalAuthority:   "runtime:api_key=sk-memory-secret",
 			ApprovalReason:      "approve",
-			ApprovalEvidenceRef: "approval:valid-memory-approval",
-		},
-		"secret reason": {
-			ApprovalAuthority:   "runtime:test",
-			ApprovalReason:      "Authorization: Bearer tokentest123456",
 			ApprovalEvidenceRef: "approval:valid-memory-approval",
 		},
 		"secret evidence ref": {

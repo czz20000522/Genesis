@@ -51,6 +51,8 @@ Turn admission separates untrusted content from control-plane authority. User or
 
 Idempotency keys are caller-provided control-plane fields, not model-visible task content. For effectful tool calls, the first admitted `session_id + tool + idempotency_key` owns the effect; retries return the existing operation projection from the ledger without executing the effect again.
 
+Narrative fields such as work titles, cancellation reasons, memory review reasons, memory replacement text, and user input text are semantic content. The kernel must not reject them merely because they contain text that resembles a secret, file path, tool name, or hostile example. Control-plane refs, authorities, session ids, idempotency keys, credential refs, and transport schema remain grammar-gated because they bind authority, routing, replay, or storage identity.
+
 ### Model Gateway
 
 Owns provider configuration, model calls, streaming, retries, provider error projection, and data-egress policy hooks. It does not own prompts as product copy.
@@ -129,3 +131,5 @@ Reasonix is a reference for Go single-binary distribution, config-driven tool/pl
 Codex is a reference for tool approval, sandboxing, session/turn/event rigor, and separation between core protocol and shells.
 
 Neither project is a blueprint to copy wholesale. Genesis should stay smaller and more generic than a coding agent.
+
+For every non-trivial kernel boundary change, the issue or retirement evidence must state whether the change is aligned with Codex, aligned with Reasonix, intentionally different, or a known drift risk. The comparison is about control-plane ideas: model-visible surface, tool result taxonomy, permission/sandbox ownership, registry boundaries, event/ledger recovery, and shell/application separation. It is not a maturity checklist and must not justify copying application-specific behavior into the kernel.

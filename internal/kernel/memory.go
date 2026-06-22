@@ -261,7 +261,7 @@ func validateMemoryCandidateRequest(req MemoryCandidateRequest) error {
 	if strings.TrimSpace(req.SourceRef) == "" {
 		return errors.New("source_ref is required")
 	}
-	if err := validateKernelTextNotSecret("session_id", req.SessionID); err != nil {
+	if err := validateKernelControlToken("session_id", req.SessionID); err != nil {
 		return err
 	}
 	if err := validateKernelRef("source_ref", req.SourceRef); err != nil {
@@ -283,9 +283,6 @@ func validateMemoryApprovalRequest(req MemoryApprovalRequest) error {
 	if err := validateKernelAuthority("approval_authority", req.ApprovalAuthority); err != nil {
 		return err
 	}
-	if err := validateKernelTextNotSecret("approval_reason", req.ApprovalReason); err != nil {
-		return err
-	}
 	if err := validateKernelRef("approval_evidence_ref", req.ApprovalEvidenceRef); err != nil {
 		return err
 	}
@@ -303,9 +300,6 @@ func validateMemoryRejectionRequest(req MemoryRejectionRequest) error {
 		return errors.New("rejection_evidence_ref is required")
 	}
 	if err := validateKernelAuthority("rejection_authority", req.RejectionAuthority); err != nil {
-		return err
-	}
-	if err := validateKernelTextNotSecret("rejection_reason", req.RejectionReason); err != nil {
 		return err
 	}
 	if err := validateKernelRef("rejection_evidence_ref", req.RejectionEvidenceRef); err != nil {
@@ -334,9 +328,6 @@ func validateMemorySupersessionRequest(req MemorySupersessionRequest) error {
 		return err
 	}
 	if err := validateKernelAuthority("supersession_authority", req.SupersessionAuthority); err != nil {
-		return err
-	}
-	if err := validateKernelTextNotSecret("supersession_reason", req.SupersessionReason); err != nil {
 		return err
 	}
 	if err := validateKernelRef("supersession_evidence_ref", req.SupersessionEvidenceRef); err != nil {

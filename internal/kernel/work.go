@@ -127,19 +127,13 @@ func validateWorkSubmitRequest(req WorkSubmitRequest) error {
 	if strings.TrimSpace(req.SourceRef) == "" {
 		return errors.New("source_ref is required")
 	}
-	if err := validateWorkTextNotSecret("session_id", req.SessionID); err != nil {
-		return err
-	}
-	if err := validateWorkTextNotSecret("title", req.Title); err != nil {
+	if err := validateKernelControlToken("session_id", req.SessionID); err != nil {
 		return err
 	}
 	if err := validateWorkRef("source_ref", req.SourceRef); err != nil {
 		return err
 	}
 	if err := validateIdempotencyKey(req.IdempotencyKey); err != nil {
-		return err
-	}
-	if err := validateWorkTextNotSecret("idempotency_key", req.IdempotencyKey); err != nil {
 		return err
 	}
 	return nil
@@ -158,9 +152,6 @@ func validateWorkCancelRequest(req WorkCancelRequest) error {
 	if err := validateWorkAuthority(req.CancelAuthority); err != nil {
 		return err
 	}
-	if err := validateWorkTextNotSecret("cancel_reason", req.CancelReason); err != nil {
-		return err
-	}
 	if err := validateWorkRef("cancel_evidence_ref", req.CancelEvidenceRef); err != nil {
 		return err
 	}
@@ -173,10 +164,6 @@ func validateWorkRef(field string, value string) error {
 
 func validateWorkAuthority(value string) error {
 	return validateKernelAuthority("cancel_authority", value)
-}
-
-func validateWorkTextNotSecret(field string, value string) error {
-	return validateKernelTextNotSecret(field, value)
 }
 
 func (k *Kernel) workByIdempotencyKey(sessionID string, key string) (WorkProjection, bool, error) {

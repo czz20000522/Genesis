@@ -574,15 +574,17 @@ func ledgerErrorCode(err error) string {
 }
 
 func validateTurnRequest(req TurnRequest) error {
+	if strings.TrimSpace(req.SessionID) != "" {
+		if err := validateKernelControlToken("session_id", req.SessionID); err != nil {
+			return err
+		}
+	}
 	if err := validateIdempotencyKey(req.IdempotencyKey); err != nil {
 		return err
 	}
 	if strings.TrimSpace(req.IdempotencyKey) != "" {
 		if strings.TrimSpace(req.SessionID) == "" {
 			return errors.New("session_id is required when idempotency_key is set")
-		}
-		if err := validateKernelTextNotSecret("idempotency_key", req.IdempotencyKey); err != nil {
-			return err
 		}
 	}
 	if len(req.InputItems) == 0 {
