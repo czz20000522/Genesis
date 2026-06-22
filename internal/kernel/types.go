@@ -75,7 +75,14 @@ type ModelToolResult struct {
 type SkillDescriptor struct {
 	Name            string `json:"name"`
 	Description     string `json:"description"`
-	InstructionPath string `json:"instruction_path"`
+	InstructionPath string `json:"-"`
+}
+
+type SkillReadProjection struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
+	Truncated   bool   `json:"truncated,omitempty"`
 }
 
 type TurnResponse struct {

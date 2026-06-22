@@ -35,6 +35,21 @@ func (k *Kernel) modelToolDescriptors() []ModelToolDescriptor {
 				"additionalProperties": false,
 			},
 		},
+		{
+			Name:        "skill.read",
+			Description: "Read the bounded instructions for a configured user-space skill by skill name. This does not grant authority or bypass kernel tool permissions.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{
+						"type":        "string",
+						"description": "Configured skill name from the available external skills catalog.",
+					},
+				},
+				"required":             []string{"name"},
+				"additionalProperties": false,
+			},
+		},
 	}
 }
 
@@ -54,25 +69,31 @@ type shellExecToolArguments struct {
 	Command string `json:"command"`
 }
 
-type preparedModelToolCall struct {
-	callID string
-	name   string
-	args   shellExecToolArguments
+type skillReadToolArguments struct {
+	Name string `json:"name"`
 }
 
-func (k *Kernel) validateModelToolCalls(calls []ModelToolCall) error {
+type preparedModelToolCall struct {
+	callID    string
+	name      string
+	shellExec *shellExecToolArguments
+	skillRead *SkillReadProjection
+}
+
+func (k *Kernel) prepareModelToolCalls(calls []ModelToolCall) ([]preparedModelToolCall, error) {
+	prepared := make([]preparedModelToolCall, 0, len(calls))
 	for _, call := range calls {
-		if _, err := k.prepareModelToolCall(call); err != nil {
-			return err
+		item, err := k.prepareModelToolCall(call)
+		if err != nil {
+			return nil, err
 		}
+		prepared = append(prepared, item)
 	}
-	return nil
+	return prepared, nil
 }
 
 func (k *Kernel) prepareModelToolCall(call ModelToolCall) (preparedModelToolCall, error) {
-	if strings.TrimSpace(call.Name) != "shell.exec" {
-		return preparedModelToolCall{}, fmt.Errorf("%w: unsupported tool %q", ErrModelToolCallRejected, call.Name)
-	}
+	name := strings.TrimSpace(call.Name)
 	callID := strings.TrimSpace(call.ToolCallID)
 	if callID == "" {
 		return preparedModelToolCall{}, fmt.Errorf("%w: tool_call_id is required", ErrModelToolCallRejected)
@@ -80,17 +101,20 @@ func (k *Kernel) prepareModelToolCall(call ModelToolCall) (preparedModelToolCall
 	if err := validateIdempotencyKey(callID); err != nil {
 		return preparedModelToolCall{}, fmt.Errorf("%w: invalid tool_call_id: %v", ErrModelToolCallRejected, err)
 	}
+	switch name {
+	case "shell.exec":
+		return k.prepareShellExecToolCall(callID, name, call.Arguments)
+	case "skill.read":
+		return k.prepareSkillReadToolCall(callID, name, call.Arguments)
+	default:
+		return preparedModelToolCall{}, fmt.Errorf("%w: unsupported tool %q", ErrModelToolCallRejected, call.Name)
+	}
+}
+
+func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 	var args shellExecToolArguments
-	if len(call.Arguments) == 0 {
-		return preparedModelToolCall{}, fmt.Errorf("%w: shell.exec arguments are required", ErrModelToolCallRejected)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(call.Arguments))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&args); err != nil {
-		return preparedModelToolCall{}, fmt.Errorf("%w: invalid shell.exec arguments: %v", ErrModelToolCallRejected, err)
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return preparedModelToolCall{}, fmt.Errorf("%w: invalid shell.exec arguments: trailing data", ErrModelToolCallRejected)
+	if err := decodeStrictModelToolArguments("shell.exec", arguments, &args); err != nil {
+		return preparedModelToolCall{}, err
 	}
 	args.CWD = strings.TrimSpace(args.CWD)
 	if args.CWD == "" {
@@ -105,21 +129,75 @@ func (k *Kernel) prepareModelToolCall(call ModelToolCall) (preparedModelToolCall
 		return preparedModelToolCall{}, fmt.Errorf("%w: invalid shell.exec request: %v", ErrModelToolCallRejected, err)
 	}
 	return preparedModelToolCall{
-		callID: callID,
-		name:   strings.TrimSpace(call.Name),
-		args:   args,
+		callID:    callID,
+		name:      name,
+		shellExec: &args,
 	}, nil
 }
 
-func (k *Kernel) executeModelToolCall(ctx context.Context, sessionID string, turnID string, call ModelToolCall) (ModelToolResult, error) {
-	prepared, err := k.prepareModelToolCall(call)
+func (k *Kernel) prepareSkillReadToolCall(callID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args skillReadToolArguments
+	if err := decodeStrictModelToolArguments("skill.read", arguments, &args); err != nil {
+		return preparedModelToolCall{}, err
+	}
+	args.Name = strings.TrimSpace(args.Name)
+	if args.Name == "" {
+		return preparedModelToolCall{}, fmt.Errorf("%w: skill.read name is required", ErrModelToolCallRejected)
+	}
+	if hasInvisibleControlMarker(args.Name) {
+		return preparedModelToolCall{}, fmt.Errorf("%w: skill.read name contains invisible control markers", ErrModelToolCallRejected)
+	}
+	if err := validateKernelTextNotSecret("skill.read name", args.Name); err != nil {
+		return preparedModelToolCall{}, fmt.Errorf("%w: %v", ErrModelToolCallRejected, err)
+	}
+	if _, ok := k.skillDescriptorByName(args.Name); !ok {
+		return preparedModelToolCall{}, fmt.Errorf("%w: unknown skill %q", ErrModelToolCallRejected, args.Name)
+	}
+	projection, err := k.readSkillInstruction(args.Name)
 	if err != nil {
-		return ModelToolResult{}, err
+		return preparedModelToolCall{}, fmt.Errorf("%w: skill.read failed: %v", ErrModelToolCallRejected, err)
+	}
+	return preparedModelToolCall{
+		callID:    callID,
+		name:      name,
+		skillRead: &projection,
+	}, nil
+}
+
+func decodeStrictModelToolArguments(tool string, arguments json.RawMessage, target interface{}) error {
+	if len(arguments) == 0 {
+		return fmt.Errorf("%w: %s arguments are required", ErrModelToolCallRejected, tool)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(arguments))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("%w: invalid %s arguments: %v", ErrModelToolCallRejected, tool, err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return fmt.Errorf("%w: invalid %s arguments: trailing data", ErrModelToolCallRejected, tool)
+	}
+	return nil
+}
+
+func (k *Kernel) executePreparedModelToolCall(ctx context.Context, sessionID string, turnID string, prepared preparedModelToolCall) (ModelToolResult, error) {
+	if prepared.skillRead != nil {
+		content, err := json.Marshal(prepared.skillRead)
+		if err != nil {
+			return ModelToolResult{}, err
+		}
+		return ModelToolResult{
+			ToolCallID: prepared.callID,
+			Name:       prepared.name,
+			Content:    string(content),
+		}, nil
+	}
+	if prepared.shellExec == nil {
+		return ModelToolResult{}, fmt.Errorf("%w: prepared tool %q has no executable payload", ErrModelToolCallRejected, prepared.name)
 	}
 	operation, err := k.execShell(ctx, ShellExecRequest{
 		SessionID:      sessionID,
-		CWD:            prepared.args.CWD,
-		Command:        prepared.args.Command,
+		CWD:            prepared.shellExec.CWD,
+		Command:        prepared.shellExec.Command,
 		IdempotencyKey: prepared.callID,
 	}, turnID)
 	if err != nil {

@@ -158,7 +158,8 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		if err := k.appendModelToolCallEvent(sessionID, turnID, modelResp.ToolCalls); err != nil {
 			return TurnResponse{}, err
 		}
-		if err := k.validateModelToolCalls(modelResp.ToolCalls); err != nil {
+		preparedCalls, err := k.prepareModelToolCalls(modelResp.ToolCalls)
+		if err != nil {
 			failure := TurnError{
 				Code:    "tool_call_rejected",
 				Message: err.Error(),
@@ -169,8 +170,8 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			return TurnResponse{}, err
 		}
 		round := ModelToolRound{Calls: modelResp.ToolCalls}
-		for _, call := range modelResp.ToolCalls {
-			result, err := k.executeModelToolCall(ctx, sessionID, turnID, call)
+		for _, call := range preparedCalls {
+			result, err := k.executePreparedModelToolCall(ctx, sessionID, turnID, call)
 			if err != nil {
 				failure := TurnError{
 					Code:    "tool_call_rejected",
