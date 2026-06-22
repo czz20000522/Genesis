@@ -123,6 +123,10 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	resp, err := k.SubmitTurn(r.Context(), req)
+	if err != nil && resp.TurnID != "" && resp.Error != nil {
+		writeJSON(w, turnErrorHTTPStatus(*resp.Error), resp)
+		return
+	}
 	if writeKernelUnavailable(w, err) {
 		return
 	}
@@ -139,6 +143,15 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func turnErrorHTTPStatus(err TurnError) int {
+	switch err.Code {
+	case "provider_unavailable":
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusBadRequest
+	}
 }
 
 func handleExecShell(w http.ResponseWriter, r *http.Request, k *Kernel) {

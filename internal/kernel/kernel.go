@@ -439,7 +439,12 @@ func (k *Kernel) turnByIdempotencyKey(sessionID string, key string) (TurnRespons
 		}, true, nil
 	}
 	if failure != nil {
-		return TurnResponse{}, true, replayedTurnFailure{failure: *failure}
+		return TurnResponse{
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Events:    turnEvents,
+			Error:     failure,
+		}, true, replayedTurnFailure{failure: *failure}
 	}
 	return TurnResponse{}, true, errors.New("turn idempotency key is already running")
 }

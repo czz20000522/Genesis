@@ -76,6 +76,7 @@ type TurnResponse struct {
 	TurnID    string       `json:"turn_id"`
 	Events    []Event      `json:"events"`
 	Final     FinalMessage `json:"final"`
+	Error     *TurnError   `json:"error,omitempty"`
 }
 
 type TurnEventsResponse struct {

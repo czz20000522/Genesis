@@ -308,7 +308,29 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testi
 		t.Fatalf("retry POST /turn failed: %v", err)
 	}
 	defer retryResp.Body.Close()
-	assertErrorCode(t, retryResp, http.StatusServiceUnavailable, "provider_unavailable")
+	if retryResp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("retry status = %d, want 503", retryResp.StatusCode)
+	}
+	var retry map[string]interface{}
+	if err := json.NewDecoder(retryResp.Body).Decode(&retry); err != nil {
+		t.Fatalf("decode retry turn response: %v", err)
+	}
+	retryTurnID, _ := retry["turn_id"].(string)
+	if retryTurnID == "" {
+		t.Fatalf("retry turn_id = %#v, want original failed turn evidence", retry["turn_id"])
+	}
+	retryError, ok := retry["error"].(map[string]interface{})
+	if !ok || retryError["code"] != "provider_unavailable" {
+		t.Fatalf("retry error = %#v, want provider_unavailable turn error", retry["error"])
+	}
+	retryEvents, ok := retry["events"].([]interface{})
+	if !ok || len(retryEvents) != 2 {
+		t.Fatalf("retry events = %#v, want original submitted and failed events", retry["events"])
+	}
+	lastEvent, ok := retryEvents[1].(map[string]interface{})
+	if !ok || lastEvent["type"] != "turn.failed" {
+		t.Fatalf("retry last event = %#v, want turn.failed", retryEvents[1])
+	}
 	if retryProvider.Calls() != 0 {
 		t.Fatalf("retry provider calls = %d, want 0", retryProvider.Calls())
 	}
