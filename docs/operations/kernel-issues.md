@@ -14,11 +14,4 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-MEMORY-REJECT-20260622 - P1 - Memory review needs a reject path
-
-- Status: in_progress.
-- Type: Accumulation / memory review governance.
-- Problem: The kernel contract defines `memory.review` as approve, reject, or supersede, but the current HTTP and owner API only expose candidate approval. A user can leave a bad candidate pending forever, but cannot explicitly reject it with review evidence. A rejected candidate also needs to stay out of recall after restart.
-- Suggestion: Add a kernel-owned reject operation for memory candidates with required rejection authority, reason, and evidence ref. Rejection should be restart-safe, visible in candidate list/read/session projection, filtered by `status=rejected`, and must prevent later approval of the same candidate unless a future supersession flow is explicitly implemented.
-- Evidence: `internal/kernel/memory.go` has only `MemoryCandidatePending` and `MemoryCandidateApproved`; `internal/kernel/http.go` only routes `/memory/candidates/{id}/approve`; retirement log residual risks still call out missing reject/supersede.
-- Verification: A rejected candidate appears as `status=rejected` after restart, is excluded from pending and approved recall, rejects missing rejection evidence, and cannot later be approved into active memory.
+No active kernel issue is currently tracked in this branch. New Base issues should be triaged here only when they require kernel code, verification, or user acceptance.
