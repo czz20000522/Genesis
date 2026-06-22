@@ -82,6 +82,15 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: reviewer confirms the working tree is clean, the Go kernel compiles, and the ModelInputItem provenance refactor is either fully submitted or absent rather than left as a broken dirty diff.
 - Residual risk: this was a transient integration break caught during review, not a separate runtime design gap. Future large contract migrations should keep focused compile/test checkpoints before exposing the branch for acceptance.
 
+### KERNEL-SKILL-READ-BOUNDARY-20260622 - P1 - `skill.read` should not be a first model-visible kernel tool
+
+- Status: ready_for_acceptance.
+- Fix commits: `0ff18a793`.
+- Reference alignment: Codex does not expose a `read_skill` or `read_agents_md` tool to the model, and Reasonix keeps skill/task concepts separate from ordinary file/process tools. Genesis now keeps configured skills as metadata-only user-space context until a generic resource/context contract exists.
+- Evidence: The default kernel tool registry now exposes only `shell.exec`; the `skill.read` descriptor, OpenAI-compatible `skill_read` translation, `SkillReadProjection`, instruction-body reader, and skill-read prepare path were removed. `TestSubmitTurnDoesNotExposeSkillReadAsModelTool` proves provider tool manifests include `shell.exec` and exclude `skill.read` / `skill_read`. `TestHTTPCapabilitiesProjectsToolsAndSkillCatalogWithoutPaths` proves `/capabilities` still exposes safe skill name/description metadata while excluding skill-read tools, paths, and bodies. Unsupported `skill.read` requests now exercise the generic unsupported-tool repair path, with mixed batches still producing no shell effect. Verification passed: focused skill boundary/capability/tool tests; `go test ./... -count=1`; `go test -race ./internal/kernel -count=1`; `go build ./...`; `git diff --check`; the repository scan for numbered route prefixes or kernel version labels returned no matches.
+- Acceptance condition: reviewer confirms skill packages remain user-space context assets, not default model-visible kernel tools, and future full skill instruction loading must be designed as a generic resource/context boundary rather than a skill-specific syscall.
+- Residual risk: the skill catalog currently provides only name/description metadata. Real use of complex external skills may need a future context hydration contract, but adding it requires a separate owner decision and must not create Feishu/email/calendar/document-specific kernel adapters.
+
 ### KERNEL-CAPABILITIES-20260622 - P1 - Shells and daemons need a protected kernel capability projection
 
 - Status: ready_for_acceptance.

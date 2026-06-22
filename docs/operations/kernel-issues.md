@@ -35,16 +35,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Verification: Active contracts, registry, capability projection, provider requests, ledger/session event tool fields, and tests use the single canonical id. Dotted ids appear only as rejected/retirement history. `go test -count=1 ./...` passes.
 - Reference alignment: Codex tool names are provider-safe identifiers such as `exec_command` and `apply_patch`; Reasonix uses names such as `read_file`, `write_file`, and `bash_output`. Genesis should not preserve a second dotted kernel name when provider-safe ids work as the canonical contract.
 
-### KERNEL-SKILL-READ-BOUNDARY-20260622 - P1 - `skill.read` should not be a first model-visible kernel tool
-
-- Status: new.
-- Type: architecture.
-- Problem: `skill.read` exposes the skill package implementation detail as a default model-visible tool. That risks creating a family of specialized read tools (`read_skill`, `read_prompt`, `read_doc`) instead of keeping skills as user-space context assets and tools as actual governed capabilities.
-- Suggestion: Remove `skill.read` / `skill_read` from the default first tool surface, or explicitly demote it to an internal experimental context hydration path. Keep the safe skill catalog summary visible, but do not treat full `SKILL.md` retrieval as a kernel syscall until a generic resource/context contract exists.
-- Evidence: Feishu Base record `recvnfTiEnbXh3`.
-- Verification: `/capabilities` and provider tool manifests no longer expose `skill.read` / `skill_read` as a default tool; skill catalog discovery still works; no Feishu/email/calendar/doc adapters are added as substitutes; tests prevent dedicated `read_skill`, `read_prompt`, or `read_doc` tools entering the default tool surface.
-- Reference alignment: Codex does not expose a `read_skill` or `read_agents_md` tool to the model; Reasonix keeps skill/task concepts separate from ordinary file/process tools. Genesis should not make skill package loading itself a model tool unless it becomes a generic resource contract.
-
 ### KERNEL-SESSION-EVENT-STREAM-UNIFICATION-20260622 - P1 - Session facts should converge on typed event stream
 
 - Status: new.
