@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-USAGE-SUMMARY-20260622 - P1 - Final answer must project provider usage summary
+
+- Status: ready_for_acceptance.
+- Fix commits: `5efb9c01f`, `7a5364171`.
+- Evidence: `TestHTTPFinalUsageSummarySurvivesSessionReplay` first failed because `final.usage` was absent, then passed after provider usage normalization and final-event persistence. The test proves an OpenAI-compatible `usage.prompt_tokens/completion_tokens/total_tokens` response becomes `usage.input_tokens/output_tokens/total_tokens` on `POST /turn` and survives restart through `GET /sessions/{id}`. `TestOpenAICompatibleProviderCompletesAgainstCompatibleServer` proves the provider adapter returns normalized usage on `ModelResponse`. `go test ./...` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for versioned route or kernel version labels returned no matches.
+- Acceptance condition: reviewer confirms usage is kernel-owned final evidence produced by Model Gateway normalization and not a shell/UI-computed field.
+- Residual risk: usage is emitted only when the upstream provider supplies it. Streaming partial usage, per-tool usage, cost accounting, and provider-specific detailed token breakdowns remain future inspection work.
+
 ### KERNEL-TOOL-BATCH-AUTH-20260622 - P1 - Mixed model tool-call batches must fail before any effect
 
 - Status: ready_for_acceptance.
