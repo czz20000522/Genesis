@@ -125,6 +125,7 @@ func TestModelInputItemsInjectsApprovedMemoryContextBeforeProvider(t *testing.T)
 			{Text: "我偏好中文回答", Source: "turn:memory-source"},
 			{Text: "  "},
 		},
+		nil,
 	)
 
 	if len(items) != 2 {

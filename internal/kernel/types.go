@@ -10,6 +10,7 @@ type Config struct {
 	Provider     Provider
 	RuntimeToken string
 	ToolPolicy   ToolPolicy
+	SkillRoots   []string
 	Clock        func() time.Time
 }
 
@@ -69,6 +70,12 @@ type ModelToolResult struct {
 	ToolCallID string `json:"tool_call_id"`
 	Name       string `json:"name"`
 	Content    string `json:"content"`
+}
+
+type SkillDescriptor struct {
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	InstructionPath string `json:"instruction_path"`
 }
 
 type TurnResponse struct {

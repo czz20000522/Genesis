@@ -14,6 +14,7 @@ type Kernel struct {
 	provider       Provider
 	runtimeToken   string
 	toolPolicy     ToolPolicy
+	skillCatalog   []SkillDescriptor
 	clock          func() time.Time
 	turnMu         sync.Mutex
 	operationMu    sync.Mutex
@@ -38,6 +39,7 @@ func New(config Config) (*Kernel, error) {
 		provider:     provider,
 		runtimeToken: strings.TrimSpace(config.RuntimeToken),
 		toolPolicy:   normalizedToolPolicy(config.ToolPolicy),
+		skillCatalog: loadSkillCatalog(config.SkillRoots),
 		clock:        clock,
 	}, nil
 }
@@ -99,7 +101,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		}
 	}
 
-	inputItems := modelInputItems(req.InputItems, recalledMemories)
+	inputItems := modelInputItems(req.InputItems, recalledMemories, k.skillCatalog)
 	toolRounds := []ModelToolRound{}
 	for roundIndex := 0; roundIndex <= maxModelToolRounds; roundIndex++ {
 		modelResp, err := k.provider.Complete(ctx, ModelRequest{

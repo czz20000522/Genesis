@@ -13,6 +13,7 @@ The first implementation must prove the kernel loop before adding shells or appl
 7. The final answer and provider usage/evidence summary are emitted and replay after restart.
 8. WorkRegistry can show the turn/work status after restart.
 9. Accumulation can create a memory candidate, approve it, and recall it in a later turn.
+10. Configured user-space skill roots can make installed external skill metadata visible to the model without adding application-specific kernel code.
 
 ## Required Negative Paths
 
@@ -24,12 +25,17 @@ The first implementation must prove the kernel loop before adding shells or appl
 - Duplicate turn idempotency keys do not call the provider or execute model-requested tools twice.
 - Duplicate tool idempotency keys do not execute effects twice.
 - Unsupported model-requested tools are rejected before any effect executes.
+- Missing or malformed external skill metadata does not block turn submission.
 
 ## Current Tool Loop Proof
 
 The initial tool loop is deliberately narrow. OpenAI-compatible providers receive a canonical `shell.exec` descriptor. If the provider returns a `shell.exec` tool call, Genesis executes it through the existing Tool System, writes turn-scoped operation events to the ledger, and returns the redacted operation projection to the provider as tool evidence. The provider then returns the final assistant text.
 
 This proves the kernel loop without making any external application part of the kernel. Future Feishu, email, calendar, or document actions remain external skills and CLIs; Genesis only supplies the governed tool execution path.
+
+## Current Skill Catalog Proof
+
+The initial skill catalog is deliberately metadata-only. `genesisd` can scan configured skill roots for `SKILL.md` front matter and inject a concise list of available user-space skills into model context. The injected context names the skill, summarizes what it is for, and points to its instruction path. The kernel does not read full skill bodies into every turn, does not execute those skills by itself, and does not add application-specific tool descriptors.
 
 ## Not Required Initially
 

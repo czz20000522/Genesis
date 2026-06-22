@@ -75,6 +75,27 @@ Protected routes require `Authorization: Bearer <runtime-token>`. `GET /ready` i
 
 `POST /turn` accepts an optional `idempotency_key` when `session_id` is explicit. This key belongs to the Interface Kernel control plane. Retrying the same logical turn returns the original ledger-backed result and must not call the provider or execute tools a second time.
 
+## Skill Catalog
+
+External skills are user-space assets. Genesis can make installed skill metadata visible to the model without adding application-specific code to the kernel.
+
+`genesisd` scans configured skill roots for `SKILL.md` front matter and injects a concise model-context catalog containing each skill's name, description, and instruction path. Missing roots and malformed skill files are ignored. Full skill bodies are not loaded into every turn.
+
+By default, `genesisd` looks at the current user's global agent skill root:
+
+```powershell
+$HOME\.agents\skills
+```
+
+Operators can replace or extend roots with `GENESIS_SKILL_ROOTS` or repeated `-skill-root` flags:
+
+```powershell
+$env:GENESIS_SKILL_ROOTS = "$HOME\.agents\skills;$HOME\.genesis\skills"
+$env:TEMP\genesisd.exe -skill-root D:\tools\custom-skills
+```
+
+This does not make Feishu, email, calendar, or any other application a kernel feature. The active model still uses governed tools such as `shell.exec` to read skill instructions and invoke installed CLIs under kernel permission policy.
+
 ## Provider Configuration
 
 `genesisd` defaults to Genesis-owned model gateway configuration. It reads `models.json` from the Genesis config root, resolves the selected role/profile, selects the gateway route, and resolves the route credential from the Genesis local secret store.

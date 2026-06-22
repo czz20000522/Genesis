@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"genesis/internal/kernel"
@@ -26,6 +27,8 @@ func main() {
 	credentialStoreRoot := flag.String("credential-store-root", os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"), "Genesis credential store root")
 	modelRole := flag.String("model-role", envOrDefault("GENESIS_MODEL_ROLE", kernel.DefaultModelRole), "Genesis model role binding to resolve")
 	modelProfileID := flag.String("model-profile-id", os.Getenv("GENESIS_MODEL_PROFILE_ID"), "Genesis model profile id override")
+	skillRoots := pathListFlag(defaultSkillRoots())
+	flag.Var(&skillRoots, "skill-root", "external skill root to scan for SKILL.md metadata; repeatable")
 	flag.Parse()
 
 	provider, err := buildProvider(providerBuildRequest{
@@ -49,6 +52,7 @@ func main() {
 			PermissionMode: *permissionMode,
 			WorkspaceRoot:  *workspaceRoot,
 		},
+		SkillRoots: skillRoots.Values(),
 	})
 	if err != nil {
 		log.Fatalf("create kernel: %v", err)
@@ -119,4 +123,48 @@ func envOrDefault(name string, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+type pathListFlag []string
+
+func (f *pathListFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return strings.Join(*f, string(os.PathListSeparator))
+}
+
+func (f *pathListFlag) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	*f = append(*f, value)
+	return nil
+}
+
+func (f pathListFlag) Values() []string {
+	return append([]string(nil), f...)
+}
+
+func defaultSkillRoots() []string {
+	if roots := splitPathList(os.Getenv("GENESIS_SKILL_ROOTS")); len(roots) > 0 {
+		return roots
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	return []string{filepath.Join(home, ".agents", "skills")}
+}
+
+func splitPathList(value string) []string {
+	var roots []string
+	for _, root := range filepath.SplitList(value) {
+		root = strings.TrimSpace(root)
+		if root != "" {
+			roots = append(roots, root)
+		}
+	}
+	return roots
 }

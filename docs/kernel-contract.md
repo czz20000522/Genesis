@@ -65,6 +65,8 @@ Owns tool descriptors, permission gates, shell/process execution, result envelop
 
 The first model-visible tool descriptor is canonical `shell.exec`. Provider adapters may translate it to provider-native function/tool schemas, but they do not own permission, workspace, execution, idempotency, or evidence semantics. A model-requested tool call is admitted only after the Tool System applies the kernel-owned policy; the resulting operation projection is the structured evidence returned to the model loop.
 
+External skill packages are user-space assets, not kernel applications. The kernel may be configured with explicit skill roots and may scan `SKILL.md` front matter into a read-only skill catalog for model context. This catalog is metadata only: name, description, and instruction path. It does not grant authority, load full skill bodies into every turn, execute external CLIs, or create Feishu, email, calendar, document, or channel-specific kernel code.
+
 Model-requested tool call batches are preflighted as a unit before any effect executes. If any call in the batch is unsupported or malformed, the entire batch fails closed and no earlier call in that batch may create an operation or external effect.
 
 Unsupported provider tool calls are rejected as turn failures before any effect runs. The kernel does not add application-specific outbound APIs for email, Feishu, calendar, documents, or similar domains; installed skills and external CLIs remain user-space capabilities reachable through generic governed tools.
