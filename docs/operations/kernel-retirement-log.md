@@ -19,6 +19,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: reviewer confirms turn idempotency is an Interface Kernel retry boundary scoped to explicit `session_id + turn.submit + idempotency_key`, not shell/WebUI/daemon-owned retry state, and that the control-plane key is not model-visible input.
 - Residual risk: if a duplicate retry arrives while the first idempotent turn is still running, the current spike returns a running-state error instead of a full lease/recovery projection. Long-running turn lease, cancellation, and recovery should be specified as a separate kernel contract before changing that behavior.
 
+### KERNEL-WORK-IDEMPOTENCY-20260622 - P1 - Work submit retries create duplicate work records
+
+- Status: ready_for_acceptance.
+- Fix commits: `71f4abc95`, `3e606b5a0`, `231363fd5`.
+- Evidence: `TestHTTPWorkSubmitIdempotencyKeyReturnsExistingWorkAfterRestart` proves duplicate `POST /work` calls with the same `session_id + idempotency_key` return the original work after restart, preserve the original title/source, and append only one `work.submitted` event. `TestHTTPCreateWorkRejectsInvalidIdempotencyKey` proves malformed retry keys fail before ledger append. The broader WorkRegistry evidence in `KERNEL-WORK-REGISTRY-20260622` also proves submit/read/cancel projection, cancel idempotency, terminal cancel race handling, invalid source/audit ref rejection, and restart-safe session projection. Current verification reran the Work idempotency tests as part of the broader turn/tool/work idempotency suite, then `go test ./...`, `go test -race ./internal/kernel -count=1`, both binary builds, `git diff --check`, and the no-version scan passed.
+- Acceptance condition: reviewer confirms WorkRegistry submit idempotency is scoped to `session_id + work.submit + idempotency_key`, not shell/daemon deduplication, and that retries do not create duplicate resumable work anchors.
+- Residual risk: WorkRegistry remains a durable record ledger, not a scheduler. The current mutex protects single-process submit idempotency; future multi-process writers still need transactional compare-and-append semantics.
+
 ### KERNEL-MEMORY-RECALL-20260622 - P1 - Memory recall needs an explicit kernel observation surface
 
 - Status: ready_for_acceptance.
