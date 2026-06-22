@@ -26,6 +26,7 @@ type ContextPolicy struct {
 	RecentTurnLimit     int
 	RecentTailTokens    int
 	SkillIndexChars     int
+	RetryBackoffTurns   int
 }
 
 type ReadyResponse struct {
@@ -521,18 +522,38 @@ type ModelContextAccountingProjection struct {
 	Usage                     *TokenUsage `json:"usage,omitempty"`
 	ProcessedInputTokens      int         `json:"processed_input_tokens,omitempty"`
 	ProcessedInputTokenSource string      `json:"processed_input_token_source,omitempty"`
+	ToolRoundCount            int         `json:"tool_round_count,omitempty"`
+	ToolCallCount             int         `json:"tool_call_count,omitempty"`
+	ToolResultCount           int         `json:"tool_result_count,omitempty"`
 }
 
 type ContextCompactionProjection struct {
-	Trigger                string      `json:"trigger"`
-	Status                 string      `json:"status,omitempty"`
-	Summary                string      `json:"summary,omitempty"`
-	CompactedThroughTurnID string      `json:"compacted_through_turn_id,omitempty"`
-	CompactedTurnCount     int         `json:"compacted_turn_count,omitempty"`
-	SourceInputTokens      int         `json:"source_input_tokens,omitempty"`
-	FailureReason          string      `json:"failure_reason,omitempty"`
-	Model                  string      `json:"model,omitempty"`
-	Usage                  *TokenUsage `json:"usage,omitempty"`
+	Trigger                  string                           `json:"trigger"`
+	Status                   string                           `json:"status,omitempty"`
+	Summary                  string                           `json:"summary,omitempty"`
+	CompactedThroughTurnID   string                           `json:"compacted_through_turn_id,omitempty"`
+	CompactedTurnCount       int                              `json:"compacted_turn_count,omitempty"`
+	SourceInputTokens        int                              `json:"source_input_tokens,omitempty"`
+	SourceUsage              *TokenUsage                      `json:"source_usage,omitempty"`
+	CacheStability           *ContextCacheStabilityProjection `json:"cache_stability,omitempty"`
+	FailureReason            string                           `json:"failure_reason,omitempty"`
+	PreviousFailureReason    string                           `json:"previous_failure_reason,omitempty"`
+	RetryAfterCompletedTurns int                              `json:"retry_after_completed_turns,omitempty"`
+	BackoffRemainingTurns    int                              `json:"backoff_remaining_turns,omitempty"`
+	Model                    string                           `json:"model,omitempty"`
+	Usage                    *TokenUsage                      `json:"usage,omitempty"`
+}
+
+type ContextCacheStabilityProjection struct {
+	Samples               int    `json:"samples,omitempty"`
+	CacheHitTokens        int    `json:"cache_hit_tokens,omitempty"`
+	CacheMissTokens       int    `json:"cache_miss_tokens,omitempty"`
+	HitRatePermille       int    `json:"hit_rate_per_mille,omitempty"`
+	FirstHitRatePermille  int    `json:"first_hit_rate_per_mille,omitempty"`
+	LatestHitRatePermille int    `json:"latest_hit_rate_per_mille,omitempty"`
+	LatestCacheHitTokens  int    `json:"latest_cache_hit_tokens,omitempty"`
+	LatestCacheMissTokens int    `json:"latest_cache_miss_tokens,omitempty"`
+	Trend                 string `json:"trend,omitempty"`
 }
 
 type ToolCallProjection struct {

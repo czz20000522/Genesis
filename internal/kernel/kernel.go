@@ -693,6 +693,7 @@ func (k *Kernel) appendModelContextAccounting(sessionID string, turnID string, r
 		CompactedThroughTurnID: providerContext.CompactedThroughTurnID,
 		Usage:                  cloneTokenUsage(response.Usage),
 	}
+	accounting.ToolRoundCount, accounting.ToolCallCount, accounting.ToolResultCount = modelToolRoundCounts(providerContext.ToolRounds)
 	if response.Usage.CacheMissTokens > 0 {
 		accounting.ProcessedInputTokens = response.Usage.CacheMissTokens
 		accounting.ProcessedInputTokenSource = "prompt_cache_miss_tokens"
@@ -707,6 +708,21 @@ func (k *Kernel) appendModelContextAccounting(sessionID string, turnID string, r
 			ModelContextAccounting: &accounting,
 		},
 	})
+}
+
+func modelToolRoundCounts(rounds []ModelToolRound) (int, int, int) {
+	roundCount := 0
+	callCount := 0
+	resultCount := 0
+	for _, round := range rounds {
+		if len(round.Calls) == 0 && len(round.Results) == 0 {
+			continue
+		}
+		roundCount++
+		callCount += len(round.Calls)
+		resultCount += len(round.Results)
+	}
+	return roundCount, callCount, resultCount
 }
 
 func cloneTokenUsage(usage *TokenUsage) *TokenUsage {
@@ -799,6 +815,8 @@ func sameSessionCompletedConversationTurns(events []StoredEvent, sessionID strin
 		return nil
 	}
 	submittedInputs := map[string][]InputItem{}
+	toolCallsByTurn := map[string][]ToolCallProjection{}
+	toolResultsByTurn := map[string][]ToolResultProjection{}
 	var turns []conversationHistoryTurn
 	for _, event := range events {
 		if event.SessionID != sessionID {
@@ -810,25 +828,66 @@ func sameSessionCompletedConversationTurns(events []StoredEvent, sessionID strin
 		switch event.Type {
 		case "turn.submitted":
 			submittedInputs[event.TurnID] = cloneInputItems(event.Data.InputItems)
+		case "tool.call":
+			if event.Data.ToolCall != nil {
+				toolCallsByTurn[event.TurnID] = append(toolCallsByTurn[event.TurnID], *event.Data.ToolCall)
+			}
+		case "tool.result":
+			if event.Data.ToolResult != nil {
+				toolResultsByTurn[event.TurnID] = append(toolResultsByTurn[event.TurnID], *event.Data.ToolResult)
+			}
 		case "model.final":
 			if event.Data.Final == nil {
 				continue
 			}
 			userText := inputText(submittedInputs[event.TurnID])
 			assistantText := strings.TrimSpace(event.Data.Final.Text)
-			if strings.TrimSpace(userText) != "" || assistantText != "" {
+			toolExchanges := pairedConversationToolExchanges(toolCallsByTurn[event.TurnID], toolResultsByTurn[event.TurnID])
+			if strings.TrimSpace(userText) != "" || len(toolExchanges) > 0 || assistantText != "" {
 				turns = append(turns, conversationHistoryTurn{
 					TurnID:        event.TurnID,
 					UserText:      userText,
+					ToolExchanges: toolExchanges,
 					AssistantText: assistantText,
 				})
 			}
 			delete(submittedInputs, event.TurnID)
+			delete(toolCallsByTurn, event.TurnID)
+			delete(toolResultsByTurn, event.TurnID)
 		case "turn.failed":
 			delete(submittedInputs, event.TurnID)
+			delete(toolCallsByTurn, event.TurnID)
+			delete(toolResultsByTurn, event.TurnID)
 		}
 	}
 	return turns
+}
+
+func pairedConversationToolExchanges(calls []ToolCallProjection, results []ToolResultProjection) []conversationToolExchange {
+	if len(calls) == 0 || len(results) == 0 {
+		return nil
+	}
+	resultByEventID := make(map[string]ToolResultProjection, len(results))
+	for _, result := range results {
+		resultByEventID[strings.TrimSpace(result.ForEventID)] = result
+	}
+	exchanges := make([]conversationToolExchange, 0, len(calls))
+	for _, call := range calls {
+		result, ok := resultByEventID[strings.TrimSpace(call.ToolCallEventID)]
+		if !ok {
+			continue
+		}
+		exchanges = append(exchanges, conversationToolExchange{
+			Tool:          strings.TrimSpace(call.Tool),
+			Arguments:     strings.TrimSpace(call.Arguments),
+			ResultStatus:  strings.TrimSpace(result.Status),
+			ResultContent: strings.TrimSpace(result.Content),
+		})
+	}
+	if len(exchanges) == 0 {
+		return nil
+	}
+	return exchanges
 }
 
 func modelToolRoundsFromStoredEvents(events []StoredEvent, turnID string) []ModelToolRound {

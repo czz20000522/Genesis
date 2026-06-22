@@ -2,7 +2,7 @@
 
 This document records field meanings that are easy to confuse across provider responses, Genesis normalized evidence, and kernel control-plane projections.
 
-Last verified: 2026-06-22.
+Last verified: 2026-06-23.
 
 ## Rules
 
@@ -59,6 +59,9 @@ Observed live probe with `deepseek-v4-flash`:
 | `model_context_accounting.usage` | Normalized provider usage for this provider request. | Provider response via Model Gateway. | Request/exchange-level token fact. |
 | `model_context_accounting.processed_input_tokens` | Provider-backed freshly processed input tokens for this exchange. | `TokenUsage.CacheMissTokens` when present. | May drive cache-aware compaction heuristics, but does not identify which fragment caused the miss. |
 | `model_context_accounting.processed_input_token_source` | Evidence source for `processed_input_tokens`. | Currently `prompt_cache_miss_tokens` for DeepSeek/OpenAI-compatible usage. | Must name a provider-backed source, not a local estimate. |
+| `model_context_accounting.tool_round_count` | Number of model-visible tool rounds included in this provider context exchange. | Provider context projection. | Boundary evidence only; not an operation count. |
+| `model_context_accounting.tool_call_count` | Number of model-visible tool calls included in this provider context exchange. | Provider context projection. | Counts calls sent back to the provider, not direct HTTP tool invocations outside the turn loop. |
+| `model_context_accounting.tool_result_count` | Number of model-visible tool results included in this provider context exchange. | Provider context projection. | Used to verify completed tool call/result pairs are preserved across context operations. |
 
 ## Compaction Fields
 
@@ -68,10 +71,32 @@ Observed live probe with `deepseek-v4-flash`:
 | `ContextPolicy.AutoCompactRatio` | Fraction of the context window that triggers automatic compaction. | Kernel config. | Applied to provider-reported `InputTokens`. |
 | `ContextPolicy.RecentTurnLimit` | Minimum number of complete recent conversation turns kept verbatim after compaction. | Kernel compaction runner. | Complete-turn floor. |
 | `ContextPolicy.RecentTailTokens` | Optional provider-backed processed input token budget for keeping additional recent complete turns. | Kernel compaction runner consuming Model Gateway accounting. | Must only consume `model.context.accounted` evidence. A missing accounting record stops expansion instead of estimating. |
+| `ContextPolicy.RetryBackoffTurns` | Number of completed turns to wait after a compaction summarizer failure before retrying. | Kernel compaction runner. | Prevents immediate repeated summarizer calls after a failure. |
 | `context_compaction.source_input_tokens` | Provider input token count that triggered compaction. | Kernel compaction runner. | Comes from the final response usage that triggered auto compaction. |
+| `context_compaction.source_usage` | Full normalized usage from the provider exchange that triggered compaction. | Kernel compaction runner consuming Model Gateway-normalized final usage. | Triggering-turn usage, not summarizer usage. |
 | `context_compaction.usage` | Provider usage for the summarizer call. | Kernel compaction runner via Model Gateway response. | This is summarizer usage, not the original user turn usage. |
 | `context_compaction.compacted_through_turn_id` | Last completed conversation turn folded into the summary. | Kernel compaction runner. | Future provider contexts omit raw turns up to this boundary and include the summary instead. |
 | `context_compaction.compacted_turn_count` | Number of completed conversation turns folded into the summary. | Kernel compaction runner. | Does not count current user input or tool rounds. |
+| `context_compaction.cache_stability` | Aggregated cache hit/miss inspection facts for the compacted region. | Kernel compaction runner consuming `model.context.accounted` usage. | Diagnostic economics only; not memory and not per-fragment attribution. |
+| `context_compaction.previous_failure_reason` | Prior summarizer failure reason copied into a deferred retry event. | Kernel compaction runner. | Inspection evidence for why compaction was deferred. |
+| `context_compaction.retry_after_completed_turns` | Backoff policy recorded on running, failed, deferred, and completed compaction events. | Kernel compaction runner. | Policy evidence for retry scheduling. |
+| `context_compaction.backoff_remaining_turns` | Remaining completed-turn wait count when a compaction attempt is deferred. | Kernel compaction runner. | Applies only to deferred events. |
+
+## Cache Stability Fields
+
+`context_compaction.cache_stability` summarizes provider cache behavior for completed turns that are folded into a compaction summary. It is deliberately coarse because provider usage is request-level evidence.
+
+| Field | Meaning | Constraint |
+| --- | --- | --- |
+| `samples` | Number of compacted turns with provider cache hit/miss evidence. | May be lower than `compacted_turn_count` when usage was unavailable. |
+| `cache_hit_tokens` | Sum of provider cache-hit input tokens across sampled compacted turns. | Provider-backed total, not durable memory. |
+| `cache_miss_tokens` | Sum of provider cache-miss input tokens across sampled compacted turns. | Provider-backed total, not per-message attribution. |
+| `hit_rate_per_mille` | Aggregate cache hit rate in per-mille units. | Avoids floating-point drift in ledger evidence. |
+| `first_hit_rate_per_mille` | Cache hit rate for the first sampled compacted turn. | Used only for trend comparison. |
+| `latest_hit_rate_per_mille` | Cache hit rate for the latest sampled compacted turn. | Used only for trend comparison. |
+| `latest_cache_hit_tokens` | Latest sampled turn cache-hit tokens. | Request-level fact. |
+| `latest_cache_miss_tokens` | Latest sampled turn cache-miss tokens. | Request-level fact. |
+| `trend` | `warming`, `cooling`, `stable`, or `unknown`. | Coarse diagnostic label derived from sampled hit-rate movement. |
 
 ## Common Mistakes
 

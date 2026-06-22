@@ -39,4 +39,19 @@ Feature: Kernel context compaction
     When the compaction summarizer fails
     Then Genesis records compaction failed evidence
     And the completed user turn remains completed
+    And Genesis may defer the immediate retry with bounded backoff evidence
     And a later eligible turn may retry compaction
+
+  Scenario: Compaction source preserves completed tool outcomes
+    Given a completed turn contains a model tool call and its matching tool result
+    When Genesis compacts that completed turn
+    Then the compaction source includes the tool call before the assistant answer
+    And the compaction source includes the matching tool result
+    And the compaction source does not expose kernel event ids or operation ids as summary content
+
+  Scenario: Completed compaction records provider-backed economics
+    Given compacted turns have provider cache hit and cache miss usage evidence
+    When context compaction completes
+    Then Genesis records the provider usage that triggered compaction
+    And Genesis records cache-stability metrics for the compacted region
+    And those metrics do not claim per-message token attribution

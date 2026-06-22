@@ -6,9 +6,10 @@ import (
 )
 
 const (
-	defaultAutoCompactRatio = 0.8
-	defaultRecentTurnLimit  = 2
-	defaultSkillIndexChars  = 1200
+	defaultAutoCompactRatio       = 0.8
+	defaultRecentTurnLimit        = 2
+	defaultSkillIndexChars        = 1200
+	defaultCompactionBackoffTurns = 1
 )
 
 const (
@@ -16,6 +17,7 @@ const (
 	contextCompactionStatusRunning   = "running"
 	contextCompactionStatusCompleted = "completed"
 	contextCompactionStatusFailed    = "failed"
+	contextCompactionStatusDeferred  = "deferred"
 )
 
 const contextCompactionPrompt = `You are compacting the earlier part of an assistant conversation to save context.
@@ -44,6 +46,9 @@ func normalizedContextPolicy(policy ContextPolicy) ContextPolicy {
 	if policy.RecentTailTokens < 0 {
 		policy.RecentTailTokens = 0
 	}
+	if policy.RetryBackoffTurns <= 0 {
+		policy.RetryBackoffTurns = defaultCompactionBackoffTurns
+	}
 	return policy
 }
 
@@ -63,6 +68,7 @@ type ContextCompactionCommand struct {
 	TriggeringTurnID  string
 	Trigger           string
 	SourceInputTokens int
+	SourceUsage       *TokenUsage
 }
 
 func (k *Kernel) maybeSubmitAutoContextCompaction(ctx context.Context, sessionID string, triggeringTurnID string, final FinalMessage) {
@@ -75,6 +81,7 @@ func (k *Kernel) maybeSubmitAutoContextCompaction(ctx context.Context, sessionID
 		TriggeringTurnID:  triggeringTurnID,
 		Trigger:           contextCompactionTriggerAuto,
 		SourceInputTokens: final.Usage.InputTokens,
+		SourceUsage:       cloneTokenUsage(final.Usage),
 	})
 }
 
@@ -97,13 +104,25 @@ func (k *Kernel) runContextCompaction(ctx context.Context, command ContextCompac
 	if len(region) == 0 {
 		return
 	}
+	cacheStability := contextCacheStability(region, accounting)
+	sourceUsage := cloneTokenUsage(command.SourceUsage)
+	if sourceUsage == nil && command.SourceInputTokens > 0 {
+		sourceUsage = &TokenUsage{InputTokens: command.SourceInputTokens}
+	}
+	if deferred, projection := contextCompactionBackoff(events, sessionID, trigger, command.SourceInputTokens, sourceUsage, cacheStability, k.contextPolicy); deferred {
+		_ = k.appendContextCompactionEvent(sessionID, triggeringTurnID, projection)
+		return
+	}
 	startedAt := k.clock()
 	started := ContextCompactionProjection{
-		Trigger:                trigger,
-		Status:                 contextCompactionStatusRunning,
-		CompactedThroughTurnID: region[len(region)-1].TurnID,
-		CompactedTurnCount:     len(region),
-		SourceInputTokens:      command.SourceInputTokens,
+		Trigger:                  trigger,
+		Status:                   contextCompactionStatusRunning,
+		CompactedThroughTurnID:   region[len(region)-1].TurnID,
+		CompactedTurnCount:       len(region),
+		SourceInputTokens:        command.SourceInputTokens,
+		SourceUsage:              sourceUsage,
+		CacheStability:           cacheStability,
+		RetryAfterCompletedTurns: k.contextPolicy.RetryBackoffTurns,
 	}
 	if err := k.appendEvent(StoredEvent{
 		EventID:   newID("evt", startedAt),
@@ -129,14 +148,17 @@ func (k *Kernel) runContextCompaction(ctx context.Context, command ContextCompac
 	}
 	now := k.clock()
 	compacted := ContextCompactionProjection{
-		Trigger:                trigger,
-		Status:                 contextCompactionStatusCompleted,
-		Summary:                strings.TrimSpace(response.Text),
-		CompactedThroughTurnID: region[len(region)-1].TurnID,
-		CompactedTurnCount:     len(region),
-		SourceInputTokens:      command.SourceInputTokens,
-		Model:                  response.Model,
-		Usage:                  response.Usage,
+		Trigger:                  trigger,
+		Status:                   contextCompactionStatusCompleted,
+		Summary:                  strings.TrimSpace(response.Text),
+		CompactedThroughTurnID:   region[len(region)-1].TurnID,
+		CompactedTurnCount:       len(region),
+		SourceInputTokens:        command.SourceInputTokens,
+		SourceUsage:              sourceUsage,
+		CacheStability:           cacheStability,
+		RetryAfterCompletedTurns: k.contextPolicy.RetryBackoffTurns,
+		Model:                    response.Model,
+		Usage:                    response.Usage,
 	}
 	if err := k.appendEvent(StoredEvent{
 		EventID:   newID("evt", now),
@@ -216,12 +238,93 @@ func modelContextAccountingByTurn(events []StoredEvent, sessionID string) map[st
 	return accountingByTurn
 }
 
+func contextCompactionBackoff(events []StoredEvent, sessionID string, trigger string, sourceInputTokens int, sourceUsage *TokenUsage, cacheStability *ContextCacheStabilityProjection, policy ContextPolicy) (bool, ContextCompactionProjection) {
+	if policy.RetryBackoffTurns <= 0 {
+		return false, ContextCompactionProjection{}
+	}
+	failure, ok := latestContextCompactionFailureAfterCompletion(events, sessionID)
+	if !ok {
+		return false, ContextCompactionProjection{}
+	}
+	turns := sameSessionCompletedConversationTurns(events, sessionID, "")
+	completedAfterFailure := completedTurnsAfter(turns, failure.TurnID)
+	if completedAfterFailure > policy.RetryBackoffTurns {
+		return false, ContextCompactionProjection{}
+	}
+	remaining := policy.RetryBackoffTurns + 1 - completedAfterFailure
+	if remaining < 1 {
+		remaining = 1
+	}
+	projection := ContextCompactionProjection{
+		Trigger:                  trigger,
+		Status:                   contextCompactionStatusDeferred,
+		SourceInputTokens:        sourceInputTokens,
+		SourceUsage:              cloneTokenUsage(sourceUsage),
+		CacheStability:           cacheStability,
+		PreviousFailureReason:    strings.TrimSpace(failure.Projection.FailureReason),
+		RetryAfterCompletedTurns: policy.RetryBackoffTurns,
+		BackoffRemainingTurns:    remaining,
+	}
+	if projection.PreviousFailureReason == "" {
+		projection.PreviousFailureReason = contextCompactionStatusFailed
+	}
+	return true, projection
+}
+
+type contextCompactionFailureEvent struct {
+	TurnID     string
+	Projection ContextCompactionProjection
+}
+
+func latestContextCompactionFailureAfterCompletion(events []StoredEvent, sessionID string) (contextCompactionFailureEvent, bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return contextCompactionFailureEvent{}, false
+	}
+	lastCompletionIndex := -1
+	for index, event := range events {
+		if event.SessionID == sessionID && event.Type == "context.compaction.completed" {
+			lastCompletionIndex = index
+		}
+	}
+	var latest contextCompactionFailureEvent
+	found := false
+	for index := lastCompletionIndex + 1; index < len(events); index++ {
+		event := events[index]
+		if event.SessionID != sessionID || event.Type != "context.compaction.failed" || event.Data.ContextCompaction == nil {
+			continue
+		}
+		latest = contextCompactionFailureEvent{
+			TurnID:     strings.TrimSpace(event.TurnID),
+			Projection: *event.Data.ContextCompaction,
+		}
+		found = true
+	}
+	return latest, found
+}
+
+func completedTurnsAfter(turns []conversationHistoryTurn, turnID string) int {
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return 0
+	}
+	for index, turn := range turns {
+		if turn.TurnID == turnID {
+			return len(turns) - index - 1
+		}
+	}
+	return 0
+}
+
 func (k *Kernel) appendContextCompactionFailed(sessionID string, turnID string, started ContextCompactionProjection, reason string) {
 	now := k.clock()
 	failed := started
 	failed.Status = contextCompactionStatusFailed
 	failed.Summary = ""
 	failed.FailureReason = strings.TrimSpace(reason)
+	if failed.RetryAfterCompletedTurns <= 0 {
+		failed.RetryAfterCompletedTurns = k.contextPolicy.RetryBackoffTurns
+	}
 	_ = k.appendEvent(StoredEvent{
 		EventID:   newID("evt", now),
 		SessionID: strings.TrimSpace(sessionID),
@@ -232,6 +335,77 @@ func (k *Kernel) appendContextCompactionFailed(sessionID string, turnID string, 
 			ContextCompaction: &failed,
 		},
 	})
+}
+
+func (k *Kernel) appendContextCompactionEvent(sessionID string, turnID string, projection ContextCompactionProjection) error {
+	now := k.clock()
+	return k.appendEvent(StoredEvent{
+		EventID:   newID("evt", now),
+		SessionID: strings.TrimSpace(sessionID),
+		TurnID:    strings.TrimSpace(turnID),
+		Type:      "context.compaction." + strings.TrimSpace(projection.Status),
+		CreatedAt: now,
+		Data: EventData{
+			ContextCompaction: &projection,
+		},
+	})
+}
+
+func contextCacheStability(region []conversationHistoryTurn, accountingByTurn map[string]ModelContextAccountingProjection) *ContextCacheStabilityProjection {
+	if len(region) == 0 || len(accountingByTurn) == 0 {
+		return nil
+	}
+	var samples []TokenUsage
+	for _, turn := range region {
+		accounting, ok := accountingByTurn[turn.TurnID]
+		if !ok || accounting.Usage == nil {
+			continue
+		}
+		if accounting.Usage.CacheHitTokens == 0 && accounting.Usage.CacheMissTokens == 0 {
+			continue
+		}
+		samples = append(samples, *accounting.Usage)
+	}
+	if len(samples) == 0 {
+		return nil
+	}
+	projection := ContextCacheStabilityProjection{Samples: len(samples)}
+	for _, usage := range samples {
+		projection.CacheHitTokens += usage.CacheHitTokens
+		projection.CacheMissTokens += usage.CacheMissTokens
+	}
+	first := samples[0]
+	latest := samples[len(samples)-1]
+	projection.FirstHitRatePermille = cacheHitRatePermille(first.CacheHitTokens, first.CacheMissTokens)
+	projection.LatestHitRatePermille = cacheHitRatePermille(latest.CacheHitTokens, latest.CacheMissTokens)
+	projection.HitRatePermille = cacheHitRatePermille(projection.CacheHitTokens, projection.CacheMissTokens)
+	projection.LatestCacheHitTokens = latest.CacheHitTokens
+	projection.LatestCacheMissTokens = latest.CacheMissTokens
+	projection.Trend = cacheTrend(projection.FirstHitRatePermille, projection.LatestHitRatePermille, len(samples))
+	return &projection
+}
+
+func cacheHitRatePermille(hitTokens int, missTokens int) int {
+	total := hitTokens + missTokens
+	if total <= 0 {
+		return 0
+	}
+	return (hitTokens * 1000) / total
+}
+
+func cacheTrend(firstPermille int, latestPermille int, samples int) string {
+	if samples < 2 {
+		return "unknown"
+	}
+	const threshold = 50
+	switch {
+	case latestPermille-firstPermille >= threshold:
+		return "warming"
+	case firstPermille-latestPermille >= threshold:
+		return "cooling"
+	default:
+		return "stable"
+	}
 }
 
 func (k *Kernel) summarizeContext(ctx context.Context, transcript string) (ModelResponse, error) {
@@ -284,6 +458,25 @@ func compactionSourceTranscript(previousSummary string, turns []conversationHist
 		assistantText := strings.TrimSpace(turn.AssistantText)
 		if userText != "" {
 			lines = append(lines, "[user]\n"+userText)
+		}
+		for _, exchange := range turn.ToolExchanges {
+			tool := strings.TrimSpace(exchange.Tool)
+			if tool == "" {
+				tool = "unknown"
+			}
+			callLines := []string{"[tool call]", "tool: " + tool}
+			if arguments := strings.TrimSpace(exchange.Arguments); arguments != "" {
+				callLines = append(callLines, "arguments: "+redactEvidenceText(arguments))
+			}
+			lines = append(lines, strings.Join(callLines, "\n"))
+			resultLines := []string{"[tool result]"}
+			if status := strings.TrimSpace(exchange.ResultStatus); status != "" {
+				resultLines = append(resultLines, "status: "+status)
+			}
+			if content := strings.TrimSpace(exchange.ResultContent); content != "" {
+				resultLines = append(resultLines, redactEvidenceText(content))
+			}
+			lines = append(lines, strings.Join(resultLines, "\n"))
 		}
 		if assistantText != "" {
 			lines = append(lines, "[assistant]\n"+assistantText)

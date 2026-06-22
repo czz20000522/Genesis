@@ -7,7 +7,15 @@ import (
 type conversationHistoryTurn struct {
 	TurnID        string
 	UserText      string
+	ToolExchanges []conversationToolExchange
 	AssistantText string
+}
+
+type conversationToolExchange struct {
+	Tool          string
+	Arguments     string
+	ResultStatus  string
+	ResultContent string
 }
 
 func modelInputItems(userItems []InputItem, memories []MemoryRecall) []ModelInputItem {
@@ -56,6 +64,7 @@ func conversationHistoryContextWithSummary(summary string, turns []conversationH
 		if userText != "" {
 			lines = append(lines, "User: "+userText)
 		}
+		lines = appendToolExchangeLines(lines, turn.ToolExchanges)
 		if assistantText != "" {
 			lines = append(lines, "Assistant: "+assistantText)
 		}
@@ -64,6 +73,32 @@ func conversationHistoryContextWithSummary(summary string, turns []conversationH
 		return ""
 	}
 	return strings.Join(lines, "\n")
+}
+
+func appendToolExchangeLines(lines []string, exchanges []conversationToolExchange) []string {
+	for _, exchange := range exchanges {
+		tool := strings.TrimSpace(exchange.Tool)
+		if tool == "" {
+			tool = "unknown"
+		}
+		lines = append(lines, "Tool call: "+tool)
+		if arguments := strings.TrimSpace(exchange.Arguments); arguments != "" {
+			lines = append(lines, "Tool arguments: "+redactEvidenceText(arguments))
+		}
+		status := strings.TrimSpace(exchange.ResultStatus)
+		content := strings.TrimSpace(exchange.ResultContent)
+		if status != "" || content != "" {
+			resultLine := "Tool result:"
+			if status != "" {
+				resultLine += " " + status
+			}
+			lines = append(lines, resultLine)
+			if content != "" {
+				lines = append(lines, redactEvidenceText(content))
+			}
+		}
+	}
+	return lines
 }
 
 func modelInputKinds(items []ModelInputItem) []string {
