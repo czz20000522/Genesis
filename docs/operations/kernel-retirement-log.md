@@ -12,6 +12,17 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-PRESSURE-ACCEPTANCE-20260623 - P1 - Minimal kernel loop needs deterministic pressure verification
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `d7a12ee7a`.
+- Reference alignment: Codex relies on core/session/tool-loop tests and recovery checks rather than treating shell or app surfaces as the source of truth. Reasonix keeps frontend/controller flows behind reproducible runtime checks. Genesis now has the same class of deterministic core pressure gate without widening the kernel into product-specific adapters.
+- Evidence: `TestKernelPressureLongRunningClosedLoop` runs a 12-turn session through successful `shell_exec` calls, repairable invalid tool requests, permission-denied tool results, terminal-equivalent failed command results, one provider failure, automatic context compaction, restart-safe session projection, restart-safe provider-context projection, UI timeline compaction notices without summary leakage, and idempotent turn replay without calling the provider again. The test asserts the ledger reconstructs completed and failed turns, completed/failed/blocked operations, tool call/result events, provider accounting events, compaction completion, and turn failure evidence after restart.
+- Verification: `D:\software\Go\bin\go.exe test ./internal/kernel -run TestKernelPressureLongRunningClosedLoop -count=1 -v`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `CGO_ENABLED=1 D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
+- Acceptance condition: reviewer confirms the pressure gate exercises only kernel primitives and provides enough sustained evidence for the current minimal closed loop without adding Feishu, email, calendar, WebUI, daemon, or other application owners.
+- Residual risk: this is deterministic pressure coverage with a fake provider, not live-provider load testing or user-perceived latency measurement. Live provider stress, performance targets, and long-duration soak tests remain separate operator/product acceptance work.
+
 ### KERNEL-CONTEXT-COMPACTION-REFINE-20260622 - P1 - Context compaction needs production-grade selection and retry evidence
 
 - Status: ready_for_acceptance.
