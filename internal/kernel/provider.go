@@ -16,11 +16,11 @@ type Provider interface {
 var ErrProviderUnavailable = errors.New("provider unavailable")
 
 type ModelRequest struct {
-	SessionID  string
-	TurnID     string
-	InputItems []ModelInputItem
-	Tools      []ModelToolDescriptor
-	ToolRounds []ModelToolRound
+	SessionID    string
+	TurnID       string
+	InputItems   []ModelInputItem
+	ToolManifest []ToolSpec
+	ToolRounds   []ModelToolRound
 }
 
 const (

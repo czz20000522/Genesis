@@ -8,16 +8,7 @@ import (
 var credentialShapedInspectionTokenPattern = regexp.MustCompile(`(?i)((^|[._-])sk-(proj-)?[A-Za-z0-9_-]{6,}($|[._-])|^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}$)`)
 
 func (k *Kernel) toolCapabilityProjections() []ToolCapabilityProjection {
-	definitions := kernelToolDefinitions()
-	projections := make([]ToolCapabilityProjection, 0, len(definitions))
-	for _, definition := range definitions {
-		projections = append(projections, ToolCapabilityProjection{
-			Name:   definition.Descriptor.Name,
-			Kind:   definition.Kind,
-			Status: "ok",
-		})
-	}
-	return projections
+	return k.toolGateway().CapabilityProjections()
 }
 
 func safeProviderStatusForInspection(status ProviderStatus) ProviderStatus {

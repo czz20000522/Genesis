@@ -23,13 +23,14 @@ const (
 )
 
 func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (OperationProjection, error) {
-	return k.execShell(ctx, req, "")
+	return k.toolGateway().ExecShell(ctx, req, "")
 }
 
-func (k *Kernel) execShell(ctx context.Context, req ShellExecRequest, turnID string) (OperationProjection, error) {
+func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID string) (OperationProjection, error) {
 	if err := validateShellRequest(req); err != nil {
 		return OperationProjection{}, err
 	}
+	k := g.kernel
 	k.operationMu.Lock()
 	defer k.operationMu.Unlock()
 
@@ -50,11 +51,11 @@ func (k *Kernel) execShell(ctx context.Context, req ShellExecRequest, turnID str
 			return operation, nil
 		}
 	}
-	definition, ok := lookupKernelTool("shell_exec")
+	definition, ok := g.registry.Resolve("shell_exec")
 	if !ok {
 		return OperationProjection{}, fmt.Errorf("%w: shell_exec is not registered", ErrToolInfrastructureFailed)
 	}
-	authorization := authorizeKernelTool(policy, definition)
+	authorization := authorizeKernelTool(policy, definition.Spec)
 	executionPlan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
 	reason := authorization.Reason
 	if authorization.Allowed {

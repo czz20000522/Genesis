@@ -58,10 +58,12 @@ type InputItem struct {
 	Text string `json:"text,omitempty"`
 }
 
-type ModelToolDescriptor struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
+type ToolSpec struct {
+	Name            string                 `json:"name"`
+	Description     string                 `json:"description"`
+	InputSchema     map[string]interface{} `json:"input_schema"`
+	SideEffectLevel string                 `json:"side_effect_level"`
+	ExecutionKind   string                 `json:"execution_kind"`
 }
 
 type ModelToolCall struct {
@@ -100,9 +102,10 @@ type SkillDescriptor struct {
 }
 
 type ToolCapabilityProjection struct {
-	Name   string `json:"name"`
-	Kind   string `json:"kind"`
-	Status string `json:"status"`
+	Name            string `json:"name"`
+	SideEffectLevel string `json:"side_effect_level"`
+	ExecutionKind   string `json:"execution_kind"`
+	Status          string `json:"status"`
 }
 
 type SkillCatalogProjection struct {

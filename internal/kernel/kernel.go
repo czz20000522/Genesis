@@ -14,6 +14,7 @@ type Kernel struct {
 	provider        Provider
 	runtimeToken    string
 	toolPolicy      ToolPolicy
+	toolRegistry    *ToolRegistry
 	skillCatalog    []SkillDescriptor
 	skillExclusions []SkillCatalogExclusionProjection
 	clock           func() time.Time
@@ -35,12 +36,17 @@ func New(config Config) (*Kernel, error) {
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
+	toolRegistry, err := defaultToolRegistry()
+	if err != nil {
+		return nil, err
+	}
 	skillCatalog := loadSkillCatalogWithDiagnostics(config.SkillRoots)
 	return &Kernel{
 		ledger:          NewJSONLLedger(config.LedgerPath),
 		provider:        provider,
 		runtimeToken:    strings.TrimSpace(config.RuntimeToken),
 		toolPolicy:      normalizedToolPolicy(config.ToolPolicy),
+		toolRegistry:    toolRegistry,
 		skillCatalog:    skillCatalog.Items,
 		skillExclusions: skillCatalog.Exclusions,
 		clock:           clock,
@@ -117,13 +123,14 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	}
 
 	toolRounds := []ModelToolRound{}
+	toolGateway := k.toolGateway()
 	for roundIndex := 0; roundIndex <= maxModelToolRounds; roundIndex++ {
 		modelResp, err := k.provider.Complete(ctx, ModelRequest{
-			SessionID:  sessionID,
-			TurnID:     turnID,
-			InputItems: inputItems,
-			Tools:      k.modelToolDescriptors(),
-			ToolRounds: toolRounds,
+			SessionID:    sessionID,
+			TurnID:       turnID,
+			InputItems:   inputItems,
+			ToolManifest: toolGateway.ToolManifest(),
+			ToolRounds:   toolRounds,
 		})
 		if err != nil {
 			failure := turnFailureFromProviderError(err)
@@ -169,7 +176,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			}
 			return TurnResponse{}, errors.New("model tool loop exceeded the maximum number of rounds")
 		}
-		preparedCalls, err := k.prepareModelToolCalls(modelResp.ToolCalls)
+		preparedCalls, err := toolGateway.PrepareBatch(modelResp.ToolCalls)
 		if err != nil {
 			failure := TurnError{
 				Code:    "tool_call_rejected",
@@ -185,7 +192,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		}
 		round := ModelToolRound{Calls: modelResp.ToolCalls}
 		for _, call := range preparedCalls {
-			result, err := k.executePreparedModelToolCall(ctx, sessionID, turnID, call)
+			result, err := toolGateway.Execute(ctx, sessionID, turnID, call)
 			if err != nil {
 				code := "tool_call_rejected"
 				if errors.Is(err, ErrToolInfrastructureFailed) {

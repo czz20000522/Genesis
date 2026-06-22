@@ -32,7 +32,7 @@ The first implementation must prove the kernel loop before adding shells or appl
 
 ## Current Tool Loop Proof
 
-The initial tool loop is deliberately narrow. OpenAI-compatible providers receive the canonical `shell_exec` descriptor. If the provider returns a `shell_exec` tool call, Genesis executes it through the existing Tool System, writes turn-scoped operation events to the ledger, and returns the redacted operation projection to the provider as tool evidence. Unsupported tool requests, including `skill.read`, return repair feedback without executing effects. The provider then returns the final assistant text.
+The initial tool loop is deliberately narrow. OpenAI-compatible providers receive a kernel-generated tool manifest from `ToolRegistry`; today that manifest contains canonical `shell_exec` with `side_effect_level=write` and `execution_kind=sandboxed_process`. If the provider returns a `shell_exec` tool call, Genesis routes it through `ToolGateway`, writes turn-scoped operation events to the ledger, and returns the redacted operation projection to the provider as tool evidence. Unsupported unregistered tool requests return repair feedback without executing effects. The provider then returns the final assistant text.
 
 The kernel distinguishes invalid tool requests, policy blocks, command exits, and infrastructure failures. Invalid model tool arguments are returned as `tool_request_invalid` repair feedback when possible. Permission denials return `operation.blocked` without execution. Nonzero command exits return `operation.failed` with exit code and bounded stdout/stderr. Kernel or tool runtime failures return `tool_infrastructure_failed` and are not disguised as command stderr.
 

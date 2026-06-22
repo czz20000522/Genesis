@@ -172,6 +172,8 @@ The first kernel tool is `shell_exec`. It is deliberately small:
 - `default` mode requires a kernel-configured workspace root and uses a kernel-controlled command set from inside that workspace. It does not invoke the operating-system shell, expand environment variables, or execute arbitrary interpreters.
 - `yolo` mode is explicit high-trust execution and is the only mode that invokes the operating-system shell. It can only be selected by kernel startup configuration.
 
+The tool surface is generated from `ToolRegistry` and executed through `ToolGateway`. `shell_exec` is registered with `side_effect_level=write` and `execution_kind=sandboxed_process`; capability projection, provider tool manifests, model tool preflight, and direct HTTP execution all use that same registry entry. The turn loop and provider adapters do not special-case shell execution.
+
 The controlled default command set is intentionally narrow: text output, simple file reads, and simple file writes whose real path remains inside the configured workspace. Symlink/junction resolution, parent traversal, absolute path escapes, shell metacharacters, and unsupported commands are blocked before any process is spawned.
 
 The HTTP request cannot select `permission_mode` or `workspace_root`; those are kernel-owned authority fields. Every allowed call first records a `running` operation before process execution, then records completion or failure with tool name, permission mode, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
@@ -180,7 +182,7 @@ The HTTP request cannot select `permission_mode` or `workspace_root`; those are 
 
 ### Model Tool Loop
 
-`POST /turn` now supports the same governed `shell_exec` tool through the model loop. The Model Gateway exposes a canonical `shell_exec` descriptor to OpenAI-compatible providers, normalizes provider tool calls, and hands them to the Tool System. The Tool System applies the same `ToolPolicy` used by direct `POST /tools/shell_exec` calls.
+`POST /turn` now supports the same governed `shell_exec` tool through the model loop. The Model Gateway exposes a kernel-generated `shell_exec` manifest to OpenAI-compatible providers, normalizes provider tool calls, and hands them to ToolGateway. ToolGateway applies the same `ToolPolicy` used by direct `POST /tools/shell_exec` calls.
 
 When the model requests `shell_exec`, the kernel writes a `model.tool_call` event, executes or blocks the operation, records turn-scoped `operation.*` events, and sends the redacted operation projection back to the provider as structured tool evidence. The provider must then return the final assistant text. `GET /turns/{id}/events` replays the full sequence after restart.
 
@@ -222,6 +224,6 @@ Rejected and superseded candidates are restart-safe review decisions and are not
 ## Operations Records
 
 - Active kernel issues: `docs/operations/kernel-issues.md`
-- Ready or retired issue evidence: `docs/operations/kernel-retirement-log.md`
+- Closed issue evidence: `docs/operations/kernel-retirement-log.md`
 
 Feishu Base remains a collaboration inbox. The repo records above are the durable project source for active issues, acceptance evidence, and retirement decisions.

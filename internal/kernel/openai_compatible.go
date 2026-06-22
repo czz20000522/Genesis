@@ -73,7 +73,7 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 	payload := chatCompletionRequest{
 		Model:    p.model,
 		Messages: chatMessagesFromModelRequest(req),
-		Tools:    chatToolsFromModelTools(req.Tools),
+		Tools:    chatToolsFromManifest(req.ToolManifest),
 	}
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = "auto"
@@ -245,7 +245,7 @@ func tokenUsageFromChatUsage(usage *chatUsage) *TokenUsage {
 	}
 }
 
-func chatToolsFromModelTools(tools []ModelToolDescriptor) []chatTool {
+func chatToolsFromManifest(tools []ToolSpec) []chatTool {
 	converted := make([]chatTool, 0, len(tools))
 	for _, tool := range tools {
 		name := strings.TrimSpace(tool.Name)
@@ -257,7 +257,7 @@ func chatToolsFromModelTools(tools []ModelToolDescriptor) []chatTool {
 			Function: chatToolFunction{
 				Name:        name,
 				Description: strings.TrimSpace(tool.Description),
-				Parameters:  tool.Parameters,
+				Parameters:  tool.InputSchema,
 			},
 		})
 	}

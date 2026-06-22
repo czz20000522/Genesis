@@ -191,12 +191,13 @@ func TestHTTPCapabilitiesRequiresRuntimeAuth(t *testing.T) {
 	assertErrorCode(t, resp, http.StatusUnauthorized, "unauthorized")
 }
 
-func TestToolCapabilityKindDefaultsUnknown(t *testing.T) {
-	if got := toolCapabilityKind("shell_exec"); got != "effect" {
-		t.Fatalf("shell_exec kind = %q, want effect", got)
+func TestToolCapabilitySideEffectLevelDefaultsUnknown(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	if got := toolCapabilitySideEffectLevel(k.toolRegistry, "shell_exec"); got != ToolSideEffectWrite {
+		t.Fatalf("shell_exec side-effect level = %q, want write", got)
 	}
-	if got := toolCapabilityKind("future.tool"); got != "unknown" {
-		t.Fatalf("future.tool kind = %q, want unknown", got)
+	if got := toolCapabilitySideEffectLevel(k.toolRegistry, "future_tool"); got != "unknown" {
+		t.Fatalf("future_tool side-effect level = %q, want unknown", got)
 	}
 }
 
@@ -231,9 +232,10 @@ func TestHTTPCapabilitiesProjectsToolsAndSkillCatalogWithoutPaths(t *testing.T) 
 		Status      string     `json:"status"`
 		RuntimeAuth ReadyCheck `json:"runtime_auth"`
 		Tools       []struct {
-			Name   string `json:"name"`
-			Kind   string `json:"kind"`
-			Status string `json:"status"`
+			Name            string `json:"name"`
+			SideEffectLevel string `json:"side_effect_level"`
+			ExecutionKind   string `json:"execution_kind"`
+			Status          string `json:"status"`
 		} `json:"tools"`
 		SkillCatalog struct {
 			Status string `json:"status"`
@@ -254,9 +256,6 @@ func TestHTTPCapabilitiesProjectsToolsAndSkillCatalogWithoutPaths(t *testing.T) 
 		if !capabilityHasTool(payload.Tools, want) {
 			t.Fatalf("tools = %+v, want %s", payload.Tools, want)
 		}
-	}
-	if capabilityHasTool(payload.Tools, "skill.read") || capabilityHasTool(payload.Tools, "skill_read") {
-		t.Fatalf("tools = %+v, must not expose skill.read as a default model tool", payload.Tools)
 	}
 	if payload.SkillCatalog.Status != "ok" || payload.SkillCatalog.Count != 1 || len(payload.SkillCatalog.Items) != 1 {
 		t.Fatalf("skill catalog = %+v, want one ok skill", payload.SkillCatalog)
@@ -465,7 +464,7 @@ func TestHTTPCapabilitiesReportsPathFreeSkillExclusions(t *testing.T) {
 	}
 }
 
-func TestSubmitTurnDoesNotExposeSkillReadAsModelTool(t *testing.T) {
+func TestSubmitTurnProjectsRegisteredToolManifestWithSkillCatalog(t *testing.T) {
 	root := t.TempDir()
 	writeSkillForTest(t, root, "lark-im", "lark-im", "Send and read chat messages", "Run lark-cli im send after reading channel context.\nGENESIS_PROVIDER_API_KEY=sk-secret123")
 	provider := &capturingProvider{text: "skill catalog only"}
@@ -493,250 +492,15 @@ func TestSubmitTurnDoesNotExposeSkillReadAsModelTool(t *testing.T) {
 	if !containsString(toolNames, "shell_exec") {
 		t.Fatalf("tool names = %v, want shell_exec", toolNames)
 	}
-	for _, forbidden := range []string{"skill.read", "skill_read"} {
-		if containsString(toolNames, forbidden) {
-			t.Fatalf("tool names = %v, must not expose %s", toolNames, forbidden)
-		}
+	shellSpec, ok := provider.ToolSpecByName("shell_exec")
+	if !ok {
+		t.Fatalf("tool manifest = %+v, want shell_exec spec", provider.tools)
 	}
-}
-
-func TestSubmitTurnReturnsUnsupportedSkillReadFeedbackBeforeShellEffect(t *testing.T) {
-	root := t.TempDir()
-	writeSkillForTest(t, root, "mail", "mail", "Send email through an installed CLI", "mail body")
-	workspace := t.TempDir()
-	toolArgs, err := json.Marshal(map[string]string{
-		"cwd":     workspace,
-		"command": writeFileCommand("skill-read-mixed-effect.txt", "effect"),
-	})
-	if err != nil {
-		t.Fatalf("marshal shell args: %v", err)
+	if shellSpec.SideEffectLevel != ToolSideEffectWrite || shellSpec.ExecutionKind != ToolExecutionKindSandboxedProcess {
+		t.Fatalf("shell_exec spec = %+v, want write sandboxed_process metadata", shellSpec)
 	}
-	provider := &toolFeedbackProvider{
-		calls: []ModelToolCall{
-			{ToolCallID: "call_write", Name: "shell_exec", Arguments: json.RawMessage(toolArgs)},
-			{ToolCallID: "call_unknown_skill", Name: "skill.read", Arguments: json.RawMessage(`{"name":"missing"}`)},
-		},
-		final: "unknown skill repair received",
-	}
-	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
-		Provider:     provider,
-		RuntimeToken: testRuntimeToken,
-		SkillRoots:   []string{root},
-		ToolPolicy: ToolPolicy{
-			PermissionMode: PermissionModeDefault,
-			WorkspaceRoot:  workspace,
-		},
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-
-	_, err = k.SubmitTurn(context.Background(), TurnRequest{
-		SessionID:  "unknown-skill-read",
-		InputItems: []InputItem{{Type: "text", Text: "try unknown skill read with shell effect"}},
-	})
-	if err != nil {
-		t.Fatalf("SubmitTurn returned error: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(workspace, "skill-read-mixed-effect.txt")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("mixed batch created shell effect before rejecting unknown skill; stat err=%v", err)
-	}
-	repairByCallID := toolRepairPayloadByCallID(t, provider.Requests()[1].ToolRounds[0].Results)
-	writeError := repairByCallID["call_write"]["error"].(map[string]interface{})
-	skillError := repairByCallID["call_unknown_skill"]["error"].(map[string]interface{})
-	if writeError["code"] != "tool_batch_not_executed" || skillError["code"] != "unsupported_tool" {
-		t.Fatalf("repair payloads = %+v, want batch blocker plus unsupported_tool", repairByCallID)
-	}
-	projection, err := k.Session("unknown-skill-read")
-	if err != nil {
-		t.Fatalf("Session returned error: %v", err)
-	}
-	if len(projection.Operations) != 0 {
-		t.Fatalf("operations = %+v, want no executed effects for invalid skill.read batch", projection.Operations)
-	}
-}
-
-func TestSubmitTurnReturnsRepairFeedbackForSkillReadPathArgument(t *testing.T) {
-	root := t.TempDir()
-	writeSkillForTest(t, root, "mail", "mail", "Send email through an installed CLI", "mail body")
-	provider := &toolFeedbackProvider{
-		calls: []ModelToolCall{
-			{
-				ToolCallID: "call_skill_path",
-				Name:       "skill.read",
-				Arguments:  json.RawMessage(`{"name":"mail","path":"C:\\Users\\Tomczz\\.agents\\skills\\mail\\SKILL.md"}`),
-			},
-		},
-		final: "skill path repair received",
-	}
-	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
-		Provider:     provider,
-		RuntimeToken: testRuntimeToken,
-		SkillRoots:   []string{root},
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-
-	_, err = k.SubmitTurn(context.Background(), TurnRequest{
-		SessionID:  "skill-read-path-argument",
-		InputItems: []InputItem{{Type: "text", Text: "try skill path read"}},
-	})
-	if err != nil {
-		t.Fatalf("SubmitTurn returned error: %v", err)
-	}
-	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
-	errorPayload := payload["error"].(map[string]interface{})
-	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "unsupported_tool" {
-		t.Fatalf("repair payload = %+v, want unsupported_tool", payload)
-	}
-}
-
-func TestSubmitTurnReturnsRepairFeedbackWhenInstructionFileNoLongerMatchesCatalog(t *testing.T) {
-	root := t.TempDir()
-	skillPath := writeSkillForTest(t, root, "mail", "mail", "Send email through an installed CLI", "mail body")
-	provider := &toolFeedbackProvider{
-		calls: []ModelToolCall{
-			{
-				ToolCallID: "call_skill_changed",
-				Name:       "skill.read",
-				Arguments:  json.RawMessage(`{"name":"mail"}`),
-			},
-		},
-		final: "skill unavailable repair received",
-	}
-	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
-		Provider:     provider,
-		RuntimeToken: testRuntimeToken,
-		SkillRoots:   []string{root},
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-	if err := os.WriteFile(skillPath, []byte("GENESIS_PROVIDER_API_KEY=sk-replaced-secret\nno skill metadata"), 0o644); err != nil {
-		t.Fatalf("replace skill file: %v", err)
-	}
-
-	_, err = k.SubmitTurn(context.Background(), TurnRequest{
-		SessionID:  "skill-read-replaced-file",
-		InputItems: []InputItem{{Type: "text", Text: "try replaced skill read"}},
-	})
-	if err != nil {
-		t.Fatalf("SubmitTurn returned error: %v", err)
-	}
-	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
-	errorPayload := payload["error"].(map[string]interface{})
-	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "unsupported_tool" {
-		t.Fatalf("repair payload = %+v, want unsupported_tool", payload)
-	}
-}
-
-func TestSubmitTurnSkillReadUnavailableRepairDoesNotExposeInstructionPath(t *testing.T) {
-	root := t.TempDir()
-	skillPath := writeSkillForTest(t, root, "mail", "mail", "Send email through an installed CLI", "mail body")
-	provider := &toolFeedbackProvider{
-		calls: []ModelToolCall{
-			{
-				ToolCallID: "call_skill_deleted",
-				Name:       "skill.read",
-				Arguments:  json.RawMessage(`{"name":"mail"}`),
-			},
-		},
-		final: "skill deleted repair received",
-	}
-	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
-		Provider:     provider,
-		RuntimeToken: testRuntimeToken,
-		SkillRoots:   []string{root},
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-	if err := os.Remove(skillPath); err != nil {
-		t.Fatalf("remove skill file: %v", err)
-	}
-
-	_, err = k.SubmitTurn(context.Background(), TurnRequest{
-		SessionID:  "skill-read-deleted-file",
-		InputItems: []InputItem{{Type: "text", Text: "try deleted skill read"}},
-	})
-	if err != nil {
-		t.Fatalf("SubmitTurn returned error: %v", err)
-	}
-	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
-	errorPayload := payload["error"].(map[string]interface{})
-	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "unsupported_tool" {
-		t.Fatalf("repair payload = %+v, want unsupported_tool", payload)
-	}
-	message, _ := errorPayload["message"].(string)
-	for _, forbidden := range pathLeakVariants(skillPath) {
-		if strings.Contains(message, forbidden) {
-			t.Fatalf("repair message = %q, must not expose instruction path %q", message, forbidden)
-		}
-	}
-}
-
-func TestSubmitTurnReturnsRepairFeedbackForChangedSkillReadBatchBeforeShellEffect(t *testing.T) {
-	root := t.TempDir()
-	skillPath := writeSkillForTest(t, root, "mail", "mail", "Send email through an installed CLI", "mail body")
-	workspace := t.TempDir()
-	toolArgs, err := json.Marshal(map[string]string{
-		"cwd":     workspace,
-		"command": writeFileCommand("changed-skill-read-effect.txt", "effect"),
-	})
-	if err != nil {
-		t.Fatalf("marshal shell args: %v", err)
-	}
-	provider := &toolFeedbackProvider{
-		calls: []ModelToolCall{
-			{ToolCallID: "call_write_changed_skill", Name: "shell_exec", Arguments: json.RawMessage(toolArgs)},
-			{ToolCallID: "call_changed_skill", Name: "skill.read", Arguments: json.RawMessage(`{"name":"mail"}`)},
-		},
-		final: "changed skill repair received",
-	}
-	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
-		Provider:     provider,
-		RuntimeToken: testRuntimeToken,
-		SkillRoots:   []string{root},
-		ToolPolicy: ToolPolicy{
-			PermissionMode: PermissionModeDefault,
-			WorkspaceRoot:  workspace,
-		},
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-	if err := os.WriteFile(skillPath, []byte("GENESIS_PROVIDER_API_KEY=sk-replaced-secret\nno skill metadata"), 0o644); err != nil {
-		t.Fatalf("replace skill file: %v", err)
-	}
-
-	_, err = k.SubmitTurn(context.Background(), TurnRequest{
-		SessionID:  "changed-skill-read-batch",
-		InputItems: []InputItem{{Type: "text", Text: "try changed skill read with shell effect"}},
-	})
-	if err != nil {
-		t.Fatalf("SubmitTurn returned error: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(workspace, "changed-skill-read-effect.txt")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("changed skill batch created shell effect before rejecting skill.read; stat err=%v", err)
-	}
-	repairByCallID := toolRepairPayloadByCallID(t, provider.Requests()[1].ToolRounds[0].Results)
-	writeError := repairByCallID["call_write_changed_skill"]["error"].(map[string]interface{})
-	skillError := repairByCallID["call_changed_skill"]["error"].(map[string]interface{})
-	if writeError["code"] != "tool_batch_not_executed" || skillError["code"] != "unsupported_tool" {
-		t.Fatalf("repair payloads = %+v, want batch blocker plus unsupported_tool", repairByCallID)
-	}
-	projection, err := k.Session("changed-skill-read-batch")
-	if err != nil {
-		t.Fatalf("Session returned error: %v", err)
-	}
-	if len(projection.Operations) != 0 {
-		t.Fatalf("operations = %+v, want no executed effects for invalid skill.read batch", projection.Operations)
+	if shellSpec.InputSchema == nil {
+		t.Fatalf("shell_exec spec = %+v, want input schema", shellSpec)
 	}
 }
 
@@ -838,7 +602,7 @@ func writeMalformedSkillForTest(t *testing.T, root string, dir string) {
 type capturingProvider struct {
 	text       string
 	inputItems []ModelInputItem
-	tools      []ModelToolDescriptor
+	tools      []ToolSpec
 }
 
 func (p *capturingProvider) Name() string {
@@ -851,7 +615,7 @@ func (p *capturingProvider) Ready() ProviderStatus {
 
 func (p *capturingProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
 	p.inputItems = cloneModelInputItems(req.InputItems)
-	p.tools = append([]ModelToolDescriptor(nil), req.Tools...)
+	p.tools = append([]ToolSpec(nil), req.ToolManifest...)
 	return ModelResponse{
 		Text:  p.text,
 		Model: "capturing-model",
@@ -884,6 +648,15 @@ func (p *capturingProvider) ToolNames() []string {
 	return names
 }
 
+func (p *capturingProvider) ToolSpecByName(name string) (ToolSpec, bool) {
+	for _, tool := range p.tools {
+		if tool.Name == name {
+			return tool, true
+		}
+	}
+	return ToolSpec{}, false
+}
+
 type unsafeReadinessProvider struct {
 	name   string
 	reason string
@@ -905,12 +678,13 @@ func (p unsafeReadinessProvider) Complete(_ context.Context, _ ModelRequest) (Mo
 }
 
 func capabilityHasTool(tools []struct {
-	Name   string `json:"name"`
-	Kind   string `json:"kind"`
-	Status string `json:"status"`
+	Name            string `json:"name"`
+	SideEffectLevel string `json:"side_effect_level"`
+	ExecutionKind   string `json:"execution_kind"`
+	Status          string `json:"status"`
 }, name string) bool {
 	for _, tool := range tools {
-		if tool.Name == name && tool.Status == "ok" && tool.Kind != "" {
+		if tool.Name == name && tool.Status == "ok" && tool.SideEffectLevel != "" && tool.ExecutionKind != "" {
 			return true
 		}
 	}

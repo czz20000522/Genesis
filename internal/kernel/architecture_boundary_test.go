@@ -52,15 +52,15 @@ func TestArchitectureBoundarySemanticFieldsDoNotUseSecretRejector(t *testing.T) 
 
 func TestArchitectureBoundaryModelVisibleToolsStayGeneric(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
-	descriptors := k.modelToolDescriptors()
-	if len(descriptors) == 0 {
-		t.Fatal("model tool descriptors are empty")
+	manifest := k.toolGateway().ToolManifest()
+	if len(manifest) == 0 {
+		t.Fatal("model tool manifest is empty")
 	}
-	for _, descriptor := range descriptors {
-		if toolCapabilityKind(descriptor.Name) == "unknown" {
-			t.Fatalf("tool %q has no explicit capability kind", descriptor.Name)
+	for _, tool := range manifest {
+		if toolCapabilitySideEffectLevel(k.toolRegistry, tool.Name) == "unknown" {
+			t.Fatalf("tool %q has no explicit side-effect level", tool.Name)
 		}
-		visible := strings.ToLower(descriptor.Name + " " + descriptor.Description)
+		visible := strings.ToLower(tool.Name + " " + tool.Description)
 		for _, forbidden := range []string{
 			"feishu",
 			"lark",
@@ -70,22 +70,23 @@ func TestArchitectureBoundaryModelVisibleToolsStayGeneric(t *testing.T) {
 			"docx",
 		} {
 			if strings.Contains(visible, forbidden) {
-				t.Fatalf("model tool descriptor %q is application-specific: contains %q", descriptor.Name, forbidden)
+				t.Fatalf("model tool descriptor %q is application-specific: contains %q", tool.Name, forbidden)
 			}
 		}
 	}
 }
 
 func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
-	definitions := kernelToolDefinitions()
-	if len(definitions) == 0 {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	manifest := k.toolGateway().ToolManifest()
+	if len(manifest) == 0 {
 		t.Fatal("tool registry is empty")
 	}
 	seen := map[string]bool{}
-	for _, definition := range definitions {
-		name := strings.TrimSpace(definition.Descriptor.Name)
+	for _, spec := range manifest {
+		name := strings.TrimSpace(spec.Name)
 		if name == "" {
-			t.Fatalf("tool registry entry has empty name: %+v", definition)
+			t.Fatalf("tool registry entry has empty name: %+v", spec)
 		}
 		if strings.Contains(name, ".") {
 			t.Fatalf("tool %q uses a dotted id; canonical tool ids must be provider-safe", name)
@@ -94,80 +95,111 @@ func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
 			t.Fatalf("tool registry has duplicate tool name %q", name)
 		}
 		seen[name] = true
-		switch definition.Kind {
-		case ToolKindRead, ToolKindEffect:
+		switch spec.SideEffectLevel {
+		case ToolSideEffectRead, ToolSideEffectWrite:
 		default:
-			t.Fatalf("tool %q has invalid kind %q", name, definition.Kind)
+			t.Fatalf("tool %q has invalid side_effect_level %q", name, spec.SideEffectLevel)
+		}
+		if strings.TrimSpace(spec.ExecutionKind) == "" {
+			t.Fatalf("tool %q has no execution_kind", name)
+		}
+		if spec.InputSchema == nil {
+			t.Fatalf("tool %q has no model-visible parameter schema", name)
+		}
+		definition, ok := k.toolRegistry.Resolve(name)
+		if !ok {
+			t.Fatalf("registry could not resolve manifest tool %q", name)
 		}
 		if definition.Prepare == nil {
 			t.Fatalf("tool %q has no prepare/handler binding", name)
 		}
-		if definition.Descriptor.Parameters == nil {
-			t.Fatalf("tool %q has no model-visible parameter schema", name)
-		}
-		if got := toolCapabilityKind(name); got != definition.Kind {
-			t.Fatalf("toolCapabilityKind(%q) = %q, want registry kind %q", name, got, definition.Kind)
+		if got := toolCapabilitySideEffectLevel(k.toolRegistry, name); got != spec.SideEffectLevel {
+			t.Fatalf("toolCapabilitySideEffectLevel(%q) = %q, want registry level %q", name, got, spec.SideEffectLevel)
 		}
 	}
 }
 
 func TestArchitectureBoundaryCapabilitiesProjectFromToolRegistry(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
-	definitions := kernelToolDefinitions()
-	descriptors := k.modelToolDescriptors()
-	if len(descriptors) != len(definitions) {
-		t.Fatalf("descriptor count = %d, want registry count %d", len(descriptors), len(definitions))
-	}
-	for i, definition := range definitions {
-		if descriptors[i].Name != definition.Descriptor.Name {
-			t.Fatalf("descriptor[%d] = %q, want registry tool %q", i, descriptors[i].Name, definition.Descriptor.Name)
-		}
+	manifest := k.toolGateway().ToolManifest()
+	if len(manifest) == 0 {
+		t.Fatal("tool manifest is empty")
 	}
 
 	projections := k.toolCapabilityProjections()
-	if len(projections) != len(definitions) {
-		t.Fatalf("capability count = %d, want registry count %d", len(projections), len(definitions))
+	if len(projections) != len(manifest) {
+		t.Fatalf("capability count = %d, want registry count %d", len(projections), len(manifest))
 	}
-	for i, definition := range definitions {
-		if projections[i].Name != definition.Descriptor.Name || projections[i].Kind != definition.Kind {
-			t.Fatalf("capability[%d] = %+v, want registry tool %q kind %q", i, projections[i], definition.Descriptor.Name, definition.Kind)
+	for i, spec := range manifest {
+		if projections[i].Name != spec.Name || projections[i].SideEffectLevel != spec.SideEffectLevel || projections[i].ExecutionKind != spec.ExecutionKind {
+			t.Fatalf("capability[%d] = %+v, want registry tool %q level %q execution %q", i, projections[i], spec.Name, spec.SideEffectLevel, spec.ExecutionKind)
 		}
 	}
 }
 
-func TestArchitectureBoundaryAuthorityGateUsesToolKind(t *testing.T) {
-	shell, ok := lookupKernelTool("shell_exec")
+func TestArchitectureBoundaryAuthorityGateUsesToolSideEffectLevel(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	shell, ok := k.toolRegistry.Resolve("shell_exec")
 	if !ok {
 		t.Fatal("shell_exec is not registered")
 	}
 
-	blocked := authorizeKernelTool(ToolPolicy{PermissionMode: PermissionModePlan}, shell)
+	blocked := authorizeKernelTool(ToolPolicy{PermissionMode: PermissionModePlan}, shell.Spec)
 	if blocked.Allowed || blocked.Reason != "blocked_by_permission_mode=plan" {
 		t.Fatalf("plan shell decision = %+v, want blocked by permission mode", blocked)
 	}
-	allowedRead := authorizeKernelTool(ToolPolicy{PermissionMode: PermissionModePlan}, kernelToolDefinition{
-		Descriptor: ModelToolDescriptor{Name: "resource_read"},
-		Kind:       ToolKindRead,
+	allowedRead := authorizeKernelTool(ToolPolicy{PermissionMode: PermissionModePlan}, ToolSpec{
+		Name:            "resource_read",
+		SideEffectLevel: ToolSideEffectRead,
 	})
 	if !allowedRead.Allowed || allowedRead.Reason != "" {
 		t.Fatalf("plan read-tool decision = %+v, want read tool allowed", allowedRead)
 	}
 	for _, mode := range []string{PermissionModeDefault, PermissionModeYolo} {
-		decision := authorizeKernelTool(ToolPolicy{PermissionMode: mode}, shell)
+		decision := authorizeKernelTool(ToolPolicy{PermissionMode: mode}, shell.Spec)
 		if !decision.Allowed || decision.Reason != "" {
 			t.Fatalf("%s shell decision = %+v, want allowed by generic gate", mode, decision)
 		}
 	}
-	unknownMode := authorizeKernelTool(ToolPolicy{PermissionMode: "surprise"}, shell)
+	unknownMode := authorizeKernelTool(ToolPolicy{PermissionMode: "surprise"}, shell.Spec)
 	if unknownMode.Allowed || unknownMode.Reason != "unknown_permission_mode" {
 		t.Fatalf("unknown permission mode decision = %+v, want fail-closed unknown_permission_mode", unknownMode)
 	}
-	unknown := authorizeKernelTool(ToolPolicy{PermissionMode: PermissionModeYolo}, kernelToolDefinition{
-		Descriptor: ModelToolDescriptor{Name: "future.tool"},
-		Kind:       "unknown",
+	unknown := authorizeKernelTool(ToolPolicy{PermissionMode: PermissionModeYolo}, ToolSpec{
+		Name:            "future_tool",
+		SideEffectLevel: "unknown",
 	})
 	if unknown.Allowed || unknown.Reason != "unknown_tool_kind" {
 		t.Fatalf("unknown kind decision = %+v, want fail-closed unknown_tool_kind", unknown)
+	}
+}
+
+func TestArchitectureBoundaryToolRegistryRejectsIncompleteSpecs(t *testing.T) {
+	_, err := NewToolRegistry([]registeredTool{{
+		Spec: ToolSpec{
+			Name:            "bad.tool",
+			Description:     "bad dotted name",
+			InputSchema:     map[string]interface{}{"type": "object"},
+			SideEffectLevel: ToolSideEffectRead,
+			ExecutionKind:   ToolExecutionKindSandboxedProcess,
+		},
+		Prepare: (*Kernel).prepareShellExecToolCall,
+	}})
+	if err == nil {
+		t.Fatal("NewToolRegistry accepted a dotted tool id")
+	}
+
+	_, err = NewToolRegistry([]registeredTool{{
+		Spec: ToolSpec{
+			Name:            "missing_execution_kind",
+			Description:     "missing execution kind",
+			InputSchema:     map[string]interface{}{"type": "object"},
+			SideEffectLevel: ToolSideEffectRead,
+		},
+		Prepare: (*Kernel).prepareShellExecToolCall,
+	}})
+	if err == nil {
+		t.Fatal("NewToolRegistry accepted a tool without execution_kind")
 	}
 }
 

@@ -1,25 +1,59 @@
 package kernel
 
-import "encoding/json"
-
-const (
-	ToolKindRead   = "read"
-	ToolKindEffect = "effect"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 )
 
-type kernelToolDefinition struct {
-	Descriptor ModelToolDescriptor
-	Kind       string
-	Prepare    func(*Kernel, string, string, json.RawMessage) (preparedModelToolCall, error)
+const (
+	ToolSideEffectRead  = "read"
+	ToolSideEffectWrite = "write"
+
+	ToolExecutionKindSandboxedProcess = "sandboxed_process"
+)
+
+type registeredTool struct {
+	Spec    ToolSpec
+	Prepare func(*Kernel, string, string, json.RawMessage) (preparedModelToolCall, error)
 }
 
-func kernelToolDefinitions() []kernelToolDefinition {
-	return []kernelToolDefinition{
+type ToolRegistry struct {
+	tools map[string]registeredTool
+	order []string
+}
+
+func NewToolRegistry(tools []registeredTool) (*ToolRegistry, error) {
+	registry := &ToolRegistry{
+		tools: map[string]registeredTool{},
+		order: []string{},
+	}
+	for _, tool := range tools {
+		if err := validateRegisteredTool(tool); err != nil {
+			return nil, err
+		}
+		name := strings.TrimSpace(tool.Spec.Name)
+		if _, exists := registry.tools[name]; exists {
+			return nil, fmt.Errorf("duplicate tool %q", name)
+		}
+		registry.tools[name] = tool
+		registry.order = append(registry.order, name)
+	}
+	return registry, nil
+}
+
+func defaultToolRegistry() (*ToolRegistry, error) {
+	return NewToolRegistry(defaultKernelTools())
+}
+
+func defaultKernelTools() []registeredTool {
+	return []registeredTool{
 		{
-			Descriptor: ModelToolDescriptor{
+			Spec: ToolSpec{
 				Name:        "shell_exec",
 				Description: "Execute a small governed shell command. Permission mode and workspace root are controlled by the Genesis kernel.",
-				Parameters: map[string]interface{}{
+				InputSchema: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"command": map[string]interface{}{
@@ -34,35 +68,90 @@ func kernelToolDefinitions() []kernelToolDefinition {
 					"required":             []string{"command"},
 					"additionalProperties": false,
 				},
+				SideEffectLevel: ToolSideEffectWrite,
+				ExecutionKind:   ToolExecutionKindSandboxedProcess,
 			},
-			Kind:    ToolKindEffect,
 			Prepare: (*Kernel).prepareShellExecToolCall,
 		},
 	}
 }
 
-func lookupKernelTool(name string) (kernelToolDefinition, bool) {
-	for _, definition := range kernelToolDefinitions() {
-		if definition.Descriptor.Name == name {
-			return definition, true
-		}
+func validateRegisteredTool(tool registeredTool) error {
+	spec := tool.Spec
+	name := strings.TrimSpace(spec.Name)
+	if name == "" {
+		return errors.New("tool name is required")
 	}
-	return kernelToolDefinition{}, false
+	if strings.Contains(name, ".") {
+		return fmt.Errorf("tool %q uses a dotted id", name)
+	}
+	if strings.TrimSpace(spec.Description) == "" {
+		return fmt.Errorf("tool %q description is required", name)
+	}
+	if spec.InputSchema == nil {
+		return fmt.Errorf("tool %q input_schema is required", name)
+	}
+	switch spec.SideEffectLevel {
+	case ToolSideEffectRead, ToolSideEffectWrite:
+	default:
+		return fmt.Errorf("tool %q has invalid side_effect_level %q", name, spec.SideEffectLevel)
+	}
+	if strings.TrimSpace(spec.ExecutionKind) == "" {
+		return fmt.Errorf("tool %q execution_kind is required", name)
+	}
+	if tool.Prepare == nil {
+		return fmt.Errorf("tool %q has no executor binding", name)
+	}
+	return nil
 }
 
-func (k *Kernel) modelToolDescriptors() []ModelToolDescriptor {
-	definitions := kernelToolDefinitions()
-	descriptors := make([]ModelToolDescriptor, 0, len(definitions))
-	for _, definition := range definitions {
-		descriptors = append(descriptors, definition.Descriptor)
+func (r *ToolRegistry) Resolve(name string) (registeredTool, bool) {
+	if r == nil {
+		return registeredTool{}, false
 	}
-	return descriptors
+	tool, ok := r.tools[strings.TrimSpace(name)]
+	return tool, ok
 }
 
-func toolCapabilityKind(name string) string {
-	definition, ok := lookupKernelTool(name)
+func (r *ToolRegistry) Manifest() []ToolSpec {
+	if r == nil {
+		return nil
+	}
+	manifest := make([]ToolSpec, 0, len(r.order))
+	for _, name := range r.order {
+		manifest = append(manifest, r.tools[name].Spec)
+	}
+	return manifest
+}
+
+func (r *ToolRegistry) CapabilityProjections() []ToolCapabilityProjection {
+	if r == nil {
+		return nil
+	}
+	projections := make([]ToolCapabilityProjection, 0, len(r.order))
+	for _, name := range r.order {
+		spec := r.tools[name].Spec
+		projections = append(projections, ToolCapabilityProjection{
+			Name:            spec.Name,
+			SideEffectLevel: spec.SideEffectLevel,
+			ExecutionKind:   spec.ExecutionKind,
+			Status:          "ok",
+		})
+	}
+	return projections
+}
+
+func (k *Kernel) toolGateway() ToolGateway {
+	return ToolGateway{
+		kernel:   k,
+		registry: k.toolRegistry,
+	}
+}
+
+func toolCapabilitySideEffectLevel(registry *ToolRegistry, name string) string {
+	definition, ok := registry.Resolve(name)
 	if !ok {
 		return "unknown"
 	}
-	return definition.Kind
+	return definition.Spec.SideEffectLevel
 }

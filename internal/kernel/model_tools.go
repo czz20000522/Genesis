@@ -38,11 +38,24 @@ type preparedModelToolCall struct {
 	execute        func(context.Context, string, string) (ModelToolResult, error)
 }
 
-func (k *Kernel) prepareModelToolCalls(calls []ModelToolCall) ([]preparedModelToolCall, error) {
+type ToolGateway struct {
+	kernel   *Kernel
+	registry *ToolRegistry
+}
+
+func (g ToolGateway) ToolManifest() []ToolSpec {
+	return g.registry.Manifest()
+}
+
+func (g ToolGateway) CapabilityProjections() []ToolCapabilityProjection {
+	return g.registry.CapabilityProjections()
+}
+
+func (g ToolGateway) PrepareBatch(calls []ModelToolCall) ([]preparedModelToolCall, error) {
 	prepared := make([]preparedModelToolCall, 0, len(calls))
 	hasInvalidRequest := false
 	for _, call := range calls {
-		item, err := k.prepareModelToolCall(call)
+		item, err := g.prepareCall(call)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +80,7 @@ func (k *Kernel) prepareModelToolCalls(calls []ModelToolCall) ([]preparedModelTo
 	return prepared, nil
 }
 
-func (k *Kernel) prepareModelToolCall(call ModelToolCall) (preparedModelToolCall, error) {
+func (g ToolGateway) prepareCall(call ModelToolCall) (preparedModelToolCall, error) {
 	name := strings.TrimSpace(call.Name)
 	callID := strings.TrimSpace(call.ToolCallID)
 	if callID == "" {
@@ -76,11 +89,11 @@ func (k *Kernel) prepareModelToolCall(call ModelToolCall) (preparedModelToolCall
 	if err := validateIdempotencyKey(callID); err != nil {
 		return preparedModelToolCall{}, fmt.Errorf("%w: invalid tool_call_id: %v", ErrModelToolCallRejected, err)
 	}
-	definition, ok := lookupKernelTool(name)
+	definition, ok := g.registry.Resolve(name)
 	if !ok {
 		return invalidPreparedModelToolCall(callID, name, "unsupported_tool", fmt.Sprintf("unsupported tool %q", call.Name)), nil
 	}
-	return definition.Prepare(k, callID, name, call.Arguments)
+	return definition.Prepare(g.kernel, callID, name, call.Arguments)
 }
 
 func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
@@ -104,7 +117,7 @@ func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments 
 		callID: callID,
 		name:   name,
 		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
-			operation, err := k.execShell(ctx, ShellExecRequest{
+			operation, err := k.toolGateway().ExecShell(ctx, ShellExecRequest{
 				SessionID:      sessionID,
 				CWD:            args.CWD,
 				Command:        args.Command,
@@ -141,7 +154,7 @@ func decodeStrictModelToolArguments(tool string, arguments json.RawMessage, targ
 	return nil
 }
 
-func (k *Kernel) executePreparedModelToolCall(ctx context.Context, sessionID string, turnID string, prepared preparedModelToolCall) (ModelToolResult, error) {
+func (g ToolGateway) Execute(ctx context.Context, sessionID string, turnID string, prepared preparedModelToolCall) (ModelToolResult, error) {
 	if prepared.requestInvalid != nil {
 		content, err := json.Marshal(prepared.requestInvalid)
 		if err != nil {

@@ -5,11 +5,11 @@ type toolAuthorizationDecision struct {
 	Reason  string
 }
 
-func authorizeKernelTool(policy ToolPolicy, definition kernelToolDefinition) toolAuthorizationDecision {
-	switch definition.Kind {
-	case ToolKindRead:
+func authorizeKernelTool(policy ToolPolicy, spec ToolSpec) toolAuthorizationDecision {
+	switch spec.SideEffectLevel {
+	case ToolSideEffectRead:
 		return toolAuthorizationDecision{Allowed: true}
-	case ToolKindEffect:
+	case ToolSideEffectWrite:
 		switch policy.PermissionMode {
 		case PermissionModePlan:
 			return toolAuthorizationDecision{Reason: "blocked_by_permission_mode=plan"}
