@@ -248,6 +248,56 @@ func TestArchitectureBoundaryShellRuntimeHasNoApplicationAliases(t *testing.T) {
 	}
 }
 
+func TestArchitectureBoundaryKernelIssuesRequireReferenceAlignment(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join(kernelPackageDir(t), "..", ".."))
+	activeIssues := readRepoText(t, repoRoot, "docs", "operations", "kernel-issues.md")
+	for _, issue := range markdownIssueSections(activeIssues) {
+		if !strings.HasPrefix(issue.id, "KERNEL-") {
+			continue
+		}
+		if !strings.Contains(issue.body, "\n- Reference alignment:") {
+			t.Fatalf("active kernel issue %s has no Reference alignment field", issue.id)
+		}
+	}
+
+	retirementLog := readRepoText(t, repoRoot, "docs", "operations", "kernel-retirement-log.md")
+	for _, issue := range markdownIssueSections(retirementLog) {
+		if !strings.HasPrefix(issue.id, "KERNEL-BOUNDARY-") {
+			continue
+		}
+		if !strings.Contains(issue.body, "\n- Reference alignment:") {
+			t.Fatalf("retirement log boundary issue %s has no Reference alignment field", issue.id)
+		}
+	}
+}
+
+type markdownIssueSection struct {
+	id   string
+	body string
+}
+
+func readRepoText(t *testing.T, repoRoot string, pathParts ...string) string {
+	t.Helper()
+	payload, err := os.ReadFile(filepath.Join(append([]string{repoRoot}, pathParts...)...))
+	if err != nil {
+		t.Fatalf("read %s: %v", filepath.Join(pathParts...), err)
+	}
+	return string(payload)
+}
+
+func markdownIssueSections(payload string) []markdownIssueSection {
+	var sections []markdownIssueSection
+	for _, part := range strings.Split(payload, "\n### ")[1:] {
+		heading, body, _ := strings.Cut(part, "\n")
+		id := strings.Fields(heading)
+		if len(id) == 0 {
+			continue
+		}
+		sections = append(sections, markdownIssueSection{id: id[0], body: "\n" + body})
+	}
+	return sections
+}
+
 func assertNoApplicationSpecificTerm(t *testing.T, subject string, content string) {
 	t.Helper()
 	visible := strings.ToLower(content)

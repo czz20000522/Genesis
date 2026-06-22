@@ -11,6 +11,7 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Do not add versioned HTTP route names as current contracts. HTTP is transport; current kernel endpoints are unversioned.
 - `ready_for_acceptance` issues move to the retirement log as retirement candidates and leave this active ledger.
 - Feishu/Base links may point to collaboration artifacts, but this repo must contain enough evidence to understand the current status without opening Feishu.
+- Every active `KERNEL-*` issue must include a `Reference alignment` field that compares the issue to Codex, Reasonix, or an explicitly rejected drift risk.
 
 ## Active Issues
 
@@ -65,9 +66,10 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 - Priority: P1
 - Area: Architecture governance
-- Status: new
+- Status: in_progress
 - Title: Kernel changes need reference-alignment notes against Codex and Reasonix
 - Problem: The unsupported-tool-name drift was caught by product review, not by implementation review. Without a repeatable reference-alignment gate, Genesis can keep adding features that resemble Codex/Reasonix names while violating their underlying design ideas.
 - Reference alignment: Codex is the reference for terminal-equivalent tool results, approval/sandbox rigor, and protocol separation. Reasonix is the reference for registry-driven provider/tool/plugin loading and frontend-agnostic control. Genesis must compare ideas, not maturity.
 - Expected behavior: Each non-trivial kernel feature or boundary change records whether it is aligned with Codex, aligned with Reasonix, intentionally different, or a known drift risk with follow-up issue.
+- Current progress: Architecture tests now require every active `KERNEL-*` issue to include a `Reference alignment` field and require future `KERNEL-BOUNDARY-*` retirement entries to retain that field.
 - Verification: Issue and retirement records include a `Reference alignment` paragraph for kernel boundary changes; architecture tests cover the most important recurring drift classes rather than relying on ad hoc review memory.
