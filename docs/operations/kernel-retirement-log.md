@@ -7,10 +7,43 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - `ready_for_acceptance` means the code and verification evidence are ready for user or operator acceptance, but the issue is not fully retired yet.
 - `retired` means the user or operator accepted the evidence. A retired issue must be absent from `kernel-issues.md`.
 - Every entry must include the issue id, title, fixing commits, verification evidence, residual risk, and retirement reason or retirement condition.
-- Every `KERNEL-BOUNDARY-*` entry must retain its `Reference alignment` field when moved from the active ledger.
+- Every `KERNEL-BOUNDARY-*` entry and every architecture-type `KERNEL-*` entry must retain either `Reference alignment` or `Rejected drift risk` when moved from the active ledger.
 - If an entry is reopened, move it back to `kernel-issues.md` and mark this log entry as reopened with the reason.
 
 ## Ready For Acceptance
+
+### KERNEL-PROVIDER-CONTEXT-SESSION-HISTORY-20260622 - P1 - Provider context must define and preserve same-session conversation history
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `ad05c9950`.
+- Reference alignment: Codex keeps conversation state inside the core thread/session context rather than asking shells to resend history, and Reasonix keeps frontend inputs behind a controller-owned context boundary. Genesis now projects same-session completed conversation history from the ledger through `ProviderContextProjection` instead of letting WebUI, provider commands, or external daemons synthesize model-visible history.
+- Evidence: `ProviderContextProjection` now prepends a `conversation_history_context` model input fragment built from completed prior turns in the same session. `turn.submitted` records `model_input_kinds` including the history kind when history exists. The projection still omits event ids, operation ids, permission mode, audit fields, raw stdout, and raw stderr. `docs/kernel-contract.md` now states that session history is Model Gateway-owned and shells must not build their own model-visible history.
+- Verification: `TestSubmitTurnProviderContextIncludesSameSessionHistory`; `D:\software\Go\bin\go.exe test ./internal/kernel -run "TestSubmitTurnProviderContextIncludesSameSessionHistory|TestResolveProviderConfigFromGenesisRejectsSecretCommandEnvironment|TestArchitectureBoundaryKernelIssuesRequireReferenceAlignment" -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `CGO_ENABLED=1 D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`; route version scan returned no matches.
+- Acceptance condition: reviewer confirms `session_id` is a model-context container owned by the kernel, and no shell/adapter/daemon needs to reconstruct same-session conversation history for the provider.
+- Residual risk: the first history projection records completed user/assistant turns as bounded text context. Richer prior tool visibility, compression, and window policy remain future Model Gateway work and must extend the same projection owner.
+
+### KERNEL-PROVIDER-COMMAND-ENV-CREDENTIAL-BOUNDARY-20260622 - P1 - provider_command env must not bypass credential plane
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `ad05c9950`.
+- Reference alignment: Codex separates credentials and process environment policy from model-visible tool/context state, and Reasonix treats provider configuration as typed runtime config rather than an unbounded secret channel. Genesis now allows provider-command env only for non-sensitive adapter configuration while keeping provider credentials in the credential plane or in the external command's own identity environment.
+- Evidence: `validateProviderCommandEnv` rejects secret-shaped env names and values before direct provider-command readiness or Genesis `models.json` resolution can pass them to a provider process. `ProviderConfigReason` returns `provider_command_env_secret_rejected`; direct daemon provider selection reports the same structured readiness blocker. README and `docs/kernel-contract.md` now document that `-provider-command-env` is for non-sensitive profile/route-style settings only.
+- Verification: `TestResolveProviderConfigFromGenesisRejectsSecretCommandEnvironment`; `TestBuildProviderBlocksSecretShapedCommandEnvironment`; `TestBuildProviderCanPassExplicitCommandEnvironment`; `D:\software\Go\bin\go.exe test ./cmd/genesisd -run "TestBuildProviderBlocksSecretShapedCommandEnvironment|TestBuildProviderCanPassExplicitCommandEnvironment" -count=1`; focused kernel tests; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `CGO_ENABLED=1 D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
+- Acceptance condition: reviewer confirms provider-command env is not a credential transport and that real provider API keys still use `secret://...` credential store or the external adapter's own secure runtime environment.
+- Residual risk: this is a conservative syntactic guard for Genesis-owned config and daemon flags. External provider commands can still read their own host environment; that remains outside the kernel and must be governed by the adapter/operator.
+
+### KERNEL-ARCHITECTURE-REFERENCE-GUARD-20260622 - P1 - reference-alignment governance guard should not be removed
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `ad05c9950`.
+- Reference alignment: Codex and Reasonix are external control-plane reference implementations for provider context, tool boundaries, event recovery, and shell/application separation. Genesis now keeps a lightweight executable guard requiring active kernel issues and architecture retirements to retain reference-alignment or explicit drift-risk evidence, without making the test a prose-quality judge.
+- Evidence: `TestArchitectureBoundaryKernelIssuesRequireReferenceAlignment` was restored as a structure guard. It scans active `docs/operations/kernel-issues.md` `KERNEL-*` records and architecture-type or `KERNEL-BOUNDARY-*` retirement entries for `Reference alignment` or `Rejected drift risk`. `docs/operations/kernel-retirement-log.md` rules now match that scope instead of only mentioning `KERNEL-BOUNDARY-*`.
+- Verification: `TestArchitectureBoundaryKernelIssuesRequireReferenceAlignment`; focused kernel architecture tests; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `CGO_ENABLED=1 D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
+- Acceptance condition: reviewer confirms architecture governance remains executable while avoiding a permanent test that locks historical issue wording or demands reference text for non-architecture maintenance entries.
+- Residual risk: the guard checks structure, not the quality of the reference comparison. Human review still has to reject superficial or incorrect comparisons.
 
 ### KERNEL-PROVIDER-GATEWAY-EVENT-PROJECTION-20260622 - P1 - Provider gateway should be driven by provider-visible event projection
 
