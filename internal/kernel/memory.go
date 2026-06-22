@@ -8,9 +8,10 @@ import (
 )
 
 const (
-	MemoryCandidatePending  = "pending"
-	MemoryCandidateApproved = "approved"
-	MemoryCandidateRejected = "rejected"
+	MemoryCandidatePending    = "pending"
+	MemoryCandidateApproved   = "approved"
+	MemoryCandidateRejected   = "rejected"
+	MemoryCandidateSuperseded = "superseded"
 )
 
 var ErrMemoryCandidateNotFound = errors.New("memory candidate not found")
@@ -69,6 +70,9 @@ func (k *Kernel) ApproveMemoryCandidate(candidateID string, req MemoryApprovalRe
 	if candidate.Status == MemoryCandidateRejected {
 		return MemoryCandidateProjection{}, errors.New("rejected memory candidate cannot be approved")
 	}
+	if candidate.Status == MemoryCandidateSuperseded {
+		return MemoryCandidateProjection{}, errors.New("superseded memory candidate cannot be approved")
+	}
 	now := k.clock()
 	candidate.Status = MemoryCandidateApproved
 	candidate.ApprovalAuthority = strings.TrimSpace(req.ApprovalAuthority)
@@ -116,6 +120,9 @@ func (k *Kernel) RejectMemoryCandidate(candidateID string, req MemoryRejectionRe
 	if candidate.Status == MemoryCandidateApproved {
 		return MemoryCandidateProjection{}, errors.New("approved memory candidate cannot be rejected")
 	}
+	if candidate.Status == MemoryCandidateSuperseded {
+		return MemoryCandidateProjection{}, errors.New("superseded memory candidate cannot be rejected")
+	}
 	now := k.clock()
 	candidate.Status = MemoryCandidateRejected
 	candidate.RejectionAuthority = strings.TrimSpace(req.RejectionAuthority)
@@ -138,9 +145,63 @@ func (k *Kernel) RejectMemoryCandidate(candidateID string, req MemoryRejectionRe
 	return candidate, nil
 }
 
+func (k *Kernel) SupersedeMemoryCandidate(candidateID string, req MemorySupersessionRequest) (MemorySupersessionProjection, error) {
+	candidateID = strings.TrimSpace(candidateID)
+	if candidateID == "" {
+		return MemorySupersessionProjection{}, errors.New("candidate id is required")
+	}
+	if err := validateMemorySupersessionRequest(req); err != nil {
+		return MemorySupersessionProjection{}, err
+	}
+	k.memoryReviewMu.Lock()
+	defer k.memoryReviewMu.Unlock()
+
+	candidates, err := k.memoryCandidates()
+	if err != nil {
+		return MemorySupersessionProjection{}, err
+	}
+	candidate, ok := candidates[candidateID]
+	if !ok {
+		return MemorySupersessionProjection{}, ErrMemoryCandidateNotFound
+	}
+	if candidate.Status == MemoryCandidateSuperseded {
+		return existingMemorySupersession(candidate, candidates)
+	}
+	now := k.clock()
+	replacement := MemoryCandidateProjection{
+		CandidateID: newID("mem", now),
+		SessionID:   candidate.SessionID,
+		Text:        strings.TrimSpace(req.ReplacementText),
+		SourceRef:   strings.TrimSpace(req.ReplacementSourceRef),
+		Status:      MemoryCandidatePending,
+		CreatedAt:   now,
+	}
+	candidate.Status = MemoryCandidateSuperseded
+	candidate.SupersessionAuthority = strings.TrimSpace(req.SupersessionAuthority)
+	candidate.SupersessionReason = strings.TrimSpace(req.SupersessionReason)
+	candidate.SupersessionEvidenceRef = strings.TrimSpace(req.SupersessionEvidenceRef)
+	candidate.ReplacementCandidateID = replacement.CandidateID
+	candidate.SupersededAt = &now
+	event := StoredEvent{
+		EventID:     newID("evt", now),
+		SessionID:   candidate.SessionID,
+		CandidateID: candidate.CandidateID,
+		Type:        "memory.candidate.superseded",
+		CreatedAt:   now,
+		Data: EventData{
+			MemoryCandidate:            &candidate,
+			ReplacementMemoryCandidate: &replacement,
+		},
+	}
+	if err := k.appendEvent(event); err != nil {
+		return MemorySupersessionProjection{}, err
+	}
+	return MemorySupersessionProjection{Superseded: candidate, Replacement: replacement}, nil
+}
+
 func (k *Kernel) MemoryCandidates(status string) ([]MemoryCandidateProjection, error) {
 	status = strings.TrimSpace(status)
-	if status != "" && status != MemoryCandidatePending && status != MemoryCandidateApproved && status != MemoryCandidateRejected {
+	if status != "" && status != MemoryCandidatePending && status != MemoryCandidateApproved && status != MemoryCandidateRejected && status != MemoryCandidateSuperseded {
 		return nil, fmt.Errorf("unsupported memory candidate status %q", status)
 	}
 	candidates, _, err := k.memoryCandidateList()
@@ -214,6 +275,25 @@ func validateMemoryRejectionRequest(req MemoryRejectionRequest) error {
 	return nil
 }
 
+func validateMemorySupersessionRequest(req MemorySupersessionRequest) error {
+	if strings.TrimSpace(req.ReplacementText) == "" {
+		return errors.New("replacement_text is required")
+	}
+	if strings.TrimSpace(req.ReplacementSourceRef) == "" {
+		return errors.New("replacement_source_ref is required")
+	}
+	if strings.TrimSpace(req.SupersessionAuthority) == "" {
+		return errors.New("supersession_authority is required")
+	}
+	if strings.TrimSpace(req.SupersessionReason) == "" {
+		return errors.New("supersession_reason is required")
+	}
+	if strings.TrimSpace(req.SupersessionEvidenceRef) == "" {
+		return errors.New("supersession_evidence_ref is required")
+	}
+	return nil
+}
+
 func (k *Kernel) memoryCandidates() (map[string]MemoryCandidateProjection, error) {
 	_, candidates, err := k.memoryCandidateList()
 	return candidates, err
@@ -231,18 +311,26 @@ func (k *Kernel) memoryCandidateList() ([]MemoryCandidateProjection, map[string]
 			continue
 		}
 		switch event.Type {
-		case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected":
-			candidate := *event.Data.MemoryCandidate
-			if candidate.CandidateID == "" {
-				candidate.CandidateID = event.CandidateID
+		case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected", "memory.candidate.superseded":
+			candidate, err := candidateFromEvent(event, event.Data.MemoryCandidate, event.CandidateID)
+			if err != nil {
+				return nil, nil, err
 			}
-			if candidate.CandidateID == "" {
-				return nil, nil, fmt.Errorf("%s event missing candidate id", event.Type)
+			if err := recordMemoryCandidate(candidate, candidates, &order); err != nil {
+				return nil, nil, err
 			}
-			if _, exists := candidates[candidate.CandidateID]; !exists {
-				order = append(order, candidate.CandidateID)
+			if event.Type == "memory.candidate.superseded" {
+				if event.Data.ReplacementMemoryCandidate == nil {
+					return nil, nil, errors.New("superseded memory candidate missing replacement candidate")
+				}
+				replacement, err := candidateFromEvent(event, event.Data.ReplacementMemoryCandidate, "")
+				if err != nil {
+					return nil, nil, err
+				}
+				if err := recordMemoryCandidate(replacement, candidates, &order); err != nil {
+					return nil, nil, err
+				}
 			}
-			candidates[candidate.CandidateID] = candidate
 		}
 	}
 	ordered := make([]MemoryCandidateProjection, 0, len(order))
@@ -250,6 +338,99 @@ func (k *Kernel) memoryCandidateList() ([]MemoryCandidateProjection, map[string]
 		ordered = append(ordered, candidates[candidateID])
 	}
 	return ordered, candidates, nil
+}
+
+func candidateFromEvent(event StoredEvent, candidateRef *MemoryCandidateProjection, fallbackCandidateID string) (MemoryCandidateProjection, error) {
+	candidate := *candidateRef
+	if candidate.CandidateID == "" {
+		candidate.CandidateID = fallbackCandidateID
+	}
+	if candidate.CandidateID == "" {
+		return MemoryCandidateProjection{}, fmt.Errorf("%s event missing candidate id", event.Type)
+	}
+	return candidate, nil
+}
+
+func recordMemoryCandidate(candidate MemoryCandidateProjection, candidates map[string]MemoryCandidateProjection, order *[]string) error {
+	current, exists := candidates[candidate.CandidateID]
+	merged, err := mergeMemoryCandidateProjection(current, candidate, exists)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		*order = append(*order, candidate.CandidateID)
+	}
+	candidates[candidate.CandidateID] = merged
+	return nil
+}
+
+func mergeMemoryCandidateProjection(current MemoryCandidateProjection, incoming MemoryCandidateProjection, exists bool) (MemoryCandidateProjection, error) {
+	if !exists {
+		return incoming, nil
+	}
+	if current.Status == MemoryCandidateSuperseded {
+		if incoming.Status == MemoryCandidateSuperseded && sameMemorySupersessionDecision(current, incoming) {
+			return current, nil
+		}
+		return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
+	}
+	switch incoming.Status {
+	case MemoryCandidateSuperseded:
+		return incoming, nil
+	case MemoryCandidateApproved:
+		if current.Status == MemoryCandidateRejected {
+			return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
+		}
+		if current.Status == MemoryCandidateApproved && !sameMemoryApprovalDecision(current, incoming) {
+			return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
+		}
+		return incoming, nil
+	case MemoryCandidateRejected:
+		if current.Status == MemoryCandidateApproved {
+			return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
+		}
+		if current.Status == MemoryCandidateRejected && !sameMemoryRejectionDecision(current, incoming) {
+			return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
+		}
+		return incoming, nil
+	case MemoryCandidatePending:
+		if current.Status == MemoryCandidateApproved || current.Status == MemoryCandidateRejected {
+			return current, nil
+		}
+		return incoming, nil
+	default:
+		return incoming, nil
+	}
+}
+
+func sameMemoryApprovalDecision(left MemoryCandidateProjection, right MemoryCandidateProjection) bool {
+	return left.ApprovalAuthority == right.ApprovalAuthority &&
+		left.ApprovalReason == right.ApprovalReason &&
+		left.ApprovalEvidenceRef == right.ApprovalEvidenceRef
+}
+
+func sameMemoryRejectionDecision(left MemoryCandidateProjection, right MemoryCandidateProjection) bool {
+	return left.RejectionAuthority == right.RejectionAuthority &&
+		left.RejectionReason == right.RejectionReason &&
+		left.RejectionEvidenceRef == right.RejectionEvidenceRef
+}
+
+func sameMemorySupersessionDecision(left MemoryCandidateProjection, right MemoryCandidateProjection) bool {
+	return left.SupersessionAuthority == right.SupersessionAuthority &&
+		left.SupersessionReason == right.SupersessionReason &&
+		left.SupersessionEvidenceRef == right.SupersessionEvidenceRef &&
+		left.ReplacementCandidateID == right.ReplacementCandidateID
+}
+
+func existingMemorySupersession(candidate MemoryCandidateProjection, candidates map[string]MemoryCandidateProjection) (MemorySupersessionProjection, error) {
+	if strings.TrimSpace(candidate.ReplacementCandidateID) == "" {
+		return MemorySupersessionProjection{}, errors.New("superseded memory candidate missing replacement id")
+	}
+	replacement, ok := candidates[candidate.ReplacementCandidateID]
+	if !ok {
+		return MemorySupersessionProjection{}, errors.New("superseded memory candidate replacement not found")
+	}
+	return MemorySupersessionProjection{Superseded: candidate, Replacement: replacement}, nil
 }
 
 func (k *Kernel) recallMemories(items []InputItem) ([]MemoryRecall, error) {

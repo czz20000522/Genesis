@@ -284,18 +284,48 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 			}
 			workByID[work.WorkID] = len(projection.Works)
 			projection.Works = append(projection.Works, work)
-		case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected":
+		case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected", "memory.candidate.superseded":
 			if event.Data.MemoryCandidate == nil {
 				continue
 			}
 			candidate := *event.Data.MemoryCandidate
+			if candidate.CandidateID == "" {
+				candidate.CandidateID = event.CandidateID
+			}
+			if candidate.CandidateID == "" {
+				return projection, fmt.Errorf("%s event missing candidate id", event.Type)
+			}
 			idx, ok := candidateByID[candidate.CandidateID]
 			if ok {
-				projection.MemoryCandidates[idx] = candidate
-				continue
+				merged, err := mergeMemoryCandidateProjection(projection.MemoryCandidates[idx], candidate, true)
+				if err != nil {
+					return projection, err
+				}
+				projection.MemoryCandidates[idx] = merged
+			} else {
+				candidateByID[candidate.CandidateID] = len(projection.MemoryCandidates)
+				projection.MemoryCandidates = append(projection.MemoryCandidates, candidate)
 			}
-			candidateByID[candidate.CandidateID] = len(projection.MemoryCandidates)
-			projection.MemoryCandidates = append(projection.MemoryCandidates, candidate)
+			if event.Type == "memory.candidate.superseded" {
+				if event.Data.ReplacementMemoryCandidate == nil {
+					return projection, errors.New("superseded memory candidate missing replacement candidate")
+				}
+				replacement := *event.Data.ReplacementMemoryCandidate
+				if replacement.CandidateID == "" {
+					return projection, fmt.Errorf("%s event missing replacement candidate id", event.Type)
+				}
+				idx, ok := candidateByID[replacement.CandidateID]
+				if ok {
+					merged, err := mergeMemoryCandidateProjection(projection.MemoryCandidates[idx], replacement, true)
+					if err != nil {
+						return projection, err
+					}
+					projection.MemoryCandidates[idx] = merged
+					continue
+				}
+				candidateByID[replacement.CandidateID] = len(projection.MemoryCandidates)
+				projection.MemoryCandidates = append(projection.MemoryCandidates, replacement)
+			}
 		}
 	}
 	if len(projection.Events) == 0 {

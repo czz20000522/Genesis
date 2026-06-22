@@ -2159,6 +2159,319 @@ func TestHTTPApprovedMemoryCandidateCannotBeRejected(t *testing.T) {
 	}
 }
 
+func TestHTTPMemoryCandidateSupersedeCreatesPendingReplacementAfterRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+
+	candidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-supersede-source",
+		Text:      "我偏好中文回答",
+		SourceRef: "turn:http-memory-supersede-source",
+	})
+	approvalPayload, err := json.Marshal(testApprovalRequest("approval:supersede-source"))
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	approveResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/approve", approvalPayload)
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve status = %d, want 200", approveResp.StatusCode)
+	}
+
+	supersedeResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/supersede", []byte(`{"replacement_text":"我偏好英文回答","replacement_source_ref":"review:supersede-replacement","supersession_authority":"runtime:test","supersession_reason":"user corrected preference","supersession_evidence_ref":"review:supersede-memory"}`))
+	if err != nil {
+		t.Fatalf("POST supersede failed: %v", err)
+	}
+	defer supersedeResp.Body.Close()
+	if supersedeResp.StatusCode != http.StatusOK {
+		t.Fatalf("supersede status = %d, want 200", supersedeResp.StatusCode)
+	}
+	var supersession MemorySupersessionProjection
+	if err := json.NewDecoder(supersedeResp.Body).Decode(&supersession); err != nil {
+		t.Fatalf("decode supersession response: %v", err)
+	}
+	if supersession.Superseded.Status != MemoryCandidateSuperseded ||
+		supersession.Superseded.ReplacementCandidateID == "" ||
+		supersession.Superseded.SupersessionEvidenceRef != "review:supersede-memory" {
+		t.Fatalf("superseded candidate = %+v, want superseded evidence and replacement id", supersession.Superseded)
+	}
+	if supersession.Replacement.Status != MemoryCandidatePending ||
+		supersession.Replacement.CandidateID == candidate.CandidateID ||
+		supersession.Replacement.Text != "我偏好英文回答" ||
+		supersession.Replacement.SourceRef != "review:supersede-replacement" {
+		t.Fatalf("replacement candidate = %+v, want pending replacement candidate", supersession.Replacement)
+	}
+	server.Close()
+
+	restarted := newTestKernel(t, ledgerPath)
+	restartedServer := httptest.NewServer(Handler(restarted))
+	defer restartedServer.Close()
+
+	readOriginalResp, err := getWithAuth(restartedServer.URL + "/memory/candidates/" + candidate.CandidateID)
+	if err != nil {
+		t.Fatalf("GET original candidate failed: %v", err)
+	}
+	defer readOriginalResp.Body.Close()
+	if readOriginalResp.StatusCode != http.StatusOK {
+		t.Fatalf("read original status = %d, want 200", readOriginalResp.StatusCode)
+	}
+	var original MemoryCandidateProjection
+	if err := json.NewDecoder(readOriginalResp.Body).Decode(&original); err != nil {
+		t.Fatalf("decode original: %v", err)
+	}
+	if original.Status != MemoryCandidateSuperseded || original.ReplacementCandidateID != supersession.Replacement.CandidateID {
+		t.Fatalf("original after restart = %+v, want superseded with replacement id", original)
+	}
+
+	readReplacementResp, err := getWithAuth(restartedServer.URL + "/memory/candidates/" + supersession.Replacement.CandidateID)
+	if err != nil {
+		t.Fatalf("GET replacement candidate failed: %v", err)
+	}
+	defer readReplacementResp.Body.Close()
+	if readReplacementResp.StatusCode != http.StatusOK {
+		t.Fatalf("read replacement status = %d, want 200", readReplacementResp.StatusCode)
+	}
+	var replacement MemoryCandidateProjection
+	if err := json.NewDecoder(readReplacementResp.Body).Decode(&replacement); err != nil {
+		t.Fatalf("decode replacement: %v", err)
+	}
+	if replacement.Status != MemoryCandidatePending {
+		t.Fatalf("replacement status = %q, want pending", replacement.Status)
+	}
+
+	oldTurn, err := restarted.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "http-memory-supersede-old-consumer",
+		InputItems: []InputItem{{Type: "text", Text: "你记得我的中文回答偏好吗？"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn old query returned error: %v", err)
+	}
+	if strings.Contains(oldTurn.Final.Text, "我偏好中文回答") || strings.Contains(oldTurn.Final.Text, "我偏好英文回答") {
+		t.Fatalf("final text = %q, want no superseded or pending replacement recall", oldTurn.Final.Text)
+	}
+	oldProjection, err := restarted.Session("http-memory-supersede-old-consumer")
+	if err != nil {
+		t.Fatalf("old consumer Session returned error: %v", err)
+	}
+	if len(oldProjection.Turns) != 1 || len(oldProjection.Turns[0].RecalledMemories) != 0 {
+		t.Fatalf("old recalled memories = %+v, want none", oldProjection.Turns)
+	}
+
+	approveReplacementPayload, err := json.Marshal(testApprovalRequest("approval:supersede-replacement"))
+	if err != nil {
+		t.Fatalf("marshal replacement approval: %v", err)
+	}
+	approveReplacementResp, err := postJSONWithAuth(restartedServer.URL+"/memory/candidates/"+replacement.CandidateID+"/approve", approveReplacementPayload)
+	if err != nil {
+		t.Fatalf("POST replacement approve failed: %v", err)
+	}
+	approveReplacementResp.Body.Close()
+	if approveReplacementResp.StatusCode != http.StatusOK {
+		t.Fatalf("replacement approve status = %d, want 200", approveReplacementResp.StatusCode)
+	}
+
+	newTurn, err := restarted.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "http-memory-supersede-new-consumer",
+		InputItems: []InputItem{{Type: "text", Text: "你记得我的英文回答偏好吗？"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn new query returned error: %v", err)
+	}
+	if !strings.Contains(newTurn.Final.Text, "我偏好英文回答") || strings.Contains(newTurn.Final.Text, "我偏好中文回答") {
+		t.Fatalf("final text = %q, want approved replacement recall only", newTurn.Final.Text)
+	}
+}
+
+func TestSupersedeMemoryCandidateIsIdempotentWithoutAppendingDuplicateReplacement(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
+		SessionID: "memory-supersede-idempotent",
+		Text:      "old candidate",
+		SourceRef: "turn:memory-supersede-idempotent",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemoryCandidate returned error: %v", err)
+	}
+	first, err := k.SupersedeMemoryCandidate(candidate.CandidateID, MemorySupersessionRequest{
+		ReplacementText:         "replacement candidate",
+		ReplacementSourceRef:    "review:first-supersede-source",
+		SupersessionAuthority:   "runtime:test",
+		SupersessionReason:      "first supersede",
+		SupersessionEvidenceRef: "review:first-supersede",
+	})
+	if err != nil {
+		t.Fatalf("first SupersedeMemoryCandidate returned error: %v", err)
+	}
+	second, err := k.SupersedeMemoryCandidate(candidate.CandidateID, MemorySupersessionRequest{
+		ReplacementText:         "different replacement must not replace",
+		ReplacementSourceRef:    "review:second-supersede-source",
+		SupersessionAuthority:   "runtime:test",
+		SupersessionReason:      "second supersede",
+		SupersessionEvidenceRef: "review:second-supersede",
+	})
+	if err != nil {
+		t.Fatalf("second SupersedeMemoryCandidate returned error: %v", err)
+	}
+	if second.Superseded.SupersessionEvidenceRef != first.Superseded.SupersessionEvidenceRef ||
+		second.Replacement.CandidateID != first.Replacement.CandidateID ||
+		second.Replacement.Text != first.Replacement.Text {
+		t.Fatalf("second supersession = %+v, want original %+v", second, first)
+	}
+
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	supersedeEvents := 0
+	for _, event := range events {
+		if event.Type == "memory.candidate.superseded" && event.CandidateID == candidate.CandidateID {
+			supersedeEvents++
+		}
+	}
+	if supersedeEvents != 1 {
+		t.Fatalf("supersede event count = %d, want 1", supersedeEvents)
+	}
+}
+
+func TestHTTPMemoryCandidateSupersedeRejectsMissingEvidence(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	resp, err := postJSONWithAuth(server.URL+"/memory/candidates/anything/supersede", []byte(`{"supersession_authority":"runtime:test"}`))
+	if err != nil {
+		t.Fatalf("POST supersede failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestMemoryReplayRejectsReviewAfterSupersede(t *testing.T) {
+	createdAt := time.Date(2026, 6, 22, 3, 0, 0, 0, time.UTC)
+	supersededAt := createdAt.Add(time.Minute)
+	approvedAt := createdAt.Add(2 * time.Minute)
+	original := MemoryCandidateProjection{
+		CandidateID: "mem-review-after-supersede",
+		SessionID:   "memory-review-after-supersede",
+		Text:        "old memory",
+		SourceRef:   "turn:memory-review-after-supersede",
+		Status:      MemoryCandidatePending,
+		CreatedAt:   createdAt,
+	}
+	replacement := MemoryCandidateProjection{
+		CandidateID: "mem-review-after-supersede-replacement",
+		SessionID:   original.SessionID,
+		Text:        "new memory",
+		SourceRef:   "review:memory-review-after-supersede",
+		Status:      MemoryCandidatePending,
+		CreatedAt:   supersededAt,
+	}
+	superseded := original
+	superseded.Status = MemoryCandidateSuperseded
+	superseded.SupersessionAuthority = "runtime:test"
+	superseded.SupersessionReason = "replaced"
+	superseded.SupersessionEvidenceRef = "review:supersede-before-approve"
+	superseded.ReplacementCandidateID = replacement.CandidateID
+	superseded.SupersededAt = &supersededAt
+	approved := original
+	approved.Status = MemoryCandidateApproved
+	approved.ApprovalAuthority = "runtime:test"
+	approved.ApprovalReason = "late approval"
+	approved.ApprovalEvidenceRef = "approval:after-supersede"
+	approved.ApprovedAt = &approvedAt
+
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:     "evt-memory-review-after-supersede-created",
+				SessionID:   original.SessionID,
+				CandidateID: original.CandidateID,
+				Type:        "memory.candidate.created",
+				CreatedAt:   createdAt,
+				Data:        EventData{MemoryCandidate: &original},
+			},
+			StoredEvent{
+				EventID:     "evt-memory-review-after-supersede-superseded",
+				SessionID:   original.SessionID,
+				CandidateID: original.CandidateID,
+				Type:        "memory.candidate.superseded",
+				CreatedAt:   supersededAt,
+				Data: EventData{
+					MemoryCandidate:            &superseded,
+					ReplacementMemoryCandidate: &replacement,
+				},
+			},
+			StoredEvent{
+				EventID:     "evt-memory-review-after-supersede-approved",
+				SessionID:   original.SessionID,
+				CandidateID: original.CandidateID,
+				Type:        "memory.candidate.approved",
+				CreatedAt:   approvedAt,
+				Data:        EventData{MemoryCandidate: &approved},
+			},
+		),
+		provider:     FakeProvider{},
+		runtimeToken: testRuntimeToken,
+		toolPolicy:   normalizedToolPolicy(ToolPolicy{}),
+		clock:        time.Now,
+	}
+
+	if _, err := k.MemoryCandidate(original.CandidateID); err == nil || !strings.Contains(err.Error(), "competing memory review evidence") {
+		t.Fatalf("MemoryCandidate error = %v, want competing memory review evidence", err)
+	}
+	if _, err := k.Session(original.SessionID); err == nil || !strings.Contains(err.Error(), "competing memory review evidence") {
+		t.Fatalf("Session error = %v, want competing memory review evidence", err)
+	}
+}
+
+func TestHTTPSupersededMemoryCandidateCannotBeApprovedOrRejected(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	candidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-superseded-terminal",
+		Text:      "old terminal candidate",
+		SourceRef: "turn:http-memory-superseded-terminal",
+	})
+	supersedeResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/supersede", []byte(`{"replacement_text":"new terminal candidate","replacement_source_ref":"review:terminal-supersede-source","supersession_authority":"runtime:test","supersession_reason":"replace terminal candidate","supersession_evidence_ref":"review:terminal-supersede"}`))
+	if err != nil {
+		t.Fatalf("POST supersede failed: %v", err)
+	}
+	supersedeResp.Body.Close()
+	if supersedeResp.StatusCode != http.StatusOK {
+		t.Fatalf("supersede status = %d, want 200", supersedeResp.StatusCode)
+	}
+
+	approvalPayload, err := json.Marshal(testApprovalRequest("approval:superseded-candidate"))
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	approveResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/approve", approvalPayload)
+	if err != nil {
+		t.Fatalf("POST approve superseded failed: %v", err)
+	}
+	defer approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("approve superseded status = %d, want 400", approveResp.StatusCode)
+	}
+
+	rejectResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/reject", []byte(`{"rejection_authority":"runtime:test","rejection_reason":"not true","rejection_evidence_ref":"review:reject-superseded"}`))
+	if err != nil {
+		t.Fatalf("POST reject superseded failed: %v", err)
+	}
+	defer rejectResp.Body.Close()
+	if rejectResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("reject superseded status = %d, want 400", rejectResp.StatusCode)
+	}
+}
+
 func TestRejectMemoryCandidateIsIdempotentWithoutAppendingDuplicateEvent(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
