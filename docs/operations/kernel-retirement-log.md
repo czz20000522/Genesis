@@ -15,20 +15,20 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 ### KERNEL-UI-TIMELINE-PROJECTION-20260622 - P1 - WebUI needs a dedicated timeline projection instead of raw events
 
 - Status: ready_for_acceptance.
-- Fix commits: pending current commit.
+- Fix commits: `7df00cf45`.
 - Reference alignment: Reasonix separates event facts from display items and renders tool output through UI-specific cards. Genesis now provides a kernel-owned timeline read model so WebUI remains a shell and does not become the owner for raw event interpretation or tool-call/result merging.
 - Evidence: `Kernel.UITimeline` and `GET /sessions/{id}/timeline` project user messages, merged tool cards, assistant messages, and failure notices from ledger events. `tool.call` and `tool.result` are merged by `tool_result.for_event_id`; operation events and raw event names stay out of the main timeline. Timeline items expose preview metadata for tool output and omit kernel event ids, operation ids, provider tool-call ids, and raw event types.
-- Verification: `TestUITimelineProjectionMergesToolEventsWithoutAuditFields`; pending full verification before final commit.
+- Verification: `TestUITimelineProjectionMergesToolEventsWithoutAuditFields`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
 - Acceptance condition: reviewer confirms WebUI can consume timeline items without rendering raw events or duplicating owner logic for tool causality.
 - Residual risk: the first timeline projection covers current event types. Future reasoning/checkpoint/session-summary events must extend this owner projection rather than being rendered directly by shells.
 
 ### KERNEL-CONTEXT-INSPECTION-PROJECTION-20260622 - P1 - Need inspectable runtime context separate from chat timeline
 
 - Status: ready_for_acceptance.
-- Fix commits: pending current commit.
+- Fix commits: `7df00cf45`.
 - Reference alignment: Reasonix keeps controller context/status separate from transcript items. Genesis now records per-turn provider-visible context snapshots and exposes them through diagnostics inspection, not through the chat timeline.
 - Evidence: `turn.submitted` now records model input kinds, tool manifest, safe skill catalog summaries, recalled memory refs, safe provider status, and permission/sandbox summary without storing the fully rendered model-context text in raw events. `Kernel.ContextInspection` and `GET /turns/{id}/context` rebuild that structured snapshot after restart. Older turns without snapshots report `snapshot_unavailable` instead of pretending current runtime state is historical context. Projection output redacts credential-shaped user text and excludes skill paths and bodies.
-- Verification: `TestContextInspectionProjectionPersistsProviderVisibleSnapshot`; pending full verification before final commit.
+- Verification: `TestContextInspectionProjectionPersistsProviderVisibleSnapshot`; `TestTurnEvidenceRecordsModelInputKindsWithoutSkillPaths`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
 - Acceptance condition: reviewer confirms users can inspect what context categories and model-visible artifacts reached the provider without polluting the main chat timeline or exposing credentials, skill bodies, or filesystem paths.
 - Residual risk: there is no full prompt template/system prompt layer yet, so the first inspection surface records currently implemented model input fragments and tool/skill/memory/provider summaries only.
 
