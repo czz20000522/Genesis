@@ -42,6 +42,25 @@ Build the optional operator setup tool:
 D:\software\Go\bin\go.exe build -o $env:TEMP\genesisctl.exe .\cmd\genesisctl
 ```
 
+## Development Verification
+
+Use the local Go toolchain directly when verifying the kernel on Windows:
+
+```powershell
+D:\software\Go\bin\go.exe test ./... -count=1
+D:\software\Go\bin\go.exe build ./...
+```
+
+Race verification requires cgo and a visible MinGW gcc:
+
+```powershell
+$env:Path = "D:\software\Go\bin;C:\Users\Tomczz\AppData\Local\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin;D:\software\msys64\ucrt64\bin;D:\software\msys64\usr\bin;$env:Path"
+$env:CGO_ENABLED = "1"
+D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1
+```
+
+The MSYS2 install root for this workstation is `D:\software\msys64`; it is optional for normal builds but useful for a complete Unix-like local toolchain. Race evidence must say whether it was run locally, run in CI, or not run.
+
 Run it with an explicit ledger path:
 
 ```powershell
