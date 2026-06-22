@@ -1179,6 +1179,64 @@ func TestExecShellDefaultBlocksLinkedCWDOutsideWorkspace(t *testing.T) {
 	}
 }
 
+func TestExecShellDefaultBlocksHardlinkAlias(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	outsideFile := filepath.Join(root, "outside-hardlink.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside-secret"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	aliasPath := filepath.Join(workspace, "alias.txt")
+	if err := os.Link(outsideFile, aliasPath); err != nil {
+		t.Skipf("create hardlink failed: %v", err)
+	}
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+
+	readOperation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID: "shell-hardlink-read",
+		CWD:       workspace,
+		Command:   readMissingFileCommand("alias.txt"),
+	})
+	if err != nil {
+		t.Fatalf("read hardlink ExecShell returned error: %v", err)
+	}
+	if readOperation.Status != "blocked" {
+		t.Fatalf("read status = %q, want blocked; stdout=%q stderr=%q", readOperation.Status, readOperation.Stdout, readOperation.Stderr)
+	}
+	if readOperation.BlockedReason != "command_path_unsafe_link" {
+		t.Fatalf("read blocked reason = %q, want command_path_unsafe_link", readOperation.BlockedReason)
+	}
+
+	writeOperation, err := k.ExecShell(context.Background(), ShellExecRequest{
+		SessionID: "shell-hardlink-write",
+		CWD:       workspace,
+		Command:   writeFileCommand("alias.txt", "mutated"),
+	})
+	if err != nil {
+		t.Fatalf("write hardlink ExecShell returned error: %v", err)
+	}
+	if writeOperation.Status != "blocked" {
+		t.Fatalf("write status = %q, want blocked; stdout=%q stderr=%q", writeOperation.Status, writeOperation.Stdout, writeOperation.Stderr)
+	}
+	if writeOperation.BlockedReason != "command_path_unsafe_link" {
+		t.Fatalf("write blocked reason = %q, want command_path_unsafe_link", writeOperation.BlockedReason)
+	}
+	content, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatalf("read outside file: %v", err)
+	}
+	if string(content) != "outside-secret" {
+		t.Fatalf("outside hardlink target mutated to %q", string(content))
+	}
+}
+
 func TestExecShellDefaultBlocksRawShellAndEnvironmentAccess(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	workspace := t.TempDir()

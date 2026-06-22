@@ -1,6 +1,9 @@
 package kernel
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -163,6 +166,104 @@ func TestArchitectureBoundaryAuthorityGateUsesToolKind(t *testing.T) {
 	})
 	if unknown.Allowed || unknown.Reason != "unknown_tool_kind" {
 		t.Fatalf("unknown kind decision = %+v, want fail-closed unknown_tool_kind", unknown)
+	}
+}
+
+func TestArchitectureBoundaryControlledShellAllowlistStaysSmall(t *testing.T) {
+	got := controlledDefaultCommandNames()
+	want := []string{"cat", "echo", "get-content", "printf", "pwd", "set-content", "type", "write-output"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("controlled default shell commands = %v, want %v", got, want)
+	}
+}
+
+func TestArchitectureBoundaryShellGoOnlyOwnsOrchestration(t *testing.T) {
+	root := kernelPackageDir(t)
+	fileSet := token.NewFileSet()
+	tree, err := parser.ParseFile(fileSet, filepath.Join(root, "shell.go"), nil, 0)
+	if err != nil {
+		t.Fatalf("parse shell.go: %v", err)
+	}
+
+	forbiddenImports := map[string]string{
+		"os":            "filesystem effects belong in controlled_shell.go",
+		"os/exec":       "host process execution belongs in process_runtime.go",
+		"path/filepath": "workspace path containment belongs in controlled_shell.go",
+		"runtime":       "platform process selection belongs in process_runtime.go",
+		"syscall":       "link/process platform probes belong in adapter files",
+	}
+	for _, imported := range tree.Imports {
+		path := strings.Trim(imported.Path.Value, `"`)
+		if reason, forbidden := forbiddenImports[path]; forbidden {
+			t.Fatalf("shell.go imports %q; %s", path, reason)
+		}
+	}
+
+	forbiddenDeclarations := map[string]string{
+		"prepareDefaultShellExecution":   "default-mode adapter parsing belongs in controlled_shell.go",
+		"controlledDefaultCommand":       "default command semantics belong in controlled_shell.go",
+		"executeControlledShellCommand":  "controlled filesystem effects belong in controlled_shell.go",
+		"splitCommandFields":             "command tokenization belongs in controlled_shell.go",
+		"platformShellCommand":           "host shell process selection belongs in process_runtime.go",
+		"runShellProcess":                "host shell process execution belongs in process_runtime.go",
+		"regularFileHasMultipleLinks":    "platform link probes belong in platform adapter files",
+		"targetHasUnsafeHardlinkAlias":   "workspace containment belongs in controlled_shell.go",
+		"pathWithin":                     "workspace containment belongs in controlled_shell.go",
+		"canonicalPathForContainment":    "workspace containment belongs in controlled_shell.go",
+		"canonicalExistingPath":          "workspace containment belongs in controlled_shell.go",
+		"pathHasLinkOrReparsePoint":      "workspace containment belongs in controlled_shell.go",
+		"resolveWorkspacePath":           "workspace containment belongs in controlled_shell.go",
+		"hasUnsupportedDefaultToken":     "default-mode token policy belongs in controlled_shell.go",
+		"parseSetContentFields":          "default command semantics belong in controlled_shell.go",
+		"parsePathOnlyFields":            "default command semantics belong in controlled_shell.go",
+		"controlledPrintfCommand":        "default command semantics belong in controlled_shell.go",
+		"controlledSetContentCommand":    "default command semantics belong in controlled_shell.go",
+		"controlledReadCommand":          "default command semantics belong in controlled_shell.go",
+		"isControlledDefaultCommandName": "default command allowlist belongs in controlled_shell.go",
+		"controlledDefaultCommandNames":  "default command allowlist belongs in controlled_shell.go",
+	}
+	for _, declaration := range tree.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		if reason, forbidden := forbiddenDeclarations[function.Name.Name]; forbidden {
+			t.Fatalf("shell.go declares %s; %s", function.Name.Name, reason)
+		}
+	}
+}
+
+func TestArchitectureBoundaryShellRuntimeHasNoApplicationAliases(t *testing.T) {
+	for _, command := range controlledDefaultCommandNames() {
+		assertNoApplicationSpecificTerm(t, "controlled default command", command)
+	}
+
+	root := kernelPackageDir(t)
+	for _, file := range []string{"shell.go", "controlled_shell.go", "process_runtime.go"} {
+		payload, err := os.ReadFile(filepath.Join(root, file))
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		assertNoApplicationSpecificTerm(t, file, string(payload))
+	}
+}
+
+func assertNoApplicationSpecificTerm(t *testing.T, subject string, content string) {
+	t.Helper()
+	visible := strings.ToLower(content)
+	for _, forbidden := range []string{
+		"feishu",
+		"lark",
+		"wechat",
+		"email",
+		"calendar",
+		"docx",
+		"smtp",
+		"imap",
+	} {
+		if strings.Contains(visible, forbidden) {
+			t.Fatalf("%s contains application-specific term %q", subject, forbidden)
+		}
 	}
 }
 

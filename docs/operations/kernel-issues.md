@@ -53,12 +53,13 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 - Priority: P1
 - Area: Tool System / shell execution
-- Status: new
+- Status: in_progress
 - Title: Default shell mode risks becoming a mini shell implementation
 - Problem: `shell.go` parses a growing subset of commands and implements controlled `echo/printf/set-content/cat/pwd` behavior. That protects the workspace but risks pushing Genesis from a harness runtime into a shell interpreter if each new command is added inside the kernel.
 - Reference alignment: Codex routes exec through one sandboxed execution path and reports terminal output; Reasonix treats `bash` as a tool under permission/sandbox gates. Genesis should avoid growing command semantics inside the kernel beyond the minimal safety adapter.
 - Expected behavior: Controlled default mode remains deliberately tiny or is replaced by a generic sandbox/process adapter. New application capabilities must arrive through skills/CLIs/daemons, not new kernel command parsers.
-- Verification: Contract tests document the current controlled command allowlist, forbid application command aliases in `shell.go`, and require any expansion to reference the Tool Registry and Permission Gate issue.
+- Current progress: `shell.go` now owns shell operation orchestration only; controlled default command parsing and workspace containment live in `controlled_shell.go`, raw OS-shell process execution lives in `process_runtime.go`, and architecture tests lock the current tiny allowlist while forbidding application/channel aliases in shell runtime files. Default mode also fail-closes existing hardlink aliases so workspace entries cannot be used as opaque outside-file handles.
+- Verification: Contract tests document the current controlled command allowlist, forbid application command aliases in shell runtime files, and keep `shell.go` out of default command parsing, workspace containment, filesystem effects, and host process execution. Future expansion must be handled by Tool Registry and Permission Gate review before changing the allowlist.
 
 ### KERNEL-BOUNDARY-REFERENCE-ALIGNMENT-20260622
 
