@@ -98,6 +98,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleGetTurnContext(w, r, k)
+		case r.Method == http.MethodGet && isTurnAuditPath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) {
+				return
+			}
+			handleGetTurnAudit(w, r, k)
 		case r.Method == http.MethodGet && isTurnEventsPath(r.URL.Path):
 			if !authorizeRuntimeRequest(w, r, k) {
 				return
@@ -564,6 +569,21 @@ func isTurnEventsPath(path string) bool {
 	return len(parts) == 3 && parts[0] == "turns" && strings.TrimSpace(parts[1]) != "" && parts[2] == "events"
 }
 
+func isTurnAuditPath(path string) bool {
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	return len(parts) == 3 && parts[0] == "turns" && strings.TrimSpace(parts[1]) != "" && parts[2] == "audit"
+}
+
+func turnAuditID(path string) string {
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 3 || parts[0] != "turns" || parts[2] != "audit" {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
 func turnEventsID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
@@ -595,6 +615,27 @@ func handleGetTurnContext(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	projection, err := k.ContextInspection(turnID)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
+	if errors.Is(err, ErrTurnNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "turn not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, projection)
+}
+
+func handleGetTurnAudit(w http.ResponseWriter, r *http.Request, k *Kernel) {
+	turnID := turnAuditID(r.URL.Path)
+	if turnID == "" {
+		writeError(w, http.StatusNotFound, "not_found", "turn audit route not found")
+		return
+	}
+	projection, err := k.AuditReplay(turnID)
 	if writeKernelUnavailable(w, err) {
 		return
 	}

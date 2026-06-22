@@ -150,6 +150,37 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 	return ContextInspectionResponse{}, ErrTurnNotFound
 }
 
+func (k *Kernel) AuditReplay(turnID string) (AuditReplayResponse, error) {
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return AuditReplayResponse{}, errors.New("turn id is required")
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		return AuditReplayResponse{}, err
+	}
+	items := []AuditReplayItem{}
+	sessionID := ""
+	for _, event := range events {
+		if event.TurnID != turnID {
+			continue
+		}
+		if sessionID == "" {
+			sessionID = event.SessionID
+		}
+		items = append(items, auditReplayItem(event))
+	}
+	if len(items) == 0 {
+		return AuditReplayResponse{}, ErrTurnNotFound
+	}
+	return AuditReplayResponse{
+		TurnID:    turnID,
+		SessionID: sessionID,
+		Status:    "ok",
+		Items:     items,
+	}, nil
+}
+
 func timelineItemID(turnID string, kind string, ordinal int) string {
 	return fmt.Sprintf("%s:%s:%d", turnID, kind, ordinal)
 }
@@ -261,4 +292,136 @@ func cloneContextRuntimeSnapshot(snapshot *ContextRuntimeSnapshot) *ContextRunti
 	copied := *snapshot
 	copied.Provider = safeProviderStatusForInspection(copied.Provider)
 	return &copied
+}
+
+func toInspectionEvent(event StoredEvent) Event {
+	return Event{
+		EventID:     event.EventID,
+		SessionID:   event.SessionID,
+		TurnID:      event.TurnID,
+		OperationID: event.OperationID,
+		WorkID:      event.WorkID,
+		CandidateID: event.CandidateID,
+		Type:        event.Type,
+		CreatedAt:   event.CreatedAt,
+		Data:        inspectionEventData(event.Data),
+	}
+}
+
+func inspectionEventData(data EventData) EventData {
+	next := data
+	next.InputItems = redactInputItems(data.InputItems)
+	next.RecalledMemories = redactMemoryRecalls(data.RecalledMemories)
+	if data.ToolCall != nil {
+		copied := *data.ToolCall
+		copied.Arguments = redactEvidenceText(copied.Arguments)
+		next.ToolCall = &copied
+	}
+	if data.ToolResult != nil {
+		copied := *data.ToolResult
+		copied.Content = redactEvidenceText(copied.Content)
+		next.ToolResult = &copied
+	}
+	if data.Final != nil {
+		copied := *data.Final
+		copied.Text = redactEvidenceText(copied.Text)
+		next.Final = &copied
+	}
+	if data.TurnError != nil {
+		copied := *data.TurnError
+		copied.Message = redactEvidenceText(copied.Message)
+		next.TurnError = &copied
+	}
+	if data.Operation != nil {
+		copied := *data.Operation
+		copied.CWD = redactEvidenceText(copied.CWD)
+		copied.Command = redactEvidenceText(copied.Command)
+		copied.Stdout = redactEvidenceText(copied.Stdout)
+		copied.Stderr = redactEvidenceText(copied.Stderr)
+		copied.BlockedReason = redactEvidenceText(copied.BlockedReason)
+		copied.InfrastructureReason = redactEvidenceText(copied.InfrastructureReason)
+		next.Operation = &copied
+	}
+	if data.Work != nil {
+		copied := *data.Work
+		copied.Title = redactEvidenceText(copied.Title)
+		copied.SourceRef = redactEvidenceText(copied.SourceRef)
+		copied.CancelReason = redactEvidenceText(copied.CancelReason)
+		copied.CancelEvidenceRef = redactEvidenceText(copied.CancelEvidenceRef)
+		next.Work = &copied
+	}
+	if data.MemoryCandidate != nil {
+		copied := *data.MemoryCandidate
+		copied.Text = redactEvidenceText(copied.Text)
+		copied.SourceRef = redactEvidenceText(copied.SourceRef)
+		copied.ApprovalReason = redactEvidenceText(copied.ApprovalReason)
+		copied.ApprovalEvidenceRef = redactEvidenceText(copied.ApprovalEvidenceRef)
+		copied.RejectionReason = redactEvidenceText(copied.RejectionReason)
+		copied.RejectionEvidenceRef = redactEvidenceText(copied.RejectionEvidenceRef)
+		copied.SupersessionReason = redactEvidenceText(copied.SupersessionReason)
+		copied.SupersessionEvidenceRef = redactEvidenceText(copied.SupersessionEvidenceRef)
+		next.MemoryCandidate = &copied
+	}
+	if data.ReplacementMemoryCandidate != nil {
+		copied := *data.ReplacementMemoryCandidate
+		copied.Text = redactEvidenceText(copied.Text)
+		copied.SourceRef = redactEvidenceText(copied.SourceRef)
+		next.ReplacementMemoryCandidate = &copied
+	}
+	return next
+}
+
+func auditReplayItem(event StoredEvent) AuditReplayItem {
+	item := AuditReplayItem{
+		EventID:     event.EventID,
+		EventType:   event.Type,
+		TurnID:      event.TurnID,
+		OperationID: event.OperationID,
+		CreatedAt:   event.CreatedAt,
+	}
+	data := inspectionEventData(event.Data)
+	switch event.Type {
+	case "turn.submitted":
+		item.ModelInputKinds = append([]string(nil), data.ModelInputKinds...)
+		item.ProviderContextKinds = append([]string(nil), data.ModelInputKinds...)
+	case "tool.call":
+		if data.ToolCall != nil {
+			item.Tool = data.ToolCall.Tool
+		}
+	case "tool.result":
+		if data.ToolResult != nil {
+			item.Tool = data.ToolResult.Tool
+			item.ToolStatus = data.ToolResult.Status
+			preview := toolResultPreview(data.ToolResult.Content)
+			item.OutputPreview = preview.Text
+			item.OutputTruncated = preview.Truncated
+		}
+	case "operation.running", "operation.completed", "operation.failed", "operation.blocked":
+		if data.Operation != nil {
+			item.Tool = data.Operation.Tool
+			item.ToolStatus = data.Operation.Status
+			item.OutputTruncated = data.Operation.StdoutTruncated || data.Operation.StderrTruncated
+			item.OutputTruncation = data.Operation.OutputTruncation
+			item.StdoutOriginalBytes = data.Operation.StdoutOriginalBytes
+			item.StderrOriginalBytes = data.Operation.StderrOriginalBytes
+			item.StdoutOmittedBytes = data.Operation.StdoutOmittedBytes
+			item.StderrOmittedBytes = data.Operation.StderrOmittedBytes
+			switch {
+			case strings.TrimSpace(data.Operation.Stdout) != "":
+				item.OutputPreview = boundedTimelinePreview(data.Operation.Stdout)
+			case strings.TrimSpace(data.Operation.Stderr) != "":
+				item.OutputPreview = boundedTimelinePreview(data.Operation.Stderr)
+			}
+		}
+	case "model.final":
+		if data.Final != nil {
+			item.Usage = data.Final.Usage
+		}
+	case "turn.failed":
+		if data.TurnError != nil {
+			item.ErrorCode = data.TurnError.Code
+			item.ErrorMessage = data.TurnError.Message
+		}
+	}
+	return item
 }

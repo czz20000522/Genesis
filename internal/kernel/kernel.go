@@ -101,7 +101,6 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	}
 	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
 	var turnID string
-	var inputItems []ModelInputItem
 	if idempotencyKey != "" {
 		var existing TurnResponse
 		var ok bool
@@ -109,7 +108,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		existing, ok, err = k.turnByIdempotencyKey(sessionID, idempotencyKey)
 		if err == nil && !ok {
 			turnID = newID("turn", now)
-			_, inputItems, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now)
+			_, _, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now)
 		}
 		k.turnMu.Unlock()
 		if err != nil || ok {
@@ -117,22 +116,19 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		}
 	} else {
 		turnID = newID("turn", now)
-		_, inputItems, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now)
+		_, _, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now)
 		if err != nil {
 			return TurnResponse{}, err
 		}
 	}
 
-	toolRounds := []ModelToolRound{}
 	toolGateway := k.toolGateway()
 	for roundIndex := 0; roundIndex <= maxModelToolRounds; roundIndex++ {
-		modelResp, err := k.provider.Complete(ctx, ModelRequest{
-			SessionID:    sessionID,
-			TurnID:       turnID,
-			InputItems:   inputItems,
-			ToolManifest: toolGateway.ToolManifest(),
-			ToolRounds:   toolRounds,
-		})
+		providerContext, err := k.ProviderContextProjection(turnID)
+		if err != nil {
+			return TurnResponse{}, err
+		}
+		modelResp, err := k.provider.Complete(ctx, providerContext.ModelRequest())
 		if err != nil {
 			failure := turnFailureFromProviderError(err)
 			if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
@@ -225,10 +221,6 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 				return TurnResponse{}, err
 			}
 		}
-		toolRounds, err = k.modelToolRoundsFromTurnEvents(turnID)
-		if err != nil {
-			return TurnResponse{}, err
-		}
 	}
 	return TurnResponse{}, errors.New("unreachable model tool loop state")
 }
@@ -315,7 +307,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 			CandidateID: event.CandidateID,
 			Type:        event.Type,
 			CreatedAt:   event.CreatedAt,
-			Data:        event.Data,
+			Data:        inspectionEventData(event.Data),
 		})
 		switch event.Type {
 		case "turn.submitted":
@@ -488,7 +480,7 @@ func (k *Kernel) turnByIdempotencyKey(sessionID string, key string) (TurnRespons
 		if turnID == "" || event.TurnID != turnID {
 			continue
 		}
-		turnEvents = append(turnEvents, toEvent(event))
+		turnEvents = append(turnEvents, toInspectionEvent(event))
 		switch event.Type {
 		case "model.final":
 			if event.Data.Final != nil {
@@ -536,7 +528,7 @@ func (k *Kernel) TurnEvents(turnID string) ([]Event, error) {
 	items := []Event{}
 	for _, event := range events {
 		if event.TurnID == turnID {
-			items = append(items, toEvent(event))
+			items = append(items, toInspectionEvent(event))
 		}
 	}
 	if len(items) == 0 {
@@ -658,12 +650,56 @@ func toolResultStatus(content string) string {
 	return "tool_result"
 }
 
-func (k *Kernel) modelToolRoundsFromTurnEvents(turnID string) ([]ModelToolRound, error) {
+func (k *Kernel) ProviderContextProjection(turnID string) (ProviderContextProjection, error) {
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return ProviderContextProjection{}, errors.New("turn id is required")
+	}
 	events, err := k.loadEvents()
 	if err != nil {
-		return nil, err
+		return ProviderContextProjection{}, err
 	}
-	return modelToolRoundsFromStoredEvents(events, turnID), nil
+	projection, ok := providerContextProjectionFromStoredEvents(events, turnID)
+	if !ok {
+		return ProviderContextProjection{}, ErrTurnNotFound
+	}
+	return projection, nil
+}
+
+func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID string) (ProviderContextProjection, bool) {
+	projection := ProviderContextProjection{TurnID: turnID}
+	found := false
+	for _, event := range events {
+		if event.TurnID != turnID || event.Type != "turn.submitted" {
+			continue
+		}
+		found = true
+		projection.SessionID = event.SessionID
+		projection.InputItems = modelInputItemsFromSubmittedEvent(event.Data)
+		projection.ToolManifest = cloneToolSpecs(event.Data.ToolManifest)
+		break
+	}
+	if !found {
+		return ProviderContextProjection{}, false
+	}
+	projection.ToolRounds = modelToolRoundsFromStoredEvents(events, turnID)
+	return projection, true
+}
+
+func modelInputItemsFromSubmittedEvent(data EventData) []ModelInputItem {
+	items := []ModelInputItem{}
+	if context := skillCatalogProjectionContext(data.SkillCatalog); context != "" {
+		items = append(items, ModelInputItem{Kind: ModelInputKindSkillCatalogContext, Text: context})
+	}
+	if context := approvedMemoryContext(data.RecalledMemories); context != "" {
+		items = append(items, ModelInputItem{Kind: ModelInputKindApprovedMemoryContext, Text: context})
+	}
+	for _, item := range data.InputItems {
+		if item.Type == "text" && item.Text != "" {
+			items = append(items, ModelInputItem{Kind: ModelInputKindUserText, Text: item.Text})
+		}
+	}
+	return items
 }
 
 func modelToolRoundsFromStoredEvents(events []StoredEvent, turnID string) []ModelToolRound {
@@ -679,20 +715,18 @@ func modelToolRoundsFromStoredEvents(events []StoredEvent, turnID string) []Mode
 				continue
 			}
 			current.Calls = append(current.Calls, ModelToolCall{
-				ToolCallID:      event.Data.ToolCall.ProviderToolCallID,
-				ToolCallEventID: event.Data.ToolCall.ToolCallEventID,
-				Name:            event.Data.ToolCall.Tool,
-				Arguments:       json.RawMessage(event.Data.ToolCall.Arguments),
+				ToolCallID: event.Data.ToolCall.ProviderToolCallID,
+				Name:       event.Data.ToolCall.Tool,
+				Arguments:  json.RawMessage(event.Data.ToolCall.Arguments),
 			})
 		case "tool.result":
 			if event.Data.ToolResult == nil {
 				continue
 			}
 			current.Results = append(current.Results, ModelToolResult{
-				ToolCallID:      event.Data.ToolResult.ProviderToolCallID,
-				ToolCallEventID: event.Data.ToolResult.ToolCallEventID,
-				Name:            event.Data.ToolResult.Tool,
-				Content:         event.Data.ToolResult.Content,
+				ToolCallID: event.Data.ToolResult.ProviderToolCallID,
+				Name:       event.Data.ToolResult.Tool,
+				Content:    event.Data.ToolResult.Content,
 			})
 			if len(current.Calls) > 0 && len(current.Results) == len(current.Calls) {
 				rounds = append(rounds, current)

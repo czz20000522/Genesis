@@ -23,6 +23,24 @@ type ModelRequest struct {
 	ToolRounds   []ModelToolRound
 }
 
+type ProviderContextProjection struct {
+	SessionID    string
+	TurnID       string
+	InputItems   []ModelInputItem
+	ToolManifest []ToolSpec
+	ToolRounds   []ModelToolRound
+}
+
+func (p ProviderContextProjection) ModelRequest() ModelRequest {
+	return ModelRequest{
+		SessionID:    p.SessionID,
+		TurnID:       p.TurnID,
+		InputItems:   cloneModelInputItems(p.InputItems),
+		ToolManifest: cloneToolSpecs(p.ToolManifest),
+		ToolRounds:   cloneModelToolRounds(p.ToolRounds),
+	}
+}
+
 const (
 	ModelInputKindUserText              = "user_text"
 	ModelInputKindApprovedMemoryContext = "approved_memory_context"

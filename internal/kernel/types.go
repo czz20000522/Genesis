@@ -187,6 +187,35 @@ type TurnEventsResponse struct {
 	Items []Event `json:"items"`
 }
 
+type AuditReplayResponse struct {
+	TurnID    string            `json:"turn_id"`
+	SessionID string            `json:"session_id,omitempty"`
+	Status    string            `json:"status"`
+	Items     []AuditReplayItem `json:"items"`
+}
+
+type AuditReplayItem struct {
+	EventID              string      `json:"event_id"`
+	EventType            string      `json:"event_type"`
+	TurnID               string      `json:"turn_id"`
+	OperationID          string      `json:"operation_id,omitempty"`
+	CreatedAt            time.Time   `json:"created_at"`
+	ModelInputKinds      []string    `json:"model_input_kinds,omitempty"`
+	Tool                 string      `json:"tool,omitempty"`
+	ToolStatus           string      `json:"tool_status,omitempty"`
+	OutputPreview        string      `json:"output_preview,omitempty"`
+	OutputTruncated      bool        `json:"output_truncated,omitempty"`
+	OutputTruncation     string      `json:"output_truncation,omitempty"`
+	StdoutOriginalBytes  int         `json:"stdout_original_bytes,omitempty"`
+	StderrOriginalBytes  int         `json:"stderr_original_bytes,omitempty"`
+	StdoutOmittedBytes   int         `json:"stdout_omitted_bytes,omitempty"`
+	StderrOmittedBytes   int         `json:"stderr_omitted_bytes,omitempty"`
+	ProviderContextKinds []string    `json:"provider_context_kinds,omitempty"`
+	Usage                *TokenUsage `json:"usage,omitempty"`
+	ErrorCode            string      `json:"error_code,omitempty"`
+	ErrorMessage         string      `json:"error_message,omitempty"`
+}
+
 type UITimelineResponse struct {
 	SessionID string           `json:"session_id"`
 	Status    string           `json:"status"`

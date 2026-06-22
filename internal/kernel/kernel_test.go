@@ -588,6 +588,177 @@ func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
 	}
 }
 
+func TestObservabilityProjectionsSeparateRawAuditAndProviderContext(t *testing.T) {
+	now := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
+	exitCode := 0
+	toolResultContent := `{"status":"completed","executed":true,"exit_code":0,"stdout":"ok","stdout_truncated":true,"stdout_original_bytes":120,"stdout_omitted_bytes":80,"output_truncation":"head_tail"}`
+	operation := OperationProjection{
+		OperationID:         "op_observe",
+		SessionID:           "observe-session",
+		TurnID:              "turn_observe",
+		Tool:                "shell_exec",
+		Status:              "completed",
+		PermissionMode:      PermissionModeDefault,
+		CWD:                 "C:/workspace",
+		Command:             "echo api_key=sk-observe-secret",
+		ExitCode:            &exitCode,
+		Stdout:              "api_key=sk-observe-secret\nok",
+		StdoutTruncated:     true,
+		StdoutOriginalBytes: 120,
+		StdoutOmittedBytes:  80,
+		OutputTruncation:    "head_tail",
+		StartedAt:           now,
+		EndedAt:             now.Add(time.Second),
+	}
+	k := &Kernel{ledger: newStaticLedger(
+		StoredEvent{
+			EventID:   "evt_submitted",
+			SessionID: "observe-session",
+			TurnID:    "turn_observe",
+			Type:      "turn.submitted",
+			CreatedAt: now,
+			Data: EventData{
+				InputItems:      []InputItem{{Type: "text", Text: "hello observability"}},
+				ModelInputKinds: []string{ModelInputKindUserText},
+				ToolManifest: []ToolSpec{{
+					Name:            "shell_exec",
+					Description:     "Execute a governed command.",
+					InputSchema:     map[string]interface{}{"type": "object"},
+					SideEffectLevel: "write",
+					ExecutionKind:   "sandboxed_process",
+				}},
+				RuntimeContext: &ContextRuntimeSnapshot{
+					Provider:   ProviderStatus{Name: "test-provider", Status: "ok"},
+					Permission: PermissionInspection{PermissionMode: PermissionModeDefault, Sandbox: "workspace"},
+				},
+			},
+		},
+		StoredEvent{
+			EventID:   "evt_tool_call",
+			SessionID: "observe-session",
+			TurnID:    "turn_observe",
+			Type:      "tool.call",
+			CreatedAt: now.Add(time.Second),
+			Data: EventData{ToolCall: &ToolCallProjection{
+				ToolCallEventID:    "evt_tool_call",
+				ProviderToolCallID: "call_provider_visible",
+				Tool:               "shell_exec",
+				Arguments:          `{"command":"echo api_key=sk-observe-secret"}`,
+			}},
+		},
+		StoredEvent{
+			EventID:     "evt_operation_completed",
+			SessionID:   "observe-session",
+			TurnID:      "turn_observe",
+			OperationID: "op_observe",
+			Type:        "operation.completed",
+			CreatedAt:   now.Add(2 * time.Second),
+			Data:        EventData{Operation: &operation},
+		},
+		StoredEvent{
+			EventID:   "evt_tool_result",
+			SessionID: "observe-session",
+			TurnID:    "turn_observe",
+			Type:      "tool.result",
+			CreatedAt: now.Add(3 * time.Second),
+			Data: EventData{ToolResult: &ToolResultProjection{
+				ToolCallEventID:    "evt_tool_call",
+				ProviderToolCallID: "call_provider_visible",
+				Tool:               "shell_exec",
+				ForEventID:         "evt_tool_call",
+				Status:             "completed",
+				Content:            toolResultContent,
+			}},
+		},
+		StoredEvent{
+			EventID:   "evt_final",
+			SessionID: "observe-session",
+			TurnID:    "turn_observe",
+			Type:      "model.final",
+			CreatedAt: now.Add(4 * time.Second),
+			Data: EventData{Final: &FinalMessage{
+				Text:  "done api_key=sk-observe-secret",
+				Model: "test-model",
+				Usage: &TokenUsage{InputTokens: 3, OutputTokens: 2, TotalTokens: 5},
+			}},
+		},
+	)}
+
+	timeline, err := k.UITimeline("observe-session")
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	timelineJSON, err := json.Marshal(timeline)
+	if err != nil {
+		t.Fatalf("marshal timeline: %v", err)
+	}
+	for _, forbidden := range []string{"tool_call_event_id", "operation_id", "for_event_id", "tool.call", "sk-observe-secret"} {
+		if strings.Contains(string(timelineJSON), forbidden) {
+			t.Fatalf("timeline leaked %q: %s", forbidden, string(timelineJSON))
+		}
+	}
+
+	rawEvents, err := k.TurnEvents("turn_observe")
+	if err != nil {
+		t.Fatalf("TurnEvents returned error: %v", err)
+	}
+	rawJSON, err := json.Marshal(rawEvents)
+	if err != nil {
+		t.Fatalf("marshal raw events: %v", err)
+	}
+	if !strings.Contains(string(rawJSON), "tool_call_event_id") || !strings.Contains(string(rawJSON), "operation_id") {
+		t.Fatalf("raw event inspection = %s, want typed ids for debugging", string(rawJSON))
+	}
+	if strings.Contains(string(rawJSON), "sk-observe-secret") {
+		t.Fatalf("raw event inspection leaked secret: %s", string(rawJSON))
+	}
+
+	audit, err := k.AuditReplay("turn_observe")
+	if err != nil {
+		t.Fatalf("AuditReplay returned error: %v", err)
+	}
+	auditJSON, err := json.Marshal(audit)
+	if err != nil {
+		t.Fatalf("marshal audit: %v", err)
+	}
+	for _, want := range []string{"operation.completed", "stdout_original_bytes", "stdout_omitted_bytes", "head_tail"} {
+		if !strings.Contains(string(auditJSON), want) {
+			t.Fatalf("audit replay = %s, want %q", string(auditJSON), want)
+		}
+	}
+	if strings.Contains(string(auditJSON), "sk-observe-secret") {
+		t.Fatalf("audit replay leaked secret: %s", string(auditJSON))
+	}
+
+	providerContext, err := k.ProviderContextProjection("turn_observe")
+	if err != nil {
+		t.Fatalf("ProviderContextProjection returned error: %v", err)
+	}
+	contextJSON, err := json.Marshal(providerContext.ModelRequest())
+	if err != nil {
+		t.Fatalf("marshal provider context: %v", err)
+	}
+	for _, forbidden := range []string{"tool_call_event_id", "operation_id", "permission_mode", "for_event_id", "op_observe"} {
+		if strings.Contains(string(contextJSON), forbidden) {
+			t.Fatalf("provider context leaked %q: %s", forbidden, string(contextJSON))
+		}
+	}
+	if !strings.Contains(string(contextJSON), "call_provider_visible") || !strings.Contains(string(contextJSON), "hello observability") {
+		t.Fatalf("provider context = %s, want provider-visible input and tool correlation", string(contextJSON))
+	}
+
+	server := httptest.NewServer(Handler(&Kernel{ledger: k.ledger, runtimeToken: testRuntimeToken}))
+	defer server.Close()
+	resp, err := getWithAuth(server.URL + "/turns/turn_observe/audit")
+	if err != nil {
+		t.Fatalf("GET /turns/{id}/audit failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("audit status = %d, want 200", resp.StatusCode)
+	}
+}
+
 func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T) {
 	root := t.TempDir()
 	skillPath := writeSkillForTest(t, root, "lark-im", "lark-im", "Send chat messages through installed CLI", "FULL SKILL BODY MUST NOT BE PROJECTED")
@@ -4394,8 +4565,8 @@ func TestSubmitTurnUsesToolCallEventIDWhenProviderIDMissing(t *testing.T) {
 		t.Fatalf("provider requests = %+v, want tool result round", requests)
 	}
 	result := requests[1].ToolRounds[0].Results[0]
-	if result.ToolCallID != "" || result.ToolCallEventID == "" {
-		t.Fatalf("tool result = %+v, want empty provider id plus kernel event id", result)
+	if result.ToolCallID != "" || result.ToolCallEventID != "" {
+		t.Fatalf("tool result = %+v, want no provider id and no kernel event id in provider context", result)
 	}
 	projection, err := k.Session("missing-provider-tool-id")
 	if err != nil {
@@ -4596,8 +4767,8 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 		t.Fatalf("tool rounds = %+v, want one repair result", rounds)
 	}
 	result := rounds[0].Results[0]
-	if result.ToolCallID != "call_missing_command" || result.ToolCallEventID == "" || result.Name != "shell_exec" {
-		t.Fatalf("tool result = %+v, want provider echo id plus kernel event id for call_missing_command", result)
+	if result.ToolCallID != "call_missing_command" || result.ToolCallEventID != "" || result.Name != "shell_exec" {
+		t.Fatalf("tool result = %+v, want provider echo id without kernel event id for call_missing_command", result)
 	}
 	payload := decodeJSONMap(t, result.Content)
 	if payload["status"] != "tool_request_invalid" || payload["tool"] != "shell_exec" || payload["executed"] != false {

@@ -37,12 +37,25 @@ func modelInputKinds(items []ModelInputItem) []string {
 }
 
 func skillCatalogContext(skills []SkillDescriptor) string {
-	var skillLines []string
+	items := make([]SkillCatalogItemProjection, 0, len(skills))
 	for _, skill := range skills {
 		name := strings.TrimSpace(skill.Name)
 		description := strings.TrimSpace(skill.Description)
 		instructionPath := strings.TrimSpace(skill.InstructionPath)
 		if name == "" || description == "" || instructionPath == "" {
+			continue
+		}
+		items = append(items, SkillCatalogItemProjection{Name: name, Description: description})
+	}
+	return skillCatalogProjectionContext(items)
+}
+
+func skillCatalogProjectionContext(items []SkillCatalogItemProjection) string {
+	var skillLines []string
+	for _, skill := range items {
+		name := strings.TrimSpace(skill.Name)
+		description := strings.TrimSpace(skill.Description)
+		if name == "" || description == "" {
 			continue
 		}
 		skillLines = append(skillLines, "- "+name+": "+description)
@@ -78,5 +91,26 @@ func cloneInputItems(items []InputItem) []InputItem {
 func cloneModelInputItems(items []ModelInputItem) []ModelInputItem {
 	cloned := make([]ModelInputItem, len(items))
 	copy(cloned, items)
+	return cloned
+}
+
+func cloneModelToolRounds(rounds []ModelToolRound) []ModelToolRound {
+	cloned := make([]ModelToolRound, 0, len(rounds))
+	for _, round := range rounds {
+		next := ModelToolRound{
+			Calls:   make([]ModelToolCall, 0, len(round.Calls)),
+			Results: make([]ModelToolResult, 0, len(round.Results)),
+		}
+		for _, call := range round.Calls {
+			next.Calls = append(next.Calls, ModelToolCall{
+				ToolCallID:      call.ToolCallID,
+				ToolCallEventID: call.ToolCallEventID,
+				Name:            call.Name,
+				Arguments:       append([]byte(nil), call.Arguments...),
+			})
+		}
+		next.Results = append(next.Results, round.Results...)
+		cloned = append(cloned, next)
+	}
 	return cloned
 }
