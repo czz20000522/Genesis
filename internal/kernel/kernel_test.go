@@ -199,6 +199,152 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 	}
 }
 
+func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingTurnAfterRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	firstProvider := &countingTextProvider{text: "first answer"}
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     firstProvider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+
+	firstResp, err := postJSONWithAuth(server.URL+"/turn", []byte(`{"session_id":"http-turn-idempotency","idempotency_key":"turn-submit-1","input_items":[{"type":"text","text":"first prompt"}]}`))
+	if err != nil {
+		t.Fatalf("first POST /turn failed: %v", err)
+	}
+	defer firstResp.Body.Close()
+	if firstResp.StatusCode != http.StatusOK {
+		t.Fatalf("first turn status = %d, want 200", firstResp.StatusCode)
+	}
+	var first TurnResponse
+	if err := json.NewDecoder(firstResp.Body).Decode(&first); err != nil {
+		t.Fatalf("decode first turn: %v", err)
+	}
+	if first.Final.Text != "first answer" {
+		t.Fatalf("first final = %q, want first answer", first.Final.Text)
+	}
+	if firstProvider.Calls() != 1 {
+		t.Fatalf("first provider calls = %d, want 1", firstProvider.Calls())
+	}
+	server.Close()
+
+	retryProvider := &countingTextProvider{text: "retry answer should not be used"}
+	restarted, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     retryProvider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New restarted returned error: %v", err)
+	}
+	restartedServer := httptest.NewServer(Handler(restarted))
+	defer restartedServer.Close()
+
+	retryResp, err := postJSONWithAuth(restartedServer.URL+"/turn", []byte(`{"session_id":"http-turn-idempotency","idempotency_key":"turn-submit-1","input_items":[{"type":"text","text":"retry prompt must not run"}]}`))
+	if err != nil {
+		t.Fatalf("retry POST /turn failed: %v", err)
+	}
+	defer retryResp.Body.Close()
+	if retryResp.StatusCode != http.StatusOK {
+		t.Fatalf("retry turn status = %d, want 200", retryResp.StatusCode)
+	}
+	var retry TurnResponse
+	if err := json.NewDecoder(retryResp.Body).Decode(&retry); err != nil {
+		t.Fatalf("decode retry turn: %v", err)
+	}
+	if retry.TurnID != first.TurnID || retry.Final.Text != "first answer" {
+		t.Fatalf("retry = %+v, want original turn id %s and first answer", retry, first.TurnID)
+	}
+	if retryProvider.Calls() != 0 {
+		t.Fatalf("retry provider calls = %d, want 0", retryProvider.Calls())
+	}
+	projection, err := restarted.Session("http-turn-idempotency")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Turns) != 1 || len(projection.Events) != 2 {
+		t.Fatalf("projection turns/events = %d/%d, want one turn and two events", len(projection.Turns), len(projection.Events))
+	}
+}
+
+func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     NewBlockedProvider("blocked-test", "no_provider"),
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+
+	firstResp, err := postJSONWithAuth(server.URL+"/turn", []byte(`{"session_id":"http-turn-idempotent-failure","idempotency_key":"turn-fail-1","input_items":[{"type":"text","text":"first prompt"}]}`))
+	if err != nil {
+		t.Fatalf("first POST /turn failed: %v", err)
+	}
+	defer firstResp.Body.Close()
+	assertErrorCode(t, firstResp, http.StatusServiceUnavailable, "provider_unavailable")
+	server.Close()
+
+	retryProvider := &countingTextProvider{text: "should not recover by retry"}
+	restarted, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     retryProvider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New restarted returned error: %v", err)
+	}
+	restartedServer := httptest.NewServer(Handler(restarted))
+	defer restartedServer.Close()
+
+	retryResp, err := postJSONWithAuth(restartedServer.URL+"/turn", []byte(`{"session_id":"http-turn-idempotent-failure","idempotency_key":"turn-fail-1","input_items":[{"type":"text","text":"retry prompt must not run"}]}`))
+	if err != nil {
+		t.Fatalf("retry POST /turn failed: %v", err)
+	}
+	defer retryResp.Body.Close()
+	assertErrorCode(t, retryResp, http.StatusServiceUnavailable, "provider_unavailable")
+	if retryProvider.Calls() != 0 {
+		t.Fatalf("retry provider calls = %d, want 0", retryProvider.Calls())
+	}
+	projection, err := restarted.Session("http-turn-idempotent-failure")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Turns) != 1 || projection.Turns[0].Status != "failed" || len(projection.Events) != 2 {
+		t.Fatalf("projection = %+v, want original failed turn only", projection)
+	}
+}
+
+func TestHTTPTurnSubmitIdempotencyKeyRequiresValidExplicitSession(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	missingSession, err := postJSONWithAuth(server.URL+"/turn", []byte(`{"idempotency_key":"turn-no-session","input_items":[{"type":"text","text":"hello"}]}`))
+	if err != nil {
+		t.Fatalf("POST /turn without session failed: %v", err)
+	}
+	defer missingSession.Body.Close()
+	assertErrorCode(t, missingSession, http.StatusBadRequest, "invalid_request")
+
+	badKey, err := postJSONWithAuth(server.URL+"/turn", []byte(`{"session_id":"bad-turn-key","idempotency_key":"bad key","input_items":[{"type":"text","text":"hello"}]}`))
+	if err != nil {
+		t.Fatalf("POST /turn with bad key failed: %v", err)
+	}
+	defer badKey.Body.Close()
+	assertErrorCode(t, badKey, http.StatusBadRequest, "invalid_request")
+
+	if _, err := k.Session("bad-turn-key"); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("Session after bad turn key error = %v, want ErrSessionNotFound", err)
+	}
+}
+
 func TestHTTPFinalUsageSummarySurvivesSessionReplay(t *testing.T) {
 	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -3739,6 +3885,12 @@ type multiToolCallProvider struct {
 	calls []ModelToolCall
 }
 
+type countingTextProvider struct {
+	mu    sync.Mutex
+	calls int
+	text  string
+}
+
 func (p singleToolCallProvider) Name() string {
 	return "single-tool-call"
 }
@@ -3767,6 +3919,30 @@ func (p multiToolCallProvider) Complete(_ context.Context, _ ModelRequest) (Mode
 		Model:     "multi-tool-call-model",
 		ToolCalls: p.calls,
 	}, nil
+}
+
+func (p *countingTextProvider) Name() string {
+	return "counting-text"
+}
+
+func (p *countingTextProvider) Ready() ProviderStatus {
+	return ProviderStatus{Name: p.Name(), Status: "ok"}
+}
+
+func (p *countingTextProvider) Complete(_ context.Context, _ ModelRequest) (ModelResponse, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	return ModelResponse{
+		Text:  p.text,
+		Model: "counting-text-model",
+	}, nil
+}
+
+func (p *countingTextProvider) Calls() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
 }
 
 func newTestKernel(t *testing.T, ledgerPath string) *Kernel {

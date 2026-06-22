@@ -15,6 +15,7 @@ type Kernel struct {
 	runtimeToken   string
 	toolPolicy     ToolPolicy
 	clock          func() time.Time
+	turnMu         sync.Mutex
 	operationMu    sync.Mutex
 	memoryReviewMu sync.Mutex
 	workMu         sync.Mutex
@@ -74,26 +75,28 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	if sessionID == "" {
 		sessionID = newID("sess", now)
 	}
-	turnID := newID("turn", now)
-	recalledMemories, err := k.recallMemories(req.InputItems)
-	if err != nil {
-		return TurnResponse{}, err
-	}
-
-	submitted := StoredEvent{
-		EventID:   newID("evt", now),
-		SessionID: sessionID,
-		TurnID:    turnID,
-		Type:      "turn.submitted",
-		CreatedAt: now,
-		Data: EventData{
-			InputItems:       req.InputItems,
-			IngressRisks:     ingressRisks,
-			RecalledMemories: recalledMemories,
-		},
-	}
-	if err := k.appendEvent(submitted); err != nil {
-		return TurnResponse{}, err
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	var turnID string
+	var recalledMemories []MemoryRecall
+	if idempotencyKey != "" {
+		var existing TurnResponse
+		var ok bool
+		k.turnMu.Lock()
+		existing, ok, err = k.turnByIdempotencyKey(sessionID, idempotencyKey)
+		if err == nil && !ok {
+			turnID = newID("turn", now)
+			recalledMemories, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now)
+		}
+		k.turnMu.Unlock()
+		if err != nil || ok {
+			return existing, err
+		}
+	} else {
+		turnID = newID("turn", now)
+		recalledMemories, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now)
+		if err != nil {
+			return TurnResponse{}, err
+		}
 	}
 
 	inputItems := modelInputItems(req.InputItems, recalledMemories)
@@ -183,6 +186,30 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	return TurnResponse{}, errors.New("unreachable model tool loop state")
 }
 
+func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string, idempotencyKey string, ingressRisks []IngressRisk, now time.Time) ([]MemoryRecall, error) {
+	recalledMemories, err := k.recallMemories(req.InputItems)
+	if err != nil {
+		return nil, err
+	}
+	submitted := StoredEvent{
+		EventID:   newID("evt", now),
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      "turn.submitted",
+		CreatedAt: now,
+		Data: EventData{
+			IdempotencyKey:   idempotencyKey,
+			InputItems:       req.InputItems,
+			IngressRisks:     ingressRisks,
+			RecalledMemories: recalledMemories,
+		},
+	}
+	if err := k.appendEvent(submitted); err != nil {
+		return nil, err
+	}
+	return recalledMemories, nil
+}
+
 func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -221,6 +248,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 			turnByID[event.TurnID] = len(projection.Turns)
 			projection.Turns = append(projection.Turns, TurnProjection{
 				TurnID:           event.TurnID,
+				IdempotencyKey:   event.Data.IdempotencyKey,
 				Status:           "running",
 				InputItems:       event.Data.InputItems,
 				IngressRisks:     event.Data.IngressRisks,
@@ -338,6 +366,84 @@ var ErrSessionNotFound = errors.New("session not found")
 var ErrTurnNotFound = errors.New("turn not found")
 var ErrLedgerUnavailable = errors.New("ledger unavailable")
 
+type replayedTurnFailure struct {
+	failure TurnError
+}
+
+func (e replayedTurnFailure) Error() string {
+	if e.failure.Message != "" {
+		return e.failure.Message
+	}
+	if e.failure.Code != "" {
+		return e.failure.Code
+	}
+	return "turn failed"
+}
+
+func (e replayedTurnFailure) Unwrap() error {
+	switch e.failure.Code {
+	case "provider_unavailable":
+		return ErrProviderUnavailable
+	case "tool_call_rejected":
+		return ErrModelToolCallRejected
+	default:
+		return nil
+	}
+}
+
+func (k *Kernel) turnByIdempotencyKey(sessionID string, key string) (TurnResponse, bool, error) {
+	events, err := k.loadEvents()
+	if err != nil {
+		return TurnResponse{}, false, err
+	}
+	var turnID string
+	var turnEvents []Event
+	var final *FinalMessage
+	var failure *TurnError
+	for _, event := range events {
+		if event.SessionID != sessionID {
+			continue
+		}
+		if event.Type == "turn.submitted" && event.Data.IdempotencyKey == key {
+			if turnID != "" && turnID != event.TurnID {
+				return TurnResponse{}, false, errors.New("competing turn idempotency evidence")
+			}
+			turnID = event.TurnID
+		}
+		if turnID == "" || event.TurnID != turnID {
+			continue
+		}
+		turnEvents = append(turnEvents, toEvent(event))
+		switch event.Type {
+		case "model.final":
+			if event.Data.Final != nil {
+				copied := *event.Data.Final
+				final = &copied
+			}
+		case "turn.failed":
+			if event.Data.TurnError != nil {
+				copied := *event.Data.TurnError
+				failure = &copied
+			}
+		}
+	}
+	if turnID == "" {
+		return TurnResponse{}, false, nil
+	}
+	if final != nil {
+		return TurnResponse{
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Events:    turnEvents,
+			Final:     *final,
+		}, true, nil
+	}
+	if failure != nil {
+		return TurnResponse{}, true, replayedTurnFailure{failure: *failure}
+	}
+	return TurnResponse{}, true, errors.New("turn idempotency key is already running")
+}
+
 func (k *Kernel) TurnEvents(turnID string) ([]Event, error) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -441,6 +547,17 @@ func ledgerErrorCode(err error) string {
 }
 
 func validateTurnRequest(req TurnRequest) error {
+	if err := validateIdempotencyKey(req.IdempotencyKey); err != nil {
+		return err
+	}
+	if strings.TrimSpace(req.IdempotencyKey) != "" {
+		if strings.TrimSpace(req.SessionID) == "" {
+			return errors.New("session_id is required when idempotency_key is set")
+		}
+		if err := validateKernelTextNotSecret("idempotency_key", req.IdempotencyKey); err != nil {
+			return err
+		}
+	}
 	if len(req.InputItems) == 0 {
 		return errors.New("input_items is required")
 	}

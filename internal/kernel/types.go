@@ -38,8 +38,9 @@ type ReadyCheck struct {
 }
 
 type TurnRequest struct {
-	SessionID  string      `json:"session_id,omitempty"`
-	InputItems []InputItem `json:"input_items"`
+	SessionID      string      `json:"session_id,omitempty"`
+	IdempotencyKey string      `json:"idempotency_key,omitempty"`
+	InputItems     []InputItem `json:"input_items"`
 }
 
 type InputItem struct {
@@ -104,6 +105,7 @@ type SessionProjection struct {
 
 type TurnProjection struct {
 	TurnID           string         `json:"turn_id"`
+	IdempotencyKey   string         `json:"idempotency_key,omitempty"`
 	Status           string         `json:"status"`
 	InputItems       []InputItem    `json:"input_items"`
 	IngressRisks     []IngressRisk  `json:"ingress_risks,omitempty"`
@@ -277,6 +279,7 @@ type StoredEvent struct {
 }
 
 type EventData struct {
+	IdempotencyKey             string                     `json:"idempotency_key,omitempty"`
 	InputItems                 []InputItem                `json:"input_items,omitempty"`
 	IngressRisks               []IngressRisk              `json:"ingress_risks,omitempty"`
 	RecalledMemories           []MemoryRecall             `json:"recalled_memories,omitempty"`
