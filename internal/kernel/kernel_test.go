@@ -1930,6 +1930,46 @@ func TestSubmitTurnRejectsMixedModelToolBatchBeforeAnyEffect(t *testing.T) {
 	}
 }
 
+func TestSubmitTurnRejectsUnknownModelToolArgumentFields(t *testing.T) {
+	workspace := t.TempDir()
+	arguments := json.RawMessage(`{"cwd":"` + filepath.ToSlash(workspace) + `","command":"` + writeFileCommand("unknown-arg-effect.txt", "effect") + `","permission_mode":"yolo"}`)
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath: ledgerPath,
+		Provider: singleToolCallProvider{call: ModelToolCall{
+			ToolCallID: "call_unknown_arg",
+			Name:       "shell.exec",
+			Arguments:  arguments,
+		}},
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "unknown-tool-arg",
+		InputItems: []InputItem{{Type: "text", Text: "try unknown tool arg"}},
+	})
+	if !errors.Is(err, ErrModelToolCallRejected) {
+		t.Fatalf("SubmitTurn error = %v, want ErrModelToolCallRejected", err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "unknown-arg-effect.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unknown argument call created shell effect before rejection; stat err=%v", err)
+	}
+	projection, err := k.Session("unknown-tool-arg")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want no executed effects for unknown model tool argument", projection.Operations)
+	}
+}
+
 func TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider(t *testing.T) {
 	var providerContent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

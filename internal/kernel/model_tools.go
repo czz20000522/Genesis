@@ -1,10 +1,12 @@
 package kernel
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -82,8 +84,13 @@ func (k *Kernel) prepareModelToolCall(call ModelToolCall) (preparedModelToolCall
 	if len(call.Arguments) == 0 {
 		return preparedModelToolCall{}, fmt.Errorf("%w: shell.exec arguments are required", ErrModelToolCallRejected)
 	}
-	if err := json.Unmarshal(call.Arguments, &args); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(call.Arguments))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&args); err != nil {
 		return preparedModelToolCall{}, fmt.Errorf("%w: invalid shell.exec arguments: %v", ErrModelToolCallRejected, err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return preparedModelToolCall{}, fmt.Errorf("%w: invalid shell.exec arguments: trailing data", ErrModelToolCallRejected)
 	}
 	args.CWD = strings.TrimSpace(args.CWD)
 	if args.CWD == "" {
