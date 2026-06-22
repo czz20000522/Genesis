@@ -97,6 +97,7 @@ type SessionProjection struct {
 	SessionID        string                      `json:"session_id"`
 	Turns            []TurnProjection            `json:"turns"`
 	Operations       []OperationProjection       `json:"operations"`
+	Works            []WorkProjection            `json:"works"`
 	MemoryCandidates []MemoryCandidateProjection `json:"memory_candidates"`
 	Events           []EventProjection           `json:"events"`
 }
@@ -122,6 +123,7 @@ type EventProjection struct {
 	EventID     string    `json:"event_id"`
 	TurnID      string    `json:"turn_id"`
 	OperationID string    `json:"operation_id,omitempty"`
+	WorkID      string    `json:"work_id,omitempty"`
 	CandidateID string    `json:"candidate_id,omitempty"`
 	Type        string    `json:"type"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -150,6 +152,31 @@ type OperationProjection struct {
 	BlockedReason  string    `json:"blocked_reason,omitempty"`
 	StartedAt      time.Time `json:"started_at"`
 	EndedAt        time.Time `json:"ended_at"`
+}
+
+type WorkSubmitRequest struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+	SourceRef string `json:"source_ref"`
+}
+
+type WorkCancelRequest struct {
+	CancelAuthority   string `json:"cancel_authority"`
+	CancelReason      string `json:"cancel_reason"`
+	CancelEvidenceRef string `json:"cancel_evidence_ref"`
+}
+
+type WorkProjection struct {
+	WorkID            string     `json:"work_id"`
+	SessionID         string     `json:"session_id"`
+	Title             string     `json:"title"`
+	SourceRef         string     `json:"source_ref"`
+	Status            string     `json:"status"`
+	CreatedAt         time.Time  `json:"created_at"`
+	CancelAuthority   string     `json:"cancel_authority,omitempty"`
+	CancelReason      string     `json:"cancel_reason,omitempty"`
+	CancelEvidenceRef string     `json:"cancel_evidence_ref,omitempty"`
+	CanceledAt        *time.Time `json:"canceled_at,omitempty"`
 }
 
 type MemoryCandidateRequest struct {
@@ -202,6 +229,7 @@ type Event struct {
 	SessionID   string      `json:"session_id"`
 	TurnID      string      `json:"turn_id"`
 	OperationID string      `json:"operation_id,omitempty"`
+	WorkID      string      `json:"work_id,omitempty"`
 	CandidateID string      `json:"candidate_id,omitempty"`
 	Type        string      `json:"type"`
 	CreatedAt   time.Time   `json:"created_at"`
@@ -213,6 +241,7 @@ type StoredEvent struct {
 	SessionID   string    `json:"session_id"`
 	TurnID      string    `json:"turn_id"`
 	OperationID string    `json:"operation_id,omitempty"`
+	WorkID      string    `json:"work_id,omitempty"`
 	CandidateID string    `json:"candidate_id,omitempty"`
 	Type        string    `json:"type"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -227,6 +256,7 @@ type EventData struct {
 	Final            *FinalMessage              `json:"final,omitempty"`
 	TurnError        *TurnError                 `json:"turn_error,omitempty"`
 	Operation        *OperationProjection       `json:"operation,omitempty"`
+	Work             *WorkProjection            `json:"work,omitempty"`
 	MemoryCandidate  *MemoryCandidateProjection `json:"memory_candidate,omitempty"`
 }
 

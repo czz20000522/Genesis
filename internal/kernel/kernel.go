@@ -17,6 +17,7 @@ type Kernel struct {
 	clock          func() time.Time
 	operationMu    sync.Mutex
 	memoryReviewMu sync.Mutex
+	workMu         sync.Mutex
 }
 
 func New(config Config) (*Kernel, error) {
@@ -195,10 +196,12 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 		SessionID:        sessionID,
 		Turns:            []TurnProjection{},
 		Operations:       []OperationProjection{},
+		Works:            []WorkProjection{},
 		MemoryCandidates: []MemoryCandidateProjection{},
 		Events:           []EventProjection{},
 	}
 	turnByID := map[string]int{}
+	workByID := map[string]int{}
 	candidateByID := map[string]int{}
 	for _, event := range events {
 		if event.SessionID != sessionID {
@@ -208,6 +211,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 			EventID:     event.EventID,
 			TurnID:      event.TurnID,
 			OperationID: event.OperationID,
+			WorkID:      event.WorkID,
 			CandidateID: event.CandidateID,
 			Type:        event.Type,
 			CreatedAt:   event.CreatedAt,
@@ -258,6 +262,18 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 					projection.Operations = append(projection.Operations, operation)
 				}
 			}
+		case "work.submitted", "work.canceled":
+			if event.Data.Work == nil {
+				continue
+			}
+			work := *event.Data.Work
+			idx, ok := workByID[work.WorkID]
+			if ok {
+				projection.Works[idx] = work
+				continue
+			}
+			workByID[work.WorkID] = len(projection.Works)
+			projection.Works = append(projection.Works, work)
 		case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected":
 			if event.Data.MemoryCandidate == nil {
 				continue
@@ -416,6 +432,7 @@ func toEvent(event StoredEvent) Event {
 		SessionID:   event.SessionID,
 		TurnID:      event.TurnID,
 		OperationID: event.OperationID,
+		WorkID:      event.WorkID,
 		CandidateID: event.CandidateID,
 		Type:        event.Type,
 		CreatedAt:   event.CreatedAt,
