@@ -12,6 +12,16 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-TOOL-CALL-EVENT-ID-20260622 - P1 - Tool call identity should be kernel event id
+
+- Status: ready_for_acceptance.
+- Fix commits: `a4e57c86f`.
+- Reference alignment: Codex distinguishes provider protocol correlation from internal event/control flow, and tool routing stays typed. Reasonix event-style flows keep local event identity separate from transport correlation. Genesis now keeps provider correlation as adapter data and uses ledger event ids for kernel tool facts.
+- Evidence: `SubmitTurn` now writes `tool.call` events before tool preparation and normalizes each admitted tool slot so `ModelToolCall.tool_call_id` is the kernel-owned `tool.call` event id. Provider-native ids are stored as `provider_tool_call_id` only for adapter replay and provider tool-result envelopes. `tool.result` uses the same kernel event id as `tool_call_id` and keeps `for_event_id` as the causal link to the originating `tool.call`. Duplicate provider ids in one model batch fail before `tool.call` events or effects. Provider calls with missing or unsafe native ids can still execute through a kernel event id without promoting provider strings into kernel identity.
+- Verification: `TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal`; `TestSubmitTurnUsesToolCallEventIDWhenProviderIDMissing`; `TestSubmitTurnUsesKernelEventIDForUnsafeProviderToolCallID`; `TestSubmitTurnRejectsDuplicateToolCallIDBeforeAnyEffect`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments`; `TestOpenAICompatibleMalformedToolArgumentsReturnRepairFeedback`; `TestCommandProviderToolLoopThroughKernel`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
+- Acceptance condition: reviewer confirms session, replay, model-visible tool results, and provider adapter correlation all use `tool.call` event ids as kernel identity and never require provider-native ids to be stable kernel facts.
+- Residual risk: provider-native ids are still retained in session projections as correlation evidence for adapter debugging. They must not become idempotency keys, operation ids, or owner truth in future tool state.
+
 ### KERNEL-PROVIDER-COMMAND-ADAPTER-20260622 - P1 - Provider should prefer external command adapter boundary
 
 - Status: ready_for_acceptance.
@@ -30,7 +40,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: `modelOperationResult` now returns only terminal-equivalent command evidence: status, executed flag, exit code, bounded stdout/stderr, and truncation metadata. Permission blocks return model-visible `permission_denied` feedback without permission mode, blocker reason, operation id, command, cwd, timestamps, or infrastructure reason. Full `OperationProjection` still records permission mode and blocker reason in session/operation inspection.
 - Verification: `TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal`; `TestSubmitTurnFeedsNonZeroShellExitToModel`; `TestSubmitTurnReturnsMinimalPermissionDeniedToolResult`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
 - Acceptance condition: reviewer confirms model-visible tool results contain terminal-equivalent output or minimal repair feedback only, while authorized inspection surfaces still expose permission and audit evidence.
-- Residual risk: `KERNEL-TOOL-CALL-EVENT-ID-20260622` remains active because provider-native ids are still used as provider correlation fields and tool-call ids until the slot identity is moved to kernel event ids.
+- Residual risk: provider-native ids are now correlation fields only, covered by `KERNEL-TOOL-CALL-EVENT-ID-20260622`. Future tool state must continue to avoid treating those ids as kernel identity or idempotency keys.
 
 ### KERNEL-MALFORMED-TOOL-ARGS-REPAIR-20260622 - P1 - Malformed tool arguments should become model-visible tool result repair feedback
 
@@ -40,7 +50,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: the OpenAI-compatible adapter no longer rejects invalid JSON arguments before ToolGateway. Raw tool arguments are stored in `tool.call` event payloads as strings so invalid JSON can be recorded without corrupting the JSONL ledger. ToolGateway strict decoding then returns `tool_request_invalid` through `tool.result`; no shell operation or external effect occurs.
 - Verification: `TestOpenAICompatibleMalformedToolArgumentsReturnRepairFeedback`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
 - Acceptance condition: reviewer confirms malformed model tool arguments with a correlated tool call produce repair feedback and ordered `tool.call -> tool.result` events rather than provider failure or shell effects.
-- Residual risk: provider protocol states without any usable tool slot still fail as provider protocol failures. `KERNEL-TOOL-CALL-EVENT-ID-20260622` remains active for replacing provider ids as kernel slot identity.
+- Residual risk: provider protocol states without any usable tool slot still fail as provider protocol failures. Provider-native ids are now correlation fields only, covered by `KERNEL-TOOL-CALL-EVENT-ID-20260622`.
 
 ### KERNEL-SESSION-EVENT-STREAM-UNIFICATION-20260622 - P1 - Session facts should converge on typed event stream
 

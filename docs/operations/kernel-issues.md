@@ -15,12 +15,4 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-TOOL-CALL-EVENT-ID-20260622 - P1 - Tool call identity should be kernel event id
-
-- Status: new.
-- Type: architecture.
-- Problem: `tool.call` / `tool.result` events now exist, but the provider-native `tool_call_id` is still promoted into the kernel slot identity used by tool preparation, operation idempotency, model-visible results, and replay. That makes a provider wire identifier look like a kernel fact identity.
-- Suggestion: Generate the tool slot identity from the kernel-owned `tool.call` event id. Store provider-native tool call ids only as adapter correlation data needed to reply to that provider. `tool.result.tool_result.for_event_id` remains the kernel causal link.
-- Evidence: Feishu Base record `recvngbsXq5Tti`.
-- Verification: provider tool ids can be missing or unstable without becoming kernel identity; every tool result links to `tool.call.event_id`; session replay restores `tool.call -> tool.result`; provider-native ids do not appear as kernel identity fields in model-visible repair payloads; `go test ./... -count=1` passes.
-- Reference alignment: Codex distinguishes protocol item ids from internal event/control flow, and tool routing stays typed. Reasonix event-style flows keep local event identity separate from transport correlation. Genesis should keep provider correlation as adapter data and use ledger event ids for kernel facts.
+No active kernel issues are currently recorded in this repo ledger.
