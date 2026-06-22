@@ -62,6 +62,7 @@ Minimal HTTP surface:
 - `GET /memory/candidates`
 - `GET /memory/candidates/{id}`
 - `POST /memory/candidates/{id}/approve`
+- `POST /memory/candidates/{id}/reject`
 
 The initial provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
 
@@ -154,9 +155,10 @@ The first memory loop is explicit and governed:
 - `GET /memory/candidates?status=pending` lists restart-safe candidates for review; omit `status` to list all candidates.
 - `GET /memory/candidates/{id}` reads one candidate with source and approval evidence.
 - `POST /memory/candidates/{id}/approve` approves a candidate with required `approval_authority`, `approval_reason`, and `approval_evidence_ref`.
+- `POST /memory/candidates/{id}/reject` rejects a candidate with required `rejection_authority`, `rejection_reason`, and `rejection_evidence_ref`.
 - `POST /turn` recalls only approved candidates and records recalled memory refs on the turn event.
 
-The first recall strategy is intentionally simple text matching. It proves the governance, provenance, and restart-safe replay loop before adding vector indexes or richer memory policy.
+Rejected candidates are restart-safe review decisions and are not recalled. The first recall strategy is intentionally simple text matching. It proves the governance, provenance, and restart-safe replay loop before adding vector indexes, supersession, or richer memory policy.
 
 ## Operations Records
 

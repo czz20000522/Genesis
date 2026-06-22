@@ -75,6 +75,8 @@ Owns durable work state, cancellation, recovery, status projection, and executio
 
 Owns memory candidates, approval state, safe recall, source refs, and supersession. It does not silently turn model output into truth.
 
+Candidate review decisions are durable owner evidence. Approved candidates may enter recall under context policy; rejected candidates are explicit review outcomes and must remain excluded from recall. A rejected candidate cannot later be approved through the minimal review surface; a future supersession flow must create an explicit replacement decision instead of mutating rejected truth into approved truth.
+
 ### Auth/Credential Plane
 
 Owns runtime client authentication, credential refs, redaction, and secret resolution for authorized effects. Provider-specific account setup belongs to shells or external applications unless it becomes a generic credential primitive.

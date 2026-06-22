@@ -257,7 +257,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 					projection.Operations = append(projection.Operations, operation)
 				}
 			}
-		case "memory.candidate.created", "memory.candidate.approved":
+		case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected":
 			if event.Data.MemoryCandidate == nil {
 				continue
 			}

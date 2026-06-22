@@ -10,6 +10,7 @@ import (
 const (
 	MemoryCandidatePending  = "pending"
 	MemoryCandidateApproved = "approved"
+	MemoryCandidateRejected = "rejected"
 )
 
 var ErrMemoryCandidateNotFound = errors.New("memory candidate not found")
@@ -62,6 +63,9 @@ func (k *Kernel) ApproveMemoryCandidate(candidateID string, req MemoryApprovalRe
 	if candidate.Status == MemoryCandidateApproved {
 		return candidate, nil
 	}
+	if candidate.Status == MemoryCandidateRejected {
+		return MemoryCandidateProjection{}, errors.New("rejected memory candidate cannot be approved")
+	}
 	now := k.clock()
 	candidate.Status = MemoryCandidateApproved
 	candidate.ApprovalAuthority = strings.TrimSpace(req.ApprovalAuthority)
@@ -84,9 +88,53 @@ func (k *Kernel) ApproveMemoryCandidate(candidateID string, req MemoryApprovalRe
 	return candidate, nil
 }
 
+func (k *Kernel) RejectMemoryCandidate(candidateID string, req MemoryRejectionRequest) (MemoryCandidateProjection, error) {
+	candidateID = strings.TrimSpace(candidateID)
+	if candidateID == "" {
+		return MemoryCandidateProjection{}, errors.New("candidate id is required")
+	}
+	if err := validateMemoryRejectionRequest(req); err != nil {
+		return MemoryCandidateProjection{}, err
+	}
+	candidates, err := k.memoryCandidates()
+	if err != nil {
+		return MemoryCandidateProjection{}, err
+	}
+	candidate, ok := candidates[candidateID]
+	if !ok {
+		return MemoryCandidateProjection{}, ErrMemoryCandidateNotFound
+	}
+	if candidate.Status == MemoryCandidateRejected {
+		return candidate, nil
+	}
+	if candidate.Status == MemoryCandidateApproved {
+		return MemoryCandidateProjection{}, errors.New("approved memory candidate cannot be rejected")
+	}
+	now := k.clock()
+	candidate.Status = MemoryCandidateRejected
+	candidate.RejectionAuthority = strings.TrimSpace(req.RejectionAuthority)
+	candidate.RejectionReason = strings.TrimSpace(req.RejectionReason)
+	candidate.RejectionEvidenceRef = strings.TrimSpace(req.RejectionEvidenceRef)
+	candidate.RejectedAt = &now
+	event := StoredEvent{
+		EventID:     newID("evt", now),
+		SessionID:   candidate.SessionID,
+		CandidateID: candidate.CandidateID,
+		Type:        "memory.candidate.rejected",
+		CreatedAt:   now,
+		Data: EventData{
+			MemoryCandidate: &candidate,
+		},
+	}
+	if err := k.appendEvent(event); err != nil {
+		return MemoryCandidateProjection{}, err
+	}
+	return candidate, nil
+}
+
 func (k *Kernel) MemoryCandidates(status string) ([]MemoryCandidateProjection, error) {
 	status = strings.TrimSpace(status)
-	if status != "" && status != MemoryCandidatePending && status != MemoryCandidateApproved {
+	if status != "" && status != MemoryCandidatePending && status != MemoryCandidateApproved && status != MemoryCandidateRejected {
 		return nil, fmt.Errorf("unsupported memory candidate status %q", status)
 	}
 	candidates, _, err := k.memoryCandidateList()
@@ -147,6 +195,19 @@ func validateMemoryApprovalRequest(req MemoryApprovalRequest) error {
 	return nil
 }
 
+func validateMemoryRejectionRequest(req MemoryRejectionRequest) error {
+	if strings.TrimSpace(req.RejectionAuthority) == "" {
+		return errors.New("rejection_authority is required")
+	}
+	if strings.TrimSpace(req.RejectionReason) == "" {
+		return errors.New("rejection_reason is required")
+	}
+	if strings.TrimSpace(req.RejectionEvidenceRef) == "" {
+		return errors.New("rejection_evidence_ref is required")
+	}
+	return nil
+}
+
 func (k *Kernel) memoryCandidates() (map[string]MemoryCandidateProjection, error) {
 	_, candidates, err := k.memoryCandidateList()
 	return candidates, err
@@ -164,7 +225,7 @@ func (k *Kernel) memoryCandidateList() ([]MemoryCandidateProjection, map[string]
 			continue
 		}
 		switch event.Type {
-		case "memory.candidate.created", "memory.candidate.approved":
+		case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected":
 			candidate := *event.Data.MemoryCandidate
 			if candidate.CandidateID == "" {
 				candidate.CandidateID = event.CandidateID

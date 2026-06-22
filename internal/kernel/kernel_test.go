@@ -1531,6 +1531,161 @@ func TestHTTPMemoryCandidateListAndReadAfterRestart(t *testing.T) {
 	}
 }
 
+func TestHTTPMemoryCandidateRejectAndReadAfterRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+
+	candidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-reject-source",
+		Text:      "红色雨伞",
+		SourceRef: "turn:http-memory-reject-source",
+	})
+	rejectResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/reject", []byte(`{"rejection_authority":"runtime:test","rejection_reason":"not true","rejection_evidence_ref":"review:reject-memory"}`))
+	if err != nil {
+		t.Fatalf("POST reject failed: %v", err)
+	}
+	defer rejectResp.Body.Close()
+	if rejectResp.StatusCode != http.StatusOK {
+		t.Fatalf("reject status = %d, want 200", rejectResp.StatusCode)
+	}
+	var rejected map[string]interface{}
+	if err := json.NewDecoder(rejectResp.Body).Decode(&rejected); err != nil {
+		t.Fatalf("decode rejected candidate: %v", err)
+	}
+	if rejected["status"] != "rejected" || rejected["rejection_evidence_ref"] != "review:reject-memory" {
+		t.Fatalf("rejected candidate = %#v, want rejected status and evidence", rejected)
+	}
+	server.Close()
+
+	restarted := newTestKernel(t, ledgerPath)
+	restartedServer := httptest.NewServer(Handler(restarted))
+	defer restartedServer.Close()
+
+	rejectedListResp, err := getWithAuth(restartedServer.URL + "/memory/candidates?status=rejected")
+	if err != nil {
+		t.Fatalf("GET rejected candidates failed: %v", err)
+	}
+	defer rejectedListResp.Body.Close()
+	if rejectedListResp.StatusCode != http.StatusOK {
+		t.Fatalf("rejected list status = %d, want 200", rejectedListResp.StatusCode)
+	}
+	var rejectedList MemoryCandidateListResponse
+	if err := json.NewDecoder(rejectedListResp.Body).Decode(&rejectedList); err != nil {
+		t.Fatalf("decode rejected candidates: %v", err)
+	}
+	if len(rejectedList.Items) != 1 || rejectedList.Items[0].CandidateID != candidate.CandidateID || rejectedList.Items[0].Status != "rejected" {
+		t.Fatalf("rejected candidates = %+v, want rejected candidate", rejectedList.Items)
+	}
+
+	readResp, err := getWithAuth(restartedServer.URL + "/memory/candidates/" + candidate.CandidateID)
+	if err != nil {
+		t.Fatalf("GET rejected candidate failed: %v", err)
+	}
+	defer readResp.Body.Close()
+	if readResp.StatusCode != http.StatusOK {
+		t.Fatalf("rejected read status = %d, want 200", readResp.StatusCode)
+	}
+	var readBack map[string]interface{}
+	if err := json.NewDecoder(readResp.Body).Decode(&readBack); err != nil {
+		t.Fatalf("decode rejected candidate read: %v", err)
+	}
+	if readBack["status"] != "rejected" || readBack["rejection_evidence_ref"] != "review:reject-memory" {
+		t.Fatalf("rejected candidate read = %#v, want rejected status and evidence", readBack)
+	}
+
+	pendingResp, err := getWithAuth(restartedServer.URL + "/memory/candidates?status=pending")
+	if err != nil {
+		t.Fatalf("GET pending candidates failed: %v", err)
+	}
+	defer pendingResp.Body.Close()
+	var pending MemoryCandidateListResponse
+	if err := json.NewDecoder(pendingResp.Body).Decode(&pending); err != nil {
+		t.Fatalf("decode pending candidates: %v", err)
+	}
+	if len(pending.Items) != 0 {
+		t.Fatalf("pending candidates = %+v, want none after rejection", pending.Items)
+	}
+
+	turnPayload := []byte(`{"session_id":"http-memory-reject-consumer","input_items":[{"type":"text","text":"你记得雨伞偏好吗？"}]}`)
+	turnResp, err := postJSONWithAuth(restartedServer.URL+"/turn", turnPayload)
+	if err != nil {
+		t.Fatalf("POST /turn failed: %v", err)
+	}
+	defer turnResp.Body.Close()
+	if turnResp.StatusCode != http.StatusOK {
+		t.Fatalf("turn status = %d, want 200", turnResp.StatusCode)
+	}
+	var turn TurnResponse
+	if err := json.NewDecoder(turnResp.Body).Decode(&turn); err != nil {
+		t.Fatalf("decode turn response: %v", err)
+	}
+	if strings.Contains(turn.Final.Text, "红色雨伞") {
+		t.Fatalf("rejected memory was recalled in final text: %q", turn.Final.Text)
+	}
+}
+
+func TestHTTPRejectedMemoryCandidateCannotBeApproved(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	candidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "http-memory-reject-then-approve",
+		Text:      "rejected memory should stay rejected",
+		SourceRef: "turn:http-memory-reject-then-approve",
+	})
+	rejectResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/reject", []byte(`{"rejection_authority":"runtime:test","rejection_reason":"not true","rejection_evidence_ref":"review:reject-then-approve"}`))
+	if err != nil {
+		t.Fatalf("POST reject failed: %v", err)
+	}
+	rejectResp.Body.Close()
+	if rejectResp.StatusCode != http.StatusOK {
+		t.Fatalf("reject status = %d, want 200", rejectResp.StatusCode)
+	}
+
+	approvalPayload, err := json.Marshal(testApprovalRequest("approval:rejected-candidate"))
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	approveResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/approve", approvalPayload)
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	defer approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("approve status = %d, want 400", approveResp.StatusCode)
+	}
+
+	readResp, err := getWithAuth(server.URL + "/memory/candidates/" + candidate.CandidateID)
+	if err != nil {
+		t.Fatalf("GET memory candidate failed: %v", err)
+	}
+	defer readResp.Body.Close()
+	var readBack map[string]interface{}
+	if err := json.NewDecoder(readResp.Body).Decode(&readBack); err != nil {
+		t.Fatalf("decode memory candidate: %v", err)
+	}
+	if readBack["status"] != "rejected" {
+		t.Fatalf("candidate status after rejected approval = %#v, want rejected", readBack["status"])
+	}
+}
+
+func TestHTTPRejectMemoryCandidateRejectsMissingEvidence(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	resp, err := postJSONWithAuth(server.URL+"/memory/candidates/anything/reject", []byte(`{"rejection_authority":"runtime"}`))
+	if err != nil {
+		t.Fatalf("POST reject failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
