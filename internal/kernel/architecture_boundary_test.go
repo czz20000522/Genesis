@@ -137,18 +137,17 @@ func TestArchitectureBoundaryAuthorityGateUsesToolKind(t *testing.T) {
 	if !ok {
 		t.Fatal("shell.exec is not registered")
 	}
-	skillRead, ok := lookupKernelTool("skill.read")
-	if !ok {
-		t.Fatal("skill.read is not registered")
-	}
 
 	blocked := authorizeKernelTool(ToolPolicy{PermissionMode: PermissionModePlan}, shell)
 	if blocked.Allowed || blocked.Reason != "blocked_by_permission_mode=plan" {
 		t.Fatalf("plan shell decision = %+v, want blocked by permission mode", blocked)
 	}
-	allowedRead := authorizeKernelTool(ToolPolicy{PermissionMode: PermissionModePlan}, skillRead)
+	allowedRead := authorizeKernelTool(ToolPolicy{PermissionMode: PermissionModePlan}, kernelToolDefinition{
+		Descriptor: ModelToolDescriptor{Name: "resource_read"},
+		Kind:       ToolKindRead,
+	})
 	if !allowedRead.Allowed || allowedRead.Reason != "" {
-		t.Fatalf("plan skill.read decision = %+v, want read tool allowed", allowedRead)
+		t.Fatalf("plan read-tool decision = %+v, want read tool allowed", allowedRead)
 	}
 	for _, mode := range []string{PermissionModeDefault, PermissionModeYolo} {
 		decision := authorizeKernelTool(ToolPolicy{PermissionMode: mode}, shell)

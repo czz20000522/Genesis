@@ -38,25 +38,6 @@ func kernelToolDefinitions() []kernelToolDefinition {
 			Kind:    ToolKindEffect,
 			Prepare: (*Kernel).prepareShellExecToolCall,
 		},
-		{
-			Descriptor: ModelToolDescriptor{
-				Name:        "skill.read",
-				Description: "Read the bounded instructions for a configured user-space skill by skill name. This does not grant authority or bypass kernel tool permissions.",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"name": map[string]interface{}{
-							"type":        "string",
-							"description": "Configured skill name from the available external skills catalog.",
-						},
-					},
-					"required":             []string{"name"},
-					"additionalProperties": false,
-				},
-			},
-			Kind:    ToolKindRead,
-			Prepare: (*Kernel).prepareSkillReadToolCall,
-		},
 	}
 }
 

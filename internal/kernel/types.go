@@ -122,13 +122,6 @@ type SkillCatalogExclusionProjection struct {
 	Count  int    `json:"count"`
 }
 
-type SkillReadProjection struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Content     string `json:"content"`
-	Truncated   bool   `json:"truncated,omitempty"`
-}
-
 type TurnResponse struct {
 	SessionID string       `json:"session_id"`
 	TurnID    string       `json:"turn_id"`

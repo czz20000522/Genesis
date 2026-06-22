@@ -31,10 +31,6 @@ type shellExecToolArguments struct {
 	Command string `json:"command"`
 }
 
-type skillReadToolArguments struct {
-	Name string `json:"name"`
-}
-
 type preparedModelToolCall struct {
 	callID         string
 	name           string
@@ -118,45 +114,6 @@ func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments 
 				return ModelToolResult{}, fmt.Errorf("%w: %w", ErrToolInfrastructureFailed, err)
 			}
 			content, err := json.Marshal(modelOperationResult(operation))
-			if err != nil {
-				return ModelToolResult{}, err
-			}
-			return ModelToolResult{
-				ToolCallID: callID,
-				Name:       name,
-				Content:    string(content),
-			}, nil
-		},
-	}, nil
-}
-
-func (k *Kernel) prepareSkillReadToolCall(callID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
-	var args skillReadToolArguments
-	if err := decodeStrictModelToolArguments("skill.read", arguments, &args); err != nil {
-		return invalidPreparedModelToolCall(callID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
-	}
-	args.Name = strings.TrimSpace(args.Name)
-	if args.Name == "" {
-		return invalidPreparedModelToolCall(callID, name, "invalid_skill_read_request", "skill.read name is required"), nil
-	}
-	if hasInvisibleControlMarker(args.Name) {
-		return invalidPreparedModelToolCall(callID, name, "invalid_skill_read_request", "skill.read name contains invisible control markers"), nil
-	}
-	if err := validateKernelTextNotSecret("skill.read name", args.Name); err != nil {
-		return invalidPreparedModelToolCall(callID, name, "invalid_skill_read_request", err.Error()), nil
-	}
-	if _, ok := k.skillDescriptorByName(args.Name); !ok {
-		return invalidPreparedModelToolCall(callID, name, "unknown_skill", fmt.Sprintf("unknown skill %q", args.Name)), nil
-	}
-	projection, err := k.readSkillInstruction(args.Name)
-	if err != nil {
-		return invalidPreparedModelToolCall(callID, name, "skill_read_unavailable", "skill.read failed: skill instruction unavailable"), nil
-	}
-	return preparedModelToolCall{
-		callID: callID,
-		name:   name,
-		execute: func(_ context.Context, _ string, _ string) (ModelToolResult, error) {
-			content, err := json.Marshal(projection)
 			if err != nil {
 				return ModelToolResult{}, err
 			}

@@ -195,9 +195,6 @@ func TestToolCapabilityKindDefaultsUnknown(t *testing.T) {
 	if got := toolCapabilityKind("shell.exec"); got != "effect" {
 		t.Fatalf("shell.exec kind = %q, want effect", got)
 	}
-	if got := toolCapabilityKind("skill.read"); got != "read" {
-		t.Fatalf("skill.read kind = %q, want read", got)
-	}
 	if got := toolCapabilityKind("future.tool"); got != "unknown" {
 		t.Fatalf("future.tool kind = %q, want unknown", got)
 	}
@@ -253,10 +250,13 @@ func TestHTTPCapabilitiesProjectsToolsAndSkillCatalogWithoutPaths(t *testing.T) 
 	if payload.Status != "ok" || payload.RuntimeAuth.Status != "ok" {
 		t.Fatalf("capabilities = %+v, want ok runtime auth", payload)
 	}
-	for _, want := range []string{"shell.exec", "skill.read"} {
+	for _, want := range []string{"shell.exec"} {
 		if !capabilityHasTool(payload.Tools, want) {
 			t.Fatalf("tools = %+v, want %s", payload.Tools, want)
 		}
+	}
+	if capabilityHasTool(payload.Tools, "skill.read") || capabilityHasTool(payload.Tools, "skill_read") {
+		t.Fatalf("tools = %+v, must not expose skill.read as a default model tool", payload.Tools)
 	}
 	if payload.SkillCatalog.Status != "ok" || payload.SkillCatalog.Count != 1 || len(payload.SkillCatalog.Items) != 1 {
 		t.Fatalf("skill catalog = %+v, want one ok skill", payload.SkillCatalog)
@@ -465,12 +465,10 @@ func TestHTTPCapabilitiesReportsPathFreeSkillExclusions(t *testing.T) {
 	}
 }
 
-func TestSubmitTurnReadsConfiguredSkillBeforeFinal(t *testing.T) {
+func TestSubmitTurnDoesNotExposeSkillReadAsModelTool(t *testing.T) {
 	root := t.TempDir()
 	writeSkillForTest(t, root, "lark-im", "lark-im", "Send and read chat messages", "Run lark-cli im send after reading channel context.\nGENESIS_PROVIDER_API_KEY=sk-secret123")
-	provider := &skillReadLoopProvider{
-		arguments: json.RawMessage(`{"name":"lark-im"}`),
-	}
+	provider := &capturingProvider{text: "skill catalog only"}
 	k, err := New(Config{
 		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
 		Provider:     provider,
@@ -482,55 +480,27 @@ func TestSubmitTurnReadsConfiguredSkillBeforeFinal(t *testing.T) {
 	}
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
-		SessionID:  "skill-read",
-		InputItems: []InputItem{{Type: "text", Text: "Read the lark skill before replying."}},
+		SessionID:  "skill-catalog-no-read-tool",
+		InputItems: []InputItem{{Type: "text", Text: "Can you use installed external tools?"}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
-	if resp.Final.Text != "skill instructions received" {
-		t.Fatalf("final text = %q, want skill instructions received", resp.Final.Text)
+	if resp.Final.Text != "skill catalog only" {
+		t.Fatalf("final text = %q, want provider response", resp.Final.Text)
 	}
-	if len(provider.requests) != 2 {
-		t.Fatalf("provider calls = %d, want 2", len(provider.requests))
+	toolNames := provider.ToolNames()
+	if !containsString(toolNames, "shell.exec") {
+		t.Fatalf("tool names = %v, want shell.exec", toolNames)
 	}
-	if !modelRequestHasTool(provider.requests[0], "skill.read") {
-		t.Fatalf("tools = %+v, want skill.read descriptor", provider.requests[0].Tools)
-	}
-	rounds := provider.requests[1].ToolRounds
-	if len(rounds) != 1 || len(rounds[0].Results) != 1 {
-		t.Fatalf("tool rounds = %+v, want one skill.read result", rounds)
-	}
-	result := rounds[0].Results[0]
-	if result.Name != "skill.read" || result.ToolCallID != "call_skill_read" {
-		t.Fatalf("tool result = %+v, want skill.read call result", result)
-	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
-		t.Fatalf("decode skill.read content: %v; content=%q", err, result.Content)
-	}
-	if payload["name"] != "lark-im" || payload["description"] != "Send and read chat messages" {
-		t.Fatalf("skill payload = %+v, want lark metadata", payload)
-	}
-	if _, ok := payload["instruction_path"]; ok {
-		t.Fatalf("skill payload = %+v, must not expose instruction_path", payload)
-	}
-	content, _ := payload["content"].(string)
-	for _, want := range []string{
-		"User-space skill instructions",
-		"Run lark-cli im send after reading channel context.",
-		"GENESIS_PROVIDER_API_KEY=[REDACTED]",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("skill content = %q, want %q", content, want)
+	for _, forbidden := range []string{"skill.read", "skill_read"} {
+		if containsString(toolNames, forbidden) {
+			t.Fatalf("tool names = %v, must not expose %s", toolNames, forbidden)
 		}
-	}
-	if strings.Contains(content, "sk-secret123") {
-		t.Fatalf("skill content = %q, must redact raw secret", content)
 	}
 }
 
-func TestSubmitTurnReturnsRepairFeedbackForUnknownSkillReadBeforeShellEffect(t *testing.T) {
+func TestSubmitTurnReturnsUnsupportedSkillReadFeedbackBeforeShellEffect(t *testing.T) {
 	root := t.TempDir()
 	writeSkillForTest(t, root, "mail", "mail", "Send email through an installed CLI", "mail body")
 	workspace := t.TempDir()
@@ -575,8 +545,8 @@ func TestSubmitTurnReturnsRepairFeedbackForUnknownSkillReadBeforeShellEffect(t *
 	repairByCallID := toolRepairPayloadByCallID(t, provider.Requests()[1].ToolRounds[0].Results)
 	writeError := repairByCallID["call_write"]["error"].(map[string]interface{})
 	skillError := repairByCallID["call_unknown_skill"]["error"].(map[string]interface{})
-	if writeError["code"] != "tool_batch_not_executed" || skillError["code"] != "unknown_skill" {
-		t.Fatalf("repair payloads = %+v, want batch blocker plus unknown_skill", repairByCallID)
+	if writeError["code"] != "tool_batch_not_executed" || skillError["code"] != "unsupported_tool" {
+		t.Fatalf("repair payloads = %+v, want batch blocker plus unsupported_tool", repairByCallID)
 	}
 	projection, err := k.Session("unknown-skill-read")
 	if err != nil {
@@ -619,8 +589,8 @@ func TestSubmitTurnReturnsRepairFeedbackForSkillReadPathArgument(t *testing.T) {
 	}
 	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
 	errorPayload := payload["error"].(map[string]interface{})
-	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "invalid_tool_arguments" {
-		t.Fatalf("repair payload = %+v, want invalid_tool_arguments", payload)
+	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "unsupported_tool" {
+		t.Fatalf("repair payload = %+v, want unsupported_tool", payload)
 	}
 }
 
@@ -659,8 +629,8 @@ func TestSubmitTurnReturnsRepairFeedbackWhenInstructionFileNoLongerMatchesCatalo
 	}
 	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
 	errorPayload := payload["error"].(map[string]interface{})
-	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "skill_read_unavailable" {
-		t.Fatalf("repair payload = %+v, want skill_read_unavailable", payload)
+	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "unsupported_tool" {
+		t.Fatalf("repair payload = %+v, want unsupported_tool", payload)
 	}
 }
 
@@ -699,8 +669,8 @@ func TestSubmitTurnSkillReadUnavailableRepairDoesNotExposeInstructionPath(t *tes
 	}
 	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
 	errorPayload := payload["error"].(map[string]interface{})
-	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "skill_read_unavailable" {
-		t.Fatalf("repair payload = %+v, want skill_read_unavailable", payload)
+	if payload["status"] != "tool_request_invalid" || errorPayload["code"] != "unsupported_tool" {
+		t.Fatalf("repair payload = %+v, want unsupported_tool", payload)
 	}
 	message, _ := errorPayload["message"].(string)
 	for _, forbidden := range pathLeakVariants(skillPath) {
@@ -758,8 +728,8 @@ func TestSubmitTurnReturnsRepairFeedbackForChangedSkillReadBatchBeforeShellEffec
 	repairByCallID := toolRepairPayloadByCallID(t, provider.Requests()[1].ToolRounds[0].Results)
 	writeError := repairByCallID["call_write_changed_skill"]["error"].(map[string]interface{})
 	skillError := repairByCallID["call_changed_skill"]["error"].(map[string]interface{})
-	if writeError["code"] != "tool_batch_not_executed" || skillError["code"] != "skill_read_unavailable" {
-		t.Fatalf("repair payloads = %+v, want batch blocker plus skill_read_unavailable", repairByCallID)
+	if writeError["code"] != "tool_batch_not_executed" || skillError["code"] != "unsupported_tool" {
+		t.Fatalf("repair payloads = %+v, want batch blocker plus unsupported_tool", repairByCallID)
 	}
 	projection, err := k.Session("changed-skill-read-batch")
 	if err != nil {
@@ -868,6 +838,7 @@ func writeMalformedSkillForTest(t *testing.T, root string, dir string) {
 type capturingProvider struct {
 	text       string
 	inputItems []ModelInputItem
+	tools      []ModelToolDescriptor
 }
 
 func (p *capturingProvider) Name() string {
@@ -880,6 +851,7 @@ func (p *capturingProvider) Ready() ProviderStatus {
 
 func (p *capturingProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
 	p.inputItems = cloneModelInputItems(req.InputItems)
+	p.tools = append([]ModelToolDescriptor(nil), req.Tools...)
 	return ModelResponse{
 		Text:  p.text,
 		Model: "capturing-model",
@@ -904,37 +876,12 @@ func (p *capturingProvider) InputKinds() []string {
 	return kinds
 }
 
-type skillReadLoopProvider struct {
-	arguments json.RawMessage
-	requests  []ModelRequest
-}
-
-func (p *skillReadLoopProvider) Name() string {
-	return "skill-read-loop"
-}
-
-func (p *skillReadLoopProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
-}
-
-func (p *skillReadLoopProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
-	p.requests = append(p.requests, req)
-	switch len(req.ToolRounds) {
-	case 0:
-		return ModelResponse{
-			Model: "skill-read-loop-model",
-			ToolCalls: []ModelToolCall{
-				{ToolCallID: "call_skill_read", Name: "skill.read", Arguments: p.arguments},
-			},
-		}, nil
-	case 1:
-		return ModelResponse{
-			Text:  "skill instructions received",
-			Model: "skill-read-loop-model",
-		}, nil
-	default:
-		return ModelResponse{}, errors.New("unexpected skill.read provider round")
+func (p *capturingProvider) ToolNames() []string {
+	names := make([]string, 0, len(p.tools))
+	for _, tool := range p.tools {
+		names = append(names, tool.Name)
 	}
+	return names
 }
 
 type unsafeReadinessProvider struct {
@@ -955,15 +902,6 @@ func (p unsafeReadinessProvider) Ready() ProviderStatus {
 
 func (p unsafeReadinessProvider) Complete(_ context.Context, _ ModelRequest) (ModelResponse, error) {
 	return ModelResponse{}, errors.New("provider should not be called")
-}
-
-func modelRequestHasTool(req ModelRequest, name string) bool {
-	for _, tool := range req.Tools {
-		if tool.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 func capabilityHasTool(tools []struct {

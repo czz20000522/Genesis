@@ -310,8 +310,6 @@ func openAICompatibleToolName(name string) string {
 	switch strings.TrimSpace(name) {
 	case "shell.exec":
 		return "shell_exec"
-	case "skill.read":
-		return "skill_read"
 	default:
 		return strings.TrimSpace(name)
 	}
@@ -321,8 +319,6 @@ func canonicalToolNameFromOpenAICompatible(name string) string {
 	switch strings.TrimSpace(name) {
 	case "shell_exec":
 		return "shell.exec"
-	case "skill_read":
-		return "skill.read"
 	default:
 		return strings.TrimSpace(name)
 	}

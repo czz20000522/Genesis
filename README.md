@@ -113,7 +113,7 @@ $env:GENESIS_SKILL_ROOTS = "$HOME\.agents\skills;$HOME\.genesis\skills"
 $env:TEMP\genesisd.exe -skill-root D:\tools\custom-skills
 ```
 
-This does not make Feishu, email, calendar, or any other application a kernel feature. When the model needs the full user-space instructions for a catalog entry, it uses the governed `skill.read` tool by skill name. Installed CLIs are still invoked through governed tools such as `shell.exec` under kernel permission policy.
+This does not make Feishu, email, calendar, or any other application a kernel feature. The initial kernel exposes skill metadata only; full skill-body hydration is deferred until a generic resource/context contract exists. Installed CLIs are still invoked through governed tools such as `shell.exec` under kernel permission policy.
 
 ## Provider Configuration
 
