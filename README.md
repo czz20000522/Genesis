@@ -184,7 +184,7 @@ The HTTP request cannot select `permission_mode` or `workspace_root`; those are 
 
 `POST /turn` now supports the same governed `shell_exec` tool through the model loop. The Model Gateway exposes a kernel-generated `shell_exec` manifest to OpenAI-compatible providers, normalizes provider tool calls, and hands them to ToolGateway. ToolGateway applies the same `ToolPolicy` used by direct `POST /tools/shell_exec` calls.
 
-When the model requests `shell_exec`, the kernel writes a `model.tool_call` event, executes or blocks the operation, records turn-scoped `operation.*` events, and sends the redacted operation projection back to the provider as structured tool evidence. The provider must then return the final assistant text. `GET /turns/{id}/events` replays the full sequence after restart.
+When the model requests `shell_exec`, the kernel writes a `tool.call` event, executes or blocks the operation, records turn-scoped `operation.*` events, writes a `tool.result` event whose `for_event_id` points back to the `tool.call`, and sends the redacted operation projection back to the provider as structured tool evidence. The provider must then return the final assistant text. `GET /turns/{id}/events` replays the full sequence after restart.
 
 Unsupported model-requested tools fail closed as `tool_call_rejected`; no effect is executed. This does not make email, Feishu, calendar, or other applications kernel features. Those remain external skills, CLIs, and daemons that can be reached through generic governed tools when installed and authorized.
 

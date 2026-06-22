@@ -15,17 +15,6 @@ const maxModelToolRounds = 4
 var ErrModelToolCallRejected = errors.New("model tool call rejected")
 var ErrToolInfrastructureFailed = errors.New("tool infrastructure failed")
 
-func modelToolCallRecords(calls []ModelToolCall) []ModelToolCallRecord {
-	records := make([]ModelToolCallRecord, 0, len(calls))
-	for _, call := range calls {
-		records = append(records, ModelToolCallRecord{
-			ToolCallID: call.ToolCallID,
-			Tool:       call.Name,
-		})
-	}
-	return records
-}
-
 type shellExecToolArguments struct {
 	CWD     string `json:"cwd"`
 	Command string `json:"command"`

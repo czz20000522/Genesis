@@ -3637,6 +3637,9 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 			if !ok || assistantFunction["name"] != "shell_exec" {
 				t.Fatalf("assistant tool call function = %#v, want provider-safe shell_exec", assistantToolCall["function"])
 			}
+			if assistantFunction["arguments"] != string(toolArgs) {
+				t.Fatalf("assistant tool call arguments = %#v, want replayed arguments from tool.call event", assistantFunction["arguments"])
+			}
 			toolMessage, ok := messages[2].(map[string]interface{})
 			if !ok {
 				t.Fatalf("tool message = %#v", messages[2])
@@ -3719,16 +3722,42 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	for _, event := range events {
 		eventTypes = append(eventTypes, event.Type)
 	}
-	wantTypes := []string{"turn.submitted", "model.tool_call", "operation.running", "operation.completed", "model.final"}
+	wantTypes := []string{"turn.submitted", "tool.call", "operation.running", "operation.completed", "tool.result", "model.final"}
 	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
 		t.Fatalf("turn event types = %v, want %v", eventTypes, wantTypes)
 	}
-	modelToolCallData, ok := events[1].Data.(EventData)
+	toolCallData, ok := events[1].Data.(EventData)
 	if !ok {
-		t.Fatalf("model tool call data = %#v, want EventData", events[1].Data)
+		t.Fatalf("tool call data = %#v, want EventData", events[1].Data)
 	}
-	if len(modelToolCallData.ModelToolCalls) != 1 || modelToolCallData.ModelToolCalls[0].Tool != "shell_exec" {
-		t.Fatalf("model tool call event = %+v, want canonical shell_exec", modelToolCallData.ModelToolCalls)
+	if toolCallData.ToolCall == nil || toolCallData.ToolCall.Tool != "shell_exec" || toolCallData.ToolCall.ToolCallID == "" {
+		t.Fatalf("tool call event = %+v, want canonical shell_exec", toolCallData.ToolCall)
+	}
+	if !strings.Contains(string(toolCallData.ToolCall.Arguments), "tool-result.txt") {
+		t.Fatalf("tool call arguments = %s, want provider replay arguments", string(toolCallData.ToolCall.Arguments))
+	}
+	toolResultData, ok := events[4].Data.(EventData)
+	if !ok {
+		t.Fatalf("tool result data = %#v, want EventData", events[4].Data)
+	}
+	if toolResultData.ToolResult == nil || toolResultData.ToolResult.ForEventID != events[1].EventID || toolResultData.ToolResult.Status != "completed" {
+		t.Fatalf("tool result event = %+v, want result linked to %s", toolResultData.ToolResult, events[1].EventID)
+	}
+	if string(toolCallData.ToolCall.Arguments) != string(toolArgs) {
+		t.Fatalf("tool call event arguments = %s, want original provider arguments %s", string(toolCallData.ToolCall.Arguments), string(toolArgs))
+	}
+	session, err := restarted.Session("provider-tool-loop")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(session.Events) != len(events) {
+		t.Fatalf("session events = %d, want %d", len(session.Events), len(events))
+	}
+	if session.Events[1].Data.ToolCall == nil || session.Events[1].Data.ToolCall.Tool != "shell_exec" {
+		t.Fatalf("session tool.call event = %+v, want payload", session.Events[1].Data.ToolCall)
+	}
+	if session.Events[4].Data.ToolResult == nil || session.Events[4].Data.ToolResult.ForEventID != session.Events[1].EventID {
+		t.Fatalf("session tool.result event = %+v, want for_event_id=%s", session.Events[4].Data.ToolResult, session.Events[1].EventID)
 	}
 }
 
@@ -4132,9 +4161,12 @@ func TestSubmitTurnReturnsRepairFeedbackForUnsupportedModelToolCall(t *testing.T
 	for _, event := range projection.Events {
 		eventTypes = append(eventTypes, event.Type)
 	}
-	wantTypes := []string{"turn.submitted", "model.tool_call", "model.final"}
+	wantTypes := []string{"turn.submitted", "tool.call", "tool.result", "model.final"}
 	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
 		t.Fatalf("event types = %v, want %v", eventTypes, wantTypes)
+	}
+	if projection.Events[2].Data.ToolResult == nil || projection.Events[2].Data.ToolResult.ForEventID != projection.Events[1].EventID || projection.Events[2].Data.ToolResult.Status != "tool_request_invalid" {
+		t.Fatalf("tool result event = %+v, want invalid request result linked to %s", projection.Events[2].Data.ToolResult, projection.Events[1].EventID)
 	}
 }
 
@@ -4443,7 +4475,7 @@ func TestLiveOpenAICompatibleProviderToolLoopThroughKernel(t *testing.T) {
 		eventTypes = append(eventTypes, event.Type)
 	}
 	joined := strings.Join(eventTypes, ",")
-	for _, want := range []string{"model.tool_call", "operation.completed", "model.final"} {
+	for _, want := range []string{"tool.call", "operation.completed", "tool.result", "model.final"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("turn event types = %v, want %s", eventTypes, want)
 		}

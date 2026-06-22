@@ -185,6 +185,7 @@ type EventProjection struct {
 	CandidateID string    `json:"candidate_id,omitempty"`
 	Type        string    `json:"type"`
 	CreatedAt   time.Time `json:"created_at"`
+	Data        EventData `json:"data,omitempty"`
 }
 
 type ShellExecRequest struct {
@@ -368,7 +369,8 @@ type EventData struct {
 	IngressRisks               []IngressRisk              `json:"ingress_risks,omitempty"`
 	ModelInputKinds            []string                   `json:"model_input_kinds,omitempty"`
 	RecalledMemories           []MemoryRecall             `json:"recalled_memories,omitempty"`
-	ModelToolCalls             []ModelToolCallRecord      `json:"model_tool_calls,omitempty"`
+	ToolCall                   *ToolCallProjection        `json:"tool_call,omitempty"`
+	ToolResult                 *ToolResultProjection      `json:"tool_result,omitempty"`
 	Final                      *FinalMessage              `json:"final,omitempty"`
 	TurnError                  *TurnError                 `json:"turn_error,omitempty"`
 	Operation                  *OperationProjection       `json:"operation,omitempty"`
@@ -377,7 +379,16 @@ type EventData struct {
 	ReplacementMemoryCandidate *MemoryCandidateProjection `json:"replacement_memory_candidate,omitempty"`
 }
 
-type ModelToolCallRecord struct {
+type ToolCallProjection struct {
+	ToolCallID string          `json:"tool_call_id"`
+	Tool       string          `json:"tool"`
+	Arguments  json.RawMessage `json:"arguments,omitempty"`
+}
+
+type ToolResultProjection struct {
 	ToolCallID string `json:"tool_call_id"`
 	Tool       string `json:"tool"`
+	ForEventID string `json:"for_event_id"`
+	Status     string `json:"status"`
+	Content    string `json:"content,omitempty"`
 }

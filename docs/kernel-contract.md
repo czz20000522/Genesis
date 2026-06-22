@@ -45,6 +45,10 @@ The first protected inspection transport is `GET /capabilities`. It is part of R
 
 Owns request normalization, session identity, event emission, idempotency, and turn admission. It does not know which shell submitted the request.
 
+Session events are the primary fact stream for turn-scoped execution. Session, turn, operation, work, and memory views are read models derived from ledger events, not separate sources of truth. `GET /sessions/{id}` may retain object projections for ergonomic inspection, but its ordered `events` list carries typed event payloads so shells can render or replay the canonical sequence without reassembling facts from unrelated projection arrays.
+
+Short synchronous tool calls are represented as `tool.call` followed by `tool.result`. The `tool.call` event owns the model-provided tool slot, and `tool.result.tool_result.for_event_id` points back to that event id. Operation events may appear between them as execution evidence for effectful tools. Long-running kernel-owned jobs are separate future events; short tools do not create jobs merely to report a result.
+
 Turn idempotency is scoped to explicit `session_id + turn.submit + idempotency_key`. The key is a caller-provided control-plane retry boundary and is not model-visible input. Retrying a completed or failed turn with the same key returns the ledger-backed original turn evidence without calling the provider or executing tools again. A key without an explicit session id is invalid because the caller could not reliably address the same logical retry scope.
 
 Turn admission separates untrusted content from control-plane authority. User or external-application text can contain prompt-injection samples, role labels, tool protocol fragments, logs, or quoted hostile instructions; those strings remain user data and do not grant system, developer, tool, credential, or permission authority. The Interface Kernel may record high-confidence text risks as ingress metadata for inspection. It fails closed only for malformed transport schema, hidden control text, unsupported input item types, or real attempts to set kernel-owned control fields.

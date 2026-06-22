@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -187,10 +188,10 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			}
 			return TurnResponse{}, err
 		}
-		if err := k.appendModelToolCallEvent(sessionID, turnID, modelResp.ToolCalls); err != nil {
+		toolCallEventIDs, err := k.appendToolCallEvents(sessionID, turnID, modelResp.ToolCalls)
+		if err != nil {
 			return TurnResponse{}, err
 		}
-		round := ModelToolRound{Calls: modelResp.ToolCalls}
 		for _, call := range preparedCalls {
 			result, err := toolGateway.Execute(ctx, sessionID, turnID, call)
 			if err != nil {
@@ -207,9 +208,18 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 				}
 				return TurnResponse{}, err
 			}
-			round.Results = append(round.Results, result)
+			forEventID := toolCallEventIDs[result.ToolCallID]
+			if forEventID == "" {
+				return TurnResponse{}, fmt.Errorf("missing tool.call event for tool_call_id %q", result.ToolCallID)
+			}
+			if err := k.appendToolResultEvent(sessionID, turnID, result, forEventID); err != nil {
+				return TurnResponse{}, err
+			}
 		}
-		toolRounds = append(toolRounds, round)
+		toolRounds, err = k.modelToolRoundsFromTurnEvents(turnID)
+		if err != nil {
+			return TurnResponse{}, err
+		}
 	}
 	return TurnResponse{}, errors.New("unreachable model tool loop state")
 }
@@ -272,6 +282,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 			CandidateID: event.CandidateID,
 			Type:        event.Type,
 			CreatedAt:   event.CreatedAt,
+			Data:        event.Data,
 		})
 		switch event.Type {
 		case "turn.submitted":
@@ -525,18 +536,104 @@ func (k *Kernel) appendTurnFailure(sessionID string, turnID string, failure Turn
 	})
 }
 
-func (k *Kernel) appendModelToolCallEvent(sessionID string, turnID string, calls []ModelToolCall) error {
+func (k *Kernel) appendToolCallEvents(sessionID string, turnID string, calls []ModelToolCall) (map[string]string, error) {
+	eventIDs := make(map[string]string, len(calls))
+	for _, call := range calls {
+		createdAt := k.clock()
+		callID := strings.TrimSpace(call.ToolCallID)
+		eventID := newID("evt", createdAt)
+		if err := k.appendEvent(StoredEvent{
+			EventID:   eventID,
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Type:      "tool.call",
+			CreatedAt: createdAt,
+			Data: EventData{
+				ToolCall: &ToolCallProjection{
+					ToolCallID: callID,
+					Tool:       strings.TrimSpace(call.Name),
+					Arguments:  append(json.RawMessage(nil), call.Arguments...),
+				},
+			},
+		}); err != nil {
+			return nil, err
+		}
+		eventIDs[callID] = eventID
+	}
+	return eventIDs, nil
+}
+
+func (k *Kernel) appendToolResultEvent(sessionID string, turnID string, result ModelToolResult, forEventID string) error {
 	createdAt := k.clock()
 	return k.appendEvent(StoredEvent{
 		EventID:   newID("evt", createdAt),
 		SessionID: sessionID,
 		TurnID:    turnID,
-		Type:      "model.tool_call",
+		Type:      "tool.result",
 		CreatedAt: createdAt,
 		Data: EventData{
-			ModelToolCalls: modelToolCallRecords(calls),
+			ToolResult: &ToolResultProjection{
+				ToolCallID: strings.TrimSpace(result.ToolCallID),
+				Tool:       strings.TrimSpace(result.Name),
+				ForEventID: strings.TrimSpace(forEventID),
+				Status:     toolResultStatus(result.Content),
+				Content:    result.Content,
+			},
 		},
 	})
+}
+
+func toolResultStatus(content string) string {
+	var payload struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(content), &payload); err == nil && strings.TrimSpace(payload.Status) != "" {
+		return strings.TrimSpace(payload.Status)
+	}
+	return "tool_result"
+}
+
+func (k *Kernel) modelToolRoundsFromTurnEvents(turnID string) ([]ModelToolRound, error) {
+	events, err := k.loadEvents()
+	if err != nil {
+		return nil, err
+	}
+	return modelToolRoundsFromStoredEvents(events, turnID), nil
+}
+
+func modelToolRoundsFromStoredEvents(events []StoredEvent, turnID string) []ModelToolRound {
+	rounds := []ModelToolRound{}
+	current := ModelToolRound{}
+	for _, event := range events {
+		if event.TurnID != turnID {
+			continue
+		}
+		switch event.Type {
+		case "tool.call":
+			if event.Data.ToolCall == nil {
+				continue
+			}
+			current.Calls = append(current.Calls, ModelToolCall{
+				ToolCallID: event.Data.ToolCall.ToolCallID,
+				Name:       event.Data.ToolCall.Tool,
+				Arguments:  append(json.RawMessage(nil), event.Data.ToolCall.Arguments...),
+			})
+		case "tool.result":
+			if event.Data.ToolResult == nil {
+				continue
+			}
+			current.Results = append(current.Results, ModelToolResult{
+				ToolCallID: event.Data.ToolResult.ToolCallID,
+				Name:       event.Data.ToolResult.Tool,
+				Content:    event.Data.ToolResult.Content,
+			})
+			if len(current.Calls) > 0 && len(current.Results) == len(current.Calls) {
+				rounds = append(rounds, current)
+				current = ModelToolRound{}
+			}
+		}
+	}
+	return rounds
 }
 
 func (k *Kernel) loadEvents() ([]StoredEvent, error) {
