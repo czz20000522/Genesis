@@ -82,8 +82,15 @@ type TurnEventsResponse struct {
 }
 
 type FinalMessage struct {
-	Text  string `json:"text"`
-	Model string `json:"model"`
+	Text  string      `json:"text"`
+	Model string      `json:"model"`
+	Usage *TokenUsage `json:"usage,omitempty"`
+}
+
+type TokenUsage struct {
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
+	TotalTokens  int `json:"total_tokens,omitempty"`
 }
 
 type SessionProjection struct {

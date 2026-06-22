@@ -51,6 +51,8 @@ Idempotency keys are caller-provided control-plane fields, not model-visible tas
 
 Owns provider configuration, model calls, streaming, retries, provider error projection, and data-egress policy hooks. It does not own prompts as product copy.
 
+Provider-native usage fields are normalized into kernel-owned final evidence as `input_tokens`, `output_tokens`, and `total_tokens` when the upstream response provides them. Usage is inspection metadata stored with the final model event; shells may display it, but they do not compute or own it.
+
 The local binary resolves provider startup from Genesis-owned model gateway configuration by default. The canonical user config root is `~/.genesis/config`; `models.json` selects a role-bound gateway profile, the gateway route, the upstream endpoint, protocol, model id, timeout, and a `secret://...` credential ref. The kernel may expose operator flags to select a profile or config root, but it must not require Codex environment variables or Codex credentials for Genesis live operation.
 
 Provider endpoint paths are upstream configuration, not Genesis route contracts. The kernel's own HTTP transport remains unversioned.

@@ -144,6 +144,8 @@ When a provider returns multiple tool calls in one batch, Genesis validates the 
 
 `GET /turns/{id}/events` is the first HTTP transport for the conceptual `turn.stream` syscall. It reads the append-only ledger and returns the ordered events for one turn id after restart. It is a kernel observation surface for shells and external applications; it is not a UI timeline owner and does not duplicate session lifecycle logic.
 
+When an OpenAI-compatible provider returns token usage, Genesis normalizes it onto the final message as `usage.input_tokens`, `usage.output_tokens`, and `usage.total_tokens`. The same final usage summary is stored in the ledger and appears in session projection after restart.
+
 ## Accumulation
 
 The first memory loop is explicit and governed:

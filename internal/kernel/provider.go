@@ -27,6 +27,7 @@ type ModelResponse struct {
 	Text      string
 	Model     string
 	ToolCalls []ModelToolCall
+	Usage     *TokenUsage
 }
 
 type FakeProvider struct{}

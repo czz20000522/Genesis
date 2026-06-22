@@ -113,7 +113,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		}
 		if len(modelResp.ToolCalls) == 0 {
 			completedAt := k.clock()
-			final := FinalMessage{Text: modelResp.Text, Model: modelResp.Model}
+			final := FinalMessage{Text: modelResp.Text, Model: modelResp.Model, Usage: modelResp.Usage}
 			completed := StoredEvent{
 				EventID:   newID("evt", completedAt),
 				SessionID: sessionID,

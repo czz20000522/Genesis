@@ -122,6 +122,7 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 		return ModelResponse{
 			Model:     model,
 			ToolCalls: calls,
+			Usage:     tokenUsageFromChatUsage(decoded.Usage),
 		}, nil
 	}
 	if strings.TrimSpace(message.Content) == "" {
@@ -130,6 +131,7 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 	return ModelResponse{
 		Text:  message.Content,
 		Model: model,
+		Usage: tokenUsageFromChatUsage(decoded.Usage),
 	}, nil
 }
 
@@ -183,6 +185,7 @@ type chatMessage struct {
 type chatCompletionResponse struct {
 	Model   string       `json:"model"`
 	Choices []chatChoice `json:"choices"`
+	Usage   *chatUsage   `json:"usage,omitempty"`
 }
 
 type chatChoice struct {
@@ -209,6 +212,37 @@ type chatToolCall struct {
 type chatToolCallFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
+}
+
+type chatUsage struct {
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	TotalTokens      int `json:"total_tokens,omitempty"`
+	InputTokens      int `json:"input_tokens,omitempty"`
+	OutputTokens     int `json:"output_tokens,omitempty"`
+}
+
+func tokenUsageFromChatUsage(usage *chatUsage) *TokenUsage {
+	if usage == nil {
+		return nil
+	}
+	inputTokens := usage.PromptTokens
+	if inputTokens == 0 {
+		inputTokens = usage.InputTokens
+	}
+	outputTokens := usage.CompletionTokens
+	if outputTokens == 0 {
+		outputTokens = usage.OutputTokens
+	}
+	totalTokens := usage.TotalTokens
+	if totalTokens == 0 && (inputTokens != 0 || outputTokens != 0) {
+		totalTokens = inputTokens + outputTokens
+	}
+	return &TokenUsage{
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  totalTokens,
+	}
 }
 
 func chatToolsFromModelTools(tools []ModelToolDescriptor) []chatTool {

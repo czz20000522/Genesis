@@ -10,7 +10,7 @@ The first implementation must prove the kernel loop before adding shells or appl
 4. The model can either answer directly or request a generic tool.
 5. The Tool System enforces permission policy before executing the tool.
 6. Tool results return to the model loop as structured evidence.
-7. The final answer and usage/evidence summary are emitted.
+7. The final answer and provider usage/evidence summary are emitted and replay after restart.
 8. WorkRegistry can show the turn/work status after restart.
 9. Accumulation can create a memory candidate, approve it, and recall it in a later turn.
 

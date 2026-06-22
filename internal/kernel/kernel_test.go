@@ -198,6 +198,71 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 	}
 }
 
+func TestHTTPFinalUsageSummarySurvivesSessionReplay(t *testing.T) {
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"served-model","choices":[{"message":{"role":"assistant","content":"usage answer"}}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}`))
+	}))
+	defer providerServer.Close()
+
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath: ledgerPath,
+		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+			BaseURL: providerServer.URL,
+			APIKey:  "test-key",
+			Model:   "test-model",
+		}),
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+
+	body := []byte(`{"session_id":"http-usage-session","input_items":[{"type":"text","text":"hello usage"}]}`)
+	turnResp, err := postJSONWithAuth(server.URL+"/turn", body)
+	if err != nil {
+		t.Fatalf("POST /turn failed: %v", err)
+	}
+	defer turnResp.Body.Close()
+	if turnResp.StatusCode != http.StatusOK {
+		t.Fatalf("turn status = %d, want 200", turnResp.StatusCode)
+	}
+	var turn map[string]interface{}
+	if err := json.NewDecoder(turnResp.Body).Decode(&turn); err != nil {
+		t.Fatalf("decode turn response: %v", err)
+	}
+	assertJSONUsage(t, turn["final"], 11, 7, 18)
+	server.Close()
+
+	restarted := newTestKernelWithRuntimeToken(t, ledgerPath, testRuntimeToken)
+	restartedServer := httptest.NewServer(Handler(restarted))
+	defer restartedServer.Close()
+
+	sessionResp, err := getWithAuth(restartedServer.URL + "/sessions/http-usage-session")
+	if err != nil {
+		t.Fatalf("GET /sessions failed: %v", err)
+	}
+	defer sessionResp.Body.Close()
+	if sessionResp.StatusCode != http.StatusOK {
+		t.Fatalf("session status = %d, want 200", sessionResp.StatusCode)
+	}
+	var session map[string]interface{}
+	if err := json.NewDecoder(sessionResp.Body).Decode(&session); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+	turns, ok := session["turns"].([]interface{})
+	if !ok || len(turns) != 1 {
+		t.Fatalf("turns = %#v, want one turn", session["turns"])
+	}
+	turnProjection, ok := turns[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("turn projection = %#v", turns[0])
+	}
+	assertJSONUsage(t, turnProjection["final"], 11, 7, 18)
+}
+
 func TestHTTPTurnEventsAfterRestart(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
@@ -1590,7 +1655,7 @@ func TestOpenAICompatibleProviderCompletesAgainstCompatibleServer(t *testing.T) 
 			t.Fatalf("messages = %+v, want one joined user message", req.Messages)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"model":"served-model","choices":[{"message":{"role":"assistant","content":"provider answer"}}]}`))
+		_, _ = w.Write([]byte(`{"model":"served-model","choices":[{"message":{"role":"assistant","content":"provider answer"}}],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}`))
 	}))
 	defer server.Close()
 
@@ -1616,6 +1681,9 @@ func TestOpenAICompatibleProviderCompletesAgainstCompatibleServer(t *testing.T) 
 	}
 	if resp.Text != "provider answer" || resp.Model != "served-model" {
 		t.Fatalf("response = %+v", resp)
+	}
+	if resp.Usage == nil || resp.Usage.InputTokens != 5 || resp.Usage.OutputTokens != 3 || resp.Usage.TotalTokens != 8 {
+		t.Fatalf("usage = %+v, want normalized provider usage", resp.Usage)
 	}
 }
 
@@ -2122,6 +2190,32 @@ func assertErrorCode(t *testing.T, resp *http.Response, status int, code string)
 	}
 	if envelope.Error.Code != code {
 		t.Fatalf("error code = %q, want %s", envelope.Error.Code, code)
+	}
+}
+
+func assertJSONUsage(t *testing.T, finalValue interface{}, inputTokens int, outputTokens int, totalTokens int) {
+	t.Helper()
+	final, ok := finalValue.(map[string]interface{})
+	if !ok {
+		t.Fatalf("final = %#v, want object", finalValue)
+	}
+	usage, ok := final["usage"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("final.usage = %#v, want usage object", final["usage"])
+	}
+	assertJSONNumber(t, usage, "input_tokens", inputTokens)
+	assertJSONNumber(t, usage, "output_tokens", outputTokens)
+	assertJSONNumber(t, usage, "total_tokens", totalTokens)
+}
+
+func assertJSONNumber(t *testing.T, values map[string]interface{}, key string, want int) {
+	t.Helper()
+	got, ok := values[key].(float64)
+	if !ok {
+		t.Fatalf("%s = %#v, want JSON number", key, values[key])
+	}
+	if int(got) != want {
+		t.Fatalf("%s = %d, want %d", key, int(got), want)
 	}
 }
 
