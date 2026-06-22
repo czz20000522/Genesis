@@ -37,6 +37,10 @@ Kernel-owned HTTP paths are not versioned. Contract evolution belongs in typed r
 
 The first HTTP transport for `turn.stream` is `GET /turns/{id}/events`. It reads ordered turn events from the kernel ledger. It is intentionally a minimal observation surface, not a streaming protocol commitment and not a shell/UI timeline owner.
 
+The user-facing timeline read model is `GET /sessions/{id}/timeline`. It merges `tool.call` and `tool.result` causality into stable tool items, projects ordinary user and assistant message items, and omits kernel-owned event, operation, provider-call, checkpoint, and audit identity from ordinary UI items. Raw events remain available through the event inspection surface; WebUI, desktop shells, and external apps must not rebuild chat timelines by rendering raw ledger events directly.
+
+The runtime context inspection read model is `GET /turns/{id}/context`. It is a diagnostics surface for the per-turn provider-visible snapshot recorded on `turn.submitted`: user input, model input kinds, model-visible tool manifest, skill summaries, recalled memory refs, provider status, and permission/sandbox summary. It does not store or project the fully rendered model-context text in raw events. It is not part of the chat timeline. If an older ledger entry lacks a context snapshot, the projection must report `snapshot_unavailable` rather than pretending the current runtime state was the historical context.
+
 The first protected inspection transport is `GET /capabilities`. It is part of Readiness/Inspection, not an application registry. It lets authorized shells, desktop apps, or external daemons inspect provider/runtime/ledger status, canonical kernel tool capability names, and a safe skill catalog projection. It must not expose filesystem paths, provider credentials, raw secret refs, skill bodies, or application-specific outbound APIs.
 
 ## Kernel Planes

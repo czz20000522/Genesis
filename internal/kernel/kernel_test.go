@@ -491,6 +491,208 @@ func TestHTTPTurnEventsAfterRestart(t *testing.T) {
 	assertErrorCode(t, missingResp, http.StatusNotFound, "not_found")
 }
 
+func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
+	workspace := t.TempDir()
+	args, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": "echo timeline",
+	})
+	if err != nil {
+		t.Fatalf("marshal tool args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{{
+			ToolCallID: "call_timeline_shell",
+			Name:       "shell_exec",
+			Arguments:  json.RawMessage(args),
+		}},
+		final: "timeline final",
+	}
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModePlan,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "timeline-session",
+		InputItems: []InputItem{{Type: "text", Text: "show timeline api_key=sk-timeline-secret"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+
+	restarted := newTestKernelWithRuntimeTokenAndPolicy(t, ledgerPath, testRuntimeToken, ToolPolicy{
+		PermissionMode: PermissionModePlan,
+		WorkspaceRoot:  workspace,
+	})
+	timeline, err := restarted.UITimeline("timeline-session")
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	if timeline.Status != "ok" || len(timeline.Items) != 3 {
+		t.Fatalf("timeline = %+v, want three user/tool/assistant items", timeline)
+	}
+	if timeline.Items[0].Kind != "user_message" || !strings.Contains(timeline.Items[0].Text, "[REDACTED]") {
+		t.Fatalf("user item = %+v, want redacted user message", timeline.Items[0])
+	}
+	if timeline.Items[1].Kind != "tool" || timeline.Items[1].Tool != "shell_exec" || timeline.Items[1].Status != "permission_denied" {
+		t.Fatalf("tool item = %+v, want merged permission_denied shell tool", timeline.Items[1])
+	}
+	if !timeline.Items[1].FullOutputAvailable || timeline.Items[1].OutputSource != "error" || !strings.Contains(timeline.Items[1].OutputPreview, "blocked") {
+		t.Fatalf("tool output = %+v, want preview metadata", timeline.Items[1])
+	}
+	if timeline.Items[2].Kind != "assistant_message" || timeline.Items[2].Text != "timeline final" {
+		t.Fatalf("assistant item = %+v, want final answer", timeline.Items[2])
+	}
+	timelineJSON, err := json.Marshal(timeline)
+	if err != nil {
+		t.Fatalf("marshal timeline: %v", err)
+	}
+	for _, forbidden := range []string{
+		"tool_call_event_id",
+		"provider_tool_call_id",
+		"operation_id",
+		"for_event_id",
+		"tool.call",
+		"tool.result",
+		"sk-timeline-secret",
+	} {
+		if strings.Contains(string(timelineJSON), forbidden) {
+			t.Fatalf("timeline leaked %q: %s", forbidden, string(timelineJSON))
+		}
+	}
+
+	server := httptest.NewServer(Handler(restarted))
+	defer server.Close()
+	resp, err := getWithAuth(server.URL + "/sessions/timeline-session/timeline")
+	if err != nil {
+		t.Fatalf("GET /sessions/{id}/timeline failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("timeline status = %d, want 200", resp.StatusCode)
+	}
+	var httpTimeline UITimelineResponse
+	if err := json.NewDecoder(resp.Body).Decode(&httpTimeline); err != nil {
+		t.Fatalf("decode timeline: %v", err)
+	}
+	if len(httpTimeline.Items) != len(timeline.Items) {
+		t.Fatalf("HTTP timeline items = %+v, want %d items", httpTimeline.Items, len(timeline.Items))
+	}
+}
+
+func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T) {
+	root := t.TempDir()
+	skillPath := writeSkillForTest(t, root, "lark-im", "lark-im", "Send chat messages through installed CLI", "FULL SKILL BODY MUST NOT BE PROJECTED")
+	provider := &capturingProvider{text: "context inspected"}
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		SkillRoots:   []string{root},
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  t.TempDir(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
+		SessionID: "context-inspection-source",
+		Text:      "prefer concise replies",
+		SourceRef: "turn:context-inspection-source",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemoryCandidate returned error: %v", err)
+	}
+	if _, err := k.ApproveMemoryCandidate(candidate.CandidateID, testApprovalRequest("approval:context-inspection-source")); err != nil {
+		t.Fatalf("ApproveMemoryCandidate returned error: %v", err)
+	}
+	turn, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "context-inspection-consumer",
+		InputItems: []InputItem{{Type: "text", Text: "Do you remember prefer concise replies? Authorization: Bearer tokentest123456"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if got := strings.Join(provider.InputKinds(), ","); got != strings.Join([]string{ModelInputKindSkillCatalogContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}, ",") {
+		t.Fatalf("provider input kinds = %v", provider.InputKinds())
+	}
+
+	restarted, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     FakeProvider{},
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModePlan,
+		},
+	})
+	if err != nil {
+		t.Fatalf("restart New returned error: %v", err)
+	}
+	inspection, err := restarted.ContextInspection(turn.TurnID)
+	if err != nil {
+		t.Fatalf("ContextInspection returned error: %v", err)
+	}
+	if inspection.Status != "ok" || inspection.SessionID != "context-inspection-consumer" {
+		t.Fatalf("inspection = %+v, want ok for submitted turn", inspection)
+	}
+	if len(inspection.InputItems) != 1 || !strings.Contains(inspection.InputItems[0].Text, "[REDACTED]") {
+		t.Fatalf("input items = %+v, want redacted user input", inspection.InputItems)
+	}
+	if got := strings.Join(inspection.ModelInputKinds, ","); got != strings.Join([]string{ModelInputKindSkillCatalogContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}, ",") {
+		t.Fatalf("model input kinds = %v", inspection.ModelInputKinds)
+	}
+	if len(inspection.ToolManifest) != 1 || inspection.ToolManifest[0].Name != "shell_exec" {
+		t.Fatalf("tool manifest = %+v, want shell_exec", inspection.ToolManifest)
+	}
+	if len(inspection.SkillCatalog) != 1 || inspection.SkillCatalog[0].Name != "lark-im" {
+		t.Fatalf("skill catalog = %+v, want persisted lark-im summary", inspection.SkillCatalog)
+	}
+	if len(inspection.RecalledMemories) != 1 || inspection.RecalledMemories[0].Source != "turn:context-inspection-source" {
+		t.Fatalf("recalled memories = %+v, want source refs", inspection.RecalledMemories)
+	}
+	if inspection.Runtime == nil || inspection.Runtime.Provider.Name != "capturing" || inspection.Runtime.Permission.PermissionMode != PermissionModeDefault || inspection.Runtime.Permission.Sandbox != "workspace" {
+		t.Fatalf("runtime snapshot = %+v, want original provider and permission summary", inspection.Runtime)
+	}
+	inspectionJSON, err := json.Marshal(inspection)
+	if err != nil {
+		t.Fatalf("marshal inspection: %v", err)
+	}
+	for _, forbidden := range []string{skillPath, "FULL SKILL BODY", "tokentest123456"} {
+		if strings.Contains(string(inspectionJSON), forbidden) {
+			t.Fatalf("context inspection leaked %q: %s", forbidden, string(inspectionJSON))
+		}
+	}
+
+	server := httptest.NewServer(Handler(restarted))
+	defer server.Close()
+	resp, err := getWithAuth(server.URL + "/turns/" + turn.TurnID + "/context")
+	if err != nil {
+		t.Fatalf("GET /turns/{id}/context failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("context status = %d, want 200", resp.StatusCode)
+	}
+	var httpInspection ContextInspectionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&httpInspection); err != nil {
+		t.Fatalf("decode context inspection: %v", err)
+	}
+	if httpInspection.Status != "ok" || httpInspection.Runtime == nil || httpInspection.Runtime.Permission.PermissionMode != PermissionModeDefault {
+		t.Fatalf("HTTP inspection = %+v, want persisted snapshot", httpInspection)
+	}
+}
+
 func TestHTTPRejectsUnknownTurnFields(t *testing.T) {
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)

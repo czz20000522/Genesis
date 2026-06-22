@@ -187,6 +187,50 @@ type TurnEventsResponse struct {
 	Items []Event `json:"items"`
 }
 
+type UITimelineResponse struct {
+	SessionID string           `json:"session_id"`
+	Status    string           `json:"status"`
+	Items     []UITimelineItem `json:"items"`
+}
+
+type UITimelineItem struct {
+	ItemID              string    `json:"item_id"`
+	TurnID              string    `json:"turn_id"`
+	Kind                string    `json:"kind"`
+	Status              string    `json:"status,omitempty"`
+	Text                string    `json:"text,omitempty"`
+	Tool                string    `json:"tool,omitempty"`
+	OutputPreview       string    `json:"output_preview,omitempty"`
+	OutputSource        string    `json:"output_source,omitempty"`
+	OutputTruncated     bool      `json:"output_truncated,omitempty"`
+	FullOutputAvailable bool      `json:"full_output_available,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at,omitempty"`
+}
+
+type ContextInspectionResponse struct {
+	TurnID            string                       `json:"turn_id"`
+	SessionID         string                       `json:"session_id,omitempty"`
+	Status            string                       `json:"status"`
+	InputItems        []InputItem                  `json:"input_items,omitempty"`
+	ModelInputKinds   []string                     `json:"model_input_kinds,omitempty"`
+	ToolManifest      []ToolSpec                   `json:"tool_manifest,omitempty"`
+	SkillCatalog      []SkillCatalogItemProjection `json:"skill_catalog,omitempty"`
+	RecalledMemories  []MemoryRecall               `json:"recalled_memories,omitempty"`
+	Runtime           *ContextRuntimeSnapshot      `json:"runtime,omitempty"`
+	UnavailableReason string                       `json:"unavailable_reason,omitempty"`
+}
+
+type ContextRuntimeSnapshot struct {
+	Provider   ProviderStatus       `json:"provider"`
+	Permission PermissionInspection `json:"permission"`
+}
+
+type PermissionInspection struct {
+	PermissionMode string `json:"permission_mode"`
+	Sandbox        string `json:"sandbox"`
+}
+
 type FinalMessage struct {
 	Text  string      `json:"text"`
 	Model string      `json:"model"`
@@ -409,19 +453,22 @@ type StoredEvent struct {
 }
 
 type EventData struct {
-	IdempotencyKey             string                     `json:"idempotency_key,omitempty"`
-	InputItems                 []InputItem                `json:"input_items,omitempty"`
-	IngressRisks               []IngressRisk              `json:"ingress_risks,omitempty"`
-	ModelInputKinds            []string                   `json:"model_input_kinds,omitempty"`
-	RecalledMemories           []MemoryRecall             `json:"recalled_memories,omitempty"`
-	ToolCall                   *ToolCallProjection        `json:"tool_call,omitempty"`
-	ToolResult                 *ToolResultProjection      `json:"tool_result,omitempty"`
-	Final                      *FinalMessage              `json:"final,omitempty"`
-	TurnError                  *TurnError                 `json:"turn_error,omitempty"`
-	Operation                  *OperationProjection       `json:"operation,omitempty"`
-	Work                       *WorkProjection            `json:"work,omitempty"`
-	MemoryCandidate            *MemoryCandidateProjection `json:"memory_candidate,omitempty"`
-	ReplacementMemoryCandidate *MemoryCandidateProjection `json:"replacement_memory_candidate,omitempty"`
+	IdempotencyKey             string                       `json:"idempotency_key,omitempty"`
+	InputItems                 []InputItem                  `json:"input_items,omitempty"`
+	IngressRisks               []IngressRisk                `json:"ingress_risks,omitempty"`
+	ModelInputKinds            []string                     `json:"model_input_kinds,omitempty"`
+	ToolManifest               []ToolSpec                   `json:"tool_manifest,omitempty"`
+	SkillCatalog               []SkillCatalogItemProjection `json:"skill_catalog,omitempty"`
+	RuntimeContext             *ContextRuntimeSnapshot      `json:"runtime_context,omitempty"`
+	RecalledMemories           []MemoryRecall               `json:"recalled_memories,omitempty"`
+	ToolCall                   *ToolCallProjection          `json:"tool_call,omitempty"`
+	ToolResult                 *ToolResultProjection        `json:"tool_result,omitempty"`
+	Final                      *FinalMessage                `json:"final,omitempty"`
+	TurnError                  *TurnError                   `json:"turn_error,omitempty"`
+	Operation                  *OperationProjection         `json:"operation,omitempty"`
+	Work                       *WorkProjection              `json:"work,omitempty"`
+	MemoryCandidate            *MemoryCandidateProjection   `json:"memory_candidate,omitempty"`
+	ReplacementMemoryCandidate *MemoryCandidateProjection   `json:"replacement_memory_candidate,omitempty"`
 }
 
 type ToolCallProjection struct {

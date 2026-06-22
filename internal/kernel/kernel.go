@@ -250,6 +250,9 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 			InputItems:       req.InputItems,
 			IngressRisks:     ingressRisks,
 			ModelInputKinds:  modelInputKinds(modelInputs),
+			ToolManifest:     k.toolGateway().ToolManifest(),
+			SkillCatalog:     k.skillCatalogProjection().Items,
+			RuntimeContext:   k.contextRuntimeSnapshot(),
 			RecalledMemories: recalledMemories,
 		},
 	}
@@ -257,6 +260,27 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 		return nil, nil, err
 	}
 	return recalledMemories, modelInputs, nil
+}
+
+func (k *Kernel) contextRuntimeSnapshot() *ContextRuntimeSnapshot {
+	return &ContextRuntimeSnapshot{
+		Provider: safeProviderStatusForInspection(k.provider.Ready()),
+		Permission: PermissionInspection{
+			PermissionMode: k.toolPolicy.PermissionMode,
+			Sandbox:        permissionSandboxSummary(k.toolPolicy),
+		},
+	}
+}
+
+func permissionSandboxSummary(policy ToolPolicy) string {
+	switch policy.PermissionMode {
+	case PermissionModeYolo:
+		return "host"
+	case PermissionModeDefault:
+		return "workspace"
+	default:
+		return "none"
+	}
 }
 
 func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
