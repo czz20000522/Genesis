@@ -14,4 +14,11 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-No active kernel issue is currently tracked in this branch. New Base issues should be triaged here only when they require kernel code, verification, or user acceptance.
+### KERNEL-USAGE-SUMMARY-20260622 - P1 - Final answer must project provider usage summary
+
+- Status: in_progress.
+- Type: kernel inspection / Model Gateway projection.
+- Problem: `docs/minimal-closed-loop.md` requires the final answer and usage/evidence summary to be emitted, but current `FinalMessage` only contains text and model. OpenAI-compatible provider usage data is ignored, so shells and reviewers cannot inspect token usage through `/turn`, turn events, or session projection after restart.
+- Suggestion: Normalize provider usage into a small kernel-owned usage summary and persist it with the final model event. The first contract should use generic `input_tokens`, `output_tokens`, and `total_tokens` names rather than provider-native field names.
+- Evidence: `internal/kernel/openai_compatible.go` decodes model and choices but not `usage`; `internal/kernel/types.go` has no usage field on `ModelResponse` or `FinalMessage`.
+- Verification: A fake OpenAI-compatible server returns usage; `POST /turn` final response includes normalized usage; `GET /sessions/{id}` after restart projects the same usage; existing fake provider behavior remains unchanged.
