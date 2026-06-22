@@ -1431,6 +1431,81 @@ func TestHTTPCancelWorkIsIdempotentWithoutOverwritingEvidence(t *testing.T) {
 	}
 }
 
+func TestHTTPWorkSubmitIdempotencyKeyReturnsExistingWorkAfterRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+
+	createResp, err := postJSONWithAuth(server.URL+"/work", []byte(`{"session_id":"http-work-submit-idempotency","title":"first title","source_ref":"turn:http-work-submit-idempotency","idempotency_key":"work-submit-1"}`))
+	if err != nil {
+		t.Fatalf("first POST /work failed: %v", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusOK {
+		t.Fatalf("first create status = %d, want 200", createResp.StatusCode)
+	}
+	var first WorkProjection
+	if err := json.NewDecoder(createResp.Body).Decode(&first); err != nil {
+		t.Fatalf("decode first work: %v", err)
+	}
+	if first.WorkID == "" || first.IdempotencyKey != "work-submit-1" {
+		t.Fatalf("first work = %#v, want work id and idempotency key", first)
+	}
+	server.Close()
+
+	restarted := newTestKernel(t, ledgerPath)
+	restartedServer := httptest.NewServer(Handler(restarted))
+	defer restartedServer.Close()
+
+	retryResp, err := postJSONWithAuth(restartedServer.URL+"/work", []byte(`{"session_id":"http-work-submit-idempotency","title":"retry title must not replace","source_ref":"turn:http-work-submit-idempotency-retry","idempotency_key":"work-submit-1"}`))
+	if err != nil {
+		t.Fatalf("retry POST /work failed: %v", err)
+	}
+	defer retryResp.Body.Close()
+	if retryResp.StatusCode != http.StatusOK {
+		t.Fatalf("retry create status = %d, want 200", retryResp.StatusCode)
+	}
+	var retry WorkProjection
+	if err := json.NewDecoder(retryResp.Body).Decode(&retry); err != nil {
+		t.Fatalf("decode retry work: %v", err)
+	}
+	if retry.WorkID != first.WorkID || retry.Title != first.Title || retry.SourceRef != first.SourceRef {
+		t.Fatalf("retry work = %#v, want original %#v", retry, first)
+	}
+
+	projection, err := restarted.Session("http-work-submit-idempotency")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Works) != 1 {
+		t.Fatalf("projected works = %+v, want one work", projection.Works)
+	}
+	submitEvents := 0
+	for _, event := range projection.Events {
+		if event.Type == "work.submitted" {
+			submitEvents++
+		}
+	}
+	if submitEvents != 1 {
+		t.Fatalf("submit event count = %d, want 1", submitEvents)
+	}
+}
+
+func TestHTTPCreateWorkRejectsInvalidIdempotencyKey(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	resp, err := postJSONWithAuth(server.URL+"/work", []byte(`{"session_id":"bad-work-key","title":"bad key","source_ref":"turn:bad-work-key","idempotency_key":"bad key"}`))
+	if err != nil {
+		t.Fatalf("POST /work failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestHTTPCreateWorkRequiresSourceRef(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
@@ -1453,6 +1528,7 @@ func TestHTTPCreateWorkRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) 
 
 	for name, body := range map[string][]byte{
 		"invalid source ref": []byte(`{"session_id":"bad-work-ref","title":"bad source","source_ref":"free text"}`),
+		"secret session id":  []byte(`{"session_id":"api_key=sk-work-secret","title":"bad session secret","source_ref":"turn:bad-work-secret-session"}`),
 		"secret title":       []byte(`{"session_id":"bad-work-secret","title":"api_key=sk-work-secret","source_ref":"turn:bad-work-secret"}`),
 		"secret source ref":  []byte(`{"session_id":"bad-work-secret-ref","title":"bad source secret","source_ref":"turn:api_key=sk-work-secret"}`),
 	} {
@@ -1464,6 +1540,129 @@ func TestHTTPCreateWorkRejectsInvalidAuditRefsAndSecretShapedText(t *testing.T) 
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%s: status = %d, want 400", name, resp.StatusCode)
 		}
+	}
+}
+
+func TestWorkReplayRejectsCompetingCancelEvidence(t *testing.T) {
+	createdAt := time.Date(2026, 6, 22, 2, 0, 0, 0, time.UTC)
+	firstCanceledAt := createdAt.Add(time.Minute)
+	secondCanceledAt := createdAt.Add(2 * time.Minute)
+	submitted := WorkProjection{
+		WorkID:    "work-competing-cancel",
+		SessionID: "work-competing-cancel-session",
+		Title:     "competing cancel",
+		SourceRef: "turn:work-competing-cancel-session",
+		Status:    WorkStatusOpen,
+		CreatedAt: createdAt,
+	}
+	firstCancel := submitted
+	firstCancel.Status = WorkStatusCanceled
+	firstCancel.CancelAuthority = "runtime:first"
+	firstCancel.CancelReason = "first reason"
+	firstCancel.CancelEvidenceRef = "review:first"
+	firstCancel.CanceledAt = &firstCanceledAt
+	secondCancel := submitted
+	secondCancel.Status = WorkStatusCanceled
+	secondCancel.CancelAuthority = "runtime:second"
+	secondCancel.CancelReason = "second reason"
+	secondCancel.CancelEvidenceRef = "review:second"
+	secondCancel.CanceledAt = &secondCanceledAt
+
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:   "evt-work-submit",
+				SessionID: submitted.SessionID,
+				WorkID:    submitted.WorkID,
+				Type:      "work.submitted",
+				CreatedAt: createdAt,
+				Data:      EventData{Work: &submitted},
+			},
+			StoredEvent{
+				EventID:   "evt-work-cancel-first",
+				SessionID: submitted.SessionID,
+				WorkID:    submitted.WorkID,
+				Type:      "work.canceled",
+				CreatedAt: firstCanceledAt,
+				Data:      EventData{Work: &firstCancel},
+			},
+			StoredEvent{
+				EventID:   "evt-work-cancel-second",
+				SessionID: submitted.SessionID,
+				WorkID:    submitted.WorkID,
+				Type:      "work.canceled",
+				CreatedAt: secondCanceledAt,
+				Data:      EventData{Work: &secondCancel},
+			},
+		),
+		provider:     FakeProvider{},
+		runtimeToken: testRuntimeToken,
+		toolPolicy:   normalizedToolPolicy(ToolPolicy{}),
+		clock:        time.Now,
+	}
+
+	if _, err := k.Work(submitted.WorkID); err == nil || !strings.Contains(err.Error(), "competing work cancel evidence") {
+		t.Fatalf("Work error = %v, want competing cancel evidence error", err)
+	}
+	if _, err := k.Session(submitted.SessionID); err == nil || !strings.Contains(err.Error(), "competing work cancel evidence") {
+		t.Fatalf("Session error = %v, want competing cancel evidence error", err)
+	}
+}
+
+func TestConcurrentWorkCancelWritesOnlyOneTerminalDecision(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	work, err := k.SubmitWork(WorkSubmitRequest{
+		SessionID: "work-cancel-race",
+		Title:     "race cancel",
+		SourceRef: "turn:work-cancel-race",
+	})
+	if err != nil {
+		t.Fatalf("SubmitWork returned error: %v", err)
+	}
+
+	type result struct {
+		work WorkProjection
+		err  error
+	}
+	results := make(chan result, 2)
+	go func() {
+		canceled, err := k.CancelWork(work.WorkID, WorkCancelRequest{
+			CancelAuthority:   "runtime:first",
+			CancelReason:      "first reason",
+			CancelEvidenceRef: "review:first-cancel",
+		})
+		results <- result{work: canceled, err: err}
+	}()
+	go func() {
+		canceled, err := k.CancelWork(work.WorkID, WorkCancelRequest{
+			CancelAuthority:   "runtime:second",
+			CancelReason:      "second reason",
+			CancelEvidenceRef: "review:second-cancel",
+		})
+		results <- result{work: canceled, err: err}
+	}()
+
+	first := <-results
+	second := <-results
+	if first.err != nil || second.err != nil {
+		t.Fatalf("CancelWork errors = %v, %v; want both callers to observe the terminal work", first.err, second.err)
+	}
+	if first.work.CancelEvidenceRef != second.work.CancelEvidenceRef {
+		t.Fatalf("cancel evidence refs = %q and %q, want both callers to observe one terminal decision", first.work.CancelEvidenceRef, second.work.CancelEvidenceRef)
+	}
+
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	cancelEvents := 0
+	for _, event := range events {
+		if event.Type == "work.canceled" && event.WorkID == work.WorkID {
+			cancelEvents++
+		}
+	}
+	if cancelEvents != 1 {
+		t.Fatalf("cancel event count = %d, want 1", cancelEvents)
 	}
 }
 
@@ -2672,6 +2871,31 @@ func createMemoryCandidateOverHTTP(t *testing.T, serverURL string, req MemoryCan
 		t.Fatalf("decode candidate response: %v", err)
 	}
 	return candidate
+}
+
+type staticLedger struct {
+	events []StoredEvent
+}
+
+func newStaticLedger(events ...StoredEvent) *staticLedger {
+	return &staticLedger{events: append([]StoredEvent(nil), events...)}
+}
+
+func (l *staticLedger) Append(event StoredEvent) error {
+	l.events = append(l.events, event)
+	return nil
+}
+
+func (l *staticLedger) Load() ([]StoredEvent, error) {
+	return append([]StoredEvent(nil), l.events...), nil
+}
+
+func (l *staticLedger) Ready() ReadyCheck {
+	return ReadyCheck{Status: "ok"}
+}
+
+func (l *staticLedger) Path() string {
+	return "static-ledger"
 }
 
 type reviewRaceLedger struct {

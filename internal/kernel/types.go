@@ -155,9 +155,10 @@ type OperationProjection struct {
 }
 
 type WorkSubmitRequest struct {
-	SessionID string `json:"session_id"`
-	Title     string `json:"title"`
-	SourceRef string `json:"source_ref"`
+	SessionID      string `json:"session_id"`
+	Title          string `json:"title"`
+	SourceRef      string `json:"source_ref"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
 type WorkCancelRequest struct {
@@ -171,6 +172,7 @@ type WorkProjection struct {
 	SessionID         string     `json:"session_id"`
 	Title             string     `json:"title"`
 	SourceRef         string     `json:"source_ref"`
+	IdempotencyKey    string     `json:"idempotency_key,omitempty"`
 	Status            string     `json:"status"`
 	CreatedAt         time.Time  `json:"created_at"`
 	CancelAuthority   string     `json:"cancel_authority,omitempty"`

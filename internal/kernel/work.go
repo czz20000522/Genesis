@@ -23,14 +23,29 @@ func (k *Kernel) SubmitWork(req WorkSubmitRequest) (WorkProjection, error) {
 	if err := validateWorkSubmitRequest(req); err != nil {
 		return WorkProjection{}, err
 	}
+	k.workMu.Lock()
+	defer k.workMu.Unlock()
+
+	sessionID := strings.TrimSpace(req.SessionID)
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	if idempotencyKey != "" {
+		work, ok, err := k.workByIdempotencyKey(sessionID, idempotencyKey)
+		if err != nil {
+			return WorkProjection{}, err
+		}
+		if ok {
+			return work, nil
+		}
+	}
 	now := k.clock()
 	work := WorkProjection{
-		WorkID:    newID("work", now),
-		SessionID: strings.TrimSpace(req.SessionID),
-		Title:     strings.TrimSpace(req.Title),
-		SourceRef: strings.TrimSpace(req.SourceRef),
-		Status:    WorkStatusOpen,
-		CreatedAt: now,
+		WorkID:         newID("work", now),
+		SessionID:      sessionID,
+		Title:          strings.TrimSpace(req.Title),
+		SourceRef:      strings.TrimSpace(req.SourceRef),
+		IdempotencyKey: idempotencyKey,
+		Status:         WorkStatusOpen,
+		CreatedAt:      now,
 	}
 	event := StoredEvent{
 		EventID:   newID("evt", now),
@@ -118,10 +133,19 @@ func validateWorkSubmitRequest(req WorkSubmitRequest) error {
 	if strings.TrimSpace(req.SourceRef) == "" {
 		return errors.New("source_ref is required")
 	}
+	if err := validateWorkTextNotSecret("session_id", req.SessionID); err != nil {
+		return err
+	}
 	if err := validateWorkTextNotSecret("title", req.Title); err != nil {
 		return err
 	}
 	if err := validateWorkRef("source_ref", req.SourceRef); err != nil {
+		return err
+	}
+	if err := validateIdempotencyKey(req.IdempotencyKey); err != nil {
+		return err
+	}
+	if err := validateWorkTextNotSecret("idempotency_key", req.IdempotencyKey); err != nil {
 		return err
 	}
 	return nil
@@ -172,6 +196,19 @@ func validateWorkTextNotSecret(field string, value string) error {
 	return nil
 }
 
+func (k *Kernel) workByIdempotencyKey(sessionID string, key string) (WorkProjection, bool, error) {
+	works, err := k.works()
+	if err != nil {
+		return WorkProjection{}, false, err
+	}
+	for _, work := range works {
+		if work.SessionID == sessionID && work.IdempotencyKey == key {
+			return work, true, nil
+		}
+	}
+	return WorkProjection{}, false, nil
+}
+
 func (k *Kernel) works() (map[string]WorkProjection, error) {
 	events, err := k.loadEvents()
 	if err != nil {
@@ -191,8 +228,35 @@ func (k *Kernel) works() (map[string]WorkProjection, error) {
 			if work.WorkID == "" {
 				return nil, fmt.Errorf("%s event missing work id", event.Type)
 			}
-			works[work.WorkID] = work
+			current, exists := works[work.WorkID]
+			merged, err := mergeWorkProjection(current, work, exists)
+			if err != nil {
+				return nil, err
+			}
+			works[work.WorkID] = merged
 		}
 	}
 	return works, nil
+}
+
+func mergeWorkProjection(current WorkProjection, incoming WorkProjection, exists bool) (WorkProjection, error) {
+	if !exists {
+		return incoming, nil
+	}
+	if current.Status == WorkStatusCanceled {
+		if incoming.Status == WorkStatusCanceled && !sameWorkCancelDecision(current, incoming) {
+			return WorkProjection{}, fmt.Errorf("competing work cancel evidence for %s", current.WorkID)
+		}
+		return current, nil
+	}
+	if incoming.Status == WorkStatusCanceled {
+		return incoming, nil
+	}
+	return incoming, nil
+}
+
+func sameWorkCancelDecision(left WorkProjection, right WorkProjection) bool {
+	return left.CancelAuthority == right.CancelAuthority &&
+		left.CancelReason == right.CancelReason &&
+		left.CancelEvidenceRef == right.CancelEvidenceRef
 }

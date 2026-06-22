@@ -267,9 +267,19 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 				continue
 			}
 			work := *event.Data.Work
+			if work.WorkID == "" {
+				work.WorkID = event.WorkID
+			}
+			if work.WorkID == "" {
+				return projection, fmt.Errorf("%s event missing work id", event.Type)
+			}
 			idx, ok := workByID[work.WorkID]
 			if ok {
-				projection.Works[idx] = work
+				merged, err := mergeWorkProjection(projection.Works[idx], work, true)
+				if err != nil {
+					return projection, err
+				}
+				projection.Works[idx] = merged
 				continue
 			}
 			workByID[work.WorkID] = len(projection.Works)
