@@ -83,6 +83,8 @@ Candidate review decisions are durable owner evidence. Approved candidates may e
 
 The first supersession flow is a single kernel ledger decision. Superseding a candidate marks the original candidate as `superseded` with authority, reason, evidence, and replacement candidate id, while creating one replacement candidate in `pending` state from the supplied replacement text and source ref. The replacement does not enter recall until it is independently approved. Supersession is not a text edit, hidden approval, or migration shim for rejected truth.
 
+The first explicit recall transport is a read-only observation surface. `memory.recall` accepts user-context `input_items`, applies the same input validation and hidden-control rejection as `turn.submit`, and returns the approved memory refs selected by the current Accumulation policy. It does not run a model turn, does not append review evidence, and does not mutate candidate state. Turn submission remains responsible for recording recalled memories on the admitted turn event.
+
 ### Auth/Credential Plane
 
 Owns runtime client authentication, credential refs, redaction, and secret resolution for authorized effects. Provider-specific account setup belongs to shells or external applications unless it becomes a generic credential primitive.

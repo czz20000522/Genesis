@@ -67,6 +67,7 @@ Minimal HTTP surface:
 - `POST /memory/candidates/{id}/approve`
 - `POST /memory/candidates/{id}/reject`
 - `POST /memory/candidates/{id}/supersede`
+- `POST /memory/recall`
 
 The initial provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
 
@@ -171,9 +172,10 @@ The first memory loop is explicit and governed:
 - `POST /memory/candidates/{id}/approve` approves a candidate with required `approval_authority`, `approval_reason`, and `approval_evidence_ref`.
 - `POST /memory/candidates/{id}/reject` rejects a candidate with required `rejection_authority`, `rejection_reason`, and `rejection_evidence_ref`.
 - `POST /memory/candidates/{id}/supersede` marks one candidate as superseded with required authority/reason/evidence and atomically creates a replacement pending candidate.
+- `POST /memory/recall` previews which approved memory refs the current Accumulation policy would recall for the supplied `input_items`.
 - `POST /turn` recalls only approved candidates and records recalled memory refs on the turn event.
 
-Rejected and superseded candidates are restart-safe review decisions and are not recalled. A replacement candidate created by supersession remains pending until separately approved. The first recall strategy is intentionally simple text matching. It proves the governance, provenance, and restart-safe replay loop before adding vector indexes or richer memory policy.
+Rejected and superseded candidates are restart-safe review decisions and are not recalled. A replacement candidate created by supersession remains pending until separately approved. The explicit recall preview is read-only; it does not run the model or append ledger events. The first recall strategy is intentionally simple text matching. It proves the governance, provenance, and restart-safe replay loop before adding vector indexes or richer memory policy.
 
 ## Operations Records
 
