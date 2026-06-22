@@ -22,8 +22,8 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 ### KERNEL-TOOL-BATCH-AUTH-20260622 - P1 - Mixed model tool-call batches must fail before any effect
 
 - Status: ready_for_acceptance.
-- Fix commit: `5754c4297`.
-- Evidence: `TestSubmitTurnRejectsMixedModelToolBatchBeforeAnyEffect` proves a provider batch containing allowed `shell.exec` plus unsupported `email.send` returns `ErrModelToolCallRejected`, creates no output file, and leaves no operation projection. `TestSubmitTurnRejectsUnsupportedModelToolCall` still proves unsupported single-call batches record `turn.submitted`, `model.tool_call`, and `turn.failed` without effects. `go test ./...` passed; `git diff --check` passed; the repository scan for versioned route or kernel version labels returned no matches.
+- Fix commits: `5754c4297`, `166fd1116`.
+- Evidence: `TestSubmitTurnRejectsMixedModelToolBatchBeforeAnyEffect` proves a provider batch containing allowed `shell.exec` plus unsupported `email.send` returns `ErrModelToolCallRejected`, creates no output file, and leaves no operation projection. `TestSubmitTurnRejectsUnknownModelToolArgumentFields` proves authority-shaped unknown argument fields such as `permission_mode` are rejected before any shell effect. `TestSubmitTurnRejectsUnsupportedModelToolCall` still proves unsupported single-call batches record `turn.submitted`, `model.tool_call`, and `turn.failed` without effects. `go test ./...` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for versioned route or kernel version labels returned no matches.
 - Acceptance condition: reviewer confirms the Tool System preflights each model tool-call batch as one authority decision before any effect executes.
 - Residual risk: this covers the current synchronous model tool loop and canonical `shell.exec` descriptor. Future parallel tool execution or new effectful tools must reuse the same batch preflight boundary before adding concurrency.
 
