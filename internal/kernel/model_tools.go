@@ -15,45 +15,6 @@ const maxModelToolRounds = 4
 var ErrModelToolCallRejected = errors.New("model tool call rejected")
 var ErrToolInfrastructureFailed = errors.New("tool infrastructure failed")
 
-func (k *Kernel) modelToolDescriptors() []ModelToolDescriptor {
-	return []ModelToolDescriptor{
-		{
-			Name:        "shell.exec",
-			Description: "Execute a small governed shell command. Permission mode and workspace root are controlled by the Genesis kernel.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"command": map[string]interface{}{
-						"type":        "string",
-						"description": "Command to execute through the governed shell tool.",
-					},
-					"cwd": map[string]interface{}{
-						"type":        "string",
-						"description": "Optional working directory. When omitted, the kernel uses the configured workspace root when available.",
-					},
-				},
-				"required":             []string{"command"},
-				"additionalProperties": false,
-			},
-		},
-		{
-			Name:        "skill.read",
-			Description: "Read the bounded instructions for a configured user-space skill by skill name. This does not grant authority or bypass kernel tool permissions.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"name": map[string]interface{}{
-						"type":        "string",
-						"description": "Configured skill name from the available external skills catalog.",
-					},
-				},
-				"required":             []string{"name"},
-				"additionalProperties": false,
-			},
-		},
-	}
-}
-
 func modelToolCallRecords(calls []ModelToolCall) []ModelToolCallRecord {
 	records := make([]ModelToolCallRecord, 0, len(calls))
 	for _, call := range calls {
@@ -78,8 +39,7 @@ type preparedModelToolCall struct {
 	callID         string
 	name           string
 	requestInvalid *ToolRequestInvalidProjection
-	shellExec      *shellExecToolArguments
-	skillRead      *SkillReadProjection
+	execute        func(context.Context, string, string) (ModelToolResult, error)
 }
 
 func (k *Kernel) prepareModelToolCalls(calls []ModelToolCall) ([]preparedModelToolCall, error) {
@@ -120,14 +80,11 @@ func (k *Kernel) prepareModelToolCall(call ModelToolCall) (preparedModelToolCall
 	if err := validateIdempotencyKey(callID); err != nil {
 		return preparedModelToolCall{}, fmt.Errorf("%w: invalid tool_call_id: %v", ErrModelToolCallRejected, err)
 	}
-	switch name {
-	case "shell.exec":
-		return k.prepareShellExecToolCall(callID, name, call.Arguments)
-	case "skill.read":
-		return k.prepareSkillReadToolCall(callID, name, call.Arguments)
-	default:
+	definition, ok := lookupKernelTool(name)
+	if !ok {
 		return invalidPreparedModelToolCall(callID, name, "unsupported_tool", fmt.Sprintf("unsupported tool %q", call.Name)), nil
 	}
+	return definition.Prepare(k, callID, name, call.Arguments)
 }
 
 func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
@@ -148,9 +105,28 @@ func (k *Kernel) prepareShellExecToolCall(callID string, name string, arguments 
 		return invalidPreparedModelToolCall(callID, name, "invalid_shell_exec_request", fmt.Sprintf("invalid shell.exec request: %v", err)), nil
 	}
 	return preparedModelToolCall{
-		callID:    callID,
-		name:      name,
-		shellExec: &args,
+		callID: callID,
+		name:   name,
+		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			operation, err := k.execShell(ctx, ShellExecRequest{
+				SessionID:      sessionID,
+				CWD:            args.CWD,
+				Command:        args.Command,
+				IdempotencyKey: callID,
+			}, turnID)
+			if err != nil {
+				return ModelToolResult{}, fmt.Errorf("%w: %w", ErrToolInfrastructureFailed, err)
+			}
+			content, err := json.Marshal(modelOperationResult(operation))
+			if err != nil {
+				return ModelToolResult{}, err
+			}
+			return ModelToolResult{
+				ToolCallID: callID,
+				Name:       name,
+				Content:    string(content),
+			}, nil
+		},
 	}, nil
 }
 
@@ -177,9 +153,19 @@ func (k *Kernel) prepareSkillReadToolCall(callID string, name string, arguments 
 		return invalidPreparedModelToolCall(callID, name, "skill_read_unavailable", "skill.read failed: skill instruction unavailable"), nil
 	}
 	return preparedModelToolCall{
-		callID:    callID,
-		name:      name,
-		skillRead: &projection,
+		callID: callID,
+		name:   name,
+		execute: func(_ context.Context, _ string, _ string) (ModelToolResult, error) {
+			content, err := json.Marshal(projection)
+			if err != nil {
+				return ModelToolResult{}, err
+			}
+			return ModelToolResult{
+				ToolCallID: callID,
+				Name:       name,
+				Content:    string(content),
+			}, nil
+		},
 	}, nil
 }
 
@@ -210,38 +196,10 @@ func (k *Kernel) executePreparedModelToolCall(ctx context.Context, sessionID str
 			Content:    string(content),
 		}, nil
 	}
-	if prepared.skillRead != nil {
-		content, err := json.Marshal(prepared.skillRead)
-		if err != nil {
-			return ModelToolResult{}, err
-		}
-		return ModelToolResult{
-			ToolCallID: prepared.callID,
-			Name:       prepared.name,
-			Content:    string(content),
-		}, nil
-	}
-	if prepared.shellExec == nil {
+	if prepared.execute == nil {
 		return ModelToolResult{}, fmt.Errorf("%w: prepared tool %q has no executable payload", ErrModelToolCallRejected, prepared.name)
 	}
-	operation, err := k.execShell(ctx, ShellExecRequest{
-		SessionID:      sessionID,
-		CWD:            prepared.shellExec.CWD,
-		Command:        prepared.shellExec.Command,
-		IdempotencyKey: prepared.callID,
-	}, turnID)
-	if err != nil {
-		return ModelToolResult{}, fmt.Errorf("%w: %w", ErrToolInfrastructureFailed, err)
-	}
-	content, err := json.Marshal(modelOperationResult(operation))
-	if err != nil {
-		return ModelToolResult{}, err
-	}
-	return ModelToolResult{
-		ToolCallID: prepared.callID,
-		Name:       prepared.name,
-		Content:    string(content),
-	}, nil
+	return prepared.execute(ctx, sessionID, turnID)
 }
 
 func modelOperationResult(operation OperationProjection) ModelOperationResult {

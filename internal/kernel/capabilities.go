@@ -8,27 +8,16 @@ import (
 var credentialShapedInspectionTokenPattern = regexp.MustCompile(`(?i)((^|[._-])sk-(proj-)?[A-Za-z0-9_-]{6,}($|[._-])|^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}$)`)
 
 func (k *Kernel) toolCapabilityProjections() []ToolCapabilityProjection {
-	descriptors := k.modelToolDescriptors()
-	projections := make([]ToolCapabilityProjection, 0, len(descriptors))
-	for _, descriptor := range descriptors {
+	definitions := kernelToolDefinitions()
+	projections := make([]ToolCapabilityProjection, 0, len(definitions))
+	for _, definition := range definitions {
 		projections = append(projections, ToolCapabilityProjection{
-			Name:   descriptor.Name,
-			Kind:   toolCapabilityKind(descriptor.Name),
+			Name:   definition.Descriptor.Name,
+			Kind:   definition.Kind,
 			Status: "ok",
 		})
 	}
 	return projections
-}
-
-func toolCapabilityKind(name string) string {
-	switch name {
-	case "shell.exec":
-		return "effect"
-	case "skill.read":
-		return "read"
-	default:
-		return "unknown"
-	}
 }
 
 func safeProviderStatusForInspection(status ProviderStatus) ProviderStatus {

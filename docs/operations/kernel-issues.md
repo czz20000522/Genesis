@@ -29,22 +29,24 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 - Priority: P0
 - Area: Tool System / registry boundary
-- Status: new
+- Status: in_progress
 - Title: Tool descriptors are still hardcoded in the kernel instead of owned by a registry
 - Problem: `modelToolDescriptors` and `toolCapabilityKind` currently encode the tool surface directly in `internal/kernel`. This works for the spike but diverges from Reasonix's `Tool` interface + per-run `Registry` and Codex's `ToolExecutor` model, where executable runtime and model-visible spec stay tied through a tool owner.
 - Reference alignment: Reasonix registers built-ins and plugin tools into a runtime registry; Codex tools implement a shared executor contract with exposure metadata. Genesis should converge on a small kernel tool registry even if the first registry only contains `shell.exec` and `skill.read`.
 - Expected behavior: Adding a tool requires one registry entry with descriptor, kind/read-only/effect classification, permission profile, and handler binding. Provider adapters and capability inspection project from that registry, not from parallel switches.
+- Current progress: The current spike has a minimal `kernelToolDefinition` registry that binds descriptor, read/effect kind, and prepare handler for `shell.exec` and `skill.read`; model descriptors, capability projection, and model tool preflight now project from that registry.
 - Verification: Contract tests fail if a model-visible tool has no registry kind, if capability projection diverges from descriptors, or if application-specific names such as Feishu/email/calendar enter kernel descriptors.
 
 ### KERNEL-BOUNDARY-PERMISSION-GATE-20260622
 
 - Priority: P0
 - Area: Authority Plane / Tool System
-- Status: new
+- Status: in_progress
 - Title: Permission policy is embedded in shell execution instead of a generic gate
 - Problem: `plan/default/yolo` policy currently lives mostly inside `shell.go`. This couples authority semantics to one tool and makes future tools likely to duplicate permission logic.
 - Reference alignment: Reasonix separates pure permission `Policy` and optional `Gate` from tool implementation; Codex separates approval/sandbox policy from concrete exec result handling. Genesis needs the same shape: tool execution asks a generic gate before effects.
 - Expected behavior: Tool handlers expose read/effect classification and requested effect metadata; a kernel authority gate returns allow/block/reason before execution. Shell remains one handler under that gate, not the owner of permission semantics.
+- Current progress: A minimal `authorizeKernelTool` gate now allows read tools, blocks effect tools in `plan`, allows effect tools in `default/yolo`, and fails closed for unknown tool kinds or permission modes. `shell.exec` calls this generic gate before shell-specific workspace/default execution planning.
 - Verification: Tests prove plan mode blocks all effect tools through the same gate, read-only tools can proceed, blocked calls return model-visible `operation.blocked` or equivalent repair feedback, and shell-specific code does not own global permission vocabulary.
 
 ### KERNEL-BOUNDARY-SHELL-MINI-RUNTIME-20260622

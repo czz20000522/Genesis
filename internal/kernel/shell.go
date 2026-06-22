@@ -52,7 +52,16 @@ func (k *Kernel) execShell(ctx context.Context, req ShellExecRequest, turnID str
 			return operation, nil
 		}
 	}
-	executionPlan, reason := prepareShellExecution(policy, req)
+	definition, ok := lookupKernelTool("shell.exec")
+	if !ok {
+		return OperationProjection{}, fmt.Errorf("%w: shell.exec is not registered", ErrToolInfrastructureFailed)
+	}
+	authorization := authorizeKernelTool(policy, definition)
+	executionPlan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
+	reason := authorization.Reason
+	if authorization.Allowed {
+		executionPlan, reason = prepareShellExecution(policy, req)
+	}
 	operation := OperationProjection{
 		OperationID:    newID("op", now),
 		SessionID:      sessionID,
@@ -240,8 +249,6 @@ type controlledShellCommand struct {
 func prepareShellExecution(policy ToolPolicy, req ShellExecRequest) (shellExecutionPlan, string) {
 	plan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
 	switch policy.PermissionMode {
-	case PermissionModePlan:
-		return plan, "blocked_by_permission_mode=plan"
 	case PermissionModeDefault:
 		return prepareDefaultShellExecution(policy, req)
 	}
