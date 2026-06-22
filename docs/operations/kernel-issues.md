@@ -16,16 +16,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-LIVE-LLM-FIRST-RUN-ACCEPTANCE-20260622 - P0 - Real LLM must have a user-executable first-run acceptance path
-
-- Status: new.
-- Type: user feedback.
-- Problem: Genesis has provider setup, `models.json`, `secret://` credential refs, OpenAI-compatible/provider-command paths, and gated live smoke tests, but a user still has to piece together first-run live LLM validation from README fragments and test names.
-- Suggestion: Add a user-executable first-run acceptance path, preferably a runbook or script. It must cover provider setup, `genesisd` startup through Genesis config, `/ready`, a real `/turn`, timeline/events/context inspection, restart replay, and structured provider failure diagnostics. It must prove this with a real provider credential path, not only fake provider or `GENESIS_LIVE_PROVIDER=1` developer tests.
-- Evidence: README describes provider setup and live provider fragments; live smoke tests are gated by `GENESIS_LIVE_PROVIDER=1`; there is no single acceptance artifact that walks a user through setup, run, inspect, restart, and failure validation.
-- Validation: In a clean temporary config/credential/ledger setup, follow the runbook or script to write a provider credential without printing the raw key, start `genesisd` with Genesis config, get `/ready=ok`, submit a real turn with non-empty assistant final, inspect `/sessions/{id}/timeline`, `/turns/{id}/events`, and `/turns/{id}/context`, restart and re-read the same projections, then intentionally break credential or endpoint and observe structured readiness/turn errors without panic or secret leakage.
-- Reference alignment: Codex and Reasonix both keep provider configuration and live smoke paths executable by operators rather than hidden in tests. Genesis needs the same operator-facing acceptance surface while keeping credentials and provider-specific details outside kernel logic.
-
 ### KERNEL-PROVIDER-GATEWAY-EVENT-PROJECTION-20260622 - P1 - Provider gateway should be driven by provider-visible event projection
 
 - Status: new.

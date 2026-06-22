@@ -12,6 +12,17 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-LIVE-LLM-FIRST-RUN-ACCEPTANCE-20260622 - P0 - Real LLM must have a user-executable first-run acceptance path
+
+- Status: ready_for_acceptance.
+- Type: user feedback.
+- Fix commits: pending.
+- Reference alignment: Codex and Reasonix keep first-run and live-provider smoke paths executable by operators instead of hiding them only in tests. Genesis now has the same operator-facing acceptance surface while provider credentials and provider-specific account flows remain outside the kernel turn loop.
+- Evidence: `scripts/first_run_live_llm_acceptance.ps1` builds `genesisctl.exe` and `genesisd.exe`, writes Genesis provider config through `genesisctl provider-setup`, stores the key behind a `secret://...` ref, starts `genesisd` with `-provider genesis-config`, checks `/ready`, submits a real `/turn`, inspects `/sessions/{id}/timeline`, `/turns/{id}/events`, and `/turns/{id}/context`, restarts the server against the same ledger, replays those projections, and checks missing-credential readiness and turn failures. `docs/operations/live-llm-first-run-acceptance.md` documents the scripted and manual acceptance paths, and README links to the runbook from provider setup.
+- Verification: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 -Help`; `powershell -NoProfile -ExecutionPolicy Bypass -Command '[scriptblock]::Create((Get-Content -Raw scripts\first_run_live_llm_acceptance.ps1)) | Out-Null; "ok"'`; local OpenAI-compatible stub run of `scripts\first_run_live_llm_acceptance.ps1` with a space-containing temp `-WorkRoot` returned `ok=true`, non-fake final text, timeline/events/context counts, restart replay counts, and `provider_credential_missing` / `provider_unavailable` failure probe; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `CGO_ENABLED=1 D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
+- Acceptance condition: operator runs the script with a real provider base URL, model id, and provider API key environment variable and confirms the printed JSON summary reports `ok=true`, non-fake provider output, projection counts, restart replay counts, and `provider_credential_missing` / `provider_unavailable` for the failure probe without exposing the raw API key.
+- Residual risk: repository verification can parse and document the script without a live provider key. The final live-provider acceptance remains an operator-run check because it depends on private credentials and the selected provider endpoint.
+
 ### KERNEL-UI-TIMELINE-PROJECTION-20260622 - P1 - WebUI needs a dedicated timeline projection instead of raw events
 
 - Status: ready_for_acceptance.

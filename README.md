@@ -175,6 +175,14 @@ $env:TEMP\genesisctl.exe provider-setup `
 
 The command output contains paths, profile ids, route ids, and the `secret://...` ref only. It never writes provider-specific account flows into the turn loop. New provider integrations should prefer `provider_command`; the OpenAI-compatible setup remains an operator convenience for the current built-in adapter.
 
+For a clean live-provider first run, use the operator runbook and script:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 -Help
+```
+
+The runbook lives at `docs/operations/live-llm-first-run-acceptance.md`. It covers provider setup, `genesisd` startup through Genesis config, `/ready`, one real `/turn`, timeline/events/context inspection, restart replay, and a missing-credential failure probe.
+
 ## Tool Runtime
 
 The first kernel tool is `shell_exec`. It is deliberately small:
