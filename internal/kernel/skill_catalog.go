@@ -31,7 +31,7 @@ func loadSkillCatalog(roots []string) []SkillDescriptor {
 				return nil
 			}
 			name, description, ok := parseSkillMetadata(string(payload))
-			if !ok {
+			if !ok || !isSafeSkillMetadata(name, description) {
 				return nil
 			}
 			instructionPath, err := filepath.Abs(path)
@@ -53,6 +53,21 @@ func loadSkillCatalog(roots []string) []SkillDescriptor {
 		return skills[i].Name < skills[j].Name
 	})
 	return skills
+}
+
+func isSafeSkillMetadata(name string, description string) bool {
+	if hasInvisibleControlMarker(name) || hasInvisibleControlMarker(description) {
+		return false
+	}
+	if validateKernelTextNotSecret("skill name", name) != nil ||
+		validateKernelTextNotSecret("skill description", description) != nil {
+		return false
+	}
+	risks, err := scanTurnIngressSecurity([]InputItem{
+		{Type: "text", Text: name},
+		{Type: "text", Text: description},
+	})
+	return err == nil && len(risks) == 0
 }
 
 func parseSkillMetadata(payload string) (string, string, bool) {
