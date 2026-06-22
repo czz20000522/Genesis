@@ -217,9 +217,9 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 				}
 				return TurnResponse{}, err
 			}
-			forEventID := toolCallEventIDs[result.ToolCallID]
+			forEventID := toolCallEventIDs[result.ToolCallEventID]
 			if forEventID == "" {
-				return TurnResponse{}, fmt.Errorf("missing tool.call event for tool_call_id %q", result.ToolCallID)
+				return TurnResponse{}, fmt.Errorf("missing tool.call event for tool_call_event_id %q", result.ToolCallEventID)
 			}
 			if err := k.appendToolResultEvent(sessionID, turnID, result, forEventID); err != nil {
 				return TurnResponse{}, err
@@ -556,10 +556,10 @@ func (k *Kernel) appendToolCallEvents(sessionID string, turnID string, calls []M
 		eventID := newID("evt", createdAt)
 		providerCallID := providerToolCallID(call)
 		normalizedCall := ModelToolCall{
-			ToolCallID:         eventID,
-			ProviderToolCallID: providerCallID,
-			Name:               call.Name,
-			Arguments:          append(json.RawMessage(nil), call.Arguments...),
+			ToolCallID:      providerCallID,
+			ToolCallEventID: eventID,
+			Name:            call.Name,
+			Arguments:       append(json.RawMessage(nil), call.Arguments...),
 		}
 		if err := k.appendEvent(StoredEvent{
 			EventID:   eventID,
@@ -569,7 +569,7 @@ func (k *Kernel) appendToolCallEvents(sessionID string, turnID string, calls []M
 			CreatedAt: createdAt,
 			Data: EventData{
 				ToolCall: &ToolCallProjection{
-					ToolCallID:         eventID,
+					ToolCallEventID:    eventID,
 					ProviderToolCallID: providerCallID,
 					Tool:               strings.TrimSpace(call.Name),
 					Arguments:          string(call.Arguments),
@@ -594,8 +594,8 @@ func (k *Kernel) appendToolResultEvent(sessionID string, turnID string, result M
 		CreatedAt: createdAt,
 		Data: EventData{
 			ToolResult: &ToolResultProjection{
-				ToolCallID:         strings.TrimSpace(result.ToolCallID),
-				ProviderToolCallID: strings.TrimSpace(result.ProviderToolCallID),
+				ToolCallEventID:    strings.TrimSpace(result.ToolCallEventID),
+				ProviderToolCallID: strings.TrimSpace(result.ToolCallID),
 				Tool:               strings.TrimSpace(result.Name),
 				ForEventID:         strings.TrimSpace(forEventID),
 				Status:             toolResultStatus(result.Content),
@@ -621,9 +621,6 @@ func validateProviderToolCallBatch(calls []ModelToolCall) error {
 }
 
 func providerToolCallID(call ModelToolCall) string {
-	if id := strings.TrimSpace(call.ProviderToolCallID); id != "" {
-		return id
-	}
 	return strings.TrimSpace(call.ToolCallID)
 }
 
@@ -658,20 +655,20 @@ func modelToolRoundsFromStoredEvents(events []StoredEvent, turnID string) []Mode
 				continue
 			}
 			current.Calls = append(current.Calls, ModelToolCall{
-				ToolCallID:         event.Data.ToolCall.ToolCallID,
-				ProviderToolCallID: event.Data.ToolCall.ProviderToolCallID,
-				Name:               event.Data.ToolCall.Tool,
-				Arguments:          json.RawMessage(event.Data.ToolCall.Arguments),
+				ToolCallID:      event.Data.ToolCall.ProviderToolCallID,
+				ToolCallEventID: event.Data.ToolCall.ToolCallEventID,
+				Name:            event.Data.ToolCall.Tool,
+				Arguments:       json.RawMessage(event.Data.ToolCall.Arguments),
 			})
 		case "tool.result":
 			if event.Data.ToolResult == nil {
 				continue
 			}
 			current.Results = append(current.Results, ModelToolResult{
-				ToolCallID:         event.Data.ToolResult.ToolCallID,
-				ProviderToolCallID: event.Data.ToolResult.ProviderToolCallID,
-				Name:               event.Data.ToolResult.Tool,
-				Content:            event.Data.ToolResult.Content,
+				ToolCallID:      event.Data.ToolResult.ProviderToolCallID,
+				ToolCallEventID: event.Data.ToolResult.ToolCallEventID,
+				Name:            event.Data.ToolResult.Tool,
+				Content:         event.Data.ToolResult.Content,
 			})
 			if len(current.Calls) > 0 && len(current.Results) == len(current.Calls) {
 				rounds = append(rounds, current)

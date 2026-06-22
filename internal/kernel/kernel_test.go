@@ -3942,10 +3942,10 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	if !ok {
 		t.Fatalf("tool call data = %#v, want EventData", events[1].Data)
 	}
-	if toolCallData.ToolCall == nil || toolCallData.ToolCall.Tool != "shell_exec" || toolCallData.ToolCall.ToolCallID == "" {
+	if toolCallData.ToolCall == nil || toolCallData.ToolCall.Tool != "shell_exec" || toolCallData.ToolCall.ToolCallEventID == "" {
 		t.Fatalf("tool call event = %+v, want canonical shell_exec", toolCallData.ToolCall)
 	}
-	if toolCallData.ToolCall.ToolCallID != events[1].EventID || toolCallData.ToolCall.ProviderToolCallID != "call_write_file" {
+	if toolCallData.ToolCall.ToolCallEventID != events[1].EventID || toolCallData.ToolCall.ProviderToolCallID != "call_write_file" {
 		t.Fatalf("tool call event = %+v, want event id identity and provider correlation", toolCallData.ToolCall)
 	}
 	if !strings.Contains(toolCallData.ToolCall.Arguments, "tool-result.txt") {
@@ -3958,7 +3958,7 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	if toolResultData.ToolResult == nil || toolResultData.ToolResult.ForEventID != events[1].EventID || toolResultData.ToolResult.Status != "completed" {
 		t.Fatalf("tool result event = %+v, want result linked to %s", toolResultData.ToolResult, events[1].EventID)
 	}
-	if toolResultData.ToolResult.ToolCallID != events[1].EventID || toolResultData.ToolResult.ProviderToolCallID != "call_write_file" {
+	if toolResultData.ToolResult.ToolCallEventID != events[1].EventID || toolResultData.ToolResult.ProviderToolCallID != "call_write_file" {
 		t.Fatalf("tool result event = %+v, want event id identity and provider correlation", toolResultData.ToolResult)
 	}
 	if toolCallData.ToolCall.Arguments != string(toolArgs) {
@@ -4022,8 +4022,8 @@ func TestSubmitTurnUsesToolCallEventIDWhenProviderIDMissing(t *testing.T) {
 		t.Fatalf("provider requests = %+v, want tool result round", requests)
 	}
 	result := requests[1].ToolRounds[0].Results[0]
-	if result.ToolCallID == "" || result.ProviderToolCallID != "" {
-		t.Fatalf("tool result = %+v, want kernel event id and no provider correlation id", result)
+	if result.ToolCallID != "" || result.ToolCallEventID == "" {
+		t.Fatalf("tool result = %+v, want empty provider id plus kernel event id", result)
 	}
 	projection, err := k.Session("missing-provider-tool-id")
 	if err != nil {
@@ -4032,10 +4032,10 @@ func TestSubmitTurnUsesToolCallEventIDWhenProviderIDMissing(t *testing.T) {
 	if len(projection.Events) < 5 || projection.Events[1].Data.ToolCall == nil || projection.Events[4].Data.ToolResult == nil {
 		t.Fatalf("events = %+v, want tool.call and tool.result payloads", projection.Events)
 	}
-	if projection.Events[1].Data.ToolCall.ToolCallID != projection.Events[1].EventID || projection.Events[1].Data.ToolCall.ProviderToolCallID != "" {
+	if projection.Events[1].Data.ToolCall.ToolCallEventID != projection.Events[1].EventID || projection.Events[1].Data.ToolCall.ProviderToolCallID != "" {
 		t.Fatalf("tool.call = %+v, want event id identity without provider id", projection.Events[1].Data.ToolCall)
 	}
-	if projection.Events[4].Data.ToolResult.ToolCallID != projection.Events[1].EventID || projection.Events[4].Data.ToolResult.ForEventID != projection.Events[1].EventID {
+	if projection.Events[4].Data.ToolResult.ToolCallEventID != projection.Events[1].EventID || projection.Events[4].Data.ToolResult.ForEventID != projection.Events[1].EventID {
 		t.Fatalf("tool.result = %+v, want event id identity and for_event_id link", projection.Events[4].Data.ToolResult)
 	}
 }
@@ -4224,8 +4224,8 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 		t.Fatalf("tool rounds = %+v, want one repair result", rounds)
 	}
 	result := rounds[0].Results[0]
-	if result.ToolCallID == "call_missing_command" || result.ProviderToolCallID != "call_missing_command" || result.Name != "shell_exec" {
-		t.Fatalf("tool result = %+v, want event-id kernel identity plus provider correlation for call_missing_command", result)
+	if result.ToolCallID != "call_missing_command" || result.ToolCallEventID == "" || result.Name != "shell_exec" {
+		t.Fatalf("tool result = %+v, want provider echo id plus kernel event id for call_missing_command", result)
 	}
 	payload := decodeJSONMap(t, result.Content)
 	if payload["status"] != "tool_request_invalid" || payload["tool"] != "shell_exec" || payload["executed"] != false {
@@ -4286,10 +4286,10 @@ func TestSubmitTurnUsesKernelEventIDForUnsafeProviderToolCallID(t *testing.T) {
 	if len(projection.Events) < 5 || projection.Events[1].Data.ToolCall == nil || projection.Events[4].Data.ToolResult == nil {
 		t.Fatalf("events = %+v, want tool call/result payloads", projection.Events)
 	}
-	if projection.Events[1].Data.ToolCall.ToolCallID != projection.Events[1].EventID || projection.Events[1].Data.ToolCall.ProviderToolCallID != "bad tool call id" {
+	if projection.Events[1].Data.ToolCall.ToolCallEventID != projection.Events[1].EventID || projection.Events[1].Data.ToolCall.ProviderToolCallID != "bad tool call id" {
 		t.Fatalf("tool.call = %+v, want event id identity and unsafe provider correlation preserved", projection.Events[1].Data.ToolCall)
 	}
-	if projection.Events[4].Data.ToolResult.ToolCallID != projection.Events[1].EventID || projection.Events[4].Data.ToolResult.ProviderToolCallID != "bad tool call id" {
+	if projection.Events[4].Data.ToolResult.ToolCallEventID != projection.Events[1].EventID || projection.Events[4].Data.ToolResult.ProviderToolCallID != "bad tool call id" {
 		t.Fatalf("tool.result = %+v, want event id identity and provider correlation", projection.Events[4].Data.ToolResult)
 	}
 }
@@ -5532,11 +5532,7 @@ func toolRepairPayloadByCallID(t *testing.T, results []ModelToolResult) map[stri
 	t.Helper()
 	payloads := make(map[string]map[string]interface{}, len(results))
 	for _, result := range results {
-		key := result.ProviderToolCallID
-		if key == "" {
-			key = result.ToolCallID
-		}
-		payloads[key] = decodeJSONMap(t, result.Content)
+		payloads[result.ToolCallID] = decodeJSONMap(t, result.Content)
 	}
 	return payloads
 }

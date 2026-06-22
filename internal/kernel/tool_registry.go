@@ -16,7 +16,7 @@ const (
 
 type registeredTool struct {
 	Spec    ToolSpec
-	Prepare func(*Kernel, string, string, json.RawMessage) (preparedModelToolCall, error)
+	Prepare func(*Kernel, string, string, string, json.RawMessage) (preparedModelToolCall, error)
 }
 
 type ToolRegistry struct {

@@ -67,10 +67,10 @@ type ToolSpec struct {
 }
 
 type ModelToolCall struct {
-	ToolCallID         string          `json:"tool_call_id"`
-	ProviderToolCallID string          `json:"provider_tool_call_id,omitempty"`
-	Name               string          `json:"name"`
-	Arguments          json.RawMessage `json:"arguments,omitempty"`
+	ToolCallID      string          `json:"tool_call_id"`
+	ToolCallEventID string          `json:"tool_call_event_id,omitempty"`
+	Name            string          `json:"name"`
+	Arguments       json.RawMessage `json:"arguments,omitempty"`
 }
 
 type ModelToolRound struct {
@@ -79,10 +79,10 @@ type ModelToolRound struct {
 }
 
 type ModelToolResult struct {
-	ToolCallID         string `json:"tool_call_id"`
-	ProviderToolCallID string `json:"provider_tool_call_id,omitempty"`
-	Name               string `json:"name"`
-	Content            string `json:"content"`
+	ToolCallID      string `json:"tool_call_id"`
+	ToolCallEventID string `json:"tool_call_event_id,omitempty"`
+	Name            string `json:"name"`
+	Content         string `json:"content"`
 }
 
 type ToolRequestInvalidProjection struct {
@@ -377,14 +377,14 @@ type EventData struct {
 }
 
 type ToolCallProjection struct {
-	ToolCallID         string `json:"tool_call_id"`
+	ToolCallEventID    string `json:"tool_call_event_id"`
 	ProviderToolCallID string `json:"provider_tool_call_id,omitempty"`
 	Tool               string `json:"tool"`
 	Arguments          string `json:"arguments,omitempty"`
 }
 
 type ToolResultProjection struct {
-	ToolCallID         string `json:"tool_call_id"`
+	ToolCallEventID    string `json:"tool_call_event_id"`
 	ProviderToolCallID string `json:"provider_tool_call_id,omitempty"`
 	Tool               string `json:"tool"`
 	ForEventID         string `json:"for_event_id"`

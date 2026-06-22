@@ -295,25 +295,18 @@ func modelToolCallsFromChat(calls []chatToolCall) ([]ModelToolCall, error) {
 		}
 		raw := json.RawMessage(args)
 		converted = append(converted, ModelToolCall{
-			ToolCallID:         strings.TrimSpace(call.ID),
-			ProviderToolCallID: strings.TrimSpace(call.ID),
-			Name:               strings.TrimSpace(call.Function.Name),
-			Arguments:          raw,
+			ToolCallID: strings.TrimSpace(call.ID),
+			Name:       strings.TrimSpace(call.Function.Name),
+			Arguments:  raw,
 		})
 	}
 	return converted, nil
 }
 
 func providerToolCallIDForReplay(call ModelToolCall) string {
-	if id := strings.TrimSpace(call.ProviderToolCallID); id != "" {
-		return id
-	}
 	return strings.TrimSpace(call.ToolCallID)
 }
 
 func providerToolResultID(result ModelToolResult) string {
-	if id := strings.TrimSpace(result.ProviderToolCallID); id != "" {
-		return id
-	}
 	return strings.TrimSpace(result.ToolCallID)
 }
