@@ -19,10 +19,13 @@ func main() {
 	runtimeToken := flag.String("runtime-token", os.Getenv("GENESIS_RUNTIME_TOKEN"), "runtime bearer token for protected routes")
 	permissionMode := flag.String("permission-mode", envOrDefault("GENESIS_PERMISSION_MODE", kernel.PermissionModePlan), "tool permission mode: plan, default, or yolo")
 	workspaceRoot := flag.String("workspace-root", os.Getenv("GENESIS_WORKSPACE_ROOT"), "workspace root for default tool permission mode")
-	providerName := flag.String("provider", envOrDefault("GENESIS_PROVIDER", "genesis-config"), "provider name: genesis-config, fake, or openai-compatible")
+	providerName := flag.String("provider", envOrDefault("GENESIS_PROVIDER", "genesis-config"), "provider name: genesis-config, fake, provider_command, or openai-compatible")
 	providerBaseURL := flag.String("provider-base-url", os.Getenv("GENESIS_PROVIDER_BASE_URL"), "OpenAI-compatible provider base URL")
 	providerModel := flag.String("provider-model", os.Getenv("GENESIS_PROVIDER_MODEL"), "OpenAI-compatible provider model")
 	providerAPIKeyEnv := flag.String("provider-api-key-env", envOrDefault("GENESIS_PROVIDER_API_KEY_ENV", "GENESIS_PROVIDER_API_KEY"), "environment variable containing provider API key")
+	providerCommand := flag.String("provider-command", os.Getenv("GENESIS_PROVIDER_COMMAND"), "provider command adapter executable")
+	providerCommandArgs := stringListFlag(splitPathList(os.Getenv("GENESIS_PROVIDER_COMMAND_ARGS")))
+	flag.Var(&providerCommandArgs, "provider-command-arg", "provider command adapter argument; repeatable")
 	configRoot := flag.String("config-root", os.Getenv("GENESIS_CONFIG_ROOT"), "Genesis config root containing models.json")
 	credentialStoreRoot := flag.String("credential-store-root", os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"), "Genesis credential store root")
 	modelRole := flag.String("model-role", envOrDefault("GENESIS_MODEL_ROLE", kernel.DefaultModelRole), "Genesis model role binding to resolve")
@@ -36,6 +39,8 @@ func main() {
 		baseURL:             *providerBaseURL,
 		model:               *providerModel,
 		apiKeyEnv:           *providerAPIKeyEnv,
+		command:             *providerCommand,
+		commandArgs:         providerCommandArgs.Values(),
 		configRoot:          *configRoot,
 		credentialStoreRoot: *credentialStoreRoot,
 		modelRole:           *modelRole,
@@ -75,6 +80,8 @@ type providerBuildRequest struct {
 	baseURL             string
 	model               string
 	apiKeyEnv           string
+	command             string
+	commandArgs         []string
 	configRoot          string
 	credentialStoreRoot string
 	modelRole           string
@@ -86,16 +93,29 @@ func buildProvider(req providerBuildRequest) (kernel.Provider, error) {
 	case "", "fake":
 		return kernel.FakeProvider{}, nil
 	case "genesis-config":
-		config, err := kernel.ResolveOpenAICompatibleConfigFromGenesis(kernel.GenesisModelConfigRequest{
+		config, err := kernel.ResolveProviderConfigFromGenesis(kernel.GenesisModelConfigRequest{
 			ConfigRoot:          req.configRoot,
 			CredentialStoreRoot: req.credentialStoreRoot,
 			ModelRole:           req.modelRole,
 			ModelProfileID:      req.modelProfileID,
 		})
 		if err != nil {
-			return kernel.NewBlockedProvider("openai-compatible", kernel.ProviderConfigReason(err)), nil
+			return kernel.NewBlockedProvider("provider", kernel.ProviderConfigReason(err)), nil
 		}
-		return kernel.NewOpenAICompatibleProvider(config), nil
+		switch config.Kind {
+		case "provider_command":
+			return kernel.NewCommandProvider(config.Command), nil
+		case "openai-compatible":
+			return kernel.NewOpenAICompatibleProvider(config.OpenAICompatible), nil
+		default:
+			return kernel.NewBlockedProvider("provider", "provider_config_invalid"), nil
+		}
+	case "provider_command":
+		return kernel.NewCommandProvider(kernel.ProviderCommandConfig{
+			Command: req.command,
+			Args:    req.commandArgs,
+			Model:   req.model,
+		}), nil
 	case "openai-compatible":
 		return kernel.NewOpenAICompatibleProvider(kernel.OpenAICompatibleConfig{
 			BaseURL: req.baseURL,
@@ -167,4 +187,22 @@ func splitPathList(value string) []string {
 		}
 	}
 	return roots
+}
+
+type stringListFlag []string
+
+func (f *stringListFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return strings.Join(*f, " ")
+}
+
+func (f *stringListFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}
+
+func (f stringListFlag) Values() []string {
+	return append([]string(nil), f...)
 }

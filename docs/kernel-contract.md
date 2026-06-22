@@ -63,7 +63,11 @@ Owns provider configuration, model calls, streaming, retries, provider error pro
 
 Provider-native usage fields are normalized into kernel-owned final evidence as `input_tokens`, `output_tokens`, and `total_tokens` when the upstream response provides them. Usage is inspection metadata stored with the final model event; shells may display it, but they do not compute or own it.
 
-The local binary resolves provider startup from Genesis-owned model gateway configuration by default. The canonical user config root is `~/.genesis/config`; `models.json` selects a role-bound gateway profile, the gateway route, the upstream endpoint, protocol, model id, timeout, and a `secret://...` credential ref. The kernel may expose operator flags to select a profile or config root, but it must not require Codex environment variables or Codex credentials for Genesis live operation.
+The local binary resolves provider startup from Genesis-owned model gateway configuration by default. The canonical user config root is `~/.genesis/config`; `models.json` selects a role-bound gateway profile, the gateway route, provider protocol, model id, timeout, and either an external provider command or a built-in adapter endpoint. The kernel may expose operator flags to select a profile or config root, but it must not require Codex environment variables or Codex credentials for Genesis live operation.
+
+`provider_command` is the preferred long-lived boundary for provider integrations. The kernel writes one JSON request to the configured command's stdin with `protocol=genesis.provider_command`, `session_id`, `turn_id`, `model`, ordered `input_items`, `tool_manifest`, and prior `tool_rounds`. The command writes one JSON response to stdout with `kind=final` plus final text and optional usage, or `kind=tool_calls` plus canonical model tool calls. The command owns vendor SDKs, provider-native HTTP JSON, account flows, and provider credentials. The kernel owns typed request/response validation, provider error projection, tool-loop continuation, and ledger evidence.
+
+The built-in OpenAI-compatible adapter is retained as a local operator convenience and test fixture. It translates the same kernel-owned model request and tool manifest into upstream chat-completions shape, but its provider-native JSON is not the default kernel contract for new providers.
 
 Provider endpoint paths are upstream configuration, not Genesis route contracts. The kernel's own HTTP transport remains unversioned.
 
@@ -81,7 +85,7 @@ The first model-visible tool spec is canonical `shell_exec` with `side_effect_le
 
 External skill packages are user-space assets, not kernel applications. The kernel may be configured with explicit skill roots and may scan `SKILL.md` front matter into a read-only skill catalog for model context. This model-visible catalog is metadata only: name and description. The instruction path is an internal read handle and is not exposed to the model. Skill metadata is treated as untrusted before injection; authority-shaped, prompt-injection-shaped, hidden-control, duplicate-name, linked-path, or secret-shaped metadata is excluded rather than repaired into context.
 
-Full skill-body retrieval is not part of the first default model-visible tool surface. If Genesis later needs long skill instructions, they must arrive through a generic resource/context contract or another explicitly reviewed owner path, not through a proliferation of package-specific tools such as `read_skill`, `read_prompt`, or `read_doc`. Skill prose remains user-space context and never grants kernel authority.
+Full skill-body retrieval is not part of the first default model-visible tool surface. If Genesis later needs long skill instructions, they must arrive through a generic resource/context contract or another explicitly reviewed owner path, not through package-specific retrieval tools. Skill prose remains user-space context and never grants kernel authority.
 
 Skill catalog diagnostics are inspection evidence only. The kernel may report path-free exclusion reasons such as missing root, linked path, malformed metadata, unsafe metadata, or duplicate name so an operator can repair the installation, but those diagnostics do not expose the excluded path or body and do not silently repair metadata into model context.
 

@@ -14,6 +14,7 @@ const DefaultModelRole = "foreground.coordinator"
 
 const (
 	modelGatewayProtocolChatCompletions = "openai-chat-completions"
+	modelGatewayProtocolProviderCommand = "provider_command"
 )
 
 var (
@@ -34,61 +35,113 @@ type GenesisModelConfigRequest struct {
 	SecretResolver      func(ref string, storeRoot string) (string, error)
 }
 
+type ResolvedProviderConfig struct {
+	Kind             string
+	OpenAICompatible OpenAICompatibleConfig
+	Command          ProviderCommandConfig
+}
+
 func ResolveOpenAICompatibleConfigFromGenesis(req GenesisModelConfigRequest) (OpenAICompatibleConfig, error) {
+	resolved, err := ResolveProviderConfigFromGenesis(req)
+	if err != nil {
+		return OpenAICompatibleConfig{}, err
+	}
+	if resolved.Kind != "openai-compatible" {
+		return OpenAICompatibleConfig{}, ErrGenesisModelProtocolUnsupported
+	}
+	return resolved.OpenAICompatible, nil
+}
+
+func ResolveProviderConfigFromGenesis(req GenesisModelConfigRequest) (ResolvedProviderConfig, error) {
+	selected, err := loadSelectedGatewayConfig(req)
+	if err != nil {
+		return ResolvedProviderConfig{}, err
+	}
+	gateway := selected.gateway
+	profile := selected.profile
+	route := selected.route
+	protocol := firstNonEmpty(route.Protocol, gateway.Protocol)
+	timeout := firstPositiveFloat(route.RequestTimeoutSec, gateway.RequestTimeoutSec)
+	switch protocol {
+	case modelGatewayProtocolChatCompletions:
+		baseURL := firstNonEmpty(route.BaseURL, gateway.BaseURL)
+		credentialRef := firstNonEmpty(route.CredentialRef, gateway.CredentialRef)
+		if strings.TrimSpace(baseURL) == "" || strings.TrimSpace(profile.ModelID) == "" {
+			return ResolvedProviderConfig{}, ErrGenesisModelGatewayMissing
+		}
+		if !isLocalSecretCredentialRef(credentialRef) {
+			return ResolvedProviderConfig{}, ErrGenesisModelCredentialUnsupported
+		}
+		resolver := req.SecretResolver
+		if resolver == nil {
+			resolver = ResolveLocalCredentialSecret
+		}
+		apiKey, err := resolver(credentialRef, req.CredentialStoreRoot)
+		if err != nil {
+			return ResolvedProviderConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelCredentialMissing, err)
+		}
+		if strings.TrimSpace(apiKey) == "" {
+			return ResolvedProviderConfig{}, ErrGenesisModelCredentialMissing
+		}
+		return ResolvedProviderConfig{
+			Kind: "openai-compatible",
+			OpenAICompatible: OpenAICompatibleConfig{
+				BaseURL:        baseURL,
+				APIKey:         apiKey,
+				Model:          profile.ModelID,
+				RequestTimeout: durationSeconds(timeout),
+			},
+		}, nil
+	case modelGatewayProtocolProviderCommand:
+		command := firstNonEmpty(route.Command, gateway.Command)
+		if strings.TrimSpace(command) == "" || strings.TrimSpace(profile.ModelID) == "" {
+			return ResolvedProviderConfig{}, ErrGenesisModelGatewayMissing
+		}
+		return ResolvedProviderConfig{
+			Kind: "provider_command",
+			Command: ProviderCommandConfig{
+				Command:        command,
+				Args:           firstStringSlice(route.Args, gateway.Args),
+				WorkingDir:     firstNonEmpty(route.WorkingDir, gateway.WorkingDir),
+				Model:          profile.ModelID,
+				RequestTimeout: durationSeconds(timeout),
+			},
+		}, nil
+	default:
+		return ResolvedProviderConfig{}, ErrGenesisModelProtocolUnsupported
+	}
+}
+
+func loadSelectedGatewayConfig(req GenesisModelConfigRequest) (selectedGatewayConfig, error) {
 	configPath := filepath.Join(resolveGenesisConfigRoot(req.ConfigRoot), "models.json")
 	payload, err := os.ReadFile(configPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return OpenAICompatibleConfig{}, ErrGenesisModelConfigMissing
+			return selectedGatewayConfig{}, ErrGenesisModelConfigMissing
 		}
-		return OpenAICompatibleConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
+		return selectedGatewayConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
 	}
 	var config genesisModelsConfig
 	if err := json.Unmarshal(payload, &config); err != nil {
-		return OpenAICompatibleConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
+		return selectedGatewayConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
 	}
 	gateway := config.ModelGateway
-	if strings.TrimSpace(gateway.BaseURL) == "" && len(gateway.Routes) == 0 {
-		return OpenAICompatibleConfig{}, ErrGenesisModelGatewayMissing
+	if strings.TrimSpace(gateway.BaseURL) == "" && strings.TrimSpace(gateway.Command) == "" && len(gateway.Routes) == 0 {
+		return selectedGatewayConfig{}, ErrGenesisModelGatewayMissing
 	}
 
 	profile, err := selectGatewayProfile(config, req)
 	if err != nil {
-		return OpenAICompatibleConfig{}, err
+		return selectedGatewayConfig{}, err
 	}
 	route, err := selectGatewayRoute(gateway, profile.GatewayRoute)
 	if err != nil {
-		return OpenAICompatibleConfig{}, err
+		return selectedGatewayConfig{}, err
 	}
-	baseURL := firstNonEmpty(route.BaseURL, gateway.BaseURL)
-	credentialRef := firstNonEmpty(route.CredentialRef, gateway.CredentialRef)
-	protocol := firstNonEmpty(route.Protocol, gateway.Protocol)
-	if protocol != modelGatewayProtocolChatCompletions {
-		return OpenAICompatibleConfig{}, ErrGenesisModelProtocolUnsupported
-	}
-	if strings.TrimSpace(baseURL) == "" || strings.TrimSpace(profile.ModelID) == "" {
-		return OpenAICompatibleConfig{}, ErrGenesisModelGatewayMissing
-	}
-	if !isLocalSecretCredentialRef(credentialRef) {
-		return OpenAICompatibleConfig{}, ErrGenesisModelCredentialUnsupported
-	}
-	resolver := req.SecretResolver
-	if resolver == nil {
-		resolver = ResolveLocalCredentialSecret
-	}
-	apiKey, err := resolver(credentialRef, req.CredentialStoreRoot)
-	if err != nil {
-		return OpenAICompatibleConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelCredentialMissing, err)
-	}
-	if strings.TrimSpace(apiKey) == "" {
-		return OpenAICompatibleConfig{}, ErrGenesisModelCredentialMissing
-	}
-	timeout := firstPositiveFloat(route.RequestTimeoutSec, gateway.RequestTimeoutSec)
-	return OpenAICompatibleConfig{
-		BaseURL:        baseURL,
-		APIKey:         apiKey,
-		Model:          profile.ModelID,
-		RequestTimeout: durationSeconds(timeout),
+	return selectedGatewayConfig{
+		gateway: gateway,
+		profile: profile,
+		route:   route,
 	}, nil
 }
 
@@ -184,6 +237,15 @@ func firstPositiveFloat(values ...float64) float64 {
 	return 0
 }
 
+func firstStringSlice(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return append([]string(nil), value...)
+		}
+	}
+	return nil
+}
+
 func durationSeconds(value float64) time.Duration {
 	if value <= 0 {
 		return 0
@@ -216,15 +278,27 @@ type genesisModelGateway struct {
 	BaseURL           string                         `json:"base_url"`
 	CredentialRef     string                         `json:"credential_ref"`
 	Protocol          string                         `json:"protocol"`
+	Command           string                         `json:"command"`
+	Args              []string                       `json:"args"`
+	WorkingDir        string                         `json:"working_dir"`
 	RequestTimeoutSec float64                        `json:"request_timeout_sec"`
 	Routes            map[string]genesisGatewayRoute `json:"routes"`
 }
 
 type genesisGatewayRoute struct {
-	BaseURL           string  `json:"base_url"`
-	CredentialRef     string  `json:"credential_ref"`
-	Protocol          string  `json:"protocol"`
-	RequestTimeoutSec float64 `json:"request_timeout_sec"`
+	BaseURL           string   `json:"base_url"`
+	CredentialRef     string   `json:"credential_ref"`
+	Protocol          string   `json:"protocol"`
+	Command           string   `json:"command"`
+	Args              []string `json:"args"`
+	WorkingDir        string   `json:"working_dir"`
+	RequestTimeoutSec float64  `json:"request_timeout_sec"`
+}
+
+type selectedGatewayConfig struct {
+	gateway genesisModelGateway
+	profile genesisGatewayProfile
+	route   genesisGatewayRoute
 }
 
 type genesisModelProfiles struct {

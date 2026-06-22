@@ -305,6 +305,34 @@ func TestArchitectureBoundaryKernelIssuesRequireReferenceAlignment(t *testing.T)
 	}
 }
 
+func TestArchitectureBoundaryCoreLoopHasNoProviderNativeWireTerms(t *testing.T) {
+	root := kernelPackageDir(t)
+	for _, file := range []string{
+		"kernel.go",
+		"model_tools.go",
+		"provider.go",
+		"provider_command.go",
+		"tool_registry.go",
+		"types.go",
+	} {
+		content := readRepoText(t, root, file)
+		for _, forbidden := range []string{
+			"/chat/completions",
+			"chatCompletion",
+			"chatTool",
+			"tool_choice",
+			"prompt_tokens",
+			"completion_tokens",
+			"Bearer ",
+			"Authorization",
+		} {
+			if strings.Contains(content, forbidden) {
+				t.Fatalf("%s contains provider-native wire term %q; keep vendor protocol handling inside provider adapters", file, forbidden)
+			}
+		}
+	}
+}
+
 type markdownIssueSection struct {
 	id   string
 	body string

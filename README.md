@@ -117,7 +117,7 @@ This does not make Feishu, email, calendar, or any other application a kernel fe
 
 ## Provider Configuration
 
-`genesisd` defaults to Genesis-owned model gateway configuration. It reads `models.json` from the Genesis config root, resolves the selected role/profile, selects the gateway route, and resolves the route credential from the Genesis local secret store.
+`genesisd` defaults to Genesis-owned model gateway configuration. It reads `models.json` from the Genesis config root, resolves the selected role/profile, selects the gateway route, and starts the configured provider boundary.
 
 Useful operator flags:
 
@@ -130,6 +130,17 @@ For deterministic tests, select the fake provider explicitly:
 
 ```powershell
 $env:TEMP\genesisd.exe -provider fake
+```
+
+The long-lived provider boundary is `provider_command`: an external executable reads one typed Genesis model request from stdin and writes one typed provider response to stdout. The command owns vendor SDKs, HTTP JSON, account flows, and provider credentials; the kernel owns only the typed request, typed response, readiness, turn loop, and ledger evidence.
+
+```powershell
+$env:TEMP\genesisd.exe `
+  -provider provider_command `
+  -provider-command D:\tools\genesis-provider-openai.exe `
+  -provider-command-arg --profile `
+  -provider-command-arg primary `
+  -provider-model example-model
 ```
 
 An OpenAI-compatible provider can still be selected directly without using the Genesis config resolver:
@@ -162,7 +173,7 @@ $env:TEMP\genesisctl.exe provider-setup `
   -credential-ref secret://models/provider/primary
 ```
 
-The command output contains paths, profile ids, route ids, and the `secret://...` ref only. It never writes provider-specific account flows into the kernel runtime.
+The command output contains paths, profile ids, route ids, and the `secret://...` ref only. It never writes provider-specific account flows into the turn loop. New provider integrations should prefer `provider_command`; the OpenAI-compatible setup remains an operator convenience for the current built-in adapter.
 
 ## Tool Runtime
 

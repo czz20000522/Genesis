@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -63,6 +64,64 @@ func TestResolveOpenAICompatibleConfigFromGenesisSelectsRoleProfile(t *testing.T
 	}
 	if config.RequestTimeout != 45*time.Second {
 		t.Fatalf("timeout = %s, want 45s", config.RequestTimeout)
+	}
+}
+
+func TestResolveProviderConfigFromGenesisSelectsCommandProviderRoute(t *testing.T) {
+	workingDir := t.TempDir()
+	root := writeModelsConfig(t, map[string]any{
+		"model_gateway": map[string]any{
+			"protocol":            "provider_command",
+			"command":             "fallback-provider",
+			"args":                []any{"fallback"},
+			"working_dir":         t.TempDir(),
+			"request_timeout_sec": 90,
+			"routes": map[string]any{
+				"command-primary": map[string]any{
+					"command":             os.Args[0],
+					"args":                []any{"-test.run=TestProviderCommandAdapterHelper", "--", "final"},
+					"working_dir":         workingDir,
+					"request_timeout_sec": 12,
+				},
+			},
+		},
+		"active_model_profile_bindings": map[string]any{
+			DefaultModelRole: "command-profile",
+		},
+		"model_profiles": map[string]any{
+			"local": map[string]any{
+				"gateway": map[string]any{
+					"command-profile": map[string]any{
+						"profile_id":    "command-profile",
+						"model_id":      "command-model",
+						"gateway_route": "command-primary",
+					},
+				},
+			},
+		},
+	})
+
+	resolved, err := ResolveProviderConfigFromGenesis(GenesisModelConfigRequest{ConfigRoot: root})
+	if err != nil {
+		t.Fatalf("ResolveProviderConfigFromGenesis returned error: %v", err)
+	}
+	if resolved.Kind != "provider_command" {
+		t.Fatalf("kind = %q, want provider_command", resolved.Kind)
+	}
+	if resolved.Command.Command != os.Args[0] {
+		t.Fatalf("command = %q, want test binary", resolved.Command.Command)
+	}
+	if strings.Join(resolved.Command.Args, " ") != "-test.run=TestProviderCommandAdapterHelper -- final" {
+		t.Fatalf("args = %v, want route args", resolved.Command.Args)
+	}
+	if resolved.Command.WorkingDir != workingDir {
+		t.Fatalf("working dir = %q, want route working dir", resolved.Command.WorkingDir)
+	}
+	if resolved.Command.Model != "command-model" {
+		t.Fatalf("model = %q, want command-model", resolved.Command.Model)
+	}
+	if resolved.Command.RequestTimeout != 12*time.Second {
+		t.Fatalf("timeout = %s, want 12s", resolved.Command.RequestTimeout)
 	}
 }
 

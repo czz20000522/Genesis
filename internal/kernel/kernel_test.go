@@ -3559,6 +3559,159 @@ func TestOpenAICompatibleProviderCompletesAgainstCompatibleServer(t *testing.T) 
 	}
 }
 
+func TestCommandProviderCompletesFromTypedStdoutEvent(t *testing.T) {
+	provider := NewCommandProvider(ProviderCommandConfig{
+		Command:        os.Args[0],
+		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "final"},
+		Model:          "command-model",
+		RequestTimeout: 5 * time.Second,
+		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
+	})
+	status := provider.Ready()
+	if status.Status != "ok" || status.Name != "provider_command" {
+		t.Fatalf("ready = %+v, want ok provider_command", status)
+	}
+
+	resp, err := provider.Complete(context.Background(), ModelRequest{
+		SessionID: "command-session",
+		TurnID:    "turn-command",
+		InputItems: []ModelInputItem{
+			{Kind: ModelInputKindUserText, Text: "hello command provider"},
+		},
+		ToolManifest: []ToolSpec{{
+			Name:            "shell_exec",
+			Description:     "execute a governed shell command",
+			InputSchema:     map[string]interface{}{"type": "object"},
+			SideEffectLevel: "write",
+			ExecutionKind:   "sandboxed_process",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if resp.Text != "command final: hello command provider" || resp.Model != "command-model" {
+		t.Fatalf("response = %+v, want command final from configured model", resp)
+	}
+	if resp.Usage == nil || resp.Usage.InputTokens != 7 || resp.Usage.OutputTokens != 3 || resp.Usage.TotalTokens != 10 {
+		t.Fatalf("usage = %+v, want normalized command usage", resp.Usage)
+	}
+}
+
+func TestCommandProviderRejectsInvalidAdapterResults(t *testing.T) {
+	for _, tc := range []struct {
+		mode      string
+		wantError string
+	}{
+		{mode: "bad-json", wantError: "decode provider command response"},
+		{mode: "unknown-kind", wantError: "unknown kind"},
+		{mode: "missing-final-text", wantError: "final response missing text"},
+		{mode: "missing-tool-name", wantError: "tool call missing name"},
+		{mode: "exit-nonzero", wantError: "provider command failed"},
+		{mode: "oversized-stdout", wantError: "stdout exceeded"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			provider := NewCommandProvider(ProviderCommandConfig{
+				Command:        os.Args[0],
+				Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", tc.mode},
+				Model:          "command-model",
+				RequestTimeout: 5 * time.Second,
+				Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
+			})
+			_, err := provider.Complete(context.Background(), ModelRequest{
+				SessionID:  "command-session",
+				TurnID:     "turn-command",
+				InputItems: []ModelInputItem{{Kind: ModelInputKindUserText, Text: "hello command provider"}},
+				ToolManifest: []ToolSpec{{
+					Name:            "shell_exec",
+					Description:     "execute a governed shell command",
+					InputSchema:     map[string]interface{}{"type": "object"},
+					SideEffectLevel: "write",
+					ExecutionKind:   "sandboxed_process",
+				}},
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("Complete error = %v, want substring %q", err, tc.wantError)
+			}
+		})
+	}
+}
+
+func TestCommandProviderToolLoopThroughKernel(t *testing.T) {
+	workspace := t.TempDir()
+	toolCommand := writeFileCommand("command-provider-tool.txt", "command-tool-value")
+	toolArgs, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": toolCommand,
+	})
+	if err != nil {
+		t.Fatalf("marshal tool args: %v", err)
+	}
+	provider := NewCommandProvider(ProviderCommandConfig{
+		Command:        os.Args[0],
+		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "tool-loop", string(toolArgs)},
+		Model:          "command-model",
+		RequestTimeout: 5 * time.Second,
+		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
+	})
+
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "command-provider-tool-loop",
+		InputItems: []InputItem{{Type: "text", Text: "write through command provider"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "command provider saw tool status completed" {
+		t.Fatalf("final text = %q, want command provider tool completion", resp.Final.Text)
+	}
+	fileContent, err := os.ReadFile(filepath.Join(workspace, "command-provider-tool.txt"))
+	if err != nil {
+		t.Fatalf("read tool output file: %v", err)
+	}
+	if string(fileContent) != "command-tool-value" {
+		t.Fatalf("tool output file = %q, want command-tool-value", string(fileContent))
+	}
+
+	restarted := newTestKernelWithRuntimeTokenAndPolicy(t, ledgerPath, testRuntimeToken, ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+	events, err := restarted.TurnEvents(resp.TurnID)
+	if err != nil {
+		t.Fatalf("TurnEvents returned error: %v", err)
+	}
+	eventTypes := make([]string, 0, len(events))
+	for _, event := range events {
+		eventTypes = append(eventTypes, event.Type)
+	}
+	wantTypes := []string{"turn.submitted", "tool.call", "operation.running", "operation.completed", "tool.result", "model.final"}
+	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Fatalf("turn event types = %v, want %v", eventTypes, wantTypes)
+	}
+	toolCallData, ok := events[1].Data.(EventData)
+	if !ok || toolCallData.ToolCall == nil || toolCallData.ToolCall.Tool != "shell_exec" {
+		t.Fatalf("tool.call event = %#v, want shell_exec payload", events[1].Data)
+	}
+	toolResultData, ok := events[4].Data.(EventData)
+	if !ok || toolResultData.ToolResult == nil || toolResultData.ToolResult.ForEventID != events[1].EventID {
+		t.Fatalf("tool.result event = %#v, want link to %s", events[4].Data, events[1].EventID)
+	}
+}
+
 func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	workspace := t.TempDir()
 	toolCommand := writeFileCommand("tool-result.txt", "toolvalue")
@@ -4480,6 +4633,114 @@ func TestLiveOpenAICompatibleProviderToolLoopThroughKernel(t *testing.T) {
 			t.Fatalf("turn event types = %v, want %s", eventTypes, want)
 		}
 	}
+}
+
+func TestProviderCommandAdapterHelper(t *testing.T) {
+	if os.Getenv("GENESIS_PROVIDER_COMMAND_HELPER") != "1" {
+		return
+	}
+	payload, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		t.Fatalf("read stdin: %v", err)
+	}
+	var req providerCommandRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		t.Fatalf("decode provider command request: %v", err)
+	}
+	if req.Protocol != providerCommandProtocol {
+		t.Fatalf("protocol = %q, want %s", req.Protocol, providerCommandProtocol)
+	}
+	if req.SessionID == "" || req.TurnID == "" {
+		t.Fatalf("missing session/turn in provider command request: %+v", req)
+	}
+	if len(req.InputItems) == 0 || req.InputItems[0].Kind != ModelInputKindUserText {
+		t.Fatalf("input items = %+v, want user_text", req.InputItems)
+	}
+	if len(req.ToolManifest) == 0 || req.ToolManifest[0].Name != "shell_exec" {
+		t.Fatalf("tool manifest = %+v, want shell_exec", req.ToolManifest)
+	}
+
+	mode := ""
+	if len(os.Args) > 0 {
+		mode = os.Args[len(os.Args)-1]
+	}
+	if len(os.Args) >= 2 && os.Args[len(os.Args)-2] == "tool-loop" {
+		mode = "tool-loop"
+	}
+	switch mode {
+	case "final":
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  providerCommandResponseKindFinal,
+			Model: req.Model,
+			Text:  "command final: " + req.InputItems[0].Text,
+			Usage: &TokenUsage{InputTokens: 7, OutputTokens: 3, TotalTokens: 10},
+		})
+	case "bad-json":
+		_, _ = os.Stdout.WriteString("not-json\n")
+		os.Exit(0)
+	case "unknown-kind":
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  "surprise",
+			Model: req.Model,
+		})
+	case "missing-final-text":
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  providerCommandResponseKindFinal,
+			Model: req.Model,
+		})
+	case "missing-tool-name":
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  providerCommandResponseKindToolCalls,
+			Model: req.Model,
+			ToolCalls: []ModelToolCall{{
+				ToolCallID: "call_missing_name",
+				Arguments:  json.RawMessage("{}"),
+			}},
+		})
+	case "exit-nonzero":
+		_, _ = os.Stderr.WriteString("adapter failed deliberately\n")
+		os.Exit(3)
+	case "oversized-stdout":
+		_, _ = os.Stdout.WriteString(strings.Repeat("x", maxProviderCommandOutputBytes+1))
+		os.Exit(0)
+	case "tool-loop":
+		if len(req.ToolRounds) == 0 {
+			toolArgs := os.Args[len(os.Args)-1]
+			writeProviderCommandHelperResponse(t, providerCommandResponse{
+				Kind:  providerCommandResponseKindToolCalls,
+				Model: req.Model,
+				ToolCalls: []ModelToolCall{{
+					ToolCallID: "call_command_provider_write",
+					Name:       "shell_exec",
+					Arguments:  json.RawMessage(toolArgs),
+				}},
+			})
+			return
+		}
+		if len(req.ToolRounds[0].Results) != 1 {
+			t.Fatalf("tool rounds = %+v, want one result", req.ToolRounds)
+		}
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(req.ToolRounds[0].Results[0].Content), &result); err != nil {
+			t.Fatalf("decode tool result: %v", err)
+		}
+		status, _ := result["status"].(string)
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  providerCommandResponseKindFinal,
+			Model: req.Model,
+			Text:  "command provider saw tool status " + status,
+		})
+	default:
+		t.Fatalf("unknown helper mode %q args=%v", mode, os.Args)
+	}
+}
+
+func writeProviderCommandHelperResponse(t *testing.T, resp providerCommandResponse) {
+	t.Helper()
+	if err := json.NewEncoder(os.Stdout).Encode(resp); err != nil {
+		t.Fatalf("write provider command response: %v", err)
+	}
+	os.Exit(0)
 }
 
 const testRuntimeToken = "test-runtime-token"

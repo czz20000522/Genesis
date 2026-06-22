@@ -6,7 +6,7 @@ The first implementation must prove the kernel loop before adding shells or appl
 
 1. A caller submits a turn through a transport-neutral kernel boundary.
 2. The kernel records the turn and emits observable events.
-3. The Model Gateway calls one configured OpenAI-compatible provider.
+3. The Model Gateway calls one configured provider through the typed provider boundary.
 4. The model can either answer directly or request a generic tool.
 5. The Tool System enforces permission policy before executing the tool.
 6. Tool results return to the model loop as structured evidence.
@@ -27,12 +27,16 @@ The first implementation must prove the kernel loop before adding shells or appl
 - Duplicate tool idempotency keys do not execute effects twice.
 - Unsupported or malformed model-requested tools produce repair feedback before any effect executes when a valid `tool_call_id` is available.
 - Missing or malformed external skill metadata does not block turn submission.
-- Unsupported skill-read requests produce repair feedback before any effect executes.
+- Unsupported or malformed model-requested tool calls produce repair feedback before any effect executes when protocol state allows it.
 - Capability inspection does not expose skill paths, skill bodies, provider credentials, or app-specific outbound APIs.
+
+## Current Provider Boundary Proof
+
+The preferred provider integration is `provider_command`. A command adapter receives a typed Genesis model request on stdin and returns either `kind=final` or `kind=tool_calls` on stdout. This keeps provider SDKs, vendor HTTP payloads, account flows, and provider credentials outside the kernel while preserving a typed turn loop for final answers, usage, and tool calls. The built-in OpenAI-compatible adapter remains available for local operation, but new provider work should target the command boundary.
 
 ## Current Tool Loop Proof
 
-The initial tool loop is deliberately narrow. OpenAI-compatible providers receive a kernel-generated tool manifest from `ToolRegistry`; today that manifest contains canonical `shell_exec` with `side_effect_level=write` and `execution_kind=sandboxed_process`. If the provider returns a `shell_exec` tool call, Genesis routes it through `ToolGateway`, writes `tool.call`, any turn-scoped operation events, and `tool.result` to the ledger, then returns the redacted operation projection to the provider as tool evidence. Unsupported unregistered tool requests return repair feedback without executing effects and still produce a `tool.result` linked to the original `tool.call`. The provider then returns the final assistant text.
+The initial tool loop is deliberately narrow. Providers receive a kernel-generated tool manifest from `ToolRegistry`; today that manifest contains canonical `shell_exec` with `side_effect_level=write` and `execution_kind=sandboxed_process`. If the provider returns a `shell_exec` tool call, Genesis routes it through `ToolGateway`, writes `tool.call`, any turn-scoped operation events, and `tool.result` to the ledger, then returns the redacted operation projection to the provider as tool evidence. Unsupported unregistered tool requests return repair feedback without executing effects and still produce a `tool.result` linked to the original `tool.call`. The provider then returns the final assistant text.
 
 The kernel distinguishes invalid tool requests, policy blocks, command exits, and infrastructure failures. Invalid model tool arguments are returned as `tool_request_invalid` repair feedback when possible. Permission denials return `operation.blocked` without execution. Nonzero command exits return `operation.failed` with exit code and bounded stdout/stderr. Kernel or tool runtime failures return `tool_infrastructure_failed` and are not disguised as command stderr.
 
