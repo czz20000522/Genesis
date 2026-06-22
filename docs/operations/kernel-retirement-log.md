@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-TURN-IDEMPOTENCY-20260622 - P0 - Turn submit retries must not create duplicate model/tool effects
+
+- Status: ready_for_acceptance.
+- Fix commits: `18b6e029e`, `7277032e2`.
+- Evidence: `TestHTTPTurnSubmitIdempotencyKeyReturnsExistingTurnAfterRestart` first failed because `idempotency_key` was rejected as an unknown `POST /turn` field, then passed after implementation. It proves a duplicate `session_id + idempotency_key` retry after restart returns the original `turn_id` and final answer, does not call the retry provider, and leaves one turn plus two turn events in session projection. `TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart` proves a failed provider turn replays the original failure on retry without calling a now-available provider, so the same caller retry boundary cannot silently change effects. `TestHTTPTurnSubmitIdempotencyKeyRequiresValidExplicitSession` proves malformed idempotency keys and keys without explicit `session_id` fail before ledger append. The broader focused suite covering turn admission, provider failure, model tool loop, shell idempotency, and work idempotency passed; `go test ./...` passed; `go test -race ./internal/kernel -count=1` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for numbered route or kernel version labels returned no matches.
+- Acceptance condition: reviewer confirms turn idempotency is an Interface Kernel retry boundary scoped to explicit `session_id + turn.submit + idempotency_key`, not shell/WebUI/daemon-owned retry state, and that the control-plane key is not model-visible input.
+- Residual risk: if a duplicate retry arrives while the first idempotent turn is still running, the current spike returns a running-state error instead of a full lease/recovery projection. Long-running turn lease, cancellation, and recovery should be specified as a separate kernel contract before changing that behavior.
+
 ### KERNEL-MEMORY-RECALL-20260622 - P1 - Memory recall needs an explicit kernel observation surface
 
 - Status: ready_for_acceptance.
