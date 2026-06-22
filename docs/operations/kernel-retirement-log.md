@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-MEMORY-SUPERSEDE-20260622 - P1 - Memory review needs explicit supersession
+
+- Status: ready_for_acceptance.
+- Fix commits: `7235aae74`, `2dc9a34e1`.
+- Evidence: `TestHTTPMemoryCandidateSupersedeCreatesPendingReplacementAfterRestart` first failed because `MemorySupersessionProjection`, `MemoryCandidateSuperseded`, and `SupersedeMemoryCandidate` did not exist, then passed after implementation. It proves an approved candidate can be superseded through `POST /memory/candidates/{id}/supersede`, the original candidate replays as `status=superseded` with authority/reason/evidence and `replacement_candidate_id`, the replacement candidate replays as `status=pending`, superseded and pending replacement memories are excluded from recall, and the replacement recalls only after separate approval. `TestSupersedeMemoryCandidateIsIdempotentWithoutAppendingDuplicateReplacement` proves duplicate supersede calls preserve the first replacement and append only one `memory.candidate.superseded` event. `TestHTTPMemoryCandidateSupersedeRejectsMissingEvidence` proves supersession requires replacement text, replacement source, authority, reason, and evidence before candidate lookup. `TestHTTPSupersededMemoryCandidateCannotBeApprovedOrRejected` proves the original superseded candidate cannot later be approved or rejected through the minimal review surface. `TestMemoryReplayRejectsReviewAfterSupersede` proves replay fails closed if a corrupted ledger tries to apply approval after supersession. `go test ./internal/kernel -run "TestHTTPMemoryCandidateSupersede|TestSupersedeMemoryCandidate|TestMemoryReplayRejectsReviewAfterSupersede|TestHTTPSupersededMemoryCandidate" -count=1 -v` passed; `go test ./...` passed; `go test -race ./internal/kernel -count=1` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for versioned route or kernel version labels returned no matches.
+- Acceptance condition: reviewer confirms supersession is an Accumulation-owned review decision, not an in-place memory edit, hidden approval, migration shim, or product-specific memory workflow.
+- Residual risk: replacement recall still uses the intentionally simple first-pass text matcher after approval. Supersession is atomic inside one JSONL event, but future multi-process ledger writers still need transactional append and stronger corruption repair policy.
+
 ### KERNEL-WORK-REGISTRY-20260622 - P0 - Minimal WorkRegistry needs a durable submit and cancel loop
 
 - Status: ready_for_acceptance.
