@@ -92,7 +92,7 @@ Tool result taxonomy follows a terminal-equivalent boundary:
 - `operation.failed`: the command was accepted and executed, but the command process exited nonzero. The kernel returns `exit_code`, `stdout`, and `stderr` as observed command evidence and does not judge command semantics.
 - `tool_infrastructure_failed`: the shell runtime, ledger, or tool runtime infrastructure failed. This is not represented as command stderr or a normal command exit. Model Gateway provider errors remain provider failures, not tool results.
 
-Long stdout and stderr are bounded with a head/tail policy. Operation evidence reports `stdout_truncated` or `stderr_truncated`, original byte counts, omitted byte counts, and `output_truncation=head_tail` when truncation occurs.
+Long stdout and stderr are bounded with a head/tail policy. Operation evidence reports `stdout_truncated` or `stderr_truncated`, original byte counts, omitted byte counts, and `output_truncation=head_tail` when truncation occurs. The model-visible stdout or stderr text also includes a visible omission marker such as `[... N bytes omitted ...]` between the preserved head and tail content.
 
 ### WorkRegistry
 

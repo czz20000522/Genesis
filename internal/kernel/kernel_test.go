@@ -3917,10 +3917,22 @@ func TestExecShellReportsHeadTailTruncationMetadata(t *testing.T) {
 	if !strings.Contains(operation.Stderr, "GENESIS_STDERR_HEAD") || !strings.Contains(operation.Stderr, "GENESIS_STDERR_TAIL") {
 		t.Fatalf("stderr = %q, want head and tail markers", operation.Stderr)
 	}
+	assertHeadTailOmissionMarker(t, "stdout", operation.Stdout, "GENESIS_STDOUT_HEAD", "GENESIS_STDOUT_TAIL")
+	assertHeadTailOmissionMarker(t, "stderr", operation.Stderr, "GENESIS_STDERR_HEAD", "GENESIS_STDERR_TAIL")
 	assertMapNumberGreaterThan(t, payload, "stdout_original_bytes", len([]byte(operation.Stdout)))
 	assertMapNumberGreaterThan(t, payload, "stderr_original_bytes", len([]byte(operation.Stderr)))
 	assertMapNumberGreaterThan(t, payload, "stdout_omitted_bytes", 0)
 	assertMapNumberGreaterThan(t, payload, "stderr_omitted_bytes", 0)
+}
+
+func assertHeadTailOmissionMarker(t *testing.T, streamName string, text string, headMarker string, tailMarker string) {
+	t.Helper()
+	headAt := strings.Index(text, headMarker)
+	omissionAt := strings.Index(text, " bytes omitted ...]")
+	tailAt := strings.Index(text, tailMarker)
+	if headAt < 0 || omissionAt < 0 || tailAt < 0 || !(headAt < omissionAt && omissionAt < tailAt) {
+		t.Fatalf("%s = %q, want visible omission marker between head and tail", streamName, text)
+	}
 }
 
 func TestExecShellControlledReadFailureDoesNotExposeAbsolutePath(t *testing.T) {

@@ -17,6 +17,8 @@ const (
 	maxShellOutputBytes = 64 * 1024
 	maxShellDuration    = 30 * time.Second
 
+	outputOmissionMarkerFormat = "\n[... %d bytes omitted ...]\n"
+
 	staleRunningOperationReason = "stale_running_operation"
 )
 
@@ -281,13 +283,58 @@ func (b *cappedBuffer) Capture() capturedOutput {
 			OriginalBytes: b.full.Len(),
 		}
 	}
-	text := string(append(append([]byte(nil), b.head...), b.tail...))
+	text, omittedBytes := boundedHeadTailText(b.head, b.tail, b.total, b.limit)
 	return capturedOutput{
 		Text:          text,
 		Truncated:     true,
 		OriginalBytes: b.total,
-		OmittedBytes:  maxInt(0, b.total-len(b.head)-len(b.tail)),
+		OmittedBytes:  omittedBytes,
 	}
+}
+
+func boundedHeadTailText(head []byte, tail []byte, total int, limit int) (string, int) {
+	if limit <= 0 {
+		return "", maxInt(0, total)
+	}
+	headLen := len(head)
+	tailLen := len(tail)
+	for i := 0; i < 8; i++ {
+		omittedBytes := maxInt(0, total-headLen-tailLen)
+		marker := []byte(fmt.Sprintf(outputOmissionMarkerFormat, omittedBytes))
+		budget := limit - len(marker)
+		if budget <= 0 {
+			return string(marker[:minInt(len(marker), limit)]), maxInt(0, total)
+		}
+		nextHeadLen, nextTailLen := headTailLimits(budget)
+		nextHeadLen = minInt(nextHeadLen, len(head))
+		nextTailLen = minInt(nextTailLen, len(tail))
+		if nextHeadLen == headLen && nextTailLen == tailLen {
+			return joinHeadTailWithMarker(head, tail, headLen, tailLen, marker), omittedBytes
+		}
+		headLen = nextHeadLen
+		tailLen = nextTailLen
+	}
+	omittedBytes := maxInt(0, total-headLen-tailLen)
+	marker := []byte(fmt.Sprintf(outputOmissionMarkerFormat, omittedBytes))
+	if len(marker)+headLen+tailLen > limit {
+		budget := maxInt(0, limit-len(marker))
+		headLen, tailLen = headTailLimits(budget)
+		headLen = minInt(headLen, len(head))
+		tailLen = minInt(tailLen, len(tail))
+		omittedBytes = maxInt(0, total-headLen-tailLen)
+		marker = []byte(fmt.Sprintf(outputOmissionMarkerFormat, omittedBytes))
+	}
+	return joinHeadTailWithMarker(head, tail, headLen, tailLen, marker), omittedBytes
+}
+
+func joinHeadTailWithMarker(head []byte, tail []byte, headLen int, tailLen int, marker []byte) string {
+	text := make([]byte, 0, headLen+len(marker)+tailLen)
+	text = append(text, head[:headLen]...)
+	text = append(text, marker...)
+	if tailLen > 0 {
+		text = append(text, tail[len(tail)-tailLen:]...)
+	}
+	return string(text)
 }
 
 func (b *cappedBuffer) initializeHeadTail(data []byte) {
@@ -356,6 +403,13 @@ func headTailLimits(limit int) (int, int) {
 		headLimit = 1
 	}
 	return headLimit, limit - headLimit
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func maxInt(a int, b int) int {
