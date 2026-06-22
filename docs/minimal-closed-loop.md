@@ -13,7 +13,7 @@ The first implementation must prove the kernel loop before adding shells or appl
 7. The final answer and provider usage/evidence summary are emitted and replay after restart.
 8. WorkRegistry can show the turn/work status after restart.
 9. Accumulation can create a memory candidate, approve it, and recall it in a later turn.
-10. Configured user-space skill roots can make installed external skill metadata visible to the model without adding application-specific kernel code.
+10. Configured user-space skill roots can make installed external skill metadata visible as a bounded model index and protected inspection projection without adding application-specific kernel code.
 11. Authorized shells and daemons can inspect the current kernel capability surface without parsing prompts, local files, or application-specific code.
 
 ## Required Negative Paths
@@ -43,7 +43,11 @@ This proves the kernel loop without making any external application part of the 
 
 ## Current Skill Catalog Proof
 
-The initial skill catalog is deliberately metadata-first. `genesisd` can scan configured skill roots for `SKILL.md` front matter and inject a concise list of available user-space skills into model context. The injected context names the skill and summarizes what it is for; filesystem paths remain internal. Full skill bodies are not injected into every turn and are not available through a default model-visible skill-specific tool. A future full-instruction path must be a generic resource/context contract rather than a Feishu, email, calendar, document, or skill-package adapter inside the kernel.
+The initial skill catalog is deliberately metadata-first. `genesisd` can scan configured skill roots for `SKILL.md` front matter and expose a concise path-free index through provider context and protected inspection surfaces. That index lets the model and shells discover installed user-space skills without making full skill bodies or unbounded descriptions part of every turn. Full skill bodies are not injected into every turn and are not available through a default model-visible skill-specific tool. A future full-instruction path must be a generic use-time resource/context contract rather than a Feishu, email, calendar, document, or skill-package adapter inside the kernel.
+
+## Current Multi-Turn Proof
+
+Multi-turn history is kernel-owned. The Model Gateway rebuilds same-session provider context from the ledger, not from shell-supplied history. When a context window is configured, provider-reported usage can trigger automatic compaction: older completed turns are summarized through `context.compaction.started` and `context.compaction.completed` checkpoints, and future turns receive that summary plus a recent verbatim tail. A compaction failure records `context.compaction.failed`, preserves the completed user turn, and can be retried by a later eligible turn. The first implementation keeps the mechanism small and auditable; richer context selection or skill hydration must extend this owner path rather than moving summary logic into a WebUI, CLI, Feishu daemon, or provider adapter. User-facing shells should render only progress/completion/failure notices for compaction, never the internal summary itself.
 
 ## Current Inspection Proof
 

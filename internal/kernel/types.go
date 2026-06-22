@@ -6,17 +6,25 @@ import (
 )
 
 type Config struct {
-	LedgerPath   string
-	Provider     Provider
-	RuntimeToken string
-	ToolPolicy   ToolPolicy
-	SkillRoots   []string
-	Clock        func() time.Time
+	LedgerPath    string
+	Provider      Provider
+	RuntimeToken  string
+	ToolPolicy    ToolPolicy
+	ContextPolicy ContextPolicy
+	SkillRoots    []string
+	Clock         func() time.Time
 }
 
 type ToolPolicy struct {
 	PermissionMode string
 	WorkspaceRoot  string
+}
+
+type ContextPolicy struct {
+	ContextWindowTokens int
+	AutoCompactRatio    float64
+	RecentTurnLimit     int
+	SkillIndexChars     int
 }
 
 type ReadyResponse struct {
@@ -266,9 +274,11 @@ type FinalMessage struct {
 }
 
 type TokenUsage struct {
-	InputTokens  int `json:"input_tokens,omitempty"`
-	OutputTokens int `json:"output_tokens,omitempty"`
-	TotalTokens  int `json:"total_tokens,omitempty"`
+	InputTokens     int `json:"input_tokens,omitempty"`
+	OutputTokens    int `json:"output_tokens,omitempty"`
+	TotalTokens     int `json:"total_tokens,omitempty"`
+	CacheHitTokens  int `json:"cache_hit_tokens,omitempty"`
+	CacheMissTokens int `json:"cache_miss_tokens,omitempty"`
 }
 
 type SessionProjection struct {
@@ -491,12 +501,25 @@ type EventData struct {
 	RecalledMemories           []MemoryRecall               `json:"recalled_memories,omitempty"`
 	ToolCall                   *ToolCallProjection          `json:"tool_call,omitempty"`
 	ToolResult                 *ToolResultProjection        `json:"tool_result,omitempty"`
+	ContextCompaction          *ContextCompactionProjection `json:"context_compaction,omitempty"`
 	Final                      *FinalMessage                `json:"final,omitempty"`
 	TurnError                  *TurnError                   `json:"turn_error,omitempty"`
 	Operation                  *OperationProjection         `json:"operation,omitempty"`
 	Work                       *WorkProjection              `json:"work,omitempty"`
 	MemoryCandidate            *MemoryCandidateProjection   `json:"memory_candidate,omitempty"`
 	ReplacementMemoryCandidate *MemoryCandidateProjection   `json:"replacement_memory_candidate,omitempty"`
+}
+
+type ContextCompactionProjection struct {
+	Trigger                string      `json:"trigger"`
+	Status                 string      `json:"status,omitempty"`
+	Summary                string      `json:"summary,omitempty"`
+	CompactedThroughTurnID string      `json:"compacted_through_turn_id,omitempty"`
+	CompactedTurnCount     int         `json:"compacted_turn_count,omitempty"`
+	SourceInputTokens      int         `json:"source_input_tokens,omitempty"`
+	FailureReason          string      `json:"failure_reason,omitempty"`
+	Model                  string      `json:"model,omitempty"`
+	Usage                  *TokenUsage `json:"usage,omitempty"`
 }
 
 type ToolCallProjection struct {

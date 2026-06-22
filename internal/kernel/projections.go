@@ -85,6 +85,36 @@ func (k *Kernel) UITimeline(sessionID string) (UITimelineResponse, error) {
 			}
 			messageOrdinalByTurn[event.TurnID]++
 			items = append(items, item)
+		case "context.compaction.started":
+			items = append(items, UITimelineItem{
+				ItemID:    timelineItemID(event.TurnID, "notice", messageOrdinalByTurn[event.TurnID]),
+				TurnID:    event.TurnID,
+				Kind:      "notice",
+				Status:    "running",
+				Text:      "正在压缩上下文",
+				CreatedAt: event.CreatedAt,
+			})
+			messageOrdinalByTurn[event.TurnID]++
+		case "context.compaction.completed":
+			items = append(items, UITimelineItem{
+				ItemID:    timelineItemID(event.TurnID, "notice", messageOrdinalByTurn[event.TurnID]),
+				TurnID:    event.TurnID,
+				Kind:      "notice",
+				Status:    "completed",
+				Text:      "上下文已压缩",
+				CreatedAt: event.CreatedAt,
+			})
+			messageOrdinalByTurn[event.TurnID]++
+		case "context.compaction.failed":
+			items = append(items, UITimelineItem{
+				ItemID:    timelineItemID(event.TurnID, "notice", messageOrdinalByTurn[event.TurnID]),
+				TurnID:    event.TurnID,
+				Kind:      "notice",
+				Status:    "failed",
+				Text:      "上下文压缩失败，将在后续消息重试",
+				CreatedAt: event.CreatedAt,
+			})
+			messageOrdinalByTurn[event.TurnID]++
 		case "turn.failed":
 			if event.Data.TurnError == nil {
 				continue

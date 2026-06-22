@@ -15,6 +15,7 @@ type Kernel struct {
 	provider        Provider
 	runtimeToken    string
 	toolPolicy      ToolPolicy
+	contextPolicy   ContextPolicy
 	toolRegistry    *ToolRegistry
 	skillCatalog    []SkillDescriptor
 	skillExclusions []SkillCatalogExclusionProjection
@@ -47,6 +48,7 @@ func New(config Config) (*Kernel, error) {
 		provider:        provider,
 		runtimeToken:    strings.TrimSpace(config.RuntimeToken),
 		toolPolicy:      normalizedToolPolicy(config.ToolPolicy),
+		contextPolicy:   normalizedContextPolicy(config.ContextPolicy),
 		toolRegistry:    toolRegistry,
 		skillCatalog:    skillCatalog.Items,
 		skillExclusions: skillCatalog.Exclusions,
@@ -151,6 +153,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			if err := k.appendEvent(completed); err != nil {
 				return TurnResponse{}, err
 			}
+			k.maybeCompactSession(ctx, sessionID, turnID, final)
 			events, err := k.TurnEvents(turnID)
 			if err != nil {
 				return TurnResponse{}, err
@@ -234,7 +237,8 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 		return nil, nil, err
 	}
 	historyContext := sameSessionConversationHistoryContext(events, sessionID, "")
-	modelInputs := modelInputItemsWithHistory(req.InputItems, recalledMemories, k.skillCatalog, historyContext)
+	skillIndex := k.skillCatalogProjection().Items
+	modelInputs := modelInputItemsWithHistory(req.InputItems, recalledMemories, skillIndex, k.contextPolicy.SkillIndexChars, historyContext)
 	submitted := StoredEvent{
 		EventID:   newID("evt", now),
 		SessionID: sessionID,
@@ -247,7 +251,7 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 			IngressRisks:     ingressRisks,
 			ModelInputKinds:  modelInputKinds(modelInputs),
 			ToolManifest:     k.toolGateway().ToolManifest(),
-			SkillCatalog:     k.skillCatalogProjection().Items,
+			SkillCatalog:     skillIndex,
 			RuntimeContext:   k.contextRuntimeSnapshot(),
 			RecalledMemories: recalledMemories,
 		},
@@ -666,14 +670,14 @@ func (k *Kernel) ProviderContextProjection(turnID string) (ProviderContextProjec
 	if err != nil {
 		return ProviderContextProjection{}, err
 	}
-	projection, ok := providerContextProjectionFromStoredEvents(events, turnID)
+	projection, ok := providerContextProjectionFromStoredEvents(events, turnID, k.contextPolicy)
 	if !ok {
 		return ProviderContextProjection{}, ErrTurnNotFound
 	}
 	return projection, nil
 }
 
-func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID string) (ProviderContextProjection, bool) {
+func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID string, policy ContextPolicy) (ProviderContextProjection, bool) {
 	projection := ProviderContextProjection{TurnID: turnID}
 	found := false
 	var submitted EventData
@@ -691,18 +695,18 @@ func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID stri
 		return ProviderContextProjection{}, false
 	}
 	historyContext := sameSessionConversationHistoryContext(events, projection.SessionID, turnID)
-	projection.InputItems = modelInputItemsFromSubmittedEvent(submitted, historyContext)
+	projection.InputItems = modelInputItemsFromSubmittedEvent(submitted, historyContext, policy.SkillIndexChars)
 	projection.ToolRounds = modelToolRoundsFromStoredEvents(events, turnID)
 	return projection, true
 }
 
-func modelInputItemsFromSubmittedEvent(data EventData, historyContext string) []ModelInputItem {
+func modelInputItemsFromSubmittedEvent(data EventData, historyContext string, skillIndexBudget int) []ModelInputItem {
 	items := []ModelInputItem{}
 	if strings.TrimSpace(historyContext) != "" {
 		items = append(items, ModelInputItem{Kind: ModelInputKindConversationHistoryContext, Text: historyContext})
 	}
-	if context := skillCatalogProjectionContext(data.SkillCatalog); context != "" {
-		items = append(items, ModelInputItem{Kind: ModelInputKindSkillCatalogContext, Text: context})
+	if context := skillIndexContext(data.SkillCatalog, skillIndexBudget); context != "" {
+		items = append(items, ModelInputItem{Kind: ModelInputKindSkillIndexContext, Text: context})
 	}
 	if context := approvedMemoryContext(data.RecalledMemories); context != "" {
 		items = append(items, ModelInputItem{Kind: ModelInputKindApprovedMemoryContext, Text: context})
@@ -716,8 +720,10 @@ func modelInputItemsFromSubmittedEvent(data EventData, historyContext string) []
 }
 
 func sameSessionConversationHistoryContext(events []StoredEvent, sessionID string, beforeTurnID string) string {
+	compaction := latestSessionContextCompaction(events, sessionID, beforeTurnID)
 	turns := sameSessionCompletedConversationTurns(events, sessionID, beforeTurnID)
-	return conversationHistoryContext(turns)
+	turns = turnsAfterCompactedTurn(turns, compaction.CompactedThroughTurnID)
+	return conversationHistoryContextWithSummary(compaction.Summary, turns)
 }
 
 func sameSessionCompletedConversationTurns(events []StoredEvent, sessionID string, beforeTurnID string) []conversationHistoryTurn {
@@ -746,6 +752,7 @@ func sameSessionCompletedConversationTurns(events []StoredEvent, sessionID strin
 			assistantText := strings.TrimSpace(event.Data.Final.Text)
 			if strings.TrimSpace(userText) != "" || assistantText != "" {
 				turns = append(turns, conversationHistoryTurn{
+					TurnID:        event.TurnID,
 					UserText:      userText,
 					AssistantText: assistantText,
 				})

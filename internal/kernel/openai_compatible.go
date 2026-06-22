@@ -215,11 +215,18 @@ type chatToolCallFunction struct {
 }
 
 type chatUsage struct {
-	PromptTokens     int `json:"prompt_tokens,omitempty"`
-	CompletionTokens int `json:"completion_tokens,omitempty"`
-	TotalTokens      int `json:"total_tokens,omitempty"`
-	InputTokens      int `json:"input_tokens,omitempty"`
-	OutputTokens     int `json:"output_tokens,omitempty"`
+	PromptTokens          int                 `json:"prompt_tokens,omitempty"`
+	CompletionTokens      int                 `json:"completion_tokens,omitempty"`
+	TotalTokens           int                 `json:"total_tokens,omitempty"`
+	InputTokens           int                 `json:"input_tokens,omitempty"`
+	OutputTokens          int                 `json:"output_tokens,omitempty"`
+	PromptCacheHitTokens  int                 `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptCacheMissTokens int                 `json:"prompt_cache_miss_tokens,omitempty"`
+	PromptTokensDetails   *promptTokenDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type promptTokenDetails struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
 func tokenUsageFromChatUsage(usage *chatUsage) *TokenUsage {
@@ -238,10 +245,20 @@ func tokenUsageFromChatUsage(usage *chatUsage) *TokenUsage {
 	if totalTokens == 0 && (inputTokens != 0 || outputTokens != 0) {
 		totalTokens = inputTokens + outputTokens
 	}
+	cacheHitTokens := usage.PromptCacheHitTokens
+	if cacheHitTokens == 0 && usage.PromptTokensDetails != nil {
+		cacheHitTokens = usage.PromptTokensDetails.CachedTokens
+	}
+	cacheMissTokens := usage.PromptCacheMissTokens
+	if cacheMissTokens == 0 && cacheHitTokens > 0 && inputTokens > cacheHitTokens {
+		cacheMissTokens = inputTokens - cacheHitTokens
+	}
 	return &TokenUsage{
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		TotalTokens:  totalTokens,
+		InputTokens:     inputTokens,
+		OutputTokens:    outputTokens,
+		TotalTokens:     totalTokens,
+		CacheHitTokens:  cacheHitTokens,
+		CacheMissTokens: cacheMissTokens,
 	}
 }
 

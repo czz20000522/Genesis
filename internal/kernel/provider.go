@@ -44,7 +44,7 @@ func (p ProviderContextProjection) ModelRequest() ModelRequest {
 const (
 	ModelInputKindUserText                   = "user_text"
 	ModelInputKindApprovedMemoryContext      = "approved_memory_context"
-	ModelInputKindSkillCatalogContext        = "skill_catalog_context"
+	ModelInputKindSkillIndexContext          = "skill_index_context"
 	ModelInputKindConversationHistoryContext = "conversation_history_context"
 )
 

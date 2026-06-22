@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func TestKernelInjectsSkillCatalogBeforeProviderWithoutSkillBodies(t *testing.T) {
+func TestKernelInjectsBudgetedSkillIndexWithoutSkillBodies(t *testing.T) {
 	root := t.TempDir()
 	larkSkillPath := writeSkillForTest(t, root, "lark-im", "lark-im", "Send and read chat messages", "FULL LARK BODY MUST NOT BE INJECTED")
 	mailSkillPath := writeSkillForTest(t, root, "mail", "mail", "Send email through an installed CLI", "FULL MAIL BODY MUST NOT BE INJECTED")
@@ -40,16 +40,14 @@ func TestKernelInjectsSkillCatalogBeforeProviderWithoutSkillBodies(t *testing.T)
 		t.Fatalf("final text = %q, want provider response", resp.Final.Text)
 	}
 	kinds := provider.InputKinds()
-	wantKinds := []string{ModelInputKindSkillCatalogContext, ModelInputKindUserText}
+	wantKinds := []string{ModelInputKindSkillIndexContext, ModelInputKindUserText}
 	if strings.Join(kinds, ",") != strings.Join(wantKinds, ",") {
 		t.Fatalf("model input kinds = %v, want %v", kinds, wantKinds)
 	}
 
 	content := provider.InputText()
-	if !strings.Contains(content, "Available external skills:") {
-		t.Fatalf("provider content = %q, want skill catalog header", content)
-	}
 	for _, want := range []string{
+		"External skill index",
 		"- lark-im: Send and read chat messages",
 		"- mail: Send email through an installed CLI",
 		"How can you use installed external tools?",
@@ -58,7 +56,16 @@ func TestKernelInjectsSkillCatalogBeforeProviderWithoutSkillBodies(t *testing.T)
 			t.Fatalf("provider content = %q, want %q", content, want)
 		}
 	}
-	for _, forbidden := range []string{filepath.Clean(larkSkillPath), filepath.Clean(mailSkillPath), "FULL LARK BODY MUST NOT BE INJECTED", "FULL MAIL BODY MUST NOT BE INJECTED", "broken"} {
+	if !strings.Contains(content, "How can you use installed external tools?") {
+		t.Fatalf("provider content = %q, want user text", content)
+	}
+	for _, forbidden := range []string{
+		filepath.Clean(larkSkillPath),
+		filepath.Clean(mailSkillPath),
+		"FULL LARK BODY MUST NOT BE INJECTED",
+		"FULL MAIL BODY MUST NOT BE INJECTED",
+		"broken",
+	} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("provider content = %q, must not contain %q", content, forbidden)
 		}
@@ -97,7 +104,7 @@ func TestTurnEvidenceRecordsModelInputKindsWithoutSkillPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
-	wantKinds := []string{ModelInputKindSkillCatalogContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}
+	wantKinds := []string{ModelInputKindSkillIndexContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}
 	if got := strings.Join(provider.InputKinds(), ","); got != strings.Join(wantKinds, ",") {
 		t.Fatalf("provider input kinds = %v, want %v", provider.InputKinds(), wantKinds)
 	}
@@ -143,7 +150,7 @@ func TestTurnEvidenceRecordsModelInputKindsWithoutSkillPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal events: %v", err)
 	}
-	forbiddenValues := append(pathLeakVariants(skillPath), "FULL LARK BODY MUST NOT BE PROJECTED", "instruction_path", "Available external skills:")
+	forbiddenValues := append(pathLeakVariants(skillPath), "FULL LARK BODY MUST NOT BE PROJECTED", "instruction_path", "External skill index")
 	for _, forbidden := range forbiddenValues {
 		if strings.Contains(string(sessionJSON), forbidden) || strings.Contains(string(eventsJSON), forbidden) {
 			t.Fatalf("inspection leaked %q; session=%s events=%s", forbidden, string(sessionJSON), string(eventsJSON))
@@ -464,7 +471,7 @@ func TestHTTPCapabilitiesReportsPathFreeSkillExclusions(t *testing.T) {
 	}
 }
 
-func TestSubmitTurnProjectsRegisteredToolManifestWithSkillCatalog(t *testing.T) {
+func TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext(t *testing.T) {
 	root := t.TempDir()
 	writeSkillForTest(t, root, "lark-im", "lark-im", "Send and read chat messages", "Run lark-cli im send after reading channel context.\nGENESIS_PROVIDER_API_KEY=sk-secret123")
 	provider := &capturingProvider{text: "skill catalog only"}
@@ -521,11 +528,31 @@ func TestSkillCatalogRejectsAuthorityAndSecretShapedMetadata(t *testing.T) {
 		t.Fatalf("safe skill = %+v", skills[0])
 	}
 
-	context := skillCatalogContext(skills)
 	for _, forbidden := range []string{"Ignore previous", "system:", "tool_call_id", "GENESIS_PROVIDER_API_KEY", "Invisible", "SAFE BODY MUST NOT BE INJECTED"} {
-		if strings.Contains(context, forbidden) {
-			t.Fatalf("skill context = %q, must not contain %q", context, forbidden)
+		if strings.Contains(skills[0].Name, forbidden) || strings.Contains(skills[0].Description, forbidden) {
+			t.Fatalf("safe skill metadata = %+v, must not contain %q", skills[0], forbidden)
 		}
+	}
+}
+
+func TestSkillIndexContextKeepsNamesWhenDescriptionsExceedBudget(t *testing.T) {
+	context := skillIndexContext([]SkillCatalogItemProjection{
+		{Name: "lark-im", Description: strings.Repeat("send and read chat messages ", 20)},
+		{Name: "mail", Description: strings.Repeat("send email through installed CLI ", 20)},
+	}, 120)
+
+	for _, want := range []string{"External skill index", "- lark-im", "- mail"} {
+		if !strings.Contains(context, want) {
+			t.Fatalf("skill index context = %q, want %q", context, want)
+		}
+	}
+	for _, forbidden := range []string{"send and read chat messages", "send email through installed CLI"} {
+		if strings.Contains(context, forbidden) {
+			t.Fatalf("skill index context = %q, must not contain over-budget description %q", context, forbidden)
+		}
+	}
+	if len(context) > 120 {
+		t.Fatalf("skill index context length = %d, want within budget", len(context))
 	}
 }
 

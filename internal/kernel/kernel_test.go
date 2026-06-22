@@ -184,7 +184,6 @@ func TestModelInputItemsInjectsApprovedMemoryContextBeforeProvider(t *testing.T)
 			{Text: "我偏好中文回答", Source: "turn:memory-source"},
 			{Text: "  "},
 		},
-		nil,
 	)
 
 	if len(items) != 2 {
@@ -195,6 +194,143 @@ func TestModelInputItemsInjectsApprovedMemoryContextBeforeProvider(t *testing.T)
 	}
 	if items[1].Kind != ModelInputKindUserText || items[1].Text != "你记得我的回答偏好吗？" {
 		t.Fatalf("user item = %+v", items[1])
+	}
+}
+
+func TestAutoCompactionProjectsSummaryPlusRecentTail(t *testing.T) {
+	provider := &compactionProvider{}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ContextPolicy: ContextPolicy{
+			ContextWindowTokens: 10,
+			AutoCompactRatio:    0.5,
+			RecentTurnLimit:     1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	for _, text := range []string{"first fact should be compacted", "second fact should stay recent", "third asks with compacted context"} {
+		if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+			SessionID:  "compact-session",
+			InputItems: []InputItem{{Type: "text", Text: text}},
+		}); err != nil {
+			t.Fatalf("SubmitTurn(%q) returned error: %v", text, err)
+		}
+	}
+
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	var started int
+	var compacted []ContextCompactionProjection
+	for _, event := range events {
+		if event.Type == "context.compaction.started" && event.Data.ContextCompaction != nil {
+			started++
+		}
+		if event.Type == "context.compaction.completed" && event.Data.ContextCompaction != nil {
+			compacted = append(compacted, *event.Data.ContextCompaction)
+		}
+	}
+	if started == 0 {
+		t.Fatalf("events = %+v, want context.compaction.started event", events)
+	}
+	if len(compacted) == 0 {
+		t.Fatalf("events = %+v, want context.compaction.completed event", events)
+	}
+	if compacted[0].Summary != "summary of compacted earlier context" || compacted[0].CompactedTurnCount != 1 {
+		t.Fatalf("first compaction = %+v", compacted[0])
+	}
+	if len(provider.compactionRequests) == 0 || !strings.Contains(modelUserText(provider.compactionRequests[0].InputItems), "first fact should be compacted") {
+		t.Fatalf("compaction requests = %+v, want first fact in compaction source", provider.compactionRequests)
+	}
+
+	if len(provider.normalRequests) < 3 {
+		t.Fatalf("normal requests = %d, want at least 3", len(provider.normalRequests))
+	}
+	thirdContext := modelUserText(provider.normalRequests[2].InputItems)
+	if !strings.Contains(thirdContext, "Compacted earlier conversation:") || !strings.Contains(thirdContext, "summary of compacted earlier context") {
+		t.Fatalf("third context = %q, want compaction summary", thirdContext)
+	}
+	if !strings.Contains(thirdContext, "second fact should stay recent") || !strings.Contains(thirdContext, "third asks with compacted context") {
+		t.Fatalf("third context = %q, want recent tail and current input", thirdContext)
+	}
+	if strings.Contains(thirdContext, "first fact should be compacted") {
+		t.Fatalf("third context = %q, must not include compacted raw turn", thirdContext)
+	}
+
+	timeline, err := k.UITimeline("compact-session")
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	noticeCount := 0
+	for _, item := range timeline.Items {
+		if strings.Contains(item.Text, "summary of compacted earlier context") {
+			t.Fatalf("timeline item leaked compaction summary: %+v", item)
+		}
+		if item.Kind == "notice" && item.Status == "completed" && strings.Contains(item.Text, "上下文已压缩") {
+			noticeCount++
+		}
+	}
+	if noticeCount == 0 {
+		t.Fatalf("timeline items = %+v, want completed compaction notice", timeline.Items)
+	}
+}
+
+func TestAutoCompactionFailureIsRecordedAndRetried(t *testing.T) {
+	provider := &compactionProvider{failCompactionAttempts: 1}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ContextPolicy: ContextPolicy{
+			ContextWindowTokens: 10,
+			AutoCompactRatio:    0.5,
+			RecentTurnLimit:     1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	for _, text := range []string{"first fact", "second fact", "third fact", "fourth fact"} {
+		if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+			SessionID:  "compact-failure-retry",
+			InputItems: []InputItem{{Type: "text", Text: text}},
+		}); err != nil {
+			t.Fatalf("SubmitTurn(%q) returned error: %v", text, err)
+		}
+	}
+
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	var failed int
+	var completed int
+	for _, event := range events {
+		switch event.Type {
+		case "context.compaction.failed":
+			failed++
+			if event.Data.ContextCompaction == nil || event.Data.ContextCompaction.FailureReason == "" {
+				t.Fatalf("failed compaction event = %+v, want structured failure reason", event)
+			}
+		case "context.compaction.completed":
+			completed++
+		}
+	}
+	if failed == 0 {
+		t.Fatalf("events = %+v, want context.compaction.failed event", events)
+	}
+	if completed == 0 {
+		t.Fatalf("events = %+v, want retry to eventually complete compaction", events)
+	}
+	if len(provider.compactionRequests) < 2 {
+		t.Fatalf("compaction requests = %d, want retry on later turn", len(provider.compactionRequests))
 	}
 }
 
@@ -1010,7 +1146,7 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if err != nil {
 		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
-	if got := strings.Join(provider.InputKinds(), ","); got != strings.Join([]string{ModelInputKindSkillCatalogContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}, ",") {
+	if got := strings.Join(provider.InputKinds(), ","); got != strings.Join([]string{ModelInputKindSkillIndexContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}, ",") {
 		t.Fatalf("provider input kinds = %v", provider.InputKinds())
 	}
 
@@ -1035,7 +1171,7 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if len(inspection.InputItems) != 1 || !strings.Contains(inspection.InputItems[0].Text, "[REDACTED]") {
 		t.Fatalf("input items = %+v, want redacted user input", inspection.InputItems)
 	}
-	if got := strings.Join(inspection.ModelInputKinds, ","); got != strings.Join([]string{ModelInputKindSkillCatalogContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}, ",") {
+	if got := strings.Join(inspection.ModelInputKinds, ","); got != strings.Join([]string{ModelInputKindSkillIndexContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}, ",") {
 		t.Fatalf("model input kinds = %v", inspection.ModelInputKinds)
 	}
 	if len(inspection.ToolManifest) != 1 || inspection.ToolManifest[0].Name != "shell_exec" {
@@ -4164,6 +4300,32 @@ func TestOpenAICompatibleProviderCompletesAgainstCompatibleServer(t *testing.T) 
 	}
 }
 
+func TestOpenAICompatibleProviderNormalizesPromptCacheUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"served-model","choices":[{"message":{"role":"assistant","content":"provider answer"}}],"usage":{"prompt_tokens":1000,"completion_tokens":20,"total_tokens":1020,"prompt_cache_hit_tokens":750,"prompt_cache_miss_tokens":250}}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "test-model",
+	})
+	resp, err := provider.Complete(context.Background(), ModelRequest{
+		InputItems: []ModelInputItem{{Kind: ModelInputKindUserText, Text: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if resp.Usage == nil {
+		t.Fatal("usage is nil")
+	}
+	if resp.Usage.CacheHitTokens != 750 || resp.Usage.CacheMissTokens != 250 {
+		t.Fatalf("cache usage = hit %d miss %d, want 750/250", resp.Usage.CacheHitTokens, resp.Usage.CacheMissTokens)
+	}
+}
+
 func TestCommandProviderCompletesFromTypedStdoutEvent(t *testing.T) {
 	provider := NewCommandProvider(ProviderCommandConfig{
 		Command:        os.Args[0],
@@ -6440,6 +6602,42 @@ func newTestKernelWithRuntimeTokenAndPolicy(t *testing.T, ledgerPath string, tok
 		t.Fatalf("New returned error: %v", err)
 	}
 	return k
+}
+
+type compactionProvider struct {
+	normalRequests          []ModelRequest
+	compactionRequests      []ModelRequest
+	failCompactionAttempts  int
+	compactionAttemptNumber int
+}
+
+func (p *compactionProvider) Name() string {
+	return "compaction-provider"
+}
+
+func (p *compactionProvider) Ready() ProviderStatus {
+	return ProviderStatus{Name: p.Name(), Status: "ok"}
+}
+
+func (p *compactionProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
+	if len(req.InputItems) > 0 && req.InputItems[0].Kind == "context_compaction_source" {
+		p.compactionRequests = append(p.compactionRequests, req)
+		p.compactionAttemptNumber++
+		if p.compactionAttemptNumber <= p.failCompactionAttempts {
+			return ModelResponse{}, errors.New("compaction summarizer unavailable")
+		}
+		return ModelResponse{
+			Text:  "summary of compacted earlier context",
+			Model: "compaction-model",
+			Usage: &TokenUsage{InputTokens: 4, OutputTokens: 2, TotalTokens: 6},
+		}, nil
+	}
+	p.normalRequests = append(p.normalRequests, req)
+	return ModelResponse{
+		Text:  "normal answer",
+		Model: "chat-model",
+		Usage: &TokenUsage{InputTokens: 9, OutputTokens: 1, TotalTokens: 10},
+	}, nil
 }
 
 func ledgerPathUnderFile(t *testing.T) string {

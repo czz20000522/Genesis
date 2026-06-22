@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,10 @@ func main() {
 	credentialStoreRoot := flag.String("credential-store-root", os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"), "Genesis credential store root")
 	modelRole := flag.String("model-role", envOrDefault("GENESIS_MODEL_ROLE", kernel.DefaultModelRole), "Genesis model role binding to resolve")
 	modelProfileID := flag.String("model-profile-id", os.Getenv("GENESIS_MODEL_PROFILE_ID"), "Genesis model profile id override")
+	contextWindowTokens := flag.Int("context-window-tokens", envIntOrDefault("GENESIS_CONTEXT_WINDOW_TOKENS", 0), "model context window in tokens; 0 disables auto compaction")
+	autoCompactRatio := flag.Float64("auto-compact-ratio", envFloatOrDefault("GENESIS_AUTO_COMPACT_RATIO", 0), "auto compact when input tokens reach this fraction of context window; default 0.8 when context window is set")
+	compactRecentTurns := flag.Int("compact-recent-turns", envIntOrDefault("GENESIS_COMPACT_RECENT_TURNS", 0), "recent completed turns to keep verbatim after compaction; default 2 when compaction is enabled")
+	skillIndexChars := flag.Int("skill-index-chars", envIntOrDefault("GENESIS_SKILL_INDEX_CHARS", 0), "maximum characters of model-visible external skill index; 0 uses kernel default, negative disables")
 	skillRoots := pathListFlag(defaultSkillRoots())
 	flag.Var(&skillRoots, "skill-root", "external skill root to scan for SKILL.md metadata; repeatable")
 	flag.Parse()
@@ -59,6 +64,12 @@ func main() {
 		ToolPolicy: kernel.ToolPolicy{
 			PermissionMode: *permissionMode,
 			WorkspaceRoot:  *workspaceRoot,
+		},
+		ContextPolicy: kernel.ContextPolicy{
+			ContextWindowTokens: *contextWindowTokens,
+			AutoCompactRatio:    *autoCompactRatio,
+			RecentTurnLimit:     *compactRecentTurns,
+			SkillIndexChars:     *skillIndexChars,
 		},
 		SkillRoots: skillRoots.Values(),
 	})
@@ -148,6 +159,30 @@ func envOrDefault(name string, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envIntOrDefault(name string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envFloatOrDefault(name string, fallback float64) float64 {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 type pathListFlag []string
