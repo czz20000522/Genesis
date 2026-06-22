@@ -15,16 +15,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-SESSION-EVENT-STREAM-UNIFICATION-20260622 - P1 - Session facts should converge on typed event stream
-
-- Status: new.
-- Type: architecture.
-- Problem: The ledger has events, but turn, operation, work, and candidate identities are still projected through parallel object-specific paths. Tool calls and operation results are indirectly related rather than causally connected as `tool.call` and `tool.result` events.
-- Suggestion: Define session event stream as the primary fact model. Use typed events for provider steps, tool calls, tool results, jobs, and resources; projections remain read models derived from the stream.
-- Evidence: Feishu Base record `recvnfToaIqgPW`.
-- Verification: Architecture doc defines typed session event stream as the fact source; tool execution writes `tool.call` and `tool.result` with result causality; provider replay and `/sessions/{id}` can derive ordered events; existing object projections are either derived read models or have a deletion plan.
-- Reference alignment: Codex protocol surfaces ordered events and tool call/result relationships explicitly. Reasonix controller-style flows keep lifecycle facts behind one control surface. Genesis should not let session truth fragment into unrelated projections as kernel responsibilities grow.
-
 ### KERNEL-PROVIDER-COMMAND-ADAPTER-20260622 - P1 - Provider should prefer external command adapter boundary
 
 - Status: new.

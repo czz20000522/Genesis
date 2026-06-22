@@ -12,6 +12,16 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-SESSION-EVENT-STREAM-UNIFICATION-20260622 - P1 - Session facts should converge on typed event stream
+
+- Status: ready_for_acceptance.
+- Fix commits: `16efa7e86`.
+- Reference alignment: Codex protocol surfaces ordered events and explicit tool call/result relationships; Reasonix-style controller flows keep lifecycle facts behind one control surface. Genesis now treats the session event stream as the fact source and keeps object projections as ledger-derived read models only.
+- Evidence: `docs/kernel-contract.md` defines session events as the primary fact stream and states that session, turn, operation, work, and memory views are derived read models. `SubmitTurn` writes `tool.call`, turn-scoped `operation.*`, and `tool.result` events, with `tool_result.for_event_id` pointing to the originating `tool.call`. Provider replay now rebuilds model tool rounds from stored turn events instead of transient in-memory state. `GET /sessions/{id}` projects ordered events with typed payload data. Long-term tests now assert the current event contract and do not lock retired event/tool names.
+- Verification: focused provider tool-loop event tests; `go test ./internal/kernel -count=1`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active code/docs retired-concept scan returned no matches.
+- Acceptance condition: reviewer confirms session event ordering and typed payloads are sufficient for shells to render or replay tool causality without treating turn, operation, work, or memory projection arrays as independent truth.
+- Residual risk: the current provider step still uses the built-in OpenAI-compatible adapter. Moving provider protocol handling behind a command adapter remains tracked by `KERNEL-PROVIDER-COMMAND-ADAPTER-20260622`.
+
 ### KERNEL-TOOL-GATEWAY-REGISTRY-20260622 - P1 - Runtime should execute tools only through ToolGateway
 
 - Status: ready_for_acceptance.
