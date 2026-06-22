@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-SKILL-CATALOG-20260622 - P0 - Model context needs generic external skill discovery
+
+- Status: ready_for_acceptance.
+- Fix commits: `c3e20a777`, `5b9b7f0c9`.
+- Evidence: `TestKernelInjectsSkillCatalogBeforeProviderWithoutSkillBodies` first failed because `Config.SkillRoots` did not exist, then passed after implementation. It proves a configured root containing `lark-im/SKILL.md` and `mail/SKILL.md` injects a concise "Available external skills" catalog before the user turn, includes each skill name, description, and instruction path, and does not inject full skill bodies. `TestMissingAndMalformedSkillCatalogDoesNotBlockTurn` proves missing roots and malformed `SKILL.md` metadata are ignored without blocking turn submission. Existing `TestModelInputItemsInjectsApprovedMemoryContextBeforeProvider` and `TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider` passed, proving approved memory context and provider request construction still work with the extended model input path. `go test ./...` passed; `go test -race ./internal/kernel -count=1` passed; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for numbered route or kernel version labels returned no matches.
+- Acceptance condition: reviewer confirms the skill catalog is a metadata-only kernel context primitive for user-space skills, not a Feishu, email, calendar, document, or channel adapter, and that the active model still reaches external CLIs only through governed tools such as `shell.exec`.
+- Residual risk: the catalog is loaded at kernel startup and intentionally includes only front matter metadata. Live skill reload, skill body retrieval, ranking, trust policy, and per-turn skill selection are future kernel contracts if they become necessary.
+
 ### KERNEL-TURN-IDEMPOTENCY-20260622 - P0 - Turn submit retries must not create duplicate model/tool effects
 
 - Status: ready_for_acceptance.
