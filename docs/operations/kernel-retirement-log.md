@@ -12,6 +12,16 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-PROVIDER-CONTEXT-VISIBILITY-20260622 - P1 - Provider command request must not expose kernel-owned event identity as model-visible state
+
+- Status: ready_for_acceptance.
+- Fix commits: pending current commit.
+- Reference alignment: Codex separates model-visible call ids from host/runtime tool identity, and Reasonix keeps provider request payloads distinct from display or audit metadata. Genesis now preserves kernel event ids in ledger/session projections while projecting provider-command requests as model-visible context only.
+- Evidence: `provider_command` no longer serializes internal `ModelToolRound` directly to external command stdin. It now projects prior tool rounds through a provider-command DTO that preserves provider-visible `tool_call_id`, tool name, arguments, and tool result content while omitting `tool_call_event_id`, `event_id`, `operation_id`, `lease_id`, `permission_mode`, and `for_event_id`. Ledger/session projections still retain `tool_call_event_id` and `for_event_id` for audit, replay, and UI merging.
+- Verification: `TestProviderCommandRequestOmitsKernelEventIdentity`; `TestCommandProviderMalformedArgumentsReturnRepairFeedback`; focused provider-command/tool-loop tests; pending full verification before final commit.
+- Acceptance condition: reviewer confirms external provider command adapters receive only model-visible tool-loop context and cannot accidentally forward kernel-owned audit or event identity to upstream LLM providers.
+- Residual risk: in-process `Provider` implementations still receive the full typed `ModelRequest` because they are part of the kernel test/operator boundary. External provider work should use `provider_command` or a future adapter package with equivalent conformance tests.
+
 ### KERNEL-MALFORMED-TOOL-ARGS-REPAIR-20260622 - P1 - Malformed provider-command arguments should become model repair feedback
 
 - Status: ready_for_acceptance.

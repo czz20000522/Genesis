@@ -85,7 +85,7 @@ func (p *CommandProvider) Complete(ctx context.Context, req ModelRequest) (Model
 		Model:        p.model,
 		InputItems:   req.InputItems,
 		ToolManifest: req.ToolManifest,
-		ToolRounds:   req.ToolRounds,
+		ToolRounds:   providerCommandModelToolRounds(req.ToolRounds),
 	}
 	encoded, err := json.Marshal(requestPayload)
 	if err != nil {
@@ -143,13 +143,47 @@ func providerCommandExists(command string) bool {
 }
 
 type providerCommandRequest struct {
-	Protocol     string           `json:"protocol"`
-	SessionID    string           `json:"session_id"`
-	TurnID       string           `json:"turn_id"`
-	Model        string           `json:"model,omitempty"`
-	InputItems   []ModelInputItem `json:"input_items"`
-	ToolManifest []ToolSpec       `json:"tool_manifest,omitempty"`
-	ToolRounds   []ModelToolRound `json:"tool_rounds,omitempty"`
+	Protocol     string                     `json:"protocol"`
+	SessionID    string                     `json:"session_id"`
+	TurnID       string                     `json:"turn_id"`
+	Model        string                     `json:"model,omitempty"`
+	InputItems   []ModelInputItem           `json:"input_items"`
+	ToolManifest []ToolSpec                 `json:"tool_manifest,omitempty"`
+	ToolRounds   []providerCommandToolRound `json:"tool_rounds,omitempty"`
+}
+
+type providerCommandToolRound struct {
+	Calls   []ModelToolCall   `json:"calls,omitempty"`
+	Results []ModelToolResult `json:"results,omitempty"`
+}
+
+func providerCommandModelToolRounds(rounds []ModelToolRound) []providerCommandToolRound {
+	if len(rounds) == 0 {
+		return nil
+	}
+	projected := make([]providerCommandToolRound, 0, len(rounds))
+	for _, round := range rounds {
+		next := providerCommandToolRound{
+			Calls:   make([]ModelToolCall, 0, len(round.Calls)),
+			Results: make([]ModelToolResult, 0, len(round.Results)),
+		}
+		for _, call := range round.Calls {
+			next.Calls = append(next.Calls, ModelToolCall{
+				ToolCallID: strings.TrimSpace(call.ToolCallID),
+				Name:       strings.TrimSpace(call.Name),
+				Arguments:  append(json.RawMessage(nil), call.Arguments...),
+			})
+		}
+		for _, result := range round.Results {
+			next.Results = append(next.Results, ModelToolResult{
+				ToolCallID: strings.TrimSpace(result.ToolCallID),
+				Name:       strings.TrimSpace(result.Name),
+				Content:    result.Content,
+			})
+		}
+		projected = append(projected, next)
+	}
+	return projected
 }
 
 type providerCommandResponse struct {

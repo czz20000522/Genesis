@@ -3741,6 +3741,44 @@ func TestProviderCommandFailureRedactsStderrFromTurnAndHTTP(t *testing.T) {
 	}
 }
 
+func TestProviderCommandRequestOmitsKernelEventIdentity(t *testing.T) {
+	provider := NewCommandProvider(ProviderCommandConfig{
+		Command:        os.Args[0],
+		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "no-kernel-id-round"},
+		Model:          "command-model",
+		RequestTimeout: 5 * time.Second,
+		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
+	})
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "provider-command-model-visible-round",
+		InputItems: []InputItem{{Type: "text", Text: "request an unsupported external tool"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "provider command saw model-visible tool round" {
+		t.Fatalf("final text = %q, want provider command saw model-visible tool round", resp.Final.Text)
+	}
+	projection, err := k.Session("provider-command-model-visible-round")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Events) < 4 || projection.Events[1].Data.ToolCall == nil || projection.Events[2].Data.ToolResult == nil {
+		t.Fatalf("events = %+v, want ledger tool call/result events", projection.Events)
+	}
+	if projection.Events[1].Data.ToolCall.ToolCallEventID == "" || projection.Events[2].Data.ToolResult.ForEventID != projection.Events[1].EventID {
+		t.Fatalf("ledger projections lost kernel event identity: call=%+v result=%+v", projection.Events[1].Data.ToolCall, projection.Events[2].Data.ToolResult)
+	}
+}
+
 func TestCommandProviderAppliesDefaultTimeout(t *testing.T) {
 	provider := NewCommandProvider(ProviderCommandConfig{
 		Command: os.Args[0],
@@ -5283,11 +5321,11 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 		}
 		call := req.ToolRounds[0].Calls[0]
 		result := req.ToolRounds[0].Results[0]
-		if call.ToolCallID != "call_bad_command_provider_args" || call.ToolCallEventID == "" || string(call.Arguments) != `{"command":` {
-			t.Fatalf("tool round call = %+v arguments=%q, want provider echo plus raw malformed arguments", call, string(call.Arguments))
+		if call.ToolCallID != "call_bad_command_provider_args" || call.ToolCallEventID != "" || string(call.Arguments) != `{"command":` {
+			t.Fatalf("tool round call = %+v arguments=%q, want provider echo plus raw malformed arguments without event id", call, string(call.Arguments))
 		}
-		if result.ToolCallID != "call_bad_command_provider_args" || result.ToolCallEventID != call.ToolCallEventID {
-			t.Fatalf("tool round result = %+v, want provider echo plus same event id %q", result, call.ToolCallEventID)
+		if result.ToolCallID != "call_bad_command_provider_args" || result.ToolCallEventID != "" {
+			t.Fatalf("tool round result = %+v, want provider echo without event id", result)
 		}
 		payload := decodeJSONMap(t, result.Content)
 		errorPayload, _ := payload["error"].(map[string]interface{})
@@ -5299,6 +5337,55 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 			Kind:  providerCommandResponseKindFinal,
 			Model: req.Model,
 			Text:  "command provider saw repair " + code,
+		})
+	case "no-kernel-id-round":
+		if len(req.ToolRounds) == 0 {
+			writeProviderCommandHelperResponse(t, providerCommandResponse{
+				Kind:  providerCommandResponseKindToolCalls,
+				Model: req.Model,
+				ToolCalls: []ModelToolCall{{
+					ToolCallID: "call_provider_visible",
+					Name:       "unknown_external_tool",
+					Arguments:  json.RawMessage(`{}`),
+				}},
+			})
+			return
+		}
+		rawRequest := string(payload)
+		for _, forbidden := range []string{
+			"tool_call_event_id",
+			"event_id",
+			"operation_id",
+			"lease_id",
+			"permission_mode",
+			"for_event_id",
+		} {
+			if strings.Contains(rawRequest, forbidden) {
+				t.Fatalf("provider command request leaked kernel-owned field %q: %s", forbidden, rawRequest)
+			}
+		}
+		if !strings.Contains(rawRequest, `"tool_call_id":"call_provider_visible"`) {
+			t.Fatalf("provider command request = %s, want provider-visible tool_call_id", rawRequest)
+		}
+		if len(req.ToolRounds) != 1 || len(req.ToolRounds[0].Calls) != 1 || len(req.ToolRounds[0].Results) != 1 {
+			t.Fatalf("tool rounds = %+v, want one model-visible call and result", req.ToolRounds)
+		}
+		call := req.ToolRounds[0].Calls[0]
+		result := req.ToolRounds[0].Results[0]
+		if call.ToolCallEventID != "" || result.ToolCallEventID != "" {
+			t.Fatalf("tool round = %+v / %+v, want no kernel event identity", call, result)
+		}
+		if call.ToolCallID != "call_provider_visible" || result.ToolCallID != "call_provider_visible" {
+			t.Fatalf("tool round = %+v / %+v, want provider-visible id preserved", call, result)
+		}
+		resultPayload := decodeJSONMap(t, result.Content)
+		if resultPayload["status"] != "tool_request_invalid" {
+			t.Fatalf("result content = %+v, want repair feedback", resultPayload)
+		}
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  providerCommandResponseKindFinal,
+			Model: req.Model,
+			Text:  "provider command saw model-visible tool round",
 		})
 	default:
 		t.Fatalf("unknown helper mode %q args=%v", mode, os.Args)
