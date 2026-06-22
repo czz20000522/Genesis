@@ -14,13 +14,3 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Every active `KERNEL-*` issue must include a `Reference alignment` field that compares the issue to Codex, Reasonix, or an explicitly rejected drift risk.
 
 ## Active Issues
-
-### KERNEL-PROVIDER-COMMAND-ADAPTER-20260622 - P1 - Provider should prefer external command adapter boundary
-
-- Status: new.
-- Type: architecture.
-- Problem: The kernel currently contains an OpenAI-compatible HTTP provider implementation, including provider-native JSON, HTTP errors, and tool-name translation. That risks pulling provider SDK and vendor protocol details into the kernel.
-- Suggestion: Add a `provider_command` contract where the kernel writes canonical typed context/events to stdin and reads typed provider events from stdout. The OpenAI-compatible implementation can move behind an external adapter or remain explicitly experimental, while the kernel owns only typed provider events.
-- Evidence: Feishu Base record `recvnfTtk7quMe`.
-- Verification: Contract docs define provider command stdin/stdout events and provider-step boundaries; a fake command adapter can complete final text and one tool loop smoke; any retained OpenAI-compatible adapter is not the default kernel contract.
-- Reference alignment: Codex isolates provider protocol handling behind its model client/protocol layer and keeps tool loop semantics typed. Reasonix supports provider/plugin style boundaries. Genesis should not bake one provider's HTTP JSON as the kernel's long-lived provider contract.

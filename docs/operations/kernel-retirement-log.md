@@ -12,6 +12,16 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-PROVIDER-COMMAND-ADAPTER-20260622 - P1 - Provider should prefer external command adapter boundary
+
+- Status: ready_for_acceptance.
+- Fix commits: `10c11da35`.
+- Reference alignment: Codex keeps provider wire protocols behind typed model-client surfaces and dispatches tools through typed tool routing. Reasonix keeps provider/tool/plugin concepts registry-driven and uses stdio transport hygiene for extension boundaries. Genesis now keeps `ModelRequest`, `ModelResponse`, `ModelToolCall`, `ModelToolRound`, `ToolSpec`, and session ledger events as the kernel contract while `provider_command` owns the provider step transport.
+- Evidence: `CommandProvider` runs a configured external executable, writes one `genesis.provider_command` JSON request to stdin, and accepts one stdout response with `kind=final` or `kind=tool_calls`. `ResolveProviderConfigFromGenesis` can resolve `models.json` routes with `protocol=provider_command`, and `genesisd` can build the command provider through `genesis-config` or direct `-provider provider_command`. The built-in OpenAI-compatible adapter remains available as an operator convenience but is documented as not being the default contract for new provider integrations. `TestArchitectureBoundaryCoreLoopHasNoProviderNativeWireTerms` prevents core turn/tool files from importing OpenAI-native wire terms.
+- Verification: `TestCommandProviderCompletesFromTypedStdoutEvent`; `TestCommandProviderToolLoopThroughKernel`; `TestCommandProviderRejectsInvalidAdapterResults`; `TestResolveProviderConfigFromGenesisSelectsCommandProviderRoute`; `TestBuildProviderFromGenesisConfigCanSelectCommandProvider`; `TestArchitectureBoundaryCoreLoopHasNoProviderNativeWireTerms`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active retired-concept and provider-native core scans returned no matches.
+- Acceptance condition: reviewer confirms new provider integrations can be delivered as external commands without modifying the kernel turn loop, tool gateway, ledger event schema, or app-specific code paths, and that OpenAI-compatible HTTP is not treated as the long-lived provider contract.
+- Residual risk: there is not yet a separate external OpenAI command adapter binary in the repo. This retirement proves the kernel boundary and executable contract, not a packaged provider adapter ecosystem.
+
 ### KERNEL-SESSION-EVENT-STREAM-UNIFICATION-20260622 - P1 - Session facts should converge on typed event stream
 
 - Status: ready_for_acceptance.
