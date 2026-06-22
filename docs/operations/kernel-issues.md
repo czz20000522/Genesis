@@ -15,16 +15,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-TOOL-GATEWAY-REGISTRY-20260622 - P1 - Runtime should execute tools only through ToolGateway
-
-- Status: new.
-- Type: architecture.
-- Problem: The current registry is still a static definition table. The model loop prepares shell and skill calls directly, and HTTP has a shell-specific route. Runtime code therefore still knows concrete shell/skill execution paths instead of depending on a single gateway.
-- Suggestion: Introduce a `ToolGateway` / `ToolRegistry.resolve` boundary. Provider tool events should flow through gateway resolution, schema validation, policy, execution, and tool-result event emission. Shell should be one registered tool, not a runtime special case.
-- Evidence: Feishu Base record `recvnfUG4qm0mu`.
-- Verification: Runtime/model loop calls only the gateway for tool execution; unregistered tools return structured model repair feedback when a provider tool-call slot exists; generated tool manifest comes from the registry; `go test -count=1 ./...` and build pass.
-- Reference alignment: Codex keeps tool execution behind governed runtime/tool abstractions rather than direct model-loop shell calls. Reasonix exposes tools through registry/plugin descriptors rather than hardcoding each tool into the controller.
-
 ### KERNEL-SESSION-EVENT-STREAM-UNIFICATION-20260622 - P1 - Session facts should converge on typed event stream
 
 - Status: new.

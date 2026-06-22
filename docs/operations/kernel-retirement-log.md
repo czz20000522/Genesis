@@ -12,6 +12,16 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-TOOL-GATEWAY-REGISTRY-20260622 - P1 - Runtime should execute tools only through ToolGateway
+
+- Status: ready_for_acceptance.
+- Fix commits: `c34d2baf5`.
+- Reference alignment: Codex ties model-visible tool metadata to governed tool executors, and Reasonix routes agent tool calls through a runtime registry. Genesis now uses one `ToolRegistry` for tool name, description, input schema, side-effect level, execution kind, and executor binding; the turn loop and provider adapters consume a gateway-generated manifest instead of knowing concrete tool execution paths.
+- Evidence: `ToolRegistry` now exposes `ToolSpec` records with `name`, `description`, `input_schema`, `side_effect_level`, and `execution_kind`; `ToolGateway` owns provider tool batch preflight and execution. `SubmitTurn` calls only `ToolGateway.ToolManifest`, `ToolGateway.PrepareBatch`, and `ToolGateway.Execute` for model tool handling. Direct `POST /tools/shell_exec` also enters the same gateway before shell execution. `TestArchitectureBoundaryToolRegistryBindsSurface` and `TestArchitectureBoundaryToolRegistryRejectsIncompleteSpecs` prove tool specs cannot omit required registry fields or use provider-unsafe dotted ids. `TestSubmitTurnProjectsRegisteredToolManifestWithSkillCatalog` proves the provider sees the registry-generated manifest, not a hand-built provider descriptor. Existing generic unsupported-tool and mixed-batch tests continue to prove unregistered tools return model repair feedback without executing effects. Long-term tests that locked retired tool names were removed; active code/docs scans now return no matches for retired tool ids or old registry helper names outside this retirement log.
+- Verification: `go test ./internal/kernel -count=1`; `go test ./... -count=1`; `go build ./...`; `CGO_ENABLED=1 go test -race ./internal/kernel -count=1`; `git diff --check`; active code/docs retired-concept scan returned no matches.
+- Acceptance condition: reviewer confirms runtime, provider adapters, direct HTTP tool transport, capability projection, and permission gates all derive from `ToolRegistry`/`ToolGateway`, and future tools cannot be added by special-casing concrete tool implementations inside the turn loop.
+- Residual risk: this does not yet convert operation evidence into canonical `tool.call` / `tool.result` session events, and it does not move provider execution behind `provider_command`. Those are tracked separately by the active session-event-stream and provider-command issues.
+
 ### KERNEL-BOUNDARY-REFERENCE-ALIGNMENT-20260622 - P1 - Kernel changes need reference-alignment notes against Codex and Reasonix
 
 - Status: ready_for_acceptance.
