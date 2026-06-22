@@ -3592,6 +3592,10 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 				http.Error(w, "missing shell.exec tool descriptor", http.StatusBadRequest)
 				return
 			}
+			toolNames := providerToolNamesFromRequest(t, tools)
+			if containsString(toolNames, "shell.exec") || !containsString(toolNames, "shell_exec") {
+				t.Fatalf("provider tool names = %v, want provider-safe shell_exec and no canonical dotted name", toolNames)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"model": "served-model",
 				"choices": []interface{}{
@@ -3604,7 +3608,7 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 									"id":   "call_write_file",
 									"type": "function",
 									"function": map[string]interface{}{
-										"name":      "shell.exec",
+										"name":      "shell_exec",
 										"arguments": string(toolArgs),
 									},
 								},
@@ -3616,6 +3620,22 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 		case 2:
 			if len(messages) != 3 {
 				t.Fatalf("second request messages = %#v, want user, assistant tool call, tool result", messages)
+			}
+			assistantMessage, ok := messages[1].(map[string]interface{})
+			if !ok {
+				t.Fatalf("assistant message = %#v", messages[1])
+			}
+			assistantToolCalls, ok := assistantMessage["tool_calls"].([]interface{})
+			if !ok || len(assistantToolCalls) != 1 {
+				t.Fatalf("assistant tool calls = %#v, want replayed provider tool call", assistantMessage["tool_calls"])
+			}
+			assistantToolCall, ok := assistantToolCalls[0].(map[string]interface{})
+			if !ok {
+				t.Fatalf("assistant tool call = %#v", assistantToolCalls[0])
+			}
+			assistantFunction, ok := assistantToolCall["function"].(map[string]interface{})
+			if !ok || assistantFunction["name"] != "shell_exec" {
+				t.Fatalf("assistant tool call function = %#v, want provider-safe shell_exec", assistantToolCall["function"])
 			}
 			toolMessage, ok := messages[2].(map[string]interface{})
 			if !ok {
@@ -3703,6 +3723,40 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
 		t.Fatalf("turn event types = %v, want %v", eventTypes, wantTypes)
 	}
+	modelToolCallData, ok := events[1].Data.(EventData)
+	if !ok {
+		t.Fatalf("model tool call data = %#v, want EventData", events[1].Data)
+	}
+	if len(modelToolCallData.ModelToolCalls) != 1 || modelToolCallData.ModelToolCalls[0].Tool != "shell.exec" {
+		t.Fatalf("model tool call event = %+v, want canonical shell.exec", modelToolCallData.ModelToolCalls)
+	}
+}
+
+func providerToolNamesFromRequest(t *testing.T, tools []interface{}) []string {
+	t.Helper()
+	names := make([]string, 0, len(tools))
+	for _, item := range tools {
+		tool, ok := item.(map[string]interface{})
+		if !ok {
+			t.Fatalf("tool descriptor = %#v", item)
+		}
+		function, ok := tool["function"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("tool function = %#v", tool["function"])
+		}
+		name, _ := function["name"].(string)
+		names = append(names, name)
+	}
+	return names
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
@@ -4316,6 +4370,83 @@ func TestLiveOpenAICompatibleProviderThroughKernel(t *testing.T) {
 	}
 	if len(projection.Turns) != 1 || projection.Turns[0].Status != "completed" {
 		t.Fatalf("projection turns = %+v, want one completed turn", projection.Turns)
+	}
+}
+
+func TestLiveOpenAICompatibleProviderToolLoopThroughKernel(t *testing.T) {
+	if os.Getenv("GENESIS_LIVE_PROVIDER") != "1" {
+		t.Skip("set GENESIS_LIVE_PROVIDER=1 to run the Genesis model config live provider tool-loop smoke")
+	}
+	providerConfig, err := ResolveOpenAICompatibleConfigFromGenesis(GenesisModelConfigRequest{
+		ConfigRoot:          os.Getenv("GENESIS_CONFIG_ROOT"),
+		CredentialStoreRoot: os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"),
+		ModelRole:           os.Getenv("GENESIS_MODEL_ROLE"),
+		ModelProfileID:      os.Getenv("GENESIS_MODEL_PROFILE_ID"),
+	})
+	if err != nil {
+		t.Fatalf("Genesis model config live tool-loop smoke blocked: %s", ProviderConfigReason(err))
+	}
+
+	workspace := t.TempDir()
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     NewOpenAICompatibleProvider(providerConfig),
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	ready := k.Ready()
+	if ready.Status != "ok" {
+		t.Fatalf("ready = %+v, want ok", ready)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	resp, err := k.SubmitTurn(ctx, TurnRequest{
+		SessionID: "live-provider-tool-loop-smoke",
+		InputItems: []InputItem{{
+			Type: "text",
+			Text: "You must call the available tool named shell_exec with JSON arguments {\"command\":\"echo GENESIS_LIVE_TOOL_LOOP_OK\"}. After the tool result is returned, reply exactly GENESIS_LIVE_TOOL_LOOP_OK.",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if !strings.Contains(resp.Final.Text, "GENESIS_LIVE_TOOL_LOOP_OK") {
+		t.Fatalf("final text = %q, want live tool loop marker", resp.Final.Text)
+	}
+	projection, err := k.Session("live-provider-tool-loop-smoke")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Turns) != 1 || projection.Turns[0].Status != "completed" {
+		t.Fatalf("projection turns = %+v, want one completed turn", projection.Turns)
+	}
+	if len(projection.Operations) != 1 {
+		t.Fatalf("operations = %+v, want one shell operation", projection.Operations)
+	}
+	operation := projection.Operations[0]
+	if operation.Tool != "shell.exec" || operation.Status != "completed" || !strings.Contains(operation.Stdout, "GENESIS_LIVE_TOOL_LOOP_OK") {
+		t.Fatalf("operation = %+v, want completed canonical shell.exec with marker stdout", operation)
+	}
+	events, err := k.TurnEvents(resp.TurnID)
+	if err != nil {
+		t.Fatalf("TurnEvents returned error: %v", err)
+	}
+	eventTypes := make([]string, 0, len(events))
+	for _, event := range events {
+		eventTypes = append(eventTypes, event.Type)
+	}
+	joined := strings.Join(eventTypes, ",")
+	for _, want := range []string{"model.tool_call", "operation.completed", "model.final"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("turn event types = %v, want %s", eventTypes, want)
+		}
 	}
 }
 
