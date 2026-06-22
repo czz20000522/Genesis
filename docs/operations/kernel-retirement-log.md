@@ -11,6 +11,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-WORK-REGISTRY-20260622 - P0 - Minimal WorkRegistry needs a durable submit and cancel loop
+
+- Status: ready_for_acceptance.
+- Fix commits: `71f4abc95`, `3e606b5a0`.
+- Evidence: `TestHTTPWorkSubmitCancelReadAndSessionProjectionAfterRestart` first failed with 404 for `/work`, then passed after implementation. It proves `POST /work` creates an open work record with `source_ref`, `GET /work/{id}` reads it after restart, `POST /work/{id}/cancel` persists a canceled state with authority/reason/evidence, and `GET /sessions/{id}` projects the canceled work after another restart. `TestHTTPCancelWorkIsIdempotentWithoutOverwritingEvidence` proves duplicate cancel calls preserve the first cancel evidence and append only one `work.canceled` event. `TestHTTPCreateWorkRequiresSourceRef` proves submit requires source evidence. `TestHTTPCreateWorkRejectsInvalidAuditRefsAndSecretShapedText` and `TestHTTPCancelWorkRejectsInvalidAuditRefsAndSecretShapedText` prove work title, source ref, cancel authority, cancel reason, and cancel evidence ref reject invalid audit shapes or secret-shaped content before ledger append. `go test ./...` passed; `go test -race ./internal/kernel -count=1` passed after installing the local Windows gcc toolchain; `go build` passed for both `cmd/genesisd` and `cmd/genesisctl`; `git diff --check` passed; the repository scan for versioned route or kernel version labels returned no matches.
+- Acceptance condition: reviewer confirms WorkRegistry is a kernel-owned coordination evidence ledger with submit/read/cancel semantics, not a scheduler, Feishu task API, shell UI state, or application workflow owner.
+- Residual risk: this is a durable record ledger, not background execution. The current mutex protects single-process cancel idempotency; future multi-process writers need transactional compare-and-append semantics. Ref validation is syntactic only; proving referenced event existence can be added later as a separate verification step.
+
 ### KERNEL-MEMORY-REJECT-20260622 - P1 - Memory review needs a reject path
 
 - Status: ready_for_acceptance.
