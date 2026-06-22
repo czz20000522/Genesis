@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -19,6 +20,11 @@ const (
 	providerCommandResponseKindToolCalls = "tool_calls"
 	maxProviderCommandOutputBytes        = 64 * 1024
 	defaultProviderCommandTimeout        = 60 * time.Second
+)
+
+var (
+	ErrProviderCommandEnvRejected = errors.New("provider command environment rejected")
+	providerCommandEnvNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
 type ProviderCommandConfig struct {
@@ -59,6 +65,9 @@ func (p *CommandProvider) Name() string {
 }
 
 func (p *CommandProvider) Ready() ProviderStatus {
+	if err := validateProviderCommandEnv(p.env); err != nil {
+		return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: "provider_command_env_secret_rejected"}
+	}
 	if p.command == "" {
 		return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: "provider_command_missing"}
 	}
@@ -131,6 +140,44 @@ func providerCommandEnvironment(env []string) []string {
 		return []string{}
 	}
 	return append([]string(nil), env...)
+}
+
+func validateProviderCommandEnv(env []string) error {
+	for _, raw := range env {
+		entry := strings.TrimSpace(raw)
+		name, value, ok := strings.Cut(entry, "=")
+		if entry == "" || !ok || !providerCommandEnvNamePattern.MatchString(name) {
+			return fmt.Errorf("%w: invalid provider command environment entry", ErrProviderCommandEnvRejected)
+		}
+		if providerCommandEnvNameLooksSecret(name) || providerCommandEnvValueLooksSecret(value) {
+			return fmt.Errorf("%w: credential-shaped provider command environment entry", ErrProviderCommandEnvRejected)
+		}
+	}
+	return nil
+}
+
+func providerCommandEnvNameLooksSecret(name string) bool {
+	for _, token := range strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return r < 'a' || r > 'z'
+	}) {
+		switch token {
+		case "apikey", "key", "token", "secret", "password", "passwd", "authorization", "credential":
+			return true
+		}
+	}
+	return false
+}
+
+func providerCommandEnvValueLooksSecret(value string) bool {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	if strings.HasPrefix(lower, "secret://") || strings.Contains(lower, "authorization") {
+		return true
+	}
+	return redactEvidenceText(text) != text
 }
 
 func providerCommandExists(command string) bool {

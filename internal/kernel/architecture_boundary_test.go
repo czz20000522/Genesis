@@ -289,18 +289,18 @@ func TestArchitectureBoundaryKernelIssuesRequireReferenceAlignment(t *testing.T)
 		if !strings.HasPrefix(issue.id, "KERNEL-") {
 			continue
 		}
-		if !strings.Contains(issue.body, "\n- Reference alignment:") {
-			t.Fatalf("active kernel issue %s has no Reference alignment field", issue.id)
+		if !hasReferenceAlignmentOrRejectedDrift(issue.body) {
+			t.Fatalf("active kernel issue %s has no Reference alignment or Rejected drift risk field", issue.id)
 		}
 	}
 
 	retirementLog := readRepoText(t, repoRoot, "docs", "operations", "kernel-retirement-log.md")
 	for _, issue := range markdownIssueSections(retirementLog) {
-		if !strings.HasPrefix(issue.id, "KERNEL-BOUNDARY-") {
+		if !strings.HasPrefix(issue.id, "KERNEL-") || !retiredIssueRequiresReferenceAlignment(issue) {
 			continue
 		}
-		if !strings.Contains(issue.body, "\n- Reference alignment:") {
-			t.Fatalf("retirement log boundary issue %s has no Reference alignment field", issue.id)
+		if !hasReferenceAlignmentOrRejectedDrift(issue.body) {
+			t.Fatalf("retirement log architecture issue %s has no Reference alignment or Rejected drift risk field", issue.id)
 		}
 	}
 }
@@ -369,11 +369,6 @@ func TestArchitectureBoundaryProviderWireTermsStayInsideAdapterFiles(t *testing.
 	}
 }
 
-type markdownIssueSection struct {
-	id   string
-	body string
-}
-
 func readRepoText(t *testing.T, repoRoot string, pathParts ...string) string {
 	t.Helper()
 	payload, err := os.ReadFile(filepath.Join(append([]string{repoRoot}, pathParts...)...))
@@ -381,6 +376,11 @@ func readRepoText(t *testing.T, repoRoot string, pathParts ...string) string {
 		t.Fatalf("read %s: %v", filepath.Join(pathParts...), err)
 	}
 	return string(payload)
+}
+
+type markdownIssueSection struct {
+	id   string
+	body string
 }
 
 func markdownIssueSections(payload string) []markdownIssueSection {
@@ -394,6 +394,16 @@ func markdownIssueSections(payload string) []markdownIssueSection {
 		sections = append(sections, markdownIssueSection{id: id[0], body: "\n" + body})
 	}
 	return sections
+}
+
+func retiredIssueRequiresReferenceAlignment(issue markdownIssueSection) bool {
+	return strings.HasPrefix(issue.id, "KERNEL-BOUNDARY-") ||
+		strings.Contains(issue.body, "\n- Type: architecture issue.")
+}
+
+func hasReferenceAlignmentOrRejectedDrift(body string) bool {
+	return strings.Contains(body, "\n- Reference alignment:") ||
+		strings.Contains(body, "\n- Rejected drift risk:")
 }
 
 func assertNoApplicationSpecificTerm(t *testing.T, subject string, content string) {

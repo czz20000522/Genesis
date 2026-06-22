@@ -18,13 +18,14 @@ const (
 )
 
 var (
-	ErrGenesisModelConfigMissing         = errors.New("genesis model config missing")
-	ErrGenesisModelProfileMissing        = errors.New("genesis model profile missing")
-	ErrGenesisModelGatewayMissing        = errors.New("genesis model gateway missing")
-	ErrGenesisModelGatewayRouteMissing   = errors.New("genesis model gateway route missing")
-	ErrGenesisModelProtocolUnsupported   = errors.New("genesis model gateway protocol unsupported")
-	ErrGenesisModelCredentialMissing     = errors.New("genesis model credential missing")
-	ErrGenesisModelCredentialUnsupported = errors.New("genesis model credential unsupported")
+	ErrGenesisModelConfigMissing              = errors.New("genesis model config missing")
+	ErrGenesisModelProfileMissing             = errors.New("genesis model profile missing")
+	ErrGenesisModelGatewayMissing             = errors.New("genesis model gateway missing")
+	ErrGenesisModelGatewayRouteMissing        = errors.New("genesis model gateway route missing")
+	ErrGenesisModelProtocolUnsupported        = errors.New("genesis model gateway protocol unsupported")
+	ErrGenesisModelCredentialMissing          = errors.New("genesis model credential missing")
+	ErrGenesisModelCredentialUnsupported      = errors.New("genesis model credential unsupported")
+	ErrGenesisModelProviderCommandEnvRejected = errors.New("genesis provider command environment rejected")
 )
 
 type GenesisModelConfigRequest struct {
@@ -97,11 +98,16 @@ func ResolveProviderConfigFromGenesis(req GenesisModelConfigRequest) (ResolvedPr
 		if strings.TrimSpace(command) == "" || strings.TrimSpace(profile.ModelID) == "" {
 			return ResolvedProviderConfig{}, ErrGenesisModelGatewayMissing
 		}
+		env := firstStringSlice(route.Env, gateway.Env)
+		if err := validateProviderCommandEnv(env); err != nil {
+			return ResolvedProviderConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelProviderCommandEnvRejected, err)
+		}
 		return ResolvedProviderConfig{
 			Kind: "provider_command",
 			Command: ProviderCommandConfig{
 				Command:        command,
 				Args:           firstStringSlice(route.Args, gateway.Args),
+				Env:            env,
 				WorkingDir:     firstNonEmpty(route.WorkingDir, gateway.WorkingDir),
 				Model:          profile.ModelID,
 				RequestTimeout: durationSeconds(timeout),
@@ -161,6 +167,8 @@ func ProviderConfigReason(err error) string {
 		return "provider_credential_unsupported"
 	case errors.Is(err, ErrGenesisModelCredentialMissing):
 		return "provider_credential_missing"
+	case errors.Is(err, ErrGenesisModelProviderCommandEnvRejected):
+		return "provider_command_env_secret_rejected"
 	case errors.Is(err, ErrGenesisModelGatewayMissing):
 		return "provider_gateway_missing"
 	default:
@@ -280,6 +288,7 @@ type genesisModelGateway struct {
 	Protocol          string                         `json:"protocol"`
 	Command           string                         `json:"command"`
 	Args              []string                       `json:"args"`
+	Env               []string                       `json:"env"`
 	WorkingDir        string                         `json:"working_dir"`
 	RequestTimeoutSec float64                        `json:"request_timeout_sec"`
 	Routes            map[string]genesisGatewayRoute `json:"routes"`
@@ -291,6 +300,7 @@ type genesisGatewayRoute struct {
 	Protocol          string   `json:"protocol"`
 	Command           string   `json:"command"`
 	Args              []string `json:"args"`
+	Env               []string `json:"env"`
 	WorkingDir        string   `json:"working_dir"`
 	RequestTimeoutSec float64  `json:"request_timeout_sec"`
 }

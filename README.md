@@ -141,8 +141,11 @@ $env:TEMP\genesisd.exe `
   -provider-command D:\tools\genesis-provider-openai.exe `
   -provider-command-arg --profile `
   -provider-command-arg primary `
+  -provider-command-env GENESIS_PROVIDER_PROFILE=primary `
   -provider-model example-model
 ```
+
+`-provider-command-env` is limited to non-sensitive adapter configuration such as a profile or route name. Do not pass API keys, bearer tokens, passwords, `secret://...` refs, or other credentials through this flag or through `models.json` provider-command env entries; the kernel rejects credential-shaped entries.
 
 An OpenAI-compatible provider can still be selected directly without using the Genesis config resolver:
 

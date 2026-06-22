@@ -24,7 +24,6 @@ type ReadyResponse struct {
 	Provider    ProviderStatus `json:"provider"`
 	RuntimeAuth ReadyCheck     `json:"runtime_auth"`
 	Ledger      ReadyCheck     `json:"ledger"`
-	LedgerPath  string         `json:"ledger_path"`
 }
 
 type CapabilitiesResponse struct {

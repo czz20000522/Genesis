@@ -67,10 +67,9 @@ func (k *Kernel) Ready() ReadyResponse {
 	}
 	return ReadyResponse{
 		Status:      status,
-		Provider:    providerStatus,
+		Provider:    safeProviderStatusForInspection(providerStatus),
 		RuntimeAuth: runtimeAuth,
 		Ledger:      ledgerStatus,
-		LedgerPath:  k.ledger.Path(),
 	}
 }
 
@@ -226,11 +225,16 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 }
 
 func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string, idempotencyKey string, ingressRisks []IngressRisk, now time.Time) ([]MemoryRecall, []ModelInputItem, error) {
+	events, err := k.loadEvents()
+	if err != nil {
+		return nil, nil, err
+	}
 	recalledMemories, err := k.recallMemories(req.InputItems)
 	if err != nil {
 		return nil, nil, err
 	}
-	modelInputs := modelInputItems(req.InputItems, recalledMemories, k.skillCatalog)
+	historyContext := sameSessionConversationHistoryContext(events, sessionID, "")
+	modelInputs := modelInputItemsWithHistory(req.InputItems, recalledMemories, k.skillCatalog, historyContext)
 	submitted := StoredEvent{
 		EventID:   newID("evt", now),
 		SessionID: sessionID,
@@ -624,12 +628,15 @@ func (k *Kernel) appendToolResultEvent(sessionID string, turnID string, result M
 func validateProviderToolCallBatch(calls []ModelToolCall) error {
 	seen := map[string]bool{}
 	for _, call := range calls {
+		if strings.TrimSpace(call.ToolCallEventID) != "" {
+			return fmt.Errorf("%w: provider supplied kernel-owned tool_call_event_id", ErrModelToolCallRejected)
+		}
 		id := providerToolCallID(call)
 		if id == "" {
 			continue
 		}
 		if seen[id] {
-			return fmt.Errorf("%w: duplicate provider tool_call_id %q", ErrModelToolCallRejected, id)
+			return fmt.Errorf("%w: duplicate provider tool_call_id", ErrModelToolCallRejected)
 		}
 		seen[id] = true
 	}
@@ -669,25 +676,31 @@ func (k *Kernel) ProviderContextProjection(turnID string) (ProviderContextProjec
 func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID string) (ProviderContextProjection, bool) {
 	projection := ProviderContextProjection{TurnID: turnID}
 	found := false
+	var submitted EventData
 	for _, event := range events {
 		if event.TurnID != turnID || event.Type != "turn.submitted" {
 			continue
 		}
 		found = true
 		projection.SessionID = event.SessionID
-		projection.InputItems = modelInputItemsFromSubmittedEvent(event.Data)
 		projection.ToolManifest = cloneToolSpecs(event.Data.ToolManifest)
+		submitted = event.Data
 		break
 	}
 	if !found {
 		return ProviderContextProjection{}, false
 	}
+	historyContext := sameSessionConversationHistoryContext(events, projection.SessionID, turnID)
+	projection.InputItems = modelInputItemsFromSubmittedEvent(submitted, historyContext)
 	projection.ToolRounds = modelToolRoundsFromStoredEvents(events, turnID)
 	return projection, true
 }
 
-func modelInputItemsFromSubmittedEvent(data EventData) []ModelInputItem {
+func modelInputItemsFromSubmittedEvent(data EventData, historyContext string) []ModelInputItem {
 	items := []ModelInputItem{}
+	if strings.TrimSpace(historyContext) != "" {
+		items = append(items, ModelInputItem{Kind: ModelInputKindConversationHistoryContext, Text: historyContext})
+	}
 	if context := skillCatalogProjectionContext(data.SkillCatalog); context != "" {
 		items = append(items, ModelInputItem{Kind: ModelInputKindSkillCatalogContext, Text: context})
 	}
@@ -700,6 +713,49 @@ func modelInputItemsFromSubmittedEvent(data EventData) []ModelInputItem {
 		}
 	}
 	return items
+}
+
+func sameSessionConversationHistoryContext(events []StoredEvent, sessionID string, beforeTurnID string) string {
+	turns := sameSessionCompletedConversationTurns(events, sessionID, beforeTurnID)
+	return conversationHistoryContext(turns)
+}
+
+func sameSessionCompletedConversationTurns(events []StoredEvent, sessionID string, beforeTurnID string) []conversationHistoryTurn {
+	sessionID = strings.TrimSpace(sessionID)
+	beforeTurnID = strings.TrimSpace(beforeTurnID)
+	if sessionID == "" {
+		return nil
+	}
+	submittedInputs := map[string][]InputItem{}
+	var turns []conversationHistoryTurn
+	for _, event := range events {
+		if event.SessionID != sessionID {
+			continue
+		}
+		if beforeTurnID != "" && event.TurnID == beforeTurnID && event.Type == "turn.submitted" {
+			break
+		}
+		switch event.Type {
+		case "turn.submitted":
+			submittedInputs[event.TurnID] = cloneInputItems(event.Data.InputItems)
+		case "model.final":
+			if event.Data.Final == nil {
+				continue
+			}
+			userText := inputText(submittedInputs[event.TurnID])
+			assistantText := strings.TrimSpace(event.Data.Final.Text)
+			if strings.TrimSpace(userText) != "" || assistantText != "" {
+				turns = append(turns, conversationHistoryTurn{
+					UserText:      userText,
+					AssistantText: assistantText,
+				})
+			}
+			delete(submittedInputs, event.TurnID)
+		case "turn.failed":
+			delete(submittedInputs, event.TurnID)
+		}
+	}
+	return turns
 }
 
 func modelToolRoundsFromStoredEvents(events []StoredEvent, turnID string) []ModelToolRound {

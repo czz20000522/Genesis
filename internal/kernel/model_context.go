@@ -4,10 +4,22 @@ import (
 	"strings"
 )
 
+type conversationHistoryTurn struct {
+	UserText      string
+	AssistantText string
+}
+
 func modelInputItems(userItems []InputItem, memories []MemoryRecall, skills []SkillDescriptor) []ModelInputItem {
+	return modelInputItemsWithHistory(userItems, memories, skills, "")
+}
+
+func modelInputItemsWithHistory(userItems []InputItem, memories []MemoryRecall, skills []SkillDescriptor, historyContext string) []ModelInputItem {
 	skillContext := skillCatalogContext(skills)
 	memoryContext := approvedMemoryContext(memories)
-	withContext := make([]ModelInputItem, 0, len(userItems)+2)
+	withContext := make([]ModelInputItem, 0, len(userItems)+3)
+	if strings.TrimSpace(historyContext) != "" {
+		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindConversationHistoryContext, Text: historyContext})
+	}
 	if skillContext != "" {
 		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindSkillCatalogContext, Text: skillContext})
 	}
@@ -20,6 +32,28 @@ func modelInputItems(userItems []InputItem, memories []MemoryRecall, skills []Sk
 		}
 	}
 	return withContext
+}
+
+func conversationHistoryContext(turns []conversationHistoryTurn) string {
+	if len(turns) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(turns)*2+1)
+	lines = append(lines, "Same-session conversation history:")
+	for _, turn := range turns {
+		userText := strings.TrimSpace(turn.UserText)
+		assistantText := strings.TrimSpace(turn.AssistantText)
+		if userText != "" {
+			lines = append(lines, "User: "+userText)
+		}
+		if assistantText != "" {
+			lines = append(lines, "Assistant: "+assistantText)
+		}
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
 }
 
 func modelInputKinds(items []ModelInputItem) []string {

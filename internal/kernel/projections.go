@@ -369,11 +369,13 @@ func inspectionEventData(data EventData) EventData {
 	next.RecalledMemories = redactMemoryRecalls(data.RecalledMemories)
 	if data.ToolCall != nil {
 		copied := *data.ToolCall
+		copied.ProviderToolCallID = redactProviderToolCallID(copied.ProviderToolCallID)
 		copied.Arguments = redactEvidenceText(copied.Arguments)
 		next.ToolCall = &copied
 	}
 	if data.ToolResult != nil {
 		copied := *data.ToolResult
+		copied.ProviderToolCallID = redactProviderToolCallID(copied.ProviderToolCallID)
 		copied.Content = redactEvidenceText(copied.Content)
 		next.ToolResult = &copied
 	}
@@ -408,6 +410,14 @@ func inspectionEventData(data EventData) EventData {
 		next.ReplacementMemoryCandidate = &copied
 	}
 	return next
+}
+
+func redactProviderToolCallID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	return safeInspectionToken(id, "provider_tool_call_id_unavailable")
 }
 
 func auditReplayItem(event StoredEvent) AuditReplayItem {

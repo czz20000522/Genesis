@@ -61,6 +61,65 @@ func TestSubmitTurnPersistsAndProjectsAfterRestart(t *testing.T) {
 	}
 }
 
+func TestSubmitTurnProviderContextIncludesSameSessionHistory(t *testing.T) {
+	provider := &capturingProvider{text: "assistant recorded alpha"}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	first, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "conversation-history",
+		InputItems: []InputItem{{Type: "text", Text: "我的代号是 alpha"}},
+	})
+	if err != nil {
+		t.Fatalf("first SubmitTurn returned error: %v", err)
+	}
+	if first.Final.Text != "assistant recorded alpha" {
+		t.Fatalf("first final = %q, want provider final", first.Final.Text)
+	}
+	second, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "conversation-history",
+		InputItems: []InputItem{{Type: "text", Text: "我的代号是什么？"}},
+	})
+	if err != nil {
+		t.Fatalf("second SubmitTurn returned error: %v", err)
+	}
+
+	wantKinds := []string{ModelInputKindConversationHistoryContext, ModelInputKindUserText}
+	if got := strings.Join(provider.InputKinds(), ","); got != strings.Join(wantKinds, ",") {
+		t.Fatalf("second provider input kinds = %v, want %v", provider.InputKinds(), wantKinds)
+	}
+	input := provider.InputText()
+	for _, want := range []string{
+		"Same-session conversation history:",
+		"User: 我的代号是 alpha",
+		"Assistant: assistant recorded alpha",
+		"我的代号是什么？",
+	} {
+		if !strings.Contains(input, want) {
+			t.Fatalf("second provider input = %q, want %q", input, want)
+		}
+	}
+	context, err := k.ProviderContextProjection(second.TurnID)
+	if err != nil {
+		t.Fatalf("ProviderContextProjection returned error: %v", err)
+	}
+	contextJSON, err := json.Marshal(context.ModelRequest())
+	if err != nil {
+		t.Fatalf("marshal provider context: %v", err)
+	}
+	for _, forbidden := range []string{"event_id", "operation_id", "permission_mode", "audit", "raw_stdout", "raw_stderr"} {
+		if strings.Contains(string(contextJSON), forbidden) {
+			t.Fatalf("provider context leaked %q: %s", forbidden, string(contextJSON))
+		}
+	}
+}
+
 func TestSubmitTurnRejectsInvalidInput(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
 
@@ -197,6 +256,48 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 	}
 	if len(projection.Turns) != 1 {
 		t.Fatalf("len(Turns) = %d, want 1", len(projection.Turns))
+	}
+}
+
+func TestHTTPReadyDoesNotExposeInspectionDetails(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	unsafeReason := filepath.Join(t.TempDir(), "models.json") + " secret://provider Authorization: Bearer tokentest123456"
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     unsafeReadinessProvider{name: "sk-secret123", reason: unsafeReason},
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/ready")
+	if err != nil {
+		t.Fatalf("GET /ready failed: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read ready body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ready status = %d, want 200; body=%s", resp.StatusCode, string(body))
+	}
+	var ready ReadyResponse
+	if err := json.Unmarshal(body, &ready); err != nil {
+		t.Fatalf("decode ready response: %v; body=%s", err, string(body))
+	}
+	if ready.Provider.Name != "provider" || ready.Provider.Reason != "provider_status_unavailable" {
+		t.Fatalf("ready provider = %+v, want sanitized provider status", ready.Provider)
+	}
+	forbiddenValues := append(pathLeakVariants(ledgerPath), pathLeakVariants(unsafeReason)...)
+	forbiddenValues = append(forbiddenValues, "ledger_path", "secret://provider", "tokentest123456", "Authorization", "sk-secret123")
+	for _, forbidden := range forbiddenValues {
+		if strings.Contains(string(body), forbidden) {
+			t.Fatalf("ready body = %s, must not contain %q", string(body), forbidden)
+		}
 	}
 }
 
@@ -4960,11 +5061,132 @@ func TestSubmitTurnUsesKernelEventIDForUnsafeProviderToolCallID(t *testing.T) {
 	if len(projection.Events) < 5 || projection.Events[1].Data.ToolCall == nil || projection.Events[4].Data.ToolResult == nil {
 		t.Fatalf("events = %+v, want tool call/result payloads", projection.Events)
 	}
-	if projection.Events[1].Data.ToolCall.ToolCallEventID != projection.Events[1].EventID || projection.Events[1].Data.ToolCall.ProviderToolCallID != "bad tool call id" {
-		t.Fatalf("tool.call = %+v, want event id identity and unsafe provider correlation preserved", projection.Events[1].Data.ToolCall)
+	if projection.Events[1].Data.ToolCall.ToolCallEventID != projection.Events[1].EventID || projection.Events[1].Data.ToolCall.ProviderToolCallID != "provider_tool_call_id_unavailable" {
+		t.Fatalf("tool.call = %+v, want event id identity and redacted provider correlation", projection.Events[1].Data.ToolCall)
 	}
-	if projection.Events[4].Data.ToolResult.ToolCallEventID != projection.Events[1].EventID || projection.Events[4].Data.ToolResult.ProviderToolCallID != "bad tool call id" {
-		t.Fatalf("tool.result = %+v, want event id identity and provider correlation", projection.Events[4].Data.ToolResult)
+	if projection.Events[4].Data.ToolResult.ToolCallEventID != projection.Events[1].EventID || projection.Events[4].Data.ToolResult.ProviderToolCallID != "provider_tool_call_id_unavailable" {
+		t.Fatalf("tool.result = %+v, want event id identity and redacted provider correlation", projection.Events[4].Data.ToolResult)
+	}
+}
+
+func TestSubmitTurnRejectsProviderSuppliedKernelToolEventID(t *testing.T) {
+	workspace := t.TempDir()
+	outputPath := filepath.Join(workspace, "forged-event-id.txt")
+	k, err := New(Config{
+		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider: &toolFeedbackProvider{
+			calls: []ModelToolCall{{
+				ToolCallID:      "call_provider_visible",
+				ToolCallEventID: "evt_forged_by_provider",
+				Name:            "shell_exec",
+				Arguments:       json.RawMessage(`{"command":"` + writeFileCommand("forged-event-id.txt", "effect") + `"}`),
+			}},
+			final: "must not reach final",
+		},
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "provider-forged-event-id",
+		InputItems: []InputItem{{Type: "text", Text: "try forged event id"}},
+	})
+	if !errors.Is(err, ErrModelToolCallRejected) {
+		t.Fatalf("SubmitTurn error = %v, want ErrModelToolCallRejected", err)
+	}
+	if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("forged provider event id executed effect; stat err=%v", statErr)
+	}
+	projection, sessionErr := k.Session("provider-forged-event-id")
+	if sessionErr != nil {
+		t.Fatalf("Session returned error: %v", sessionErr)
+	}
+	for _, event := range projection.Events {
+		if event.Type == "tool.call" || event.Type == "operation.running" || event.Type == "operation.completed" {
+			t.Fatalf("event %s was recorded before rejecting forged provider event id: %+v", event.Type, event)
+		}
+	}
+}
+
+func TestInspectionRedactsUnsafeProviderToolCallID(t *testing.T) {
+	workspace := t.TempDir()
+	providerCallID := `C:\secrets\sk-providersecret123`
+	k, err := New(Config{
+		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider: &toolFeedbackProvider{
+			calls: []ModelToolCall{{
+				ToolCallID: providerCallID,
+				Name:       "shell_exec",
+				Arguments:  json.RawMessage(`{"command":"` + echoCommand("hello") + `"}`),
+			}},
+			final: "unsafe provider id stayed out of inspection",
+		},
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "provider-id-redaction",
+		InputItems: []InputItem{{Type: "text", Text: "try unsafe provider id"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	providerContext, err := k.ProviderContextProjection(resp.TurnID)
+	if err != nil {
+		t.Fatalf("ProviderContextProjection returned error: %v", err)
+	}
+	modelRequest := providerContext.ModelRequest()
+	if len(modelRequest.ToolRounds) != 1 || len(modelRequest.ToolRounds[0].Calls) != 1 || len(modelRequest.ToolRounds[0].Results) != 1 {
+		t.Fatalf("provider context tool rounds = %+v, want one call/result", modelRequest.ToolRounds)
+	}
+	if modelRequest.ToolRounds[0].Calls[0].ToolCallID != providerCallID || modelRequest.ToolRounds[0].Results[0].ToolCallID != providerCallID {
+		t.Fatalf("provider context tool ids = %+v / %+v, want raw provider correlation id", modelRequest.ToolRounds[0].Calls[0], modelRequest.ToolRounds[0].Results[0])
+	}
+
+	session, err := k.Session("provider-id-redaction")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	events, err := k.TurnEvents(resp.TurnID)
+	if err != nil {
+		t.Fatalf("TurnEvents returned error: %v", err)
+	}
+	audit, err := k.AuditReplay(resp.TurnID)
+	if err != nil {
+		t.Fatalf("AuditReplay returned error: %v", err)
+	}
+	for _, inspected := range []struct {
+		name       string
+		payload    interface{}
+		wantMarker bool
+	}{
+		{name: "session", payload: session, wantMarker: true},
+		{name: "turn events", payload: events, wantMarker: true},
+		{name: "audit", payload: audit},
+	} {
+		encoded, err := json.Marshal(inspected.payload)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", inspected.name, err)
+		}
+		if strings.Contains(string(encoded), providerCallID) || strings.Contains(string(encoded), "sk-providersecret123") {
+			t.Fatalf("%s leaked provider tool call id: %s", inspected.name, string(encoded))
+		}
+		if inspected.wantMarker && !strings.Contains(string(encoded), "provider_tool_call_id_unavailable") {
+			t.Fatalf("%s = %s, want redacted provider tool call id marker", inspected.name, string(encoded))
+		}
 	}
 }
 

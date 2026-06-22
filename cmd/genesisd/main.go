@@ -26,6 +26,8 @@ func main() {
 	providerCommand := flag.String("provider-command", os.Getenv("GENESIS_PROVIDER_COMMAND"), "provider command adapter executable")
 	providerCommandArgs := stringListFlag(splitPathList(os.Getenv("GENESIS_PROVIDER_COMMAND_ARGS")))
 	flag.Var(&providerCommandArgs, "provider-command-arg", "provider command adapter argument; repeatable")
+	providerCommandEnv := stringListFlag(splitPathList(os.Getenv("GENESIS_PROVIDER_COMMAND_ENV")))
+	flag.Var(&providerCommandEnv, "provider-command-env", "provider command environment entry NAME=VALUE; repeatable")
 	configRoot := flag.String("config-root", os.Getenv("GENESIS_CONFIG_ROOT"), "Genesis config root containing models.json")
 	credentialStoreRoot := flag.String("credential-store-root", os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"), "Genesis credential store root")
 	modelRole := flag.String("model-role", envOrDefault("GENESIS_MODEL_ROLE", kernel.DefaultModelRole), "Genesis model role binding to resolve")
@@ -41,6 +43,7 @@ func main() {
 		apiKeyEnv:           *providerAPIKeyEnv,
 		command:             *providerCommand,
 		commandArgs:         providerCommandArgs.Values(),
+		commandEnv:          providerCommandEnv.Values(),
 		configRoot:          *configRoot,
 		credentialStoreRoot: *credentialStoreRoot,
 		modelRole:           *modelRole,
@@ -82,6 +85,7 @@ type providerBuildRequest struct {
 	apiKeyEnv           string
 	command             string
 	commandArgs         []string
+	commandEnv          []string
 	configRoot          string
 	credentialStoreRoot string
 	modelRole           string
@@ -114,6 +118,7 @@ func buildProvider(req providerBuildRequest) (kernel.Provider, error) {
 		return kernel.NewCommandProvider(kernel.ProviderCommandConfig{
 			Command: req.command,
 			Args:    req.commandArgs,
+			Env:     req.commandEnv,
 			Model:   req.model,
 		}), nil
 	case "openai-compatible":

@@ -74,12 +74,14 @@ func TestResolveProviderConfigFromGenesisSelectsCommandProviderRoute(t *testing.
 			"protocol":            "provider_command",
 			"command":             "fallback-provider",
 			"args":                []any{"fallback"},
+			"env":                 []any{"FALLBACK_ENV=1"},
 			"working_dir":         t.TempDir(),
 			"request_timeout_sec": 90,
 			"routes": map[string]any{
 				"command-primary": map[string]any{
 					"command":             os.Args[0],
 					"args":                []any{"-test.run=TestProviderCommandAdapterHelper", "--", "final"},
+					"env":                 []any{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
 					"working_dir":         workingDir,
 					"request_timeout_sec": 12,
 				},
@@ -114,6 +116,9 @@ func TestResolveProviderConfigFromGenesisSelectsCommandProviderRoute(t *testing.
 	if strings.Join(resolved.Command.Args, " ") != "-test.run=TestProviderCommandAdapterHelper -- final" {
 		t.Fatalf("args = %v, want route args", resolved.Command.Args)
 	}
+	if strings.Join(resolved.Command.Env, " ") != "GENESIS_PROVIDER_COMMAND_HELPER=1" {
+		t.Fatalf("env = %v, want route env", resolved.Command.Env)
+	}
 	if resolved.Command.WorkingDir != workingDir {
 		t.Fatalf("working dir = %q, want route working dir", resolved.Command.WorkingDir)
 	}
@@ -122,6 +127,46 @@ func TestResolveProviderConfigFromGenesisSelectsCommandProviderRoute(t *testing.
 	}
 	if resolved.Command.RequestTimeout != 12*time.Second {
 		t.Fatalf("timeout = %s, want 12s", resolved.Command.RequestTimeout)
+	}
+}
+
+func TestResolveProviderConfigFromGenesisRejectsSecretCommandEnvironment(t *testing.T) {
+	for _, env := range []string{
+		"GENESIS_PROVIDER_API_KEY=sk-testsecret123",
+		"Authorization=Bearer tokentest123456",
+		"PASSWORD=plain-text-password",
+		"GENESIS_PROVIDER_SECRET=secret://models/provider/default",
+	} {
+		t.Run(env, func(t *testing.T) {
+			root := writeModelsConfig(t, map[string]any{
+				"model_gateway": map[string]any{
+					"protocol": "provider_command",
+					"command":  os.Args[0],
+					"env":      []any{env},
+				},
+				"active_model_profile_bindings": map[string]any{
+					DefaultModelRole: "command-profile",
+				},
+				"model_profiles": map[string]any{
+					"local": map[string]any{
+						"gateway": map[string]any{
+							"command-profile": map[string]any{
+								"profile_id": "command-profile",
+								"model_id":   "command-model",
+							},
+						},
+					},
+				},
+			})
+
+			_, err := ResolveProviderConfigFromGenesis(GenesisModelConfigRequest{ConfigRoot: root})
+			if !errors.Is(err, ErrGenesisModelProviderCommandEnvRejected) {
+				t.Fatalf("error = %v, want provider command env rejected", err)
+			}
+			if ProviderConfigReason(err) != "provider_command_env_secret_rejected" {
+				t.Fatalf("reason = %q, want provider_command_env_secret_rejected", ProviderConfigReason(err))
+			}
+		})
 	}
 }
 
