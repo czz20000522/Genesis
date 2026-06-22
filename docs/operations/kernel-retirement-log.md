@@ -12,6 +12,15 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-BOUNDARY-SEMANTIC-TEXT-20260622 - P0 - Semantic text must not be rejected by secret-shaped heuristics
+
+- Status: ready_for_acceptance.
+- Fix commits: `3fb91aa8e`.
+- Reference alignment: Codex preserves model/user strings as repair feedback or terminal-equivalent tool evidence rather than rejecting them because they resemble secrets; Reasonix keeps schema/permission failures separate from arbitrary narrative content. Genesis now keeps control-plane refs, authorities, session ids, and retry keys grammar-gated while admitting ordinary WorkRegistry and Accumulation narrative text as text.
+- Evidence: `TestSemanticTextFieldsAllowSecretShapedContent` proves Work title, Work cancel reason, memory approval reason, memory rejection reason, memory supersession reason, and supersession replacement text can contain secret-shaped quoted content and are preserved through HTTP owner paths. `TestArchitectureBoundarySemanticFieldsDoNotUseSecretRejector` proves those narrative fields no longer call the secret-shaped rejector. `TestHTTPCreateWorkRejectsInvalidControlRefs`, `TestHTTPCancelWorkRejectsInvalidControlRefs`, `TestHTTPCreateMemoryCandidateRejectsInvalidControlRefs`, `TestHTTPApproveMemoryCandidateRejectsInvalidControlRefs`, `TestHTTPRejectMemoryCandidateRejectsInvalidControlRefs`, and `TestHTTPMemoryCandidateSupersedeRejectsInvalidControlRefs` prove control-plane identifiers, refs, and authorities still fail closed when malformed or secret-shaped. Verification passed: focused semantic/control-ref tests; `go test ./... -count=1`; `go build ./...`; `go test -race ./internal/kernel -count=1`; `git diff --check`; versioned route scan returned no matches.
+- Acceptance condition: reviewer confirms Genesis no longer uses secret-shaped content heuristics as an admission rule for ordinary work or memory narrative text, while control-plane refs and authorities remain grammar-gated.
+- Residual risk: default projections and tool evidence still redact secret-shaped shell/provider/skill evidence where those surfaces can expose credentials. This retirement covers admission for semantic text fields only, not raw-evidence access policy.
+
 ### KERNEL-TOOL-RESULT-TAXONOMY-20260622 - P0 - Tool loop must preserve terminal-equivalent command results
 
 - Status: ready_for_acceptance.

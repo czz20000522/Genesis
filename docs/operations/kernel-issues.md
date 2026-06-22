@@ -15,17 +15,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-BOUNDARY-SEMANTIC-TEXT-20260622
-
-- Priority: P0
-- Area: Architecture boundary / admission validation
-- Status: in_progress
-- Title: Semantic text must not be rejected by secret-shaped heuristics
-- Problem: Architecture review found `validateKernelTextNotSecret` applied to narrative fields such as work title, cancel reason, memory approval/rejection/supersession reason, and similar user/operator text. This makes the kernel a content judge and repeats the same drift as the rejected unsupported-tool-name sanitizer: the kernel tries to infer whether arbitrary local text is secret/path-like instead of preserving model/user semantic content.
-- Reference alignment: Codex returns model-repair feedback or terminal-equivalent tool results instead of heuristically hiding model-generated strings; Reasonix feeds malformed tool errors/schema back to the model and keeps permission as a separate gate. Neither pattern makes the runtime reject ordinary narrative text because it looks secret-shaped.
-- Expected behavior: Control-plane identifiers, refs, authorities, and transport schema remain grammar-gated. Ordinary semantic text is admitted as text; projection/redaction policy may still apply to tool output, skill bodies, credential records, and protected inspection surfaces.
-- Verification: Add behavior tests proving secret-shaped narrative text is admitted in work and memory review flows, plus an architecture test proving narrative fields do not call the secret-shaped rejector.
-
 ### KERNEL-BOUNDARY-TOOL-REGISTRY-20260622
 
 - Priority: P0
