@@ -19,30 +19,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-SHELL-TIMEOUT-CAP-20260623 - P1 - Foreground shell timeout policy and cap
-
-- Status: open.
-- Area: Tool Runtime / shell execution policy.
-- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
-- Design: `docs/design/kernel-shell-and-job-control.md`.
-- Gap: The current `shell_exec` path has a fixed short execution shape. It does not yet expose a model-visible `timeout_sec`, enforce the foreground default of 30 seconds, cap ordinary foreground execution at 180 seconds, or convert requests above the cap into managed work.
-- Next slice: Add `timeout_sec` validation and cap behavior for the current shell path. Keep requests above the cap tied to the managed-job requirement instead of pretending they are ordinary foreground shell work.
-- Evidence: Current permission work resolved `permission_mode` into `authority_policy`, `sandbox_profile`, and `approval_policy`, but timeout ownership has not been split from the shell execution path.
-- Verification: A model tool call without `timeout_sec` runs with the 30 second default; `timeout_sec=180` is accepted as foreground; `timeout_sec=181` returns an immediate managed-job receipt; invalid timeout values return repair feedback and produce no effect.
-- Reference alignment: Aligned with Codex-style tool-loop boundaries where short tools close with a tool result, while long-running work must move behind a managed process/job abstraction. Reasonix also keeps frontend shells behind a controller rather than letting an adapter own lifecycle policy.
-
-### KERNEL-MANAGED-JOB-FOUNDATION-20260623 - P1 - Minimal managed job event model
-
-- Status: open.
-- Area: Work Registry / Tool Runtime.
-- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
-- Design: `docs/design/kernel-shell-and-job-control.md`.
-- Gap: The kernel contract mentions future long-running jobs, but the current implementation has no `job.started`, `job.completed`, job handle, receipt-style `tool.result`, or job inspection surface. Without this, long commands either block the provider loop or must be killed instead of checkpointed.
-- Next slice: Introduce the minimal generic job event sequence for long shell work: `tool.call`, `job.started`, immediate receipt-style `tool.result`, and terminal `job.completed` or `job.failed`.
-- Evidence: `docs/kernel-contract.md` currently says long-running kernel-owned jobs are future events, and current shell operation projection is only synchronous operation evidence.
-- Verification: A shell request above the foreground cap does not block the provider step, writes a `job.started` event, returns a model-visible receipt as `tool.result`, writes a terminal job event through a fake or minimal executor, and survives ledger replay.
-- Reference alignment: Aligned with Codex's separation between tool-call closure and managed process lifecycle. The intentional difference is scope: Genesis should start with a generic job primitive, not a coding-agent-specific task runner.
-
 ### KERNEL-OBSERVATION-DELIVERY-20260623 - P1 - Kernel observation queue and delivery checkpoints
 
 - Status: open.

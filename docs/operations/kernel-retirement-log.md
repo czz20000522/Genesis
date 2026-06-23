@@ -12,6 +12,32 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-SHELL-TIMEOUT-CAP-20260623 - P1 - Foreground shell timeout policy and cap
+
+- Status: ready_for_acceptance.
+- Type: runtime/tool issue.
+- Fix commits: `abb6b5d45`.
+- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
+- Reference alignment: Aligned with Codex-style tool-loop boundaries where short tools close with a tool result, while long-running work moves behind a managed process/job abstraction. Reasonix also keeps frontend shells behind a controller rather than letting an adapter own lifecycle policy.
+- Evidence: `shell_exec` now exposes `timeout_sec` in the model-visible tool schema. Omitted timeout records 30 seconds; `timeout_sec=1` and `timeout_sec=180` run as foreground shell attempts; invalid zero, negative, string, and fractional values return repairable `tool_request_invalid` feedback and create no operation. Requests above the foreground cap route to the managed-job receipt path instead of being treated as validation errors.
+- Verification: `TestSubmitTurnAcceptsForegroundShellTimeoutSeconds`; `TestSubmitTurnDefaultsShellTimeoutToThirtySeconds`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellTimeoutSeconds`; `TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt`; `TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext`; focused timeout suite; `D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1`; forbidden marker scan; `git diff --check`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`.
+- Acceptance condition: reviewer confirms `timeout_sec > 180` is a valid long-task intent, not an error, and ordinary foreground shell execution is capped by the approved 1 through 180 second contract.
+- Residual risk: direct `/tools/shell_exec` still returns an operation-shaped response and does not expose a separate managed-job transport. The production job-control and observation-delivery gaps remain active under separate issues.
+
+### KERNEL-MANAGED-JOB-FOUNDATION-20260623 - P1 - Minimal managed job event model
+
+- Status: ready_for_acceptance.
+- Type: runtime/tool issue.
+- Fix commits: `abb6b5d45`.
+- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
+- Reference alignment: Aligned with Codex's separation between tool-call closure and managed process lifecycle. The intentional difference is scope: Genesis starts with a generic job primitive and does not copy a coding-agent-specific task runner.
+- Evidence: A model `shell_exec` request with `timeout_sec > 180` now records `tool.call`, `job.started`, immediate receipt-style `tool.result`, `job.completed`, and `model.final` in append-only order. The `job.started` event id is the job handle. The provider receives a `managed_job_started` tool result, allowing the tool loop to close without waiting for final command output. Session replay after kernel restart preserves the job lifecycle events.
+- Verification: `TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt`; focused managed-job suite; `D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1`; forbidden marker scan; `git diff --check`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`.
+- Acceptance condition: reviewer confirms the first managed-job event protocol is sufficient for provider-loop closure and restart-safe evidence while leaving real background process management to later phases.
+- Residual risk: this phase uses an immediate/minimal terminal job event. Real background execution, `job_status`, `job_cancel`, observation delivery, delivered-id tracking, and interrupt/attach behavior remain active issues and are not retired by this entry.
+
 ### KERNEL-USER-SPACE-BOUNDARY-20260623 - P1 - Kernel, user-space, and agent-framework boundary document
 
 - Status: ready_for_acceptance.
