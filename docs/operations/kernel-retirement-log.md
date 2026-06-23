@@ -12,6 +12,17 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-USER-SPACE-BOUNDARY-20260623 - P1 - Kernel, user-space, and agent-framework boundary document
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `b61be7b35`, `46c32f0ed`.
+- Reference alignment: Codex and Reasonix are strong agent products with kernel-like runtimes. Their useful reference is the separation of core protocol, tool manifests, sandboxing, event truth, projections, and shells. Genesis applies that runtime split as a shared platform contract for multiple user-space applications, not as a copied coding-agent product.
+- Evidence: `docs/kernel-contract.md` now contains `Agent Kernel vs Agent Framework` and `System Boundary / Box Model`. The contract defines the LLM as the operator, the kernel as the authority execution and fact boundary, tools as governed reality touchpoints, skills as user-space instruction packages, applications and shells as user-space compositions, and the event log as the system fact layer. `features/kernel/user_space_boundary.feature` records BDD acceptance examples for calculator skills, Feishu daemons, shell-owned context, app-owned memory, and framework attempts to forge kernel facts.
+- Verification: The document can answer that a calculator skill is not kernel, a Feishu daemon is not kernel, WebUI cannot assemble provider context, applications cannot write memory truth or tool results directly, and new domain-named capabilities must map to generic kernel primitives before entering the kernel ledger. `git diff --check`; `go test ./internal/kernel -run TestArchitectureBoundary -count=1`; `go test ./... -count=1`; `go build ./...`.
+- Acceptance condition: reviewer confirms future Feishu, email, calendar, calculator, OCR, document, app, skill, or agent-framework issues can cite this section to decide whether the requested behavior belongs in kernel or user space.
+- Residual risk: this is a document and BDD acceptance boundary, not a full semantic code guard. Existing reference-alignment tests enforce issue structure; deeper automated detection of app-specific kernel drift can be added later only if it checks positive owner behavior instead of retired wording.
+
 ### KERNEL-PRESSURE-ACCEPTANCE-20260623 - P1 - Minimal kernel loop needs deterministic pressure verification
 
 - Status: ready_for_acceptance.

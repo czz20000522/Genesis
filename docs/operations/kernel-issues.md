@@ -16,16 +16,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-USER-SPACE-BOUNDARY-20260623 - P1 - Kernel and user-space application boundary document
-
-- Status: open.
-- Area: Architecture governance / kernel contract.
-- Problem: Current docs already say Genesis Kernel is not a WebUI, CLI, Feishu adapter, coding agent, or desktop product, and they separately describe Tool System, skill catalog, explicit non-kernel surfaces, and conceptual syscalls. The boundary is still scattered across README, kernel contract, minimal closed loop, and issue records. During fast iteration this makes it easy to mistake user-space application capabilities such as Feishu, mail, calendar, calculator, document processing, or OCR for kernel capabilities.
-- Suggestion: Add a concentrated "System Boundary / Box Model" section to the kernel contract. It should define the LLM as the operator, the kernel as the control/fact/authority/audit boundary, tools as controlled reality touchpoints, skills as user-space instruction packages, resources as kernel-governed durable references, shells/adapters as user-space entry points, and applications as user-space compositions that submit turns and read projections but do not own kernel truth.
-- Evidence: README and kernel-contract already contain the ingredients: Genesis is an agent kernel for LLM execution, external applications are user-space programs, tools own generic effects, skills are user-space assets, and explicit non-kernel surfaces are listed. There is not yet one canonical boundary explanation that future issues can cite.
-- Verification: The resulting document can directly answer whether a calculator skill is kernel, whether a Feishu daemon is kernel, whether WebUI may assemble provider context, and whether an application may write memory truth. Future app-specific issues must either map themselves to an existing kernel primitive or stay outside the kernel ledger.
-- Reference alignment: Aligned with Codex and Reasonix as harness/controller systems: core owns protocol, tool manifests, permission, sandbox, event truth, and projections; domain applications stay outside the core. This issue intentionally rejects the drift toward a large application framework inside Genesis Kernel.
-
 ### KERNEL-SHELL-TIMEOUT-CAP-20260623 - P1 - Foreground shell timeout policy and cap
 
 - Status: open.
