@@ -26,6 +26,8 @@ The kernel owns only these planes:
 
 External applications are user-space programs. The kernel may receive events from them and may let the active model call their CLIs through governed tools, but it must not become those applications.
 
+Provider, role, invocation, and task graph boundaries are defined in `docs/kernel-contract.md`. In short: provider adapters translate model backends; roles are application semantics; only kernel-created invocations with validated capability grants can execute; TaskGraphOwner records project work topology and is not a kernel scheduler.
+
 Kernel HTTP routes stay unversioned. The durable contract is the task/tool schema and ledger evidence, not a numbered path prefix.
 
 ## Behavior Specs

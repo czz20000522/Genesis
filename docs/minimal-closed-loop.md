@@ -28,6 +28,10 @@ The first implementation must prove the kernel loop before adding shells or appl
 - Missing or malformed external skill metadata does not block turn submission.
 - Unsupported or malformed model-requested tool calls produce repair feedback before any effect executes when protocol state allows it.
 - Capability inspection does not expose skill paths, skill bodies, provider credentials, or app-specific outbound APIs.
+- Provider selection is not inferred from role labels such as reviewer, parent, child, coder, or analyst.
+- Role labels and TaskGraph node kinds do not grant tool access, workspace access, credential access, provider routes, or sandbox profiles.
+- A TaskGraph node or graph edit cannot execute work without a separate kernel-created invocation and validated capability grant.
+- Model-supplied graph, invocation, provider, sandbox, credential, or capability identity fields are rejected instead of being accepted as system truth.
 
 ## Current Provider Boundary Proof
 

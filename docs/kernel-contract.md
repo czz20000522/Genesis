@@ -53,6 +53,59 @@ A practical boundary test is the domain-name test. If a capability is named afte
 
 Under that rule, a calculator skill is not kernel. It is user-space instruction that can ask the model to use a governed process tool for exact arithmetic. A Feishu daemon is not kernel. It listens to Feishu, submits a turn, and renders or sends results through user-space capabilities. WebUI is not allowed to assemble provider context. Applications are not allowed to write memory truth directly.
 
+## Provider, Role, Invocation, And TaskGraph Boundaries
+
+This section records the boundary decision for future provider routing, role profiles, multi-agent execution, and project task graphs. The decision comes from the Genesis kernel rewrite discussion and from reviewing the Python TaskGraph and multi-agent design: Genesis should keep the useful control-plane ideas, but it must not copy the old implementation shape or let application roles become kernel authority.
+
+The layer split is:
+
+```text
+Application / Agent Framework  owns strategy, role taxonomy, graph templates, and user experience
+TaskGraphOwner                 owns project work topology facts
+Agent Kernel                   owns controlled execution facts
+Model Gateway                  owns Genesis model protocol and model-policy resolution
+Provider Adapter               owns vendor payload translation
+Real Provider                  owns token generation and native APIs
+```
+
+Provider is model backend adaptation, not an agent concept. A provider adapter translates Genesis model protocol into a vendor-native request and translates the vendor response back into Genesis model response shapes. The kernel must not know DeepSeek, OpenAI, Claude, local model, or future vendor message formats outside an adapter boundary. A `provider_command` adapter may behave like a local router or translator, but that router is still provider middleware, not role logic and not application business logic.
+
+Role is application or agent-framework semantics, not provider semantics and not kernel authority. Labels such as `parent`, `child`, `coder`, `reviewer`, `analyst`, `planner`, `executor`, or `verifier` describe how an application wants to organize work. They may appear in an application-defined `AgentProfile` with instruction refs, skill refs, output contract, preferred model capability, requested tool access, context policy, and budget request. The kernel must not treat a role label as a permission grant, provider route, credential identity, sandbox profile, or execution authority.
+
+Names such as `DeepSeek reviewer`, `OpenAI parent`, or `Claude child` are invalid architecture terms. The correct shape is:
+
+```text
+AgentProfile(role=reviewer, model_policy_ref=cheap-read-only)
+  -> Kernel creates AgentInvocation(capability_grant=read-only, context_scope=diff)
+  -> Model Gateway resolves model_policy_ref to a gateway profile
+  -> Provider Adapter calls the selected real provider
+```
+
+AgentInvocation is a kernel runtime fact. An invocation is the admitted execution identity for one bounded model-backed run or agent-framework request. It binds `invocation_id`, optional `parent_invocation_id`, `session_id`, `principal`, `agent_profile_ref`, validated `capability_grant`, `context_scope`, `budget_lease`, optional `source_graph_ref`, optional `source_node_ref`, terminal state, and bounded result delivery. The invocation, not the role label, may consume context, call tools, spend budget, write invocation events, and return results.
+
+Only an invocation with a validated CapabilityGrant may execute. A `CapabilityGrant` is kernel-owned execution authority. It must be checked against the user, application, session, parent invocation, and active permission profile before any model-backed tool call, job, operation, credential resolution, or workspace effect runs. A child invocation can receive only a subset of the authority available to its parent or admitting application. Model output, role labels, graph node kinds, provider routes, and skill text never grant authority by themselves.
+
+TaskGraph is project-level work topology fact, not a kernel scheduler. TaskGraphOwner is a platform owner that may run in the same binary as the kernel, but it is not Agent Kernel core. It owns `graph_id`, `node_id`, `edge_id`, graph edit admission, node status transitions, dependency edges, evidence refs, projection, and replay for project work topology. It does not execute tasks, choose providers, assign role authority, grant tools, manage jobs, or write kernel execution events.
+
+TaskGraph nodes do not grant authority. A node kind such as `review`, `implementation`, `repair`, `verification`, `investigation`, or `decision` may help an application organize work, but it cannot imply read access, write access, shell access, network access, provider choice, role choice, or credential access. Execution requires a separate AgentInvocation whose CapabilityGrant was validated by the kernel.
+
+Applications and parent orchestrators may propose graph edits and delegation. TaskGraphOwner admits or rejects graph changes. The Agent Kernel admits or rejects execution. The normal flow is:
+
+```text
+Parent sees bounded TaskGraph projection
+Parent proposes a graph edit or delegation for node N
+Application resolves the AgentProfile and requested grant
+TaskGraphOwner validates graph/node intent
+Kernel validates CapabilityGrant <= parent/application authority
+Kernel creates AgentInvocation linked to source_graph_ref/source_node_ref
+Child invocation runs through Model Gateway and ToolGateway
+Kernel writes invocation/tool/job/operation facts
+TaskGraphOwner attaches evidence refs and updates node status after admitted graph edits
+Parent receives a bounded result projection
+```
+
+Model-proposed graph edits are semantic proposals. The model may propose a title, goal, dependency, evidence summary, or intended role. The system generates `graph_id`, `node_id`, `edge_id`, revision, timestamps, status transitions, and accepted evidence refs. If the model supplies hidden control fields or attempts to override graph identity, invocation identity, capability grant, provider route, sandbox profile, or credential refs, the request fails closed before execution or graph mutation.
+
 ## Kernel Syscalls
 
 The stable boundary should be task-oriented, not UI-oriented:
@@ -184,6 +237,7 @@ The operator setup surface may write Genesis-owned model gateway config and `sec
 - External event daemons.
 - Feishu, WeChat, email, calendar, document, OCR, and similar app integrations.
 - Skill packages and prompt packages.
+- Role taxonomies, graph templates, planner strategies, and application orchestration policies.
 - Product-specific workflows and domain owners until they prove they are kernel primitives.
 
 ## Reference Projects
