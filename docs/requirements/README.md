@@ -59,6 +59,8 @@ Implementation plans can be detailed while work is active. After a phase closes,
 
 Issues record only the current gap. If an issue starts carrying background, design alternatives, or a complete acceptance contract, move that content back to the requirement or design and shrink the issue.
 
+Periodic governance review must include document lifetime. Architecture, feature, directory, and document review happen together: stale plans are deleted or condensed, old issue narratives leave the active ledger, and requirements remain few and stable.
+
 ## Requirement Template
 
 Use this template for every non-trivial capability:

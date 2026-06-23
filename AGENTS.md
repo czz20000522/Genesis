@@ -30,6 +30,8 @@ Genesis kernel authority is local. Do not search GitHub, remotes, pull requests,
 
 Genesis has no production users, deployed uptime obligation, architecture migration debt, or historical data cleanup debt. Development artifacts, local ledgers, generated JSONL, fixtures, and old experiments do not justify compatibility shims, migration readers, fallback loaders, old API aliases, or data cleanup paths. When old development state conflicts with the current contract, delete or regenerate it instead of preserving it.
 
+Architecture, feature, directory, and document reviews are one governance activity. They do not need to run after every commit, but periodic review must check all four together and delete or condense obsolete documents instead of letting requirements, plans, and acceptance records grow without bound.
+
 ## Boundary Rules
 
 - The event ledger is kernel truth. Applications, shells, provider commands, and skills do not mint ledger facts.

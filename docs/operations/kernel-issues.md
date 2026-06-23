@@ -21,8 +21,57 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - When an issue removes a concept from the current kernel contract, long-term tests must assert the positive replacement behavior. Do not keep permanent tests whose only purpose is locking retired names, aliases, routes, or historical helper APIs out of the tree; use temporary scans or retirement-log evidence for cleanup windows, then fold the guard into the current owner contract.
 - Development artifacts and historical local data are not compatibility obligations. Do not create or keep issues whose only purpose is migrating, cleaning, importing, or preserving old local generated state unless that state is part of the approved current kernel contract.
 - Every implementation slice must finish with a drift check against the governing requirement, design, implementation plan, issue, and BDD feature. In-scope drift is fixed before commit. Out-of-scope drift is recorded here as an active issue with evidence and next slice before commit.
+- Periodic governance review checks architecture, feature behavior, directory structure, and document lifetime together. Completed plans and stale documents should be deleted or condensed instead of spawning issues that only preserve old notes.
 
 ## Active Issues
+
+### KERNEL-OWNER-SESSION-PROJECTION-20260623 - P1 - Session projection must stop owning every replay branch
+
+- Status: open.
+- Area: Architecture Governance / session projection.
+- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
+- Design: `docs/design/kernel-owner-structure-governance.md`.
+- Gap: `Kernel.Session()` currently rebuilds turns, operations, jobs, work records, memory candidates, and raw event projection in one central method. New owners can keep adding replay branches there, turning `kernel.go` into the cross-owner aggregation owner.
+- Next slice: Move session replay into projection helpers so `Kernel.Session()` only validates the session id, loads events, delegates composition, and redacts the final projection.
+- Evidence: `internal/kernel/kernel.go` currently switches on `turn.*`, `operation.*`, `job.*`, `work.*`, and `memory.*` event types inside `Session()`.
+- Verification: Architecture guard fails if `kernel.go` directly contains owner replay event names inside `Session()`; focused session projection tests and full Go verification pass after the split.
+- Reference alignment: Aligned with Codex and Reasonix control-plane separation. Codex keeps tool/session behavior behind typed core runtime surfaces; Reasonix records an acyclic direction where CLI/frontends do not own agent/tool/provider internals. Genesis should keep session composition as a projection surface, not an ever-growing kernel method.
+
+### KERNEL-OWNER-DTO-FILES-20260623 - P1 - Public DTOs need owner and projection homes
+
+- Status: open.
+- Area: Architecture Governance / type ownership.
+- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
+- Design: `docs/design/kernel-owner-structure-governance.md`.
+- Gap: `internal/kernel/types.go` defines config, turn, audit, UI timeline, context inspection, session, operation, job, work, memory, event, and compaction DTOs. The owner boundary is invisible at file level.
+- Next slice: Split DTOs into owner or projection files such as config, turn, tool/job, work, memory, event, inspection, and compaction type files while preserving all exported names and JSON schemas.
+- Evidence: `types.go` currently defines `SessionProjection`, `OperationProjection`, `JobProjection`, `WorkProjection`, `MemoryCandidateProjection`, `EventData`, and multiple inspection/timeline DTOs in the same file.
+- Verification: Architecture guard fails when owner DTOs reappear in the global type file; full Go verification proves no schema or behavior change.
+- Reference alignment: Aligned with Reasonix's package-level split between provider, tool, permission, config, and agent types, and with Codex's protocol/runtime separation. Genesis keeps one small kernel package for now, but file names must still expose owner placement.
+
+### KERNEL-OWNER-HTTP-TRANSPORT-20260623 - P2 - HTTP transport files should stay thin delegates
+
+- Status: open.
+- Area: Architecture Governance / transport.
+- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
+- Design: `docs/design/kernel-owner-structure-governance.md`.
+- Gap: `internal/kernel/http.go` routes turn, shell, work, memory, session, timeline, context, audit, and event surfaces in one file. Current handlers mostly delegate, but the file shape invites transport-local owner logic as routes grow.
+- Next slice: Split HTTP transport by surface, keeping route matching, decode, owner API delegation, error mapping, and encode only. Add a guard that blocks ledger replay or owner state transitions inside `http*.go`.
+- Evidence: `http.go` contains handlers and path parsers for tool, work, memory, session, timeline, audit, context, and turn events.
+- Verification: Existing HTTP tests pass; architecture guard proves transport files do not call owner append/replay helpers directly.
+- Reference alignment: Aligned with Reasonix's frontend/controller separation and Codex's protocol/event surfaces. Genesis HTTP remains a shell/adapter, not a second owner.
+
+### KERNEL-OWNER-TOOL-CONTEXT-20260623 - P2 - Tool registrations should not receive the whole Kernel
+
+- Status: open.
+- Area: Architecture Governance / Tool Runtime.
+- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
+- Design: `docs/design/kernel-owner-structure-governance.md`.
+- Gap: `registeredTool.Prepare` currently accepts `*Kernel`, giving every future registered tool broad access to ledger, provider, memory, work, job, and policy fields. That is too wide for a registry that should enforce least authority.
+- Next slice: Introduce a narrow tool invocation context or owner-specific executor interface for registered tools. Shell/job tools receive only the authority needed to validate, authorize, execute, append operation/job evidence, and produce model-visible results.
+- Evidence: `internal/kernel/tool_registry.go` defines `Prepare func(*Kernel, ...)`, and model tool handling resolves that registration before tool execution.
+- Verification: New tools cannot register a `Prepare` function that receives `*Kernel`; tool registry, tool gateway, model loop, shell/job control, and architecture tests pass.
+- Reference alignment: Aligned with Codex's `CoreToolRuntime` over typed `ToolInvocation` and Reasonix's `Tool` interface plus per-run `Registry`. Genesis should not pass the whole kernel object as the tool execution capability.
 
 ### KERNEL-JOB-CONTROL-INTERRUPT-20260623 - P2 - Interrupt and managed executor semantics
 

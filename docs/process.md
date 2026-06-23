@@ -61,6 +61,15 @@ Implementation plans are short-lived. They can contain phase checklists and temp
 
 Issues are gap records. Completed issues leave the active issue ledger. Retirement entries keep fixing commits, verification, residual risk, and acceptance condition; they should cite the requirement and design instead of restating them.
 
+Architecture, feature, directory, and document reviews are one periodic governance activity. They do not need to run for every implementation slice, but a scheduled or requested governance pass must check all four together:
+
+- architecture still matches the approved requirement and design;
+- feature behavior still matches the BDD and acceptance examples;
+- directory and file structure still make owners visible;
+- document sets still contain only active requirements, living designs, useful phase summaries, active issues, and retirement evidence.
+
+When a document no longer serves one of those roles, delete it or condense it into the current positive contract. Do not keep stale implementation notes, temporary checklists, or obsolete architecture narratives as active documents.
+
 ## Required Flow
 
 For every non-trivial capability:
@@ -111,6 +120,8 @@ Every implementation slice must close with a requirement-by-requirement drift ch
 This gate is mandatory even when the code compiles and tests pass. Tests prove selected behavior; the closing gate checks whether the implementation, documentation, and issue ledger still describe the same architecture.
 
 The commit message should mention the drift check in `Tested:` or `Not-tested:` when it materially shaped the slice.
+
+Periodic governance review uses the same drift principle at a wider scope. It is the right time to remove completed implementation plans, stale requirement fragments, obsolete directory narratives, or old feature examples that no longer express the current kernel contract.
 
 ## Issue Maintenance Rule
 
