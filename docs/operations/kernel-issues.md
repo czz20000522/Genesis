@@ -20,17 +20,17 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-JOB-CONTROL-INTERRUPT-20260623 - P2 - Interrupt and job control semantics
+### KERNEL-JOB-CONTROL-INTERRUPT-20260623 - P2 - Interrupt and managed executor semantics
 
 - Status: open.
 - Area: Tool Runtime / session control.
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
 - Design: `docs/design/kernel-shell-and-job-control.md`.
-- Gap: The current minimal kernel does not define how user interruption interacts with provider streaming, foreground shell execution, or already-managed background jobs. This becomes ambiguous once foreground cap and managed jobs exist.
-- Next slice: Define the minimal interrupt and job-control behavior around provider streaming, foreground shell execution, managed jobs, and explicit cancellation.
-- Evidence: Current shell and provider paths are short synchronous paths. There is no job handle or cancel owner yet, so cancellation cannot be audited separately from ordinary command failure.
-- Verification: Interrupting assistant output does not kill an existing background job; explicit job cancel writes cancel request and terminal cancel evidence; interrupted foreground shell behavior is deterministic and reflected in tool/session projections.
-- Reference alignment: Aligned with Codex's distinction between session/control events and process lifecycle. Genesis should keep cancellation as a kernel command or model-visible job-control tool, not as UI-local behavior.
+- Gap: The kernel now has minimal generic `job_status` and `job_cancel` tools, but it still lacks real background process management and interrupt semantics for provider streaming or foreground shell execution. The current `job_cancel` records the kernel fact model; it does not yet signal or attach to a host process.
+- Next slice: Define and implement the next managed-executor boundary: provider-stream interrupt, foreground shell detach/kill policy, real background process handles, and how explicit cancellation reaches an executor without exposing process ids or signals to the model.
+- Evidence: `ce72dfa44` registers `job_status` and `job_cancel`, replays job status from the ledger, returns `job_not_found` repair feedback for unknown handles, rejects process/control-plane fields, and records idempotent cancel facts for non-terminal jobs.
+- Verification: Existing verification covers the minimal tool surface. Remaining verification must prove assistant-output interruption does not kill a background job by default, interrupted foreground shell behavior is deterministic, and real executor cancellation produces typed job facts without provider-loop ambiguity.
+- Reference alignment: Aligned with Codex's distinction between session/control events and process lifecycle. Genesis should keep cancellation as a kernel command or model-visible job-control tool, while process mechanics stay behind a kernel-owned managed executor.
 
 ### KERNEL-SANDBOX-APPROVAL-NEXT-20260623 - P2 - Stronger sandbox and approval policy beyond the minimal profile split
 

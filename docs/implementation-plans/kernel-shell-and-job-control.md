@@ -179,6 +179,16 @@
 
 **Deliverable:** model-visible generic job control with `job_status` and `job_cancel`. This phase completes the first job-control surface without implementing provider-stream interruption, foreground attach-or-kill, or real background process management.
 
+**Fix commit:** `ce72dfa44`.
+
+**Completed slice:**
+
+- The model-visible manifest includes `shell_exec`, `job_status`, and `job_cancel`, with no process-level `job_terminate`.
+- `job_status` replays current job state from the session ledger and creates no operations.
+- `job_cancel` records `job.cancel_requested` and `job.cancelled` once for a non-terminal job.
+- Cancelling completed, failed, or already cancelled jobs returns the current terminal state without writing a competing terminal fact.
+- Unknown job ids and model-supplied process/control-plane fields return structured repair feedback.
+
 **Files:**
 
 - Modify: `internal/kernel/tool_registry.go`
@@ -195,11 +205,11 @@
 - `job_cancel` is a semantic request. The kernel decides executor behavior; the model does not choose terminate mechanics.
 - Terminal jobs are idempotent under cancellation. A cancel request against a completed, failed, or already cancelled job returns the current terminal state instead of creating a competing terminal fact.
 
-- [ ] **Step 1: Write failing model-tool manifest tests**
+- [x] **Step 1: Write failing model-tool manifest tests**
 
   Assert the registered model-visible tools include `shell_exec`, `job_status`, and `job_cancel`, with no application-specific job tools or process-level terminate tool.
 
-- [ ] **Step 2: Write failing job status tests**
+- [x] **Step 2: Write failing job status tests**
 
   Cover:
 
@@ -209,7 +219,7 @@
   - restart replay can still answer status from the ledger;
   - status query creates no operation.
 
-- [ ] **Step 3: Write failing job cancel tests**
+- [x] **Step 3: Write failing job cancel tests**
 
   Cover:
 
@@ -219,15 +229,15 @@
   - unknown job id returns structured `job_not_found`;
   - model-supplied terminate mechanics are rejected.
 
-- [ ] **Step 4: Implement job lookup projection**
+- [x] **Step 4: Implement job lookup projection**
 
   Add a small job lookup helper that replays current job state from ledger events. It must remain generic and independent of application domains.
 
-- [ ] **Step 5: Register and execute job control tools**
+- [x] **Step 5: Register and execute job control tools**
 
   Register `job_status` as read-side-effect and `job_cancel` as write-side-effect. Both route through `ToolGateway`, return model-visible JSON, and preserve tool-call closure.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
   Run:
 
@@ -238,8 +248,7 @@
 ## Still Short Of Production After This Plan
 
 - Real background process management is not complete.
-- `job_status` is planned by Phase E-lite but not implemented yet.
-- `job_cancel` is planned by Phase E-lite but not implemented yet.
+- `job_status` and `job_cancel` are ledger-backed generic tools only; they do not yet inspect or control a real host process.
 - Progress snapshot delivery and idle continuation controls are not implemented.
 - Provider-stream interruption and foreground attach-or-kill behavior are not implemented.
 - Stronger sandbox and approval policy remain separate future work.

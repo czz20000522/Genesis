@@ -24,7 +24,20 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: Terminal managed-job facts now become Kernel Observation Queue sources. `ProviderContextProjection` injects undelivered terminal job observations as `kernel_observation_context` before a provider step, `SubmitTurn` records `kernel.observation.delivered` only after the provider call returns successfully, and delivered ids suppress repeat projection after ledger replay. Provider failures append turn failure evidence without marking the observation delivered.
 - Verification: `TestSubmitTurnDeliversCompletedJobObservationToNextProviderStep`; `TestProviderFailureDoesNotMarkJobObservationDelivered`; `TestDeliveredJobObservationIsNotProjectedAgainAfterRestart`; focused observation/managed-job suite; `D:\software\Go\bin\go.exe test ./internal/kernel -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
 - Acceptance condition: reviewer confirms terminal job observations are visible to the model only through kernel-owned provider context, are not marked delivered on provider failure, and are not replayed after restart once delivered.
-- Residual risk: this is the delivery contract for terminal job observations. Real background process management, progress snapshots, `job_status`, `job_cancel`, auto-resume policy, and interrupt/attach behavior remain separate issues.
+- Residual risk: this is the delivery contract for terminal job observations. Real background process management, progress snapshots, auto-resume policy, and interrupt/attach behavior remain separate issues. Minimal `job_status` and `job_cancel` are covered by `KERNEL-JOB-CONTROL-MINIMAL-20260623`.
+
+### KERNEL-JOB-CONTROL-MINIMAL-20260623 - P2 - Minimal generic job status and cancel tools
+
+- Status: ready_for_acceptance.
+- Type: runtime/tool issue.
+- Fix commits: `ce72dfa44`.
+- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
+- Reference alignment: Aligned with Codex-style process control boundaries: the model receives a typed tool result for a kernel-owned handle, while process mechanics stay behind the runtime. Genesis intentionally exposes `job_status` and `job_cancel`, not process ids, signals, or a `job_terminate` tool.
+- Evidence: The model-visible manifest now includes `shell_exec`, `job_status`, and `job_cancel`. `job_status` replays current job state from the session ledger without creating operations. `job_cancel` records `job.cancel_requested` and `job.cancelled` once for a non-terminal job, returns terminal state without writing competing facts for completed jobs, and treats duplicate cancellation as idempotent. Unknown job ids and model-supplied process/control-plane fields return structured repair feedback.
+- Verification: `TestSubmitTurnProjectsGenericJobControlToolManifest`; `TestSubmitTurnJobStatusReturnsCompletedJobAfterRestartWithoutOperation`; `TestSubmitTurnJobStatusReturnsRepairFeedbackForUnknownJob`; `TestSubmitTurnRejectsJobControlToolControlPlaneFields`; `TestSubmitTurnJobCancelTerminalJobReturnsCurrentStateWithoutCompetingTerminalEvent`; `TestSubmitTurnJobCancelRunningJobRecordsCancellationOnce`; focused job-control suite; `D:\software\Go\bin\go.exe test ./internal/kernel -count=1`; `D:\software\Go\bin\go.exe test ./...`; `D:\software\Go\bin\go.exe build ./...`; `git diff --check`.
+- Acceptance condition: reviewer confirms job control is a generic kernel primitive, model-visible schema stays free of process mechanics, and terminal job cancellation does not rewrite or duplicate ledger truth.
+- Residual risk: this is a ledger-backed control surface only. It does not implement a real background process manager, foreground attach/kill behavior, progress snapshots, provider-stream interruption, or executor-level process cancellation.
 
 ### KERNEL-SHELL-TIMEOUT-CAP-20260623 - P1 - Foreground shell timeout policy and cap
 
@@ -50,7 +63,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: A model `shell_exec` request with `timeout_sec > 180` now records `tool.call`, `job.started`, immediate receipt-style `tool.result`, `job.completed`, and `model.final` in append-only order. The `job.started` event id is the job handle. The provider receives a `managed_job_started` tool result, allowing the tool loop to close without waiting for final command output. Session replay after kernel restart preserves the job lifecycle events.
 - Verification: `TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt`; focused managed-job suite; `D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1`; forbidden marker scan; `git diff --check`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`.
 - Acceptance condition: reviewer confirms the first managed-job event protocol is sufficient for provider-loop closure and restart-safe evidence while leaving real background process management to later phases.
-- Residual risk: this phase uses an immediate/minimal terminal job event. Real background execution, `job_status`, `job_cancel`, progress snapshots, and interrupt/attach behavior remain active issues and are not retired by this entry.
+- Residual risk: this phase uses an immediate/minimal terminal job event. Real background execution, progress snapshots, and interrupt/attach behavior remain active issues and are not retired by this entry. Minimal `job_status` and `job_cancel` are covered by `KERNEL-JOB-CONTROL-MINIMAL-20260623`.
 
 ### KERNEL-USER-SPACE-BOUNDARY-20260623 - P1 - Kernel, user-space, and agent-framework boundary document
 
