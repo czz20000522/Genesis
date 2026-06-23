@@ -25,17 +25,17 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-JOB-CONTROL-INTERRUPT-20260623 - P2 - Interrupt and managed executor semantics
+### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Managed job progress snapshots and idle continuation policy
 
 - Status: open.
-- Area: Tool Runtime / session control.
+- Area: Tool Runtime / Interface Kernel / Model Gateway.
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
 - Design: `docs/design/kernel-shell-and-job-control.md`.
-- Gap: The kernel now has a minimal managed shell executor behind long-running `shell_exec` receipts and `job_cancel` can reach live executor state, but interrupt semantics for provider streaming and foreground shell execution are still missing. Progress snapshots and idle continuation policy are also still deferred.
-- Next slice: Define provider-stream interrupt and foreground shell detach-or-kill behavior. The model-visible `job_cancel` surface must stay semantic; any process ids, signals, `taskkill`, or process group mechanics remain hidden behind the kernel-owned executor.
-- Evidence: `ce72dfa44` registers `job_status` and `job_cancel`, replays job status from the ledger, returns `job_not_found` repair feedback for unknown handles, rejects process/control-plane fields, and records idempotent cancel facts for non-terminal jobs. `ea2c6aab8` starts live shell jobs for `timeout_sec > 180`, writes no fake immediate terminal event, records `job.cancel_requested` before executor cancellation, and writes `job.cancelled` only after executor confirmation.
-- Verification: Existing verification covers the minimal tool surface and live managed executor cancellation. Remaining verification must prove assistant-output interruption does not kill a background job by default and interrupted foreground shell behavior is deterministic.
-- Reference alignment: Aligned with Codex's distinction between session/control events and process lifecycle. Genesis should keep cancellation as a kernel command or model-visible job-control tool, while process mechanics stay behind a kernel-owned managed executor.
+- Gap: Turn interruption and live job cancellation now have a minimal kernel path, but managed jobs still do not emit progress snapshots, idle sessions do not have a user-triggered continuation policy, and the local executor cannot attach/detach an already-running foreground shell into a managed job.
+- Next slice: Add sparse `job.progress` or `job.output` snapshots only when they are useful durable facts, define how a user "continue" command drains pending job observations for an idle session, and keep attach-capable foreground shell behavior behind executor capability detection instead of exposing process ids or signals.
+- Evidence: `6e3287525` adds `InterruptSession`, `POST /sessions/{id}/interrupt`, `assistant.interrupted`, `operation.interrupted`, and tests proving provider-step interruption does not cancel an existing background job. Existing managed-job tests cover terminal completion and explicit `job_cancel`.
+- Verification: Remaining verification must prove progress snapshots are bounded and not injected into every provider step, idle continuation drains queued observations without autonomous wakeup, and any future attach-capable executor behavior remains hidden behind kernel-owned executor semantics.
+- Reference alignment: Aligned with Codex and Reasonix's split between turn/session cancellation and background process lifecycle. The remaining drift risk is turning progress or continuation into UI/provider-owned behavior instead of kernel-owned observation delivery and checkpoint policy.
 
 ### KERNEL-SANDBOX-APPROVAL-NEXT-20260623 - P2 - Stronger sandbox and approval policy beyond the minimal profile split
 

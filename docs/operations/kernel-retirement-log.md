@@ -13,6 +13,19 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-JOB-CONTROL-INTERRUPT-20260623 - P2 - Turn interruption and foreground shell interrupt semantics
+
+- Status: ready_for_acceptance.
+- Type: runtime/tool issue.
+- Fix commits: `6e3287525`.
+- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
+- Reference alignment: Aligned with Codex's split between turn interruption and background terminal/process lifecycle, and Reasonix's per-turn cancel context plus explicit provider interrupted semantics. Genesis records interruption as a kernel turn/control fact while preserving `job_cancel` as the explicit managed-job cancellation path.
+- Evidence: `InterruptSession` is now the kernel-owned typed control command for active turn cancellation. `POST /sessions/{id}/interrupt` is a thin transport delegate that returns `202 Accepted` for an active turn. Provider-step cancellation writes `assistant.interrupted`, returns `ErrTurnInterrupted`, projects the turn as `interrupted`, and does not write `turn.failed`. Foreground shell context cancellation writes `operation.interrupted`, appends a paired `tool.result(status=interrupted)`, and stops before a final provider step. Tests prove interrupting a later active provider turn does not cancel an existing managed background job.
+- Verification: `D:\software\Go\bin\go.exe test ./internal/kernel -run 'TestInterruptSession|TestHTTPInterruptSession' -count=1`; `D:\software\Go\bin\go.exe test ./internal/kernel -run 'TestArchitectureBoundary|TestSubmitTurn.*Job|TestSubmitTurn.*Shell|TestHTTP.*Shell|TestHTTPInterruptSession|TestInterruptSession' -count=1`; `D:\software\Go\bin\go.exe test ./internal/kernel -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `git diff --check`.
+- Acceptance condition: reviewer confirms user-space shells can interrupt an active turn without cancelling existing managed jobs, and foreground shell interruption is projected as interrupted tool evidence rather than ordinary command failure.
+- Residual risk: managed job progress snapshots, idle continuation policy, and attach-capable foreground shell executor behavior remain active under `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`. Stronger sandbox and approval policy remain active under `KERNEL-SANDBOX-APPROVAL-NEXT-20260623`.
+
 ### KERNEL-OWNER-SESSION-PROJECTION-20260623 - P1 - Session projection delegates owner replay
 
 - Status: ready_for_acceptance.
