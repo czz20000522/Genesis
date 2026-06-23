@@ -20,15 +20,26 @@ Genesis Kernel. Kernel primitive gaps belong in
 
 ## Active Issues
 
+### APP-CONNECTOR-COMMAND-BOUNDARY-20260624 - P1 - Implement connector_command as the long-lived adapter boundary
+
+- Status: open.
+- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Gap: The connector runtime has a transitional `command_template` driver, but it does not yet implement the `connector_command` process boundary. External adapter process startup, typed action/result JSON transport, adapter capability probing, result validation, explicit environment allowlist, timeout handling, and redacted debug trace handling remain unimplemented.
+- Next slice: Add a `connector_command` runner owned by Application Connector Runtime. It should send typed `ConnectorAction` JSON to a configured external adapter process, accept typed `ConnectorActionResult` JSON, validate allowed statuses and fields, redact stderr/debug material, and write only normalized `DeliveryReceipt` records. Feishu should move its `lark-cli` details into an external adapter process or remain explicitly marked as transitional if still using `command_template`.
+- Evidence: `docs/applications/application-connector-runtime-design.md` now defines `connector_command` as the long-lived adapter boundary and marks `command_template` as transitional.
+- Verification: A fake `connector_command` adapter can deliver a `send_message` action and produce a `DeliveryReceipt`; malformed adapter JSON fails closed without changing kernel facts; adapter stderr is redacted before diagnostics; raw command/stdout/stderr are not persisted as receipt truth; changing Feishu CLI argv requires changing only the external adapter or transitional driver config, not connector runtime code.
+- Reference alignment: Mirrors the kernel `provider_command` boundary pattern while keeping connector delivery in the user-space application connector owner.
+
 ### APP-CONNECTOR-FEISHU-LISTENER-20260623 - P2 - Feishu inbound listener and adapter retry hardening
 
 - Status: open.
 - Requirement: `docs/applications/application-connector-runtime-requirement.md`.
 - Design: `docs/applications/application-connector-runtime-design.md`.
-- Gap: Phase A only proves one-shot Feishu-like inbound envelope submission. It does not run a durable Feishu event listener, verify callback signatures, refresh adapter tokens, or apply inbound retry/backoff policy.
-- Next slice: After the outbox/receipt owner exists, add a Feishu listener/poller that emits `ExternalEvent`/`RequestContext` and keeps signature/token/retry state in connector-local storage.
+- Gap: Phase A only proves one-shot Feishu-like inbound envelope submission. It does not run a durable Feishu event listener, verify callback signatures, require explicit `lark-cli --profile ...` configuration, refresh adapter tokens, apply inbound retry/backoff policy, or expose an operator-run lark-cli capability probe.
+- Next slice: After the outbox/receipt owner exists, add a Feishu listener/poller that emits `ExternalEvent`/`RequestContext` and keeps signature/token/retry state in connector-local storage. The Feishu connector must load an explicit profile and action driver configuration, then run an operator dry-run/probe contract for the installed `lark-cli` before live sends. If local `lark-cli` resolves to an npm `.cmd`/`.ps1` shim or extensionless shell script, production delivery must use a real binary or `connector_command` external adapter process instead of `command_template`. A command shape change must be handled by connector driver configuration or an external adapter process, not connector runtime code.
 - Evidence: Application Connector Runtime Phase C explicitly covers Feishu inbound listener/poller hardening.
-- Verification: A repeated Feishu event must dedupe before kernel turn submission; inbound retry exhaustion must only affect connector request state; external Feishu identity must not set kernel authority.
+- Verification: A repeated Feishu event must dedupe before kernel turn submission; inbound retry exhaustion must only affect connector request state; external Feishu identity must not set kernel authority; missing profile must fail before any external send.
 - Reference alignment: Aligned with Reasonix ACP keeping protocol/session handling outside the controller and Codex app-server keeping client transport ids outside core turn truth.
 
 ### APP-CONNECTOR-OPERATOR-CONSOLE-20260623 - P2 - Operator console inspection projection

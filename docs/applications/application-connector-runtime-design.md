@@ -199,6 +199,51 @@ facts remain unchanged.
 External credentials are connector-owned. They are resolved by connector
 configuration, credential references, or adapter-local auth. They are not
 projected into prompt context and are not model-visible tool arguments.
+CLI-backed adapters must use an explicit connector-configured profile or
+credential reference. They must not rely on whatever default identity the host
+CLI happens to select.
+
+CLI-backed adapters also own command-shape drift risk. The stable application
+semantic layer is `AppCommand` and `ConnectorAction`; external CLI argv belongs
+to an adapter driver. The short-term driver is `command_template`: an executable,
+explicit profile, action-scoped argv token templates, and external action ref
+JSON paths. Templates are argv arrays, not shell strings, and the executable
+must be a direct external adapter/CLI executable, not `cmd`, PowerShell, `sh`,
+`bash`, npm-generated `.cmd`/`.ps1` shims, extensionless shell scripts, or
+another shell wrapper. Until a connector-owned credential-ref binding exists,
+every command template action must bind `${profile}` in argv; omitting it is
+invalid because it would let host CLI defaults choose the external identity.
+The runtime fills only validated connector action fields such as `${profile}`,
+`${target.external_id}`, `${payload.body}`, and `${idempotency_key}`. Unknown
+variables, credential-shaped variables, missing profiles, templates without
+profile binding, unexpected payload keys, shell-string templates, and shell
+executables or resolved script wrappers fail closed. Command-template execution
+uses a connector command environment allowlist and persists only safe opaque
+external action refs, not raw CLI output.
+
+The long-lived adapter boundary is `connector_command`. The connector runtime
+starts a configured external adapter process, writes typed `ConnectorAction`
+JSON to stdin, and reads typed `ConnectorActionResult` JSON from stdout. The
+external adapter owns SDK, HTTP, CLI, vendor response parsing, and vendor error
+normalization. The connector runtime owns the configured binary, timeout,
+environment allowlist, action/result validation, outbox state transitions, and
+`DeliveryReceipt` persistence.
+
+`command_template` is only a transitional driver for early CLI-backed smoke
+tests. It may stay as a local operator convenience, but production connectors
+should not treat rendered argv as a stable Genesis protocol. If the installed
+CLI or external adapter no longer accepts the configured shape, the connector
+reports connector-local unavailability or a delivery failure; it must not
+silently fall back to another command form or ask the kernel/LLM to guess new
+arguments.
+
+Raw command lines, raw stdout, raw stderr, SDK payloads, and vendor HTTP
+responses are debug material. They may be retained only through bounded,
+redacted, connector-local diagnostic traces. Durable connector truth remains
+`ConnectorAction`, `ConnectorActionResult`, and `DeliveryReceipt`. An external
+adapter process cannot write kernel events, tool results, checkpoints, jobs,
+memory records, or delivery receipts directly; it can only return a result for
+the connector runtime to validate and persist.
 
 External identities are origin facts. They can participate in mapping and
 policy, but they do not automatically grant kernel authority.
@@ -273,6 +318,16 @@ runtime into a second kernel/application owner.
 Rejected: production default where the LLM shells out directly to external
 CLIs/APIs for outbound delivery. It cannot reliably own credentials, revoke
 auth, rate limits, idempotency, delivery receipts, or half-success recovery.
+
+Rejected: hardcoding Feishu, mail, or WeChat CLI argv in connector runtime code
+as the long-term adapter contract. CLI syntax is external tool protocol and must
+live in driver configuration or an external adapter process.
+
+Rejected: treating `command_template` as the final production connector
+protocol. It reduces the immediate Feishu CLI drift risk, but it still leaves
+external command semantics in connector configuration. The long-lived boundary is
+`connector_command`, where the external adapter process owns vendor protocol
+drift behind typed action/result JSON.
 
 Rejected: connector-owned provider context. Provider context is kernel-owned.
 

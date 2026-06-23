@@ -115,6 +115,25 @@ state, and dead-letter state.
 outbox item. It is concrete enough for the connector adapter to send, but it is
 not a kernel tool call and not model-owned shell authority.
 
+Connector driver configuration is the adapter-owned translation from
+`ConnectorAction` to an external SDK, HTTP request, CLI argv, or local IPC
+message. A CLI command shape is not part of the stable application semantic
+contract. The stable contract is the connector/action/outbox/receipt state; the
+driver may be changed or replaced when the external tool changes.
+
+`connector_command` is the long-lived external adapter process boundary. The
+application connector runtime writes one typed `ConnectorAction` request to a
+configured adapter process and accepts one typed `ConnectorActionResult`
+response. The external adapter owns `lark-cli`, SDK, HTTP, vendor response
+parsing, and vendor error normalization. The connector runtime owns adapter
+configuration, process timeout, environment allowlist, result validation,
+outbox state transitions, and `DeliveryReceipt` persistence.
+
+`command_template` is a transitional CLI-backed driver for early live smoke
+tests. It may render configured argv tokens from validated connector action
+fields, but it is not a stable Genesis protocol and must not become the only
+long-term way to integrate external systems.
+
 `DeliveryReceipt` records the outcome of a connector action: accepted, sent,
 failed, retrying, duplicate suppressed, partially completed, or dead-lettered.
 External errors are translated into connector receipt reasons instead of being
@@ -140,6 +159,17 @@ semantics are governed by
   surface as a kernel API.
 - No requirement that every connector use the same transport implementation.
   A connector adapter may use SDK, HTTP, CLI, or local IPC internally.
+- No hardcoded long-term coupling between connector runtime code and a specific
+  external CLI command line. Short-term CLI-backed adapters use argv-template
+  driver configuration; longer-lived connectors may use an external adapter
+  process with a typed action/result protocol.
+- No CLI-backed adapter may rely on host default identity, inherit arbitrary
+  process environment, or persist raw command output as a receipt field.
+  Connector drivers must use explicit identity binding, environment allowlists,
+  and safe opaque external action refs.
+- No `command_template` as the final adapter contract for production connectors.
+  Production connectors should move to `connector_command` or another
+  typed-process boundary with the same ownership rules.
 
 ## Phased Delivery
 
@@ -149,11 +179,15 @@ app-local dedupe, and `turn.submit` through the kernel HTTP surface.
 
 Phase B adds the minimal connector outbox contract: `AppCommand`,
 `ConnectorOutbox`, `ConnectorAction`, and `DeliveryReceipt`, with console and
-Feishu adapters using fake or local runners in tests. No rich cards,
-attachments, or production listener hardening.
+Feishu delivery exercised through connector driver configuration and fake or
+local runners in tests. No rich cards, attachments, or production listener
+hardening.
 
-Phase C adds a Feishu inbound connector listener/poller and connector-local
-validation/retry/token handling sufficient for mobile smoke testing.
+Phase C adds a Feishu inbound connector listener/poller, connector-local
+validation/retry/token handling, and an explicit installed-adapter capability
+probe sufficient for mobile smoke testing. If Feishu delivery still uses
+`command_template`, the phase must keep it documented as a transitional driver
+and must not treat the rendered CLI argv as a Genesis contract.
 
 Phase D adds operator console inspection for connector state plus kernel
 projections without letting the console reinterpret raw kernel events as its own

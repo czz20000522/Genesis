@@ -35,3 +35,13 @@ issues remain in `docs/operations/application-issues.md`.
 - Boundary evidence: Delivery state remains under `internal/applications/connector_runtime`. Connector actions do not contain lease ids, worker ids, credentials, or raw external payloads. Delivery receipts record bounded status, reason, attempt, external action ref, and next retry time; connector delivery failure does not mutate kernel facts.
 - Verification: `go test ./internal/applications/connector_runtime -count=1`; full verification recorded in the fixing commit.
 - Residual risk: Operator console inspection and explicit connector recovery commands for recovery-required/dead-lettered items remain active under `APP-CONNECTOR-OPERATOR-CONSOLE-20260623`. Real Feishu listener/poller hardening remains active under `APP-CONNECTOR-FEISHU-LISTENER-20260623`.
+
+### APP-CONNECTOR-DRIVER-TEMPLATE-20260624 - Do not hardcode external CLI argv in connector runtime
+
+- Retired in: connector command-template driver implementation change set.
+- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Fix summary: Replaced the Feishu-specific Go argv builder with a generic `CommandTemplateDriver`. `ConnectorAction` remains the stable semantic contract; CLI argv, explicit profile, action template, and external action ref JSON paths now belong to driver configuration. The optional Feishu dry-run contract renders through the same template path instead of calling a Feishu-specific command helper.
+- Boundary evidence: Production connector runtime code no longer defines `FeishuAdapter`, `feishuSendMessageArgs`, or Feishu-specific response parsing. The driver accepts argv token templates only, rejects shell-string templates, shell executables, and resolved script wrappers such as `.cmd`, `.bat`, `.ps1`, and extensionless Windows shims, rejects templates that do not bind `${profile}`, rejects unknown or credential-shaped variables, requires explicit profile values, rejects unexpected action payload/metadata, executes OS commands with an allowlisted environment, redacts optional CLI probe diagnostics, and records only safe opaque external action refs in bounded delivery result fields.
+- Verification: `go test ./internal/applications/connector_runtime -run CommandTemplateDriver -count=1`; `go test ./internal/applications/connector_runtime -count=1`; full verification recorded in the fixing commit.
+- Residual risk: Runtime loading of connector driver configuration and the longer-term `connector_command` external adapter process are not implemented yet. Feishu listener/poller hardening and operator capability probes remain active under `APP-CONNECTOR-FEISHU-LISTENER-20260623`.
