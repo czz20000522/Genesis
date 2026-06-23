@@ -13,6 +13,19 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623 - P2 - Foreground timeout preserves terminal outcome evidence
+
+- Status: ready_for_acceptance.
+- Type: runtime/tool issue.
+- Fix commits: `dfda23540`.
+- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
+- Reference alignment: Aligned with local Codex and Reasonix terminal-equivalent tool behavior. Codex preserves timeout output and execution metadata for model inspection; Reasonix returns timeout as a tool execution outcome after collecting bounded output. Genesis follows the same split: timeout is an executed command result unless process infrastructure itself fails.
+- Evidence: Foreground shell timeout now records `operation.failed` with `timed_out=true`, `timeout_reason=foreground_timeout`, positive `elapsed_ms`, exit code evidence, and available bounded stdout/stderr. The model-visible `shell_exec` tool result carries the same timeout metadata and captured output, while `infrastructure_reason` stays empty for ordinary runtime timeout. Timeout remains separate from malformed request feedback and managed-job routing.
+- Verification: `TestSubmitTurnForegroundShellTimeoutRecordsTerminalOutcome`; focused timeout/direct-shell/job routing suite; `D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `git diff --check`.
+- Acceptance condition: reviewer confirms foreground shell timeout is model-visible command evidence, not `tool_request_invalid`, not `tool_infrastructure_failed`, and not a managed-job receipt.
+- Residual risk: provider-stream interruption and foreground shell attach-or-kill behavior remain active under `KERNEL-JOB-CONTROL-INTERRUPT-20260623`; stronger sandbox and approval policy remain active under `KERNEL-SANDBOX-APPROVAL-NEXT-20260623`.
+
 ### KERNEL-DIRECT-SHELL-MANAGED-JOB-PARITY-20260623 - P2 - Direct shell transport shares managed-job routing
 
 - Status: ready_for_acceptance.
@@ -24,7 +37,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: Direct `POST /tools/shell_exec` now distinguishes omitted `timeout_sec` from explicit invalid values, rejects explicit non-positive timeout before effects, routes `timeout_sec > 180` to the same managed shell job ledger/executor path, returns HTTP 202 with a `JobProjection` receipt for a newly accepted long job, and returns the existing job projection on idempotent retry without appending a second `job.started`. Foreground direct requests still return `OperationProjection`. Direct HTTP long jobs do not forge provider-loop `tool.call` or `tool.result` events.
 - Verification: `TestHTTPShellExecLongTimeoutReturnsManagedJobReceipt`; `TestHTTPShellExecRejectsExplicitZeroTimeout`; focused HTTP shell and job-control kernel tests; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
 - Acceptance condition: reviewer confirms direct shell transport no longer has a parallel long-running shell lifecycle and that direct HTTP job receipts are job projections, not ordinary operation projections or fake provider tool results.
-- Residual risk: foreground process timeout outcome metadata remains active under `KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623`; provider-stream and foreground interrupt/attach behavior remain active under `KERNEL-JOB-CONTROL-INTERRUPT-20260623`.
+- Residual risk: provider-stream and foreground interrupt/attach behavior remain active under `KERNEL-JOB-CONTROL-INTERRUPT-20260623`; stronger sandbox and approval policy remain active under `KERNEL-SANDBOX-APPROVAL-NEXT-20260623`.
 
 ### KERNEL-OBSERVATION-DELIVERY-20260623 - P1 - Kernel observation queue and delivery checkpoints
 
@@ -63,7 +76,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: `shell_exec` now exposes `timeout_sec` in the model-visible tool schema. Omitted timeout records 30 seconds; `timeout_sec=1` and `timeout_sec=180` run as foreground shell attempts; invalid zero, negative, string, and fractional values return repairable `tool_request_invalid` feedback and create no operation. Requests above the foreground cap route to the managed-job receipt path instead of being treated as validation errors.
 - Verification: `TestSubmitTurnAcceptsForegroundShellTimeoutSeconds`; `TestSubmitTurnDefaultsShellTimeoutToThirtySeconds`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellTimeoutSeconds`; `TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt`; `TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext`; focused timeout suite; `D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1`; forbidden marker scan; `git diff --check`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`.
 - Acceptance condition: reviewer confirms `timeout_sec > 180` is a valid long-task intent, not an error, and ordinary foreground shell execution is capped by the approved 1 through 180 second contract.
-- Residual risk: direct `/tools/shell_exec` managed-job routing is now covered by `KERNEL-DIRECT-SHELL-MANAGED-JOB-PARITY-20260623`. Foreground timeout outcome metadata, production job-control, and interrupt behavior remain active under separate issues.
+- Residual risk: direct `/tools/shell_exec` managed-job routing is covered by `KERNEL-DIRECT-SHELL-MANAGED-JOB-PARITY-20260623`; foreground timeout outcome metadata is covered by `KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623`. Provider-stream and foreground interrupt/attach behavior remain active under `KERNEL-JOB-CONTROL-INTERRUPT-20260623`.
 
 ### KERNEL-MANAGED-JOB-FOUNDATION-20260623 - P1 - Minimal managed job event model
 

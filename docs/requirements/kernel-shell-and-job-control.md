@@ -244,6 +244,7 @@ This requirement governs these implementation slices:
 
 - `KERNEL-SHELL-TIMEOUT-CAP-20260623`: `ready_for_acceptance` for `timeout_sec`, default/cap behavior, invalid value repair feedback, and routing above the cap.
 - `KERNEL-MANAGED-JOB-FOUNDATION-20260623`: `ready_for_acceptance` for managed-job event model and receipt-style tool result.
+- `KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623`: `ready_for_acceptance` for foreground runtime timeout as terminal-equivalent command evidence with timeout metadata and available output.
 - `KERNEL-OBSERVATION-DELIVERY-20260623`: `ready_for_acceptance` for pending/delivered observation tracking and checkpoint delivery semantics.
 - `KERNEL-JOB-CONTROL-INTERRUPT-20260623`: remaining interrupt, progress snapshot, idle continuation, and foreground attach-or-kill semantics.
 
