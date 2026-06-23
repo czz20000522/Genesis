@@ -1,0 +1,115 @@
+package connectorruntime
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+type ApplicationSessionMapper interface {
+	Map(ExternalEvent) (ApplicationSessionMapping, error)
+}
+
+type DefaultApplicationSessionMapper struct{}
+
+func (DefaultApplicationSessionMapper) Map(event ExternalEvent) (ApplicationSessionMapping, error) {
+	if err := event.Validate(); err != nil {
+		return ApplicationSessionMapping{}, err
+	}
+	appSessionID := stableOpaqueID("appsession",
+		strings.TrimSpace(event.Connector),
+		strings.TrimSpace(event.ThreadRef.Connector),
+		strings.TrimSpace(event.ThreadRef.Kind),
+		strings.TrimSpace(event.ThreadRef.ExternalID),
+	)
+	return ApplicationSessionMapping{
+		ApplicationSessionID: appSessionID,
+		KernelSessionID: stableOpaqueID("session",
+			strings.TrimSpace(event.Connector),
+			strings.TrimSpace(event.ThreadRef.Connector),
+			strings.TrimSpace(event.ThreadRef.Kind),
+			strings.TrimSpace(event.ThreadRef.ExternalID),
+		),
+	}, nil
+}
+
+func (r *Runtime) ProcessExternalEvent(ctx context.Context, event ExternalEvent) (ProcessResult, error) {
+	if err := event.Validate(); err != nil {
+		return ProcessResult{}, err
+	}
+	if r.InboundStore == nil {
+		return ProcessResult{}, errors.New("connector runtime missing inbound store")
+	}
+	if r.Client == nil {
+		return ProcessResult{}, errors.New("connector runtime missing kernel turn client")
+	}
+	mapper := r.SessionMapper
+	if mapper == nil {
+		mapper = DefaultApplicationSessionMapper{}
+	}
+	mapping, err := mapper.Map(event)
+	if err != nil {
+		return ProcessResult{}, err
+	}
+	now := time.Now
+	if r.Now != nil {
+		now = r.Now
+	}
+	currentTime := now()
+	requestContext := event.RequestContext(mapping)
+	record := InboundSubmissionRecord{
+		RequestID:            requestContext.RequestID,
+		DedupeKey:            requestContext.DedupeKey,
+		KernelIdempotencyKey: requestContext.KernelIdempotencyKey,
+		Connector:            requestContext.Connector,
+		EventType:            requestContext.EventType,
+		ApplicationSessionID: requestContext.ApplicationSessionID,
+		KernelSessionID:      requestContext.KernelSessionID,
+		Status:               SubmissionStatusPending,
+		CreatedAt:            currentTime,
+		UpdatedAt:            currentTime,
+	}
+	record, reserved, err := r.InboundStore.Reserve(ctx, record)
+	if err != nil {
+		return ProcessResult{}, err
+	}
+	if !reserved {
+		return ProcessResult{Record: record, Duplicate: true}, nil
+	}
+
+	req := TurnSubmitRequest{
+		SessionID:      requestContext.KernelSessionID,
+		IdempotencyKey: requestContext.KernelIdempotencyKey,
+		InputItems: []TurnInputItem{{
+			Type: "text",
+			Text: FormatRequestContextForTurn(requestContext),
+		}},
+	}
+	resp, err := r.Client.SubmitTurn(ctx, req)
+	if err != nil {
+		record.Status = SubmissionStatusFailed
+		record.KernelError = err.Error()
+		record.UpdatedAt = now()
+		_ = r.InboundStore.Complete(ctx, record)
+		return ProcessResult{Record: record}, err
+	}
+	record.TurnID = resp.TurnID
+	if resp.SessionID != "" {
+		record.KernelSessionID = resp.SessionID
+	}
+	if resp.Error != nil {
+		record.Status = SubmissionStatusFailed
+		record.KernelError = resp.Error.Code + ": " + resp.Error.Message
+		record.UpdatedAt = now()
+		_ = r.InboundStore.Complete(ctx, record)
+		return ProcessResult{Record: record}, fmt.Errorf("kernel turn failed: %s", record.KernelError)
+	}
+	record.Status = SubmissionStatusSubmitted
+	record.UpdatedAt = now()
+	if err := r.InboundStore.Complete(ctx, record); err != nil {
+		return ProcessResult{Record: record}, err
+	}
+	return ProcessResult{Record: record, FinalText: resp.Final.Text}, nil
+}

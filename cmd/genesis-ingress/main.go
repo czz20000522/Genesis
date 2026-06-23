@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"genesis/internal/applications/message_ingress"
+	"genesis/internal/applications/connector_runtime"
 )
 
 func main() {
@@ -24,17 +24,17 @@ func run(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "console-once":
-		return runOnce(ctx, args[1:], "console", "stdin", true)
+		return runOnce(ctx, args[1:], "console", true)
 	case "feishu-once":
-		return runOnce(ctx, args[1:], "feishu", "feishu-inbound", false)
+		return runOnce(ctx, args[1:], "feishu", false)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
 }
 
-func runOnce(ctx context.Context, args []string, defaultChannel, defaultAdapter string, printFinal bool) error {
+func runOnce(ctx context.Context, args []string, defaultChannel string, printFinal bool) error {
 	fs := flag.NewFlagSet(defaultChannel+"-once", flag.ContinueOnError)
-	flags := registerCommonFlags(fs, defaultChannel, defaultAdapter)
+	flags := registerCommonFlags(fs, defaultChannel)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func runOnce(ctx context.Context, args []string, defaultChannel, defaultAdapter 
 	if err != nil {
 		return err
 	}
-	result, err := runtime.Process(ctx, msg)
+	result, err := runtime.ProcessExternalEvent(ctx, msg)
 	if printFinal && result.FinalText != "" {
 		fmt.Println(result.FinalText)
 	}
@@ -57,8 +57,7 @@ type commonFlags struct {
 	kernelURL    *string
 	runtimeToken *string
 	statePath    *string
-	channel      *string
-	adapter      *string
+	connector    *string
 	messageID    *string
 	threadID     *string
 	userID       *string
@@ -68,61 +67,68 @@ type commonFlags struct {
 	senderName   *string
 }
 
-func registerCommonFlags(fs *flag.FlagSet, defaultChannel, defaultAdapter string) commonFlags {
+func registerCommonFlags(fs *flag.FlagSet, defaultChannel string) commonFlags {
 	return commonFlags{
 		kernelURL:    fs.String("kernel-url", envOrDefault("GENESIS_KERNEL_URL", "http://127.0.0.1:8765"), "Genesis Kernel HTTP URL"),
 		runtimeToken: fs.String("runtime-token", os.Getenv("GENESIS_RUNTIME_TOKEN"), "Genesis runtime bearer token"),
 		statePath:    fs.String("state", envOrDefault("GENESIS_INGRESS_STATE", filepath.Join(".genesis_ingress", "state.json")), "application-local ingress state file"),
-		channel:      fs.String("channel", defaultChannel, "channel name"),
-		adapter:      fs.String("adapter", defaultAdapter, "adapter name"),
+		connector:    fs.String("connector", defaultChannel, "connector name"),
 		messageID:    fs.String("message-id", "", "external message id"),
 		threadID:     fs.String("thread-id", "", "external thread/chat id"),
 		userID:       fs.String("user-id", "", "external user id"),
 		text:         fs.String("text", "", "message text"),
-		stdinJSON:    fs.Bool("stdin-json", false, "read ChannelMessage JSON from stdin"),
+		stdinJSON:    fs.Bool("stdin-json", false, "read ExternalEvent JSON from stdin"),
 		chatID:       fs.String("chat-id", "", "external chat id to expose as inbound reply reference"),
 		senderName:   fs.String("sender-display", "", "external sender display name"),
 	}
 }
 
-func buildRuntime(flags commonFlags) (messageingress.ChannelMessage, *messageingress.Runtime, error) {
-	msg := messageingress.ChannelMessage{
-		Channel:   *flags.channel,
-		Adapter:   *flags.adapter,
-		MessageID: *flags.messageID,
-		ThreadID:  *flags.threadID,
-		UserID:    *flags.userID,
-		Text:      *flags.text,
+func buildRuntime(flags commonFlags) (connectorruntime.ExternalEvent, *connectorruntime.Runtime, error) {
+	threadID := *flags.threadID
+	if *flags.chatID != "" {
+		threadID = *flags.chatID
+	}
+	event := connectorruntime.ExternalEvent{
+		Connector:       *flags.connector,
+		ExternalEventID: *flags.messageID,
+		EventType:       "message.created",
+		ThreadRef: connectorruntime.ExternalThreadRef{
+			Connector:  *flags.connector,
+			Kind:       threadKind(*flags.connector),
+			ExternalID: threadID,
+		},
+		SenderRef: connectorruntime.ExternalRef{
+			Connector:  *flags.connector,
+			Kind:       "user",
+			ExternalID: *flags.userID,
+			Display:    *flags.senderName,
+		},
+		MessageRef: connectorruntime.ExternalRef{
+			Connector:  *flags.connector,
+			Kind:       "message",
+			ExternalID: *flags.messageID,
+		},
+		Body:             *flags.text,
+		SourceValidation: connectorruntime.SourceValidationUnchecked,
 	}
 	if *flags.stdinJSON {
-		if err := json.NewDecoder(os.Stdin).Decode(&msg); err != nil {
-			return messageingress.ChannelMessage{}, nil, err
+		if err := json.NewDecoder(os.Stdin).Decode(&event); err != nil {
+			return connectorruntime.ExternalEvent{}, nil, err
 		}
 	}
-	if *flags.chatID != "" || *flags.senderName != "" {
-		if msg.Metadata == nil {
-			msg.Metadata = make(map[string]string)
-		}
-		if *flags.chatID != "" {
-			msg.Metadata["chat_id"] = *flags.chatID
-		}
-		if *flags.senderName != "" {
-			msg.Metadata["sender_display"] = *flags.senderName
-		}
-	}
-	store, err := messageingress.NewFileInboundStore(*flags.statePath)
+	store, err := connectorruntime.NewFileInboundStore(*flags.statePath)
 	if err != nil {
-		return messageingress.ChannelMessage{}, nil, err
+		return connectorruntime.ExternalEvent{}, nil, err
 	}
-	runtime := &messageingress.Runtime{
-		Store: store,
-		Client: messageingress.HTTPKernelClient{
+	runtime := &connectorruntime.Runtime{
+		InboundStore: store,
+		Client: connectorruntime.HTTPKernelClient{
 			BaseURL:      *flags.kernelURL,
 			RuntimeToken: *flags.runtimeToken,
 		},
-		Mapper: messageingress.DefaultSessionMapper{},
+		SessionMapper: connectorruntime.DefaultApplicationSessionMapper{},
 	}
-	return msg, runtime, nil
+	return event, runtime, nil
 }
 
 func envOrDefault(name string, fallback string) string {
@@ -130,4 +136,11 @@ func envOrDefault(name string, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func threadKind(connector string) string {
+	if connector == "feishu" {
+		return "chat"
+	}
+	return "conversation"
 }

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"genesis/internal/applications/message_ingress"
+	"genesis/internal/applications/connector_runtime"
 )
 
 func TestFeishuOnceSubmitsInboundMessageWithoutOutboundCLIFlags(t *testing.T) {
-	var got messageingress.TurnSubmitRequest
+	var got connectorruntime.TurnSubmitRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/turn" {
 			t.Fatalf("path = %q, want /turn", r.URL.Path)
@@ -21,10 +21,10 @@ func TestFeishuOnceSubmitsInboundMessageWithoutOutboundCLIFlags(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 			t.Fatalf("decode turn request: %v", err)
 		}
-		_ = json.NewEncoder(w).Encode(messageingress.TurnSubmitResponse{
+		_ = json.NewEncoder(w).Encode(connectorruntime.TurnSubmitResponse{
 			SessionID: got.SessionID,
 			TurnID:    "turn-1",
-			Final:     messageingress.FinalAnswer{Text: "local final"},
+			Final:     connectorruntime.FinalAnswer{Text: "local final"},
 		})
 	}))
 	t.Cleanup(server.Close)
@@ -47,9 +47,14 @@ func TestFeishuOnceSubmitsInboundMessageWithoutOutboundCLIFlags(t *testing.T) {
 		t.Fatalf("input items = %+v", got.InputItems)
 	}
 	input := got.InputItems[0].Text
-	for _, want := range []string{"source_channel: feishu", "adapter: feishu-inbound", "chat_id: oc_123", "text:\nhello"} {
+	for _, want := range []string{"connector: feishu", "event_type: message.created", "thread_kind: chat", "text:\nhello"} {
 		if !strings.Contains(input, want) {
 			t.Fatalf("turn input missing %q in:\n%s", want, input)
+		}
+	}
+	for _, forbidden := range []string{"oc_123", "msg-1", "user-1", "credential", "provider_context"} {
+		if strings.Contains(input, forbidden) {
+			t.Fatalf("turn input contains forbidden value %q in:\n%s", forbidden, input)
 		}
 	}
 }

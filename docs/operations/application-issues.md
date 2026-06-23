@@ -12,21 +12,13 @@ Genesis Kernel. Kernel primitive gaps belong in
   create or update the relevant kernel requirement/design/issue.
 - Completed issues leave this ledger and move to application retirement evidence
   when such a log is needed.
+- Temporary or narrow implementation slices must name their retirement target.
+  Once the approved primitive exists, retire the temporary package, tests, docs,
+  and command references instead of preserving a second truth surface.
 - Issues should stay small: requirement, design, gap, next slice, evidence,
   verification, and reference alignment.
 
 ## Active Issues
-
-### APP-CONNECTOR-INBOUND-CONTEXT-UNIFICATION-20260623 - P2 - Unify inbound message slice with connector request context
-
-- Status: open.
-- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
-- Design: `docs/applications/application-connector-runtime-design.md`.
-- Gap: Current inbound code still lives as the Phase A `internal/applications/message_ingress` slice with `ChannelMessage`. The connector runtime now owns outbound outbox/action/receipt, but inbound `ExternalEvent`, `RequestContext`, and `ApplicationSessionMapping` are not yet unified in the connector owner.
-- Next slice: Introduce connector-owned inbound types and wrap or migrate `message_ingress` so external events normalize into `RequestContext`, then reuse the same session mapping and dedupe semantics before kernel `/turn`.
-- Evidence: `internal/applications/message_ingress` remains a separate inbound package; `internal/applications/connector_runtime` currently covers outbox/action/receipt only.
-- Verification: External event normalization must avoid raw external ids as public system ids; duplicate inbound external events must not submit duplicate kernel turns; connector runtime must still avoid kernel internals and provider-context assembly.
-- Reference alignment: Codex and Reasonix keep protocol adapters outside core controller truth. Genesis should converge inbound and outbound connector state under one user-space boundary owner without moving it into kernel.
 
 ### APP-CONNECTOR-DELIVERY-STATE-MACHINE-20260623 - P2 - Add retry scheduling, dead-letter, and partial-success recovery
 

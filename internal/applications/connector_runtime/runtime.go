@@ -12,9 +12,12 @@ type ConnectorAdapter interface {
 }
 
 type Runtime struct {
-	Store    OutboxStore
-	Adapters map[string]ConnectorAdapter
-	Now      func() time.Time
+	Store         OutboxStore
+	InboundStore  InboundStore
+	Client        TurnClient
+	SessionMapper ApplicationSessionMapper
+	Adapters      map[string]ConnectorAdapter
+	Now           func() time.Time
 }
 
 func (r *Runtime) EnqueueCommand(ctx context.Context, command AppCommand) (ConnectorOutboxItem, bool, error) {

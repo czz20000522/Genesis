@@ -23,43 +23,44 @@ Learned boundary:
 
 ## Phase A Current Slice
 
-Already implemented as `internal/applications/message_ingress` and
+Implemented in `internal/applications/connector_runtime` and consumed by
 `cmd/genesis-ingress`:
 
-- validate inbound channel message;
+- validate inbound `ExternalEvent`;
+- create `RequestContext`;
 - derive opaque kernel session id;
 - derive grammar-safe kernel idempotency key;
 - persist app-local inbound dedupe state;
-- format inbound context;
+- format request context without raw external ids or authority fields;
 - call kernel `/turn`;
-- keep no external outbound sender in the ingress package.
+- keep no external outbound sender in the ingress path.
 
-This slice is useful but narrower than the production connector requirement.
+Earlier narrow message-ingress code has been removed instead of preserved as a
+parallel truth surface.
 
 ## Phase B Current Slice
 
-The first Phase B slice implemented the outbound owner:
+The inbound unification slice:
 
-- introduced `internal/applications/connector_runtime`;
-- defined `ExternalThreadRef`, `AppCommand`, `ConnectorOutboxItem`,
+- defines `ExternalEvent`, `RequestContext`, and `ApplicationSessionMapping`;
+- moves inbound submission into `internal/applications/connector_runtime`;
+- deletes the narrower message-ingress package instead of wrapping it forever;
+- keeps current opaque session mapping and inbound dedupe semantics;
+- keeps connector inbound code outside kernel and outside provider context.
+
+The outbound slice:
+
+- introduces `internal/applications/connector_runtime`;
+- defines `ExternalThreadRef`, `AppCommand`, `ConnectorOutboxItem`,
   `ConnectorAction`, and `DeliveryReceipt`;
-- added a file-backed outbox store with idempotency and receipt records;
-- added console connector action executor for local diagnostics;
-- added Feishu connector action executor behind a runner interface;
-- kept actual Feishu SDK/CLI production listener hardening as a later issue.
+- adds a file-backed outbox store with idempotency and receipt records;
+- adds console connector action executor for local diagnostics;
+- adds Feishu connector action executor behind a runner interface;
+- keeps actual Feishu SDK/CLI production listener hardening as a later issue.
 
 Phase B also updates the generic protocol boundary owner documentation so the
 same rule applies to Model Gateway, future WebUI/CLI/desktop shells, resource
 intake, and credential-backed integrations.
-
-## Phase B Remaining Slice
-
-Unify inbound connector context:
-
-- define `ExternalEvent`, `RequestContext`, and `ApplicationSessionMapping`;
-- move or wrap current `message_ingress` behavior as the inbound connector path;
-- keep current opaque session mapping and inbound dedupe semantics;
-- keep connector inbound code outside kernel and outside provider context.
 
 ## Tests
 
@@ -86,6 +87,8 @@ Phase B must add tests for:
 
 - Real Feishu listener/poller and signature verification remain Phase C.
 - Real credential store integration for connector adapters remains future work.
+- Delivery retry scheduling, dead-letter, and partial-success recovery remain an
+  active issue.
 - Rich messages, attachments, and resource intake remain future work.
 - Operator console remains future work.
 

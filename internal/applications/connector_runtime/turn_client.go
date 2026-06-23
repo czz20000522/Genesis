@@ -1,4 +1,4 @@
-package messageingress
+package connectorruntime
 
 import (
 	"bytes"

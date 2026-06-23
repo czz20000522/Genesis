@@ -139,9 +139,9 @@ treated as kernel errors.
 
 ## Phased Delivery
 
-Phase A keeps the current inbound slice: `ExternalEvent`/`ChannelMessage`
-normalization, deterministic session mapping, app-local dedupe, and
-`turn.submit` through the kernel HTTP surface.
+Phase A provides the connector-owned inbound slice: `ExternalEvent`,
+`RequestContext`, deterministic application/kernel session mapping,
+app-local dedupe, and `turn.submit` through the kernel HTTP surface.
 
 Phase B adds the minimal connector outbox contract: `AppCommand`,
 `ConnectorOutbox`, `ConnectorAction`, and `DeliveryReceipt`, with console and
@@ -180,5 +180,7 @@ are backed by connector-owned idempotency, receipt, and recovery semantics.
 
 This requirement governs application issues in
 `docs/operations/application-issues.md`. It supersedes the narrower
-message-ingress production framing. The current `message_ingress` package is
-only the Phase A inbound slice under this broader requirement.
+message-ingress production framing. Temporary or narrower slices may only exist
+with an explicit retirement target; once the connector-owned primitive exists,
+the temporary package, tests, docs, and command references must be removed
+rather than treated as an additional truth surface.
