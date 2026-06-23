@@ -13,6 +13,14 @@ Use this template:
 
 Link the approved requirement and design documents.
 
+## Reference Scan
+
+- Codex references inspected:
+- Reasonix references inspected:
+- Alignment:
+- Intentional differences:
+- Drift risks or follow-up issues:
+
 ## Phase A
 
 - Deliverable:

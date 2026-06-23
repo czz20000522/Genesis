@@ -8,9 +8,10 @@ Non-trivial kernel capability work must follow this order:
 
 1. Requirement: define what the production capability must be, why it is needed, production semantics, roles, non-goals, phased delivery, acceptance criteria, and related issues.
 2. Design: define owner, boundary, data flow, protocol, failure semantics, permission, recovery, and observability.
-3. Implementation Plan: define Phase A/B/C delivery slices, red lines, tests, evidence, and what remains short of production.
-4. Issue: track only the current gap between approved requirements/designs and implementation.
-5. Implementation: change code only after the relevant requirement and design exist, except for obvious bugs or test gaps.
+3. Reference Scan: before implementation planning or code, inspect Codex and Reasonix for comparable control-plane behavior, record what was learned, and state whether Genesis aligns, intentionally differs, or rejects a drift risk.
+4. Implementation Plan: define Phase A/B/C delivery slices, red lines, tests, evidence, what remains short of production, and the reference scan summary.
+5. Issue: track only the current gap between approved requirements/designs and implementation.
+6. Implementation: change code only after the relevant requirement, design, and reference scan exist, except for obvious bugs or test gaps.
 
 Core principle:
 
@@ -19,6 +20,8 @@ Core principle:
 Requirements should be few and stable. Implementation plans are phase-local and may be condensed after the phase closes. Issues record only current gaps and leave the active ledger when ready for acceptance or retired.
 
 Issues must cite an approved requirement and design unless the issue is an obvious bug or test gap. If an issue uses that exception, say so explicitly in the issue.
+
+Implementation plans and non-trivial issue updates must not jump straight from Genesis-local reasoning to code. Look for comparable behavior in `D:\software\JetBrains\python_workspace\codex-main` and `D:\software\JetBrains\python_workspace\reasonix` first. The goal is not to copy them, but to catch missing state, failure, permission, recovery, and projection semantics before coding.
 
 ## Boundary Rules
 

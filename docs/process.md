@@ -63,13 +63,32 @@ For every non-trivial capability:
 
 1. Write or update the requirement first.
 2. Write or update the design once the requirement is accepted.
-3. Write or update the implementation plan before code changes.
-4. Create or update issues only as gaps against the approved requirement or design.
-5. Implement the smallest phase that can produce evidence.
-6. Verify the phase and record the evidence.
-7. Move accepted issues out of the active issue ledger and into retirement evidence.
+3. Run a reference scan against Codex and Reasonix before implementation planning or code.
+4. Write or update the implementation plan before code changes.
+5. Create or update issues only as gaps against the approved requirement or design.
+6. Implement the smallest phase that can produce evidence.
+7. Verify the phase and record the evidence.
+8. Move accepted issues out of the active issue ledger and into retirement evidence.
 
 Obvious bugs and test gaps may skip a new requirement or design document when the current approved requirement/design already covers the expected behavior. The issue must state that it is using the bug/test-gap exception.
+
+## Reference Scan Gate
+
+Every non-trivial implementation must first look for comparable behavior in:
+
+- `D:\software\JetBrains\python_workspace\codex-main`
+- `D:\software\JetBrains\python_workspace\reasonix`
+
+The scan is about control-plane semantics, not feature parity. Check for comparable treatment of model-visible surface, tool result taxonomy, permission and sandbox ownership, registry boundaries, event or ledger recovery, provider context projection, session control, and shell or application separation.
+
+The implementation plan must record:
+
+- which Codex or Reasonix files, modules, docs, or tests were inspected;
+- what behavior or boundary was learned;
+- whether Genesis aligns, intentionally differs, or rejects a drift risk;
+- which unanswered differences remain as active issues or future slices.
+
+If neither project has a comparable implementation, record that explicitly and explain which Genesis requirement/design owns the decision instead. Do not use "no reference found" as permission to skip requirement, design, failure semantics, permissions, recovery, or observability.
 
 ## Issue Maintenance Rule
 
