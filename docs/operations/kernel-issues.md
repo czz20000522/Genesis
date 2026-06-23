@@ -16,4 +16,62 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-No active repo-owned kernel issues are currently recorded in this ledger.
+### KERNEL-USER-SPACE-BOUNDARY-20260623 - P1 - Kernel and user-space application boundary document
+
+- Status: open.
+- Area: Architecture governance / kernel contract.
+- Problem: Current docs already say Genesis Kernel is not a WebUI, CLI, Feishu adapter, coding agent, or desktop product, and they separately describe Tool System, skill catalog, explicit non-kernel surfaces, and conceptual syscalls. The boundary is still scattered across README, kernel contract, minimal closed loop, and issue records. During fast iteration this makes it easy to mistake user-space application capabilities such as Feishu, mail, calendar, calculator, document processing, or OCR for kernel capabilities.
+- Suggestion: Add a concentrated "System Boundary / Box Model" section to the kernel contract. It should define the LLM as the operator, the kernel as the control/fact/authority/audit boundary, tools as controlled reality touchpoints, skills as user-space instruction packages, resources as kernel-governed durable references, shells/adapters as user-space entry points, and applications as user-space compositions that submit turns and read projections but do not own kernel truth.
+- Evidence: README and kernel-contract already contain the ingredients: Genesis is an agent kernel for LLM execution, external applications are user-space programs, tools own generic effects, skills are user-space assets, and explicit non-kernel surfaces are listed. There is not yet one canonical boundary explanation that future issues can cite.
+- Verification: The resulting document can directly answer whether a calculator skill is kernel, whether a Feishu daemon is kernel, whether WebUI may assemble provider context, and whether an application may write memory truth. Future app-specific issues must either map themselves to an existing kernel primitive or stay outside the kernel ledger.
+- Reference alignment: Aligned with Codex and Reasonix as harness/controller systems: core owns protocol, tool manifests, permission, sandbox, event truth, and projections; domain applications stay outside the core. This issue intentionally rejects the drift toward a large application framework inside Genesis Kernel.
+
+### KERNEL-SHELL-TIMEOUT-CAP-20260623 - P1 - Foreground shell timeout policy and cap
+
+- Status: open.
+- Area: Tool Runtime / shell execution policy.
+- Problem: The current `shell_exec` path has a fixed short execution shape. It does not yet expose a model-visible `timeout_sec`, enforce the foreground default of 30 seconds, cap ordinary foreground execution at 180 seconds, or convert requests above the cap into managed work.
+- Suggestion: Add `timeout_sec` as the model-visible duration field for `shell_exec`. Missing value defaults to 30 seconds. Values from 1 through 180 run as foreground shell attempts. Values above 180 are a valid long-task intent and must route into the managed-job path rather than continuing as a synchronous shell. Non-positive or malformed values return repairable `tool_request_invalid` feedback and do not execute.
+- Evidence: Current permission work resolved `permission_mode` into `authority_policy`, `sandbox_profile`, and `approval_policy`, but timeout ownership has not been split from the shell execution path.
+- Verification: A model tool call without `timeout_sec` runs with the 30 second default; `timeout_sec=180` is accepted as foreground; `timeout_sec=181` returns an immediate managed-job receipt; invalid timeout values return repair feedback and produce no effect.
+- Reference alignment: Aligned with Codex-style tool-loop boundaries where short tools close with a tool result, while long-running work must move behind a managed process/job abstraction. Reasonix also keeps frontend shells behind a controller rather than letting an adapter own lifecycle policy.
+
+### KERNEL-MANAGED-JOB-FOUNDATION-20260623 - P1 - Minimal managed job event model
+
+- Status: open.
+- Area: Work Registry / Tool Runtime.
+- Problem: The kernel contract mentions future long-running jobs, but the current implementation has no `job.started`, `job.completed`, job handle, receipt-style `tool.result`, or job inspection surface. Without this, downloads, long tests, builds, and other long commands either block the provider loop or must be killed instead of checkpointed.
+- Suggestion: Introduce the minimal job event sequence for long shell work: `tool.call`, `job.started`, immediate `tool.result` receipt, and terminal `job.completed` or `job.failed`. The `tool.result` closes the provider tool-call loop with a receipt such as "accepted as managed job" rather than pretending the final command result is available. The job event id is the kernel-generated handle; the model must not invent one.
+- Evidence: `docs/kernel-contract.md` currently says long-running kernel-owned jobs are future events, and current shell operation projection is only synchronous operation evidence.
+- Verification: A shell request above the foreground cap does not block the provider step, writes a `job.started` event, returns a model-visible receipt as `tool.result`, writes a terminal job event through a fake or minimal executor, and survives ledger replay.
+- Reference alignment: Aligned with Codex's separation between tool-call closure and managed process lifecycle. The intentional difference is scope: Genesis should start with a generic job primitive, not a coding-agent-specific task runner.
+
+### KERNEL-OBSERVATION-DELIVERY-20260623 - P1 - Kernel observation queue and delivery checkpoints
+
+- Status: open.
+- Area: Interface Kernel / Provider context projection / Ledger.
+- Problem: Job completion and other kernel observations need a delivery model. The kernel currently has provider context projection and checkpoints, but no explicit rule for which background observations have been delivered to the model and which remain pending.
+- Suggestion: Treat terminal job facts and similar system facts as Kernel Observation Queue sources. Idle sessions must not auto-wake the model by default. Running sessions may drain new observations at the next safe checkpoint before a provider step. Mark observations as delivered only after the provider request is accepted, so provider failure does not silently lose facts.
+- Evidence: The current ledger is restart-safe for turns, operations, memory, and compaction evidence, but it does not track observation delivery ids for future job completions.
+- Verification: A completed background job is visible in UI/session projection immediately, does not start a provider call while the session is idle, is included in the next provider context when the session resumes or continues, and is not delivered twice after restart.
+- Reference alignment: Aligned with Codex's core/session ownership of compaction and tool-loop state: shells submit typed commands and observations; the core decides when provider context incorporates them. This rejects the drift where an external daemon or UI secretly drives model execution.
+
+### KERNEL-JOB-CONTROL-INTERRUPT-20260623 - P2 - Interrupt and job control semantics
+
+- Status: open.
+- Area: Tool Runtime / session control.
+- Problem: The current minimal kernel does not define how user interruption interacts with provider streaming, foreground shell execution, or already-managed background jobs. This will become ambiguous as soon as foreground cap and managed jobs exist.
+- Suggestion: Specify and implement the minimal behavior: interrupting provider streaming cancels the provider step and records `assistant.interrupted`; interrupting a foreground shell attempts to detach into a managed job when the executor supports it, otherwise kills and records an interrupted tool result; interrupting an already-managed job does not cancel it. Add a separate `job_cancel` control path for explicit cancellation.
+- Evidence: Current shell and provider paths are short synchronous paths. There is no job handle or cancel owner yet, so cancellation cannot be audited separately from ordinary command failure.
+- Verification: Interrupting assistant output does not kill an existing background job; explicit job cancel writes cancel request and terminal cancel evidence; interrupted foreground shell behavior is deterministic and reflected in tool/session projections.
+- Reference alignment: Aligned with Codex's distinction between session/control events and process lifecycle. Genesis should keep cancellation as a kernel command or model-visible job-control tool, not as UI-local behavior.
+
+### KERNEL-SANDBOX-APPROVAL-NEXT-20260623 - P2 - Stronger sandbox and approval policy beyond the minimal profile split
+
+- Status: open.
+- Area: Authority Plane / Tool Runtime.
+- Problem: The current foundation correctly separates `permission_mode`, `authority_policy`, `sandbox_profile`, and `approval_policy`, but `approval_policy` is always `never`, and `default` uses a controlled workspace adapter rather than an OS-level sandbox. That is acceptable for the first ground layer, but not enough for broader arbitrary command execution.
+- Suggestion: Keep the current split as the owner path. Future stronger sandboxing must be selected by kernel-owned profile resolution and reported through readiness; future approval must be a typed control-plane flow and never a model-supplied escalation field. Do not let `shell_exec` arguments select permission, sandbox, approval, workspace root, or authority policy.
+- Evidence: Current docs and tests now state `controlled_workspace` is not an OS sandbox and provider-visible tool results must not include permission/profile control-plane fields.
+- Verification: The existing positive contract remains true; when a stronger sandbox or approval flow is added, unknown or unavailable sandbox profiles fail closed, approval denial returns structured feedback without execution, and model-supplied control-plane fields are rejected as repairable invalid requests.
+- Reference alignment: Aligned with Codex's sandbox/approval split and Reasonix's central controller model. The active drift risk is over-promising `default` as a real OS sandbox or turning approval into shell/UI-local logic.
