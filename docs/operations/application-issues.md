@@ -17,35 +17,35 @@ Genesis Kernel. Kernel primitive gaps belong in
 
 ## Active Issues
 
-### APP-MESSAGE-INGRESS-FEISHU-LISTENER-20260623 - P2 - Feishu inbound listener and adapter retry hardening
+### APP-CONNECTOR-OUTBOX-RECEIPT-20260623 - P1 - Add connector outbox/action/receipt owner
 
 - Status: open.
-- Requirement: `docs/applications/user-space-message-ingress-runtime-requirement.md`.
-- Design: `docs/applications/user-space-message-ingress-runtime-design.md`.
-- Gap: Phase A only proves one-shot Feishu inbound envelope submission. It does not run a durable Feishu event listener, verify callback signatures, refresh adapter tokens, or apply inbound retry/backoff policy.
-- Next slice: Add a Feishu listener/poller that emits `ChannelMessage` envelopes and keeps signature/token/retry state in adapter-local storage.
-- Evidence: Phase A plan explicitly excludes long-running Feishu listener production hardening.
-- Verification: A repeated Feishu event must dedupe before kernel turn submission; inbound retry exhaustion must only affect application inbox/submission status.
+- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Gap: Current code only implements the Phase A inbound slice in `internal/applications/message_ingress`. It has no `AppCommand`, `ConnectorOutbox`, `ConnectorAction`, or `DeliveryReceipt` owner, so production outbound delivery would still be underspecified if implemented next.
+- Next slice: Add the minimal connector runtime package or owner module that defines app commands, outbox items, connector actions, receipts, idempotency, and failed-delivery isolation. Console and Feishu should be adapters of the same primitives.
+- Evidence: `cmd/genesis-ingress` and `internal/applications/message_ingress` submit inbound messages to `/turn` and intentionally contain no outbound sender. The approved connector requirement now states outbound production must flow through connector outbox/receipt.
+- Verification: App command enqueue produces one outbox item; duplicate app command suppresses duplicate action; connector action failure writes receipt/retry state without changing kernel facts; connector package does not import `internal/kernel` or expose external credentials to model-visible fields.
+- Reference alignment: Codex and Reasonix keep protocol adapters outside core controller truth; Genesis extends that boundary with a connector outbox/receipt owner for production external delivery.
+
+### APP-CONNECTOR-FEISHU-LISTENER-20260623 - P2 - Feishu inbound listener and adapter retry hardening
+
+- Status: open.
+- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Gap: Phase A only proves one-shot Feishu-like inbound envelope submission. It does not run a durable Feishu event listener, verify callback signatures, refresh adapter tokens, or apply inbound retry/backoff policy.
+- Next slice: After the outbox/receipt owner exists, add a Feishu listener/poller that emits `ExternalEvent`/`RequestContext` and keeps signature/token/retry state in connector-local storage.
+- Evidence: Application Connector Runtime Phase C explicitly covers Feishu inbound listener/poller hardening.
+- Verification: A repeated Feishu event must dedupe before kernel turn submission; inbound retry exhaustion must only affect connector request state; external Feishu identity must not set kernel authority.
 - Reference alignment: Aligned with Reasonix ACP keeping protocol/session handling outside the controller and Codex app-server keeping client transport ids outside core turn truth.
 
-### APP-MESSAGE-INGRESS-OPERATOR-CONSOLE-20260623 - P2 - Operator console inspection projection
+### APP-CONNECTOR-OPERATOR-CONSOLE-20260623 - P2 - Operator console inspection projection
 
 - Status: open.
-- Requirement: `docs/applications/user-space-message-ingress-runtime-requirement.md`.
-- Design: `docs/applications/user-space-message-ingress-runtime-design.md`.
-- Gap: Phase A does not provide the operator console views for capabilities, session timeline, raw events, audit, memory review, job status, or provider context inspection. It only creates the ingress relay needed to submit messages.
-- Next slice: Add console inspection commands that read kernel projections and render them without interpreting raw events as application truth.
-- Evidence: Phase A plan keeps operator console inspection as future work.
-- Verification: Console inspection must fetch kernel projections through HTTP and must not import kernel internals or reconstruct provider context locally.
+- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Gap: Current code does not provide operator console views for connector state or kernel projections. It only creates the inbound relay needed to submit messages.
+- Next slice: Add console inspection commands that read connector state and kernel projections without interpreting raw events as application truth.
+- Evidence: Application Connector Runtime Phase D covers operator console inspection.
+- Verification: Console inspection must fetch kernel projections through HTTP and connector state through application store APIs; it must not import kernel internals or reconstruct provider context locally.
 - Reference alignment: Aligned with Reasonix `serve/wire.go` projecting internal events to wire shape without becoming event truth owner.
-
-### APP-MESSAGE-INGRESS-OUTBOUND-SKILL-PACK-20260623 - P2 - External channel outbound skill pack
-
-- Status: open.
-- Requirement: `docs/applications/user-space-message-ingress-runtime-requirement.md`.
-- Design: `docs/applications/user-space-message-ingress-runtime-design.md`.
-- Gap: The ingress runtime can pass Feishu reply references to the LLM, but a polished application path still needs skill/CLI capability packs that teach the LLM how to call `lark-cli`, mail CLI, and future channel CLIs through kernel-governed tools.
-- Next slice: Add or curate user-space skills and smoke instructions for Feishu outbound replies without adding channel-specific kernel packages or gateway reply APIs.
-- Evidence: The approved design rejects automatic external-channel reply delivery from ingress runtime.
-- Verification: A live Feishu smoke should show inbound message entry through ingress and outbound reply produced only by LLM-requested `shell_exec` using lark-cli.
-- Reference alignment: Aligned with the Genesis boundary that external domain actions are skills/CLIs, not kernel owners.
