@@ -71,11 +71,11 @@ Application:
 2. Omitted `timeout_sec` defaults to 30 seconds.
 3. Foreground synchronous shell accepts integer seconds from 1 through 180.
 4. `timeout_sec=180` is the maximum foreground request.
-5. `timeout_sec>180` is a valid long-task intent. It routes to managed jobs and must not continue as ordinary synchronous shell execution.
+5. `timeout_sec>180` is a valid long-task intent. It routes to managed-job admission and must not continue as ordinary synchronous shell execution.
 6. Non-positive, non-integer, missing-type, or malformed timeout values produce repairable `tool_request_invalid` feedback and no effect.
 7. Timeout validation happens before command execution and before any workspace or host shell side effect.
 
-Direct HTTP `POST /tools/shell_exec` follows the same kernel owner path. It returns a foreground operation projection for `timeout_sec` values within the foreground cap, and returns a managed job projection for `timeout_sec>180`. It does not create a parallel direct-HTTP lifecycle owner. Because direct HTTP can distinguish an omitted JSON field from an explicit value, omitted `timeout_sec` defaults to 30 seconds while explicit non-positive values are invalid.
+Direct HTTP `POST /tools/shell_exec` follows the same kernel owner path. It returns a foreground operation projection for `timeout_sec` values within the foreground cap, and returns a managed job projection for admitted `timeout_sec>180` requests. It does not create a parallel direct-HTTP lifecycle owner. Because direct HTTP can distinguish an omitted JSON field from an explicit value, omitted `timeout_sec` defaults to 30 seconds while explicit non-positive values are invalid. The current local managed executor requires the resolved host sandbox profile; controlled-workspace/default requests above the cap return a blocked operation until a controlled managed executor exists.
 8. The model-visible schema uses seconds. Internal runtimes may use other units.
 
 ### Terminal-Equivalent Command Results
@@ -203,8 +203,8 @@ Positive cases:
 - omitted timeout uses 30 seconds;
 - 1 through 180 seconds are foreground-valid;
 - valid foreground command returns terminal-equivalent evidence;
-- values above 180 seconds become managed-job receipts;
-- direct HTTP shell transport returns a job receipt/projection for values above 180 seconds instead of running synchronously;
+- values above 180 seconds enter managed-job admission rather than synchronous shell execution;
+- direct HTTP shell transport returns a job receipt/projection for admitted values above 180 seconds, or a blocked operation when policy/profile admission rejects the managed executor;
 - model-requested managed job writes `tool.call`, `job.started`, receipt `tool.result`, and terminal job event;
 - job status and cancellation use generic job controls;
 - completed job observations can enter the next provider context through kernel delivery.

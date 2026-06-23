@@ -2534,6 +2534,108 @@ func TestHTTPShellExecLongTimeoutReturnsManagedJobReceipt(t *testing.T) {
 	}
 }
 
+func TestHTTPShellExecLongTimeoutDoesNotBypassDefaultSandbox(t *testing.T) {
+	workspace := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "managed-bypass.txt")
+	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	payload, err := json.Marshal(map[string]interface{}{
+		"session_id":      "http-managed-default-blocked",
+		"cwd":             workspace,
+		"command":         writeFileCommand(outside, "bypass"),
+		"timeout_sec":     maxForegroundShellTimeoutSec + 1,
+		"idempotency_key": "http-managed-default-blocked",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	resp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", payload)
+	if err != nil {
+		t.Fatalf("POST /tools/shell_exec failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 blocked operation", resp.StatusCode)
+	}
+	var operation OperationProjection
+	if err := json.NewDecoder(resp.Body).Decode(&operation); err != nil {
+		t.Fatalf("decode operation response: %v", err)
+	}
+	if operation.Status != "blocked" {
+		t.Fatalf("operation = %+v, want blocked", operation)
+	}
+	if _, err := os.Stat(outside); !os.IsNotExist(err) {
+		t.Fatalf("outside file stat error = %v, want file not created", err)
+	}
+	projection, err := k.Session("http-managed-default-blocked")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Jobs) != 0 {
+		t.Fatalf("jobs = %+v, want no managed job when default sandbox blocks command", projection.Jobs)
+	}
+}
+
+func TestHTTPShellExecManagedJobRetryRedactsTerminalOutput(t *testing.T) {
+	workspace := t.TempDir()
+	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+		PermissionMode: PermissionModeYolo,
+		WorkspaceRoot:  workspace,
+	})
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	payload, err := json.Marshal(map[string]interface{}{
+		"session_id":      "http-managed-redaction",
+		"cwd":             workspace,
+		"command":         secretEchoCommand(),
+		"timeout_sec":     maxForegroundShellTimeoutSec + 1,
+		"idempotency_key": "http-managed-redaction",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	resp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", payload)
+	if err != nil {
+		t.Fatalf("POST /tools/shell_exec failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	var started JobProjection
+	if err := json.NewDecoder(resp.Body).Decode(&started); err != nil {
+		t.Fatalf("decode started job: %v", err)
+	}
+	_ = waitForSessionJobStatus(t, k, "http-managed-redaction", started.JobID, "completed")
+
+	retryResp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", payload)
+	if err != nil {
+		t.Fatalf("retry POST /tools/shell_exec failed: %v", err)
+	}
+	defer retryResp.Body.Close()
+	if retryResp.StatusCode != http.StatusOK {
+		t.Fatalf("retry status = %d, want 200", retryResp.StatusCode)
+	}
+	body, err := io.ReadAll(retryResp.Body)
+	if err != nil {
+		t.Fatalf("read retry response: %v", err)
+	}
+	for _, leaked := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
+		if strings.Contains(string(body), leaked) {
+			t.Fatalf("managed job retry leaked %q: %s", leaked, string(body))
+		}
+	}
+	if !strings.Contains(string(body), "[REDACTED]") {
+		t.Fatalf("managed job retry body missing redaction marker: %s", string(body))
+	}
+}
+
 func TestHTTPShellExecRejectsExplicitZeroTimeout(t *testing.T) {
 	workspace := t.TempDir()
 	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
@@ -2554,6 +2656,139 @@ func TestHTTPShellExecRejectsExplicitZeroTimeout(t *testing.T) {
 	}
 	if _, err := k.Session("http-shell-zero-timeout"); err != ErrSessionNotFound {
 		t.Fatalf("Session error = %v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestHTTPShellExecIdempotencyKeyDoesNotCrossFromOperationToJob(t *testing.T) {
+	workspace := t.TempDir()
+	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+		PermissionMode: PermissionModeYolo,
+		WorkspaceRoot:  workspace,
+	})
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	firstPayload, err := json.Marshal(map[string]interface{}{
+		"session_id":      "http-shell-operation-first",
+		"cwd":             workspace,
+		"command":         echoCommand("operation-first"),
+		"idempotency_key": "same-effect-key",
+	})
+	if err != nil {
+		t.Fatalf("marshal first request: %v", err)
+	}
+	firstResp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", firstPayload)
+	if err != nil {
+		t.Fatalf("first POST /tools/shell_exec failed: %v", err)
+	}
+	defer firstResp.Body.Close()
+	if firstResp.StatusCode != http.StatusOK {
+		t.Fatalf("first status = %d, want 200", firstResp.StatusCode)
+	}
+	var first OperationProjection
+	if err := json.NewDecoder(firstResp.Body).Decode(&first); err != nil {
+		t.Fatalf("decode first operation: %v", err)
+	}
+
+	secondPayload, err := json.Marshal(map[string]interface{}{
+		"session_id":      "http-shell-operation-first",
+		"cwd":             workspace,
+		"command":         longRunningShellCommand(30),
+		"timeout_sec":     maxForegroundShellTimeoutSec + 1,
+		"idempotency_key": "same-effect-key",
+	})
+	if err != nil {
+		t.Fatalf("marshal second request: %v", err)
+	}
+	secondResp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", secondPayload)
+	if err != nil {
+		t.Fatalf("second POST /tools/shell_exec failed: %v", err)
+	}
+	defer secondResp.Body.Close()
+	if secondResp.StatusCode != http.StatusOK {
+		t.Fatalf("second status = %d, want 200 existing operation", secondResp.StatusCode)
+	}
+	var second OperationProjection
+	if err := json.NewDecoder(secondResp.Body).Decode(&second); err != nil {
+		t.Fatalf("decode second operation: %v", err)
+	}
+	if second.OperationID != first.OperationID || second.Status != "completed" {
+		t.Fatalf("second operation = %+v, want original operation %s", second, first.OperationID)
+	}
+	projection, err := k.Session("http-shell-operation-first")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Jobs) != 0 {
+		t.Fatalf("jobs = %+v, want no managed job after operation-owned idempotency key", projection.Jobs)
+	}
+}
+
+func TestHTTPShellExecIdempotencyKeyDoesNotCrossFromJobToOperation(t *testing.T) {
+	workspace := t.TempDir()
+	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+		PermissionMode: PermissionModeYolo,
+		WorkspaceRoot:  workspace,
+	})
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	firstPayload, err := json.Marshal(map[string]interface{}{
+		"session_id":      "http-shell-job-first",
+		"cwd":             workspace,
+		"command":         echoCommand("job-first"),
+		"timeout_sec":     maxForegroundShellTimeoutSec + 1,
+		"idempotency_key": "same-effect-key",
+	})
+	if err != nil {
+		t.Fatalf("marshal first request: %v", err)
+	}
+	firstResp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", firstPayload)
+	if err != nil {
+		t.Fatalf("first POST /tools/shell_exec failed: %v", err)
+	}
+	defer firstResp.Body.Close()
+	if firstResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("first status = %d, want 202", firstResp.StatusCode)
+	}
+	var first JobProjection
+	if err := json.NewDecoder(firstResp.Body).Decode(&first); err != nil {
+		t.Fatalf("decode first job: %v", err)
+	}
+
+	secondPayload, err := json.Marshal(map[string]interface{}{
+		"session_id":      "http-shell-job-first",
+		"cwd":             workspace,
+		"command":         echoCommand("should-not-run"),
+		"idempotency_key": "same-effect-key",
+	})
+	if err != nil {
+		t.Fatalf("marshal second request: %v", err)
+	}
+	secondResp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", secondPayload)
+	if err != nil {
+		t.Fatalf("second POST /tools/shell_exec failed: %v", err)
+	}
+	defer secondResp.Body.Close()
+	if secondResp.StatusCode != http.StatusOK {
+		t.Fatalf("second status = %d, want 200 existing job", secondResp.StatusCode)
+	}
+	var second JobProjection
+	if err := json.NewDecoder(secondResp.Body).Decode(&second); err != nil {
+		t.Fatalf("decode second job: %v", err)
+	}
+	if second.JobID != first.JobID {
+		t.Fatalf("second job id = %q, want %q", second.JobID, first.JobID)
+	}
+	projection, err := k.Session("http-shell-job-first")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want no operation after job-owned idempotency key", projection.Operations)
+	}
+	if got := countSessionEventType(projection.Events, "job.started"); got != 1 {
+		t.Fatalf("job.started count = %d, want 1", got)
 	}
 }
 
@@ -6366,6 +6601,64 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 	}
 }
 
+func TestSubmitTurnLongShellTimeoutDefaultModeDoesNotStartManagedHostJob(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]interface{}{
+		"cwd":         workspace,
+		"command":     echoCommand("default-long"),
+		"timeout_sec": maxForegroundShellTimeoutSec + 1,
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_default_managed_blocked", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "default managed block observed",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "default-managed-blocked",
+		InputItems: []InputItem{{Type: "text", Text: "try default long shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "default managed block observed" {
+		t.Fatalf("final text = %q, want default managed block observed", resp.Final.Text)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "permission_denied" || payload["executed"] != false {
+		t.Fatalf("tool result payload = %+v, want permission_denied without execution", payload)
+	}
+	projection, err := k.Session("default-managed-blocked")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Jobs) != 0 {
+		t.Fatalf("jobs = %+v, want no managed host job in default mode", projection.Jobs)
+	}
+	if len(projection.Operations) != 1 || projection.Operations[0].Status != "blocked" {
+		t.Fatalf("operations = %+v, want blocked operation", projection.Operations)
+	}
+	if projection.Operations[0].BlockedReason != "managed_job_requires_host_sandbox" {
+		t.Fatalf("blocked reason = %q, want managed_job_requires_host_sandbox", projection.Operations[0].BlockedReason)
+	}
+}
+
 func TestSubmitTurnDeliversCompletedJobObservationToNextProviderStep(t *testing.T) {
 	workspace := t.TempDir()
 	arguments, err := json.Marshal(map[string]interface{}{
@@ -6820,6 +7113,84 @@ func TestSubmitTurnJobStatusReturnsCompletedJobAfterRestartWithoutOperation(t *t
 	}
 	if len(projection.Operations) != 0 {
 		t.Fatalf("operations = %+v, want job_status to create no operations", projection.Operations)
+	}
+}
+
+func TestSubmitTurnJobStatusRedactsTerminalOutput(t *testing.T) {
+	workspace := t.TempDir()
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	sessionID := "job-status-redaction"
+	jobID := "job_status_redaction"
+	seed, err := New(Config{
+		LedgerPath:   ledgerPath,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New seed returned error: %v", err)
+	}
+	startedAt := time.Date(2026, 6, 22, 1, 2, 3, 0, time.UTC)
+	started := JobProjection{
+		JobID:      jobID,
+		SessionID:  sessionID,
+		Tool:       "shell_exec",
+		Status:     "running",
+		CWD:        workspace,
+		Command:    secretEchoCommand(),
+		TimeoutSec: 600,
+		StartedAt:  startedAt,
+	}
+	if err := seed.appendJobEvent("job.started", started); err != nil {
+		t.Fatalf("append started job: %v", err)
+	}
+	completed := started
+	completed.Status = "completed"
+	completed.Stdout = "GENESIS_PROVIDER_API_KEY=sk-secret123\nAuthorization: Bearer tokentest123456\n"
+	completed.Stderr = `{"api_key":"sk-jsonsecret"}`
+	completed.CompletedAt = startedAt.Add(time.Second)
+	if err := seed.appendJobEvent("job.completed", completed); err != nil {
+		t.Fatalf("append completed job: %v", err)
+	}
+
+	arguments, err := json.Marshal(map[string]string{"job_id": jobID})
+	if err != nil {
+		t.Fatalf("marshal job_status args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_job_status_redaction", Name: "job_status", Arguments: json.RawMessage(arguments)},
+		},
+		final: "job status redaction observed",
+	}
+	reloaded, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New reloaded returned error: %v", err)
+	}
+	if _, err := reloaded.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "check redacted job"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	for _, leaked := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
+		if strings.Contains(string(payloadJSON), leaked) {
+			t.Fatalf("job_status payload leaked %q: %s", leaked, string(payloadJSON))
+		}
+	}
+	if !strings.Contains(string(payloadJSON), "[REDACTED]") {
+		t.Fatalf("job_status payload missing redaction marker: %s", string(payloadJSON))
 	}
 }
 

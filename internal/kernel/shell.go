@@ -26,8 +26,88 @@ const (
 	foregroundTimeoutExitCode   = 124
 )
 
+type shellInvokeResult struct {
+	Operation       *OperationProjection
+	Job             *JobProjection
+	CreatedJob      bool
+	PendingJobStart *JobProjection
+}
+
 func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (OperationProjection, error) {
 	return k.toolGateway().ExecShell(ctx, req, "")
+}
+
+func (g ToolGateway) InvokeShell(ctx context.Context, req ShellExecRequest, turnID string, toolCallEventID string, startManagedJob bool) (shellInvokeResult, error) {
+	if err := validateShellRequest(req); err != nil {
+		return shellInvokeResult{}, err
+	}
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	turnID = strings.TrimSpace(turnID)
+	toolCallEventID = strings.TrimSpace(toolCallEventID)
+
+	if req.IdempotencyKey != "" {
+		existing, ok, err := g.lookupShellEffectByIdempotencyKey(req.SessionID, req.IdempotencyKey)
+		if err != nil {
+			return shellInvokeResult{}, err
+		}
+		if ok {
+			return existing, nil
+		}
+	}
+
+	timeoutSec := normalizedShellTimeoutSec(req.TimeoutSec)
+	if timeoutSec <= maxForegroundShellTimeoutSec {
+		operation, err := g.ExecShell(ctx, req, turnID)
+		if err != nil {
+			return shellInvokeResult{}, err
+		}
+		return shellInvokeResult{Operation: &operation}, nil
+	}
+
+	definition, ok := g.registry.Resolve("shell_exec")
+	if !ok {
+		return shellInvokeResult{}, fmt.Errorf("%w: shell_exec is not registered", ErrToolInfrastructureFailed)
+	}
+	authorization := authorizeKernelTool(g.kernel.toolPolicy, definition.Spec)
+	if !authorization.Allowed {
+		operation, err := g.recordBlockedShellOperation(req, turnID, authorization.Reason)
+		if err != nil {
+			return shellInvokeResult{}, err
+		}
+		return shellInvokeResult{Operation: &operation}, nil
+	}
+	resolvedPolicy := resolveToolPolicy(g.kernel.toolPolicy)
+	executionPlan, reason := prepareShellExecution(resolvedPolicy, req)
+	if reason != "" {
+		operation, err := g.recordBlockedShellOperationWithCWD(req, turnID, reason, executionPlan.cwd)
+		if err != nil {
+			return shellInvokeResult{}, err
+		}
+		return shellInvokeResult{Operation: &operation}, nil
+	}
+	if resolvedPolicy.SandboxProfile != SandboxProfileHost {
+		operation, err := g.recordBlockedShellOperationWithCWD(req, turnID, "managed_job_requires_host_sandbox", executionPlan.cwd)
+		if err != nil {
+			return shellInvokeResult{}, err
+		}
+		return shellInvokeResult{Operation: &operation}, nil
+	}
+
+	job, created, err := g.kernel.prepareManagedShellJob(req, turnID, toolCallEventID)
+	if err != nil {
+		return shellInvokeResult{}, err
+	}
+	result := shellInvokeResult{Job: &job, CreatedJob: created}
+	if created {
+		result.PendingJobStart = &job
+	}
+	if created && startManagedJob {
+		if err := g.kernel.startManagedJobExecutor(job); err != nil {
+			return shellInvokeResult{}, err
+		}
+	}
+	return result, nil
 }
 
 func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID string) (OperationProjection, error) {
@@ -131,6 +211,64 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		operation.Status = "completed"
 	} else {
 		operation.Status = "failed"
+	}
+	if err := k.appendOperationEvent(operation); err != nil {
+		return OperationProjection{}, err
+	}
+	return redactOperationEvidence(operation), nil
+}
+
+func (g ToolGateway) lookupShellEffectByIdempotencyKey(sessionID string, key string) (shellInvokeResult, bool, error) {
+	operation, ok, err := g.kernel.operationByIdempotencyKey(sessionID, "shell_exec", key)
+	if err != nil {
+		return shellInvokeResult{}, false, err
+	}
+	if ok {
+		if operation.Status == "running" {
+			failed, err := g.kernel.failStaleRunningOperation(operation)
+			if err != nil {
+				return shellInvokeResult{}, false, err
+			}
+			return shellInvokeResult{Operation: &failed}, true, nil
+		}
+		return shellInvokeResult{Operation: &operation}, true, nil
+	}
+	job, ok, err := g.kernel.lookupSessionJobByIdempotencyKey(sessionID, "shell_exec", key)
+	if err != nil {
+		return shellInvokeResult{}, false, err
+	}
+	if ok {
+		return shellInvokeResult{Job: &job}, true, nil
+	}
+	return shellInvokeResult{}, false, nil
+}
+
+func (g ToolGateway) recordBlockedShellOperation(req ShellExecRequest, turnID string, reason string) (OperationProjection, error) {
+	return g.recordBlockedShellOperationWithCWD(req, turnID, reason, strings.TrimSpace(req.CWD))
+}
+
+func (g ToolGateway) recordBlockedShellOperationWithCWD(req ShellExecRequest, turnID string, reason string, cwd string) (OperationProjection, error) {
+	k := g.kernel
+	now := k.clock()
+	resolvedPolicy := resolveToolPolicy(k.toolPolicy)
+	operation := OperationProjection{
+		OperationID:     newID("op", now),
+		SessionID:       strings.TrimSpace(req.SessionID),
+		TurnID:          strings.TrimSpace(turnID),
+		Tool:            "shell_exec",
+		IdempotencyKey:  strings.TrimSpace(req.IdempotencyKey),
+		Status:          "blocked",
+		PermissionMode:  resolvedPolicy.PermissionMode,
+		AuthorityPolicy: resolvedPolicy.AuthorityPolicy,
+		SandboxProfile:  resolvedPolicy.SandboxProfile,
+		ApprovalPolicy:  resolvedPolicy.ApprovalPolicy,
+		CWD:             strings.TrimSpace(cwd),
+		Command:         strings.TrimSpace(req.Command),
+		TimeoutSec:      normalizedShellTimeoutSec(req.TimeoutSec),
+		BlockedReason:   strings.TrimSpace(reason),
+		StartedAt:       now,
+		EndedAt:         now,
+		ElapsedMs:       1,
 	}
 	if err := k.appendOperationEvent(operation); err != nil {
 		return OperationProjection{}, err

@@ -8,37 +8,6 @@ import (
 	"time"
 )
 
-func (k *Kernel) startManagedShellJobReceipt(sessionID string, turnID string, toolCallEventID string, providerCallID string, toolName string, req ShellExecRequest) (ModelToolResult, error) {
-	req.SessionID = sessionID
-	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
-	if req.IdempotencyKey == "" {
-		req.IdempotencyKey = strings.TrimSpace(toolCallEventID)
-	}
-	started, created, err := k.prepareManagedShellJob(req, turnID, toolCallEventID)
-	if err != nil {
-		return ModelToolResult{}, err
-	}
-	content, err := json.Marshal(ModelManagedJobResult{
-		Status:        "managed_job_started",
-		Executed:      true,
-		JobID:         started.JobID,
-		VisibleOutput: started.Receipt,
-	})
-	if err != nil {
-		return ModelToolResult{}, err
-	}
-	result := ModelToolResult{
-		ToolCallID:      strings.TrimSpace(providerCallID),
-		ToolCallEventID: strings.TrimSpace(toolCallEventID),
-		Name:            strings.TrimSpace(toolName),
-		Content:         string(content),
-	}
-	if created {
-		result.PendingJobStart = &started
-	}
-	return result, nil
-}
-
 func (k *Kernel) prepareManagedShellJob(req ShellExecRequest, turnID string, toolCallEventID string) (JobProjection, bool, error) {
 	if err := validateShellRequest(req); err != nil {
 		return JobProjection{}, false, err

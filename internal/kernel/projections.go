@@ -345,6 +345,8 @@ func redactWorkProjection(work WorkProjection) WorkProjection {
 func redactJobProjection(job JobProjection) JobProjection {
 	job.CWD = redactEvidenceText(job.CWD)
 	job.Command = redactEvidenceText(job.Command)
+	job.Stdout = redactEvidenceText(job.Stdout)
+	job.Stderr = redactEvidenceText(job.Stderr)
 	job.Receipt = redactEvidenceText(job.Receipt)
 	job.FailureReason = redactEvidenceText(job.FailureReason)
 	job.CancelReason = redactEvidenceText(job.CancelReason)

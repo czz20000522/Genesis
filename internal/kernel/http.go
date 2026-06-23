@@ -213,11 +213,7 @@ func handleExecShell(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	if normalizedShellTimeoutSec(req.TimeoutSec) > maxForegroundShellTimeoutSec {
-		handleManagedExecShell(w, r, k, req)
-		return
-	}
-	operation, err := k.ExecShell(r.Context(), req)
+	result, err := k.toolGateway().InvokeShell(r.Context(), req, "", "", true)
 	if writeKernelUnavailable(w, err) {
 		return
 	}
@@ -229,53 +225,19 @@ func handleExecShell(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, operation)
-}
-
-func handleManagedExecShell(w http.ResponseWriter, r *http.Request, k *Kernel, req ShellExecRequest) {
-	definition, ok := k.toolGateway().registry.Resolve("shell_exec")
-	if !ok {
-		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", "shell_exec is not registered")
+	if result.Operation != nil {
+		writeJSON(w, http.StatusOK, *result.Operation)
 		return
 	}
-	authorization := authorizeKernelTool(k.toolPolicy, definition.Spec)
-	if !authorization.Allowed {
-		operation, err := k.ExecShell(r.Context(), req)
-		if writeKernelUnavailable(w, err) {
-			return
+	if result.Job != nil {
+		status := http.StatusOK
+		if result.CreatedJob {
+			status = http.StatusAccepted
 		}
-		if errors.Is(err, ErrToolInfrastructureFailed) {
-			writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
-			return
-		}
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, operation)
+		writeJSON(w, status, redactJobProjection(*result.Job))
 		return
 	}
-	job, created, err := k.prepareManagedShellJob(req, "", "")
-	if writeKernelUnavailable(w, err) {
-		return
-	}
-	if errors.Is(err, ErrToolInfrastructureFailed) {
-		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-	if created {
-		if err := k.startManagedJobExecutor(job); err != nil {
-			writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusAccepted, job)
-		return
-	}
-	writeJSON(w, http.StatusOK, job)
+	writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", "shell_exec produced no operation or job")
 }
 
 func handleSubmitWork(w http.ResponseWriter, r *http.Request, k *Kernel) {

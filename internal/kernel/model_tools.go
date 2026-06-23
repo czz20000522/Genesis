@@ -146,59 +146,59 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 		providerCallID: providerCallID,
 		name:           name,
 		onDenied: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
-			operation, err := k.toolGateway().ExecShell(ctx, ShellExecRequest{
+			return k.shellInvokeModelToolResult(ctx, sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
 				SessionID:      sessionID,
 				CWD:            args.CWD,
 				Command:        args.Command,
 				TimeoutSec:     timeoutSec,
 				IdempotencyKey: eventID,
-			}, turnID)
-			if err != nil {
-				return ModelToolResult{}, fmt.Errorf("%w: %w", ErrToolInfrastructureFailed, err)
-			}
-			content, err := json.Marshal(modelOperationResult(operation))
-			if err != nil {
-				return ModelToolResult{}, err
-			}
-			return ModelToolResult{
-				ToolCallID:      providerCallID,
-				ToolCallEventID: eventID,
-				Name:            name,
-				Content:         string(content),
-			}, nil
+			})
 		},
 		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
-			if timeoutSec > maxForegroundShellTimeoutSec {
-				return k.startManagedShellJobReceipt(sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
-					SessionID:      sessionID,
-					CWD:            args.CWD,
-					Command:        args.Command,
-					TimeoutSec:     timeoutSec,
-					IdempotencyKey: eventID,
-				})
-			}
-			operation, err := k.toolGateway().ExecShell(ctx, ShellExecRequest{
+			return k.shellInvokeModelToolResult(ctx, sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
 				SessionID:      sessionID,
 				CWD:            args.CWD,
 				Command:        args.Command,
 				TimeoutSec:     timeoutSec,
 				IdempotencyKey: eventID,
-			}, turnID)
-			if err != nil {
-				return ModelToolResult{}, fmt.Errorf("%w: %w", ErrToolInfrastructureFailed, err)
-			}
-			content, err := json.Marshal(modelOperationResult(operation))
-			if err != nil {
-				return ModelToolResult{}, err
-			}
-			return ModelToolResult{
-				ToolCallID:      providerCallID,
-				ToolCallEventID: eventID,
-				Name:            name,
-				Content:         string(content),
-			}, nil
+			})
 		},
 	}, nil
+}
+
+func (k *Kernel) shellInvokeModelToolResult(ctx context.Context, sessionID string, turnID string, eventID string, providerCallID string, name string, req ShellExecRequest) (ModelToolResult, error) {
+	result, err := k.toolGateway().InvokeShell(ctx, req, turnID, eventID, false)
+	if err != nil {
+		return ModelToolResult{}, fmt.Errorf("%w: %w", ErrToolInfrastructureFailed, err)
+	}
+	toolResult := ModelToolResult{
+		ToolCallID:      strings.TrimSpace(providerCallID),
+		ToolCallEventID: strings.TrimSpace(eventID),
+		Name:            strings.TrimSpace(name),
+	}
+	switch {
+	case result.Operation != nil:
+		content, err := json.Marshal(modelOperationResult(*result.Operation))
+		if err != nil {
+			return ModelToolResult{}, err
+		}
+		toolResult.Content = string(content)
+	case result.Job != nil:
+		content, err := json.Marshal(ModelManagedJobResult{
+			Status:        "managed_job_started",
+			Executed:      true,
+			JobID:         result.Job.JobID,
+			VisibleOutput: result.Job.Receipt,
+		})
+		if err != nil {
+			return ModelToolResult{}, err
+		}
+		toolResult.Content = string(content)
+		toolResult.PendingJobStart = result.PendingJobStart
+	default:
+		return ModelToolResult{}, fmt.Errorf("%w: shell_exec produced no operation or job", ErrToolInfrastructureFailed)
+	}
+	return toolResult, nil
 }
 
 func (k *Kernel) prepareJobStatusToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
@@ -325,6 +325,7 @@ func modelOperationResult(operation OperationProjection) interface{} {
 }
 
 func modelJobControlResult(job JobProjection, cancelRequested bool, visibleOutput string) ModelJobControlResult {
+	job = redactJobProjection(job)
 	return ModelJobControlResult{
 		Status:          strings.TrimSpace(job.Status),
 		Executed:        true,
