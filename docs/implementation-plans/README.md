@@ -1,8 +1,13 @@
-# Kernel Implementation Plans
+# Implementation Plans
 
 Implementation plans answer how approved requirements and designs will land in bounded phases.
 
 A plan is not a requirement and not an issue ledger. It describes execution order, phase boundaries, red lines, tests, evidence, and known distance from the production requirement.
+
+Kernel plans and user-space application plans can both live here. Application
+plans must state how they avoid becoming kernel owners and must link application
+issues rather than kernel issues unless a missing generic kernel primitive is
+discovered.
 
 Use this template:
 

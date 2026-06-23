@@ -1,4 +1,4 @@
-# Kernel Design Documents
+# Design Documents
 
 Design documents answer how an approved requirement is shaped.
 
@@ -14,6 +14,10 @@ A design document covers:
 - reference alignment or intentional differences.
 
 Design documents must not become issue ledgers. They can reject alternatives, but they must settle on one owner-owned path before implementation begins.
+
+Kernel designs and user-space application designs may both use this template.
+Application designs must explicitly state which behavior stays outside the
+kernel and which kernel primitives they are allowed to call.
 
 Use this template:
 

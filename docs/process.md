@@ -55,6 +55,13 @@ Issues answer only:
 
 Requirements are few and stable. Prefer updating an existing requirement when a new need fits an existing kernel primitive. Create a new requirement only when the production semantics introduce a new long-lived kernel capability or owner boundary.
 
+User-space applications may have their own approved requirements and designs when
+they are used to pressure-test the kernel or define adapter behavior. Application
+requirements live under `docs/applications/` and follow the same flow, but they
+must not be recorded as kernel capabilities. Application gaps belong in
+`docs/operations/application-issues.md` unless they expose a missing generic
+kernel primitive.
+
 Design documents live as long as the owner boundary lives. They may record rejected alternatives, but they should not carry phase checklists, issue status, or patch evidence.
 
 Implementation plans are short-lived. They can contain phase checklists and temporary red lines while work is active. When a phase closes, keep only the summary needed to explain the delivered slice and the remaining production gap; move verification evidence to the retirement log.

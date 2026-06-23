@@ -1,6 +1,7 @@
-# Genesis Kernel Feature Specs
+# Genesis Feature Specs
 
-This directory contains BDD feature files for Genesis Kernel behavior.
+This directory contains BDD feature files for Genesis Kernel behavior and
+user-space application behavior that pressure-tests the kernel boundary.
 They are acceptance contracts first and executable test inputs second.
 
 The first feature files are intentionally focused on kernel behavior that
@@ -17,7 +18,8 @@ must stay stable while the implementation changes:
 - Keep scenarios independent and focused on one rule.
 - Drive future automation through public kernel commands and projections.
 - Do not bind scenarios to private helper names, storage files, or UI copy.
-- Do not add application-specific integrations as kernel features.
+- Do not add application-specific integrations as kernel features; place
+  application behavior under `features/applications/`.
 - Do not encode retired concepts as active expectations.
 
 Step definitions are not wired yet. Until they are, these files are the
