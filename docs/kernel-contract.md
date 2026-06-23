@@ -17,6 +17,24 @@ The kernel translates between:
 - durable work and memory state;
 - feedback, evidence, and recovery.
 
+## System Boundary / Box Model
+
+The Genesis box is the whole governed LLM runtime. The kernel is the control and fact boundary inside that box, not the whole box.
+
+The LLM is the operator. It reasons over the context the kernel gives it and requests tools when it needs to touch the outside world. The kernel is not the model and does not outsource authority to the model. It decides which context is visible, which tool requests are valid, which effects are authorized, where facts are recorded, and how later projections are rebuilt.
+
+Tools are governed touchpoints to reality. A tool can read a file, run a process, resolve a credential, or operate on a resource only through kernel-owned schema validation, permission policy, sandbox selection, evidence recording, and bounded result projection. A tool is not an application domain API merely because an application can be driven through it.
+
+Skills are user-space instruction packages. They can teach the model how to use installed capabilities, describe workflows, or provide examples, but they are not kernel APIs and do not grant authority. Skill metadata may enter a bounded index. Full skill instructions must enter model context only through a reviewed generic context or resource path, not through a domain-specific kernel shortcut.
+
+Applications are user-space compositions. An application may include a skill, adapter, daemon, UI, CLI, document package, or resource bundle. It submits turns, provides external events, reads kernel projections, and may install tools or CLIs that the model can use through governed generic tools. It does not own provider context assembly, tool permission, sandbox policy, ledger truth, memory truth, credential resolution, audit replay, or compaction.
+
+Shells and adapters are also user-space. CLI, WebUI, desktop UI, Feishu daemon, email listener, and similar entry points translate external interaction into kernel commands and projections. They must not rebuild provider context, execute permission decisions, write ledger facts, or maintain a second memory store. If an entry point needs a shape that the current kernel command does not support, the fix is a kernel-owned command or an anti-corruption adapter, not duplicated lifecycle logic in that shell.
+
+A practical boundary test is the domain-name test. If a capability is named after a concrete domain such as Feishu, email, calendar, calculator, document, OCR, insurance, or medical workflow, it starts outside the kernel. It can enter the kernel only after being reduced to a generic primitive such as `turn.submit`, `tool.invoke`, `resource.read`, `resource.write`, `credential.resolve`, `work.submit`, `work.cancel`, `memory.review`, or `audit.replay`.
+
+Under that rule, a calculator skill is not kernel. It is user-space instruction that can ask the model to use a governed process tool for exact arithmetic. A Feishu daemon is not kernel. It listens to Feishu, submits a turn, and renders or sends results through user-space capabilities. WebUI is not allowed to assemble provider context. Applications are not allowed to write memory truth directly.
+
 ## Kernel Syscalls
 
 The stable boundary should be task-oriented, not UI-oriented:
