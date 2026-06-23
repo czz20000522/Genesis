@@ -25,18 +25,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-OWNER-HTTP-TRANSPORT-20260623 - P2 - HTTP transport files should stay thin delegates
-
-- Status: open.
-- Area: Architecture Governance / transport.
-- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
-- Design: `docs/design/kernel-owner-structure-governance.md`.
-- Gap: `internal/kernel/http.go` routes turn, shell, work, memory, session, timeline, context, audit, and event surfaces in one file. Current handlers mostly delegate, but the file shape invites transport-local owner logic as routes grow.
-- Next slice: Split HTTP transport by surface, keeping route matching, decode, owner API delegation, error mapping, and encode only. Add a guard that blocks ledger replay or owner state transitions inside `http*.go`.
-- Evidence: `http.go` contains handlers and path parsers for tool, work, memory, session, timeline, audit, context, and turn events.
-- Verification: Existing HTTP tests pass; architecture guard proves transport files do not call owner append/replay helpers directly.
-- Reference alignment: Aligned with Reasonix's frontend/controller separation and Codex's protocol/event surfaces. Genesis HTTP remains a shell/adapter, not a second owner.
-
 ### KERNEL-OWNER-TOOL-CONTEXT-20260623 - P2 - Tool registrations should not receive the whole Kernel
 
 - Status: open.

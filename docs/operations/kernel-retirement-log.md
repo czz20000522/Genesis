@@ -39,6 +39,19 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: reviewer confirms public DTO ownership is visible at file level without changing runtime schema or adding compatibility aliases.
 - Residual risk: file-level grouping is a guardrail, not a package-level owner system. If the kernel grows beyond this phase, a package split may need a separate requirement.
 
+### KERNEL-OWNER-HTTP-TRANSPORT-20260623 - P2 - HTTP transport files stay thin delegates
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `8d969d722`, `a959c76de`.
+- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
+- Design: `docs/design/kernel-owner-structure-governance.md`.
+- Reference alignment: Aligned with Reasonix's frontend/controller separation and Codex's protocol/event surfaces. Genesis HTTP remains a shell/adapter: it authenticates, decodes, delegates to owner APIs, maps owner errors, and encodes projections without owning replay or state transitions.
+- Evidence: HTTP transport handlers are split into `http_turn.go`, `http_tools.go`, `http_work.go`, `http_memory.go`, and `http_inspection.go`; `http.go` keeps routing and common transport helpers. `TestArchitectureBoundaryHTTPHandlersLiveInSurfaceFiles` checks handler file ownership, and `TestArchitectureBoundaryHTTPTransportDoesNotReplayOwnerFacts` blocks direct owner append/replay helpers in HTTP files.
+- Verification: `D:\software\Go\bin\go.exe test ./internal/kernel -run 'TestHTTP|TestArchitectureBoundaryHTTP' -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `git diff --check`.
+- Acceptance condition: reviewer confirms HTTP files remain transport surfaces, not hidden turn, tool, work, memory, session, audit, or timeline owners.
+- Residual risk: Handler grouping is file-level governance. A future router abstraction may be useful if route count grows, but it is not needed for the current kernel slice.
+
 ### KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623 - P2 - Foreground timeout preserves terminal outcome evidence
 
 - Status: ready_for_acceptance.
