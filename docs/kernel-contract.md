@@ -17,6 +17,24 @@ The kernel translates between:
 - durable work and memory state;
 - feedback, evidence, and recovery.
 
+## Agent Kernel vs Agent Framework
+
+An agent framework is a reasoning organization layer. It usually defines how one agent arranges prompts, tools, memory, planners, retries, and callbacks for a specific product or task family. It can be sophisticated, but its facts are normally local to that agent or application.
+
+An agent kernel is an authority execution layer. It is shared by multiple applications, skills, and agents. It owns the facts that cannot be forged by a caller: tool results, checkpoints, memory truth, credential resolution, sandbox decisions, event log entries, and audit replay. Applications can be clever, but they cannot mint those facts on their own.
+
+Genesis is not trying to be a larger prompt-plus-tools framework. It is the stable execution contract beneath those frameworks. An application can bring its own skill package, interaction model, UI, daemon, or agent loop, but once it wants model context, tool execution, memory, credential access, work state, or audit evidence to count as Genesis truth, it must go through the kernel.
+
+The layer split is:
+
+- Application: intent and experience layer. It decides what user experience or domain workflow it wants.
+- LLM: probabilistic planning layer. It proposes actions from kernel-projected context and available tool manifests.
+- Tool: reality interface. It touches files, processes, resources, credentials, or external programs through kernel governance.
+- Event log: system fact layer. It records what the kernel accepted, executed, blocked, observed, or recovered.
+- Kernel: authority layer. It validates, authorizes, executes, records, projects, and replays.
+
+Codex and Reasonix are strong agent products with kernel-like runtimes inside them. They are useful references because their mature parts separate core protocol, tools, sandboxing, events, and shells. Genesis takes that runtime idea and makes it the platform contract for multiple user-space applications instead of one coding-agent product.
+
 ## System Boundary / Box Model
 
 The Genesis box is the whole governed LLM runtime. The kernel is the control and fact boundary inside that box, not the whole box.

@@ -3,6 +3,12 @@ Feature: Kernel and user-space application boundary
   Genesis keeps application domains outside the kernel unless they become
   generic kernel primitives.
 
+  Scenario: An agent framework cannot forge kernel facts
+    Given an application uses its own prompts, tools, memory, planner, and agent loop
+    When it needs a tool result, checkpoint, memory truth, credential, sandbox decision, or event log entry to count as Genesis truth
+    Then it must submit the corresponding kernel command or tool request
+    And it must not write those facts directly
+
   Scenario: A calculator skill remains user-space
     Given a calculator package contains instructions for exact arithmetic
     When an application submits a calculation turn
