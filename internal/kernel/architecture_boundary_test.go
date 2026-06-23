@@ -583,6 +583,43 @@ func TestArchitectureBoundaryHTTPTransportDoesNotReplayOwnerFacts(t *testing.T) 
 	}
 }
 
+func TestArchitectureBoundaryHTTPHandlersLiveInSurfaceFiles(t *testing.T) {
+	root := kernelPackageDir(t)
+	want := map[string]string{
+		"Handler":                        "http.go",
+		"authorizeRuntimeRequest":        "http.go",
+		"requireJSONContentType":         "http.go",
+		"decodeRequest":                  "http.go",
+		"writeJSON":                      "http.go",
+		"writeError":                     "http.go",
+		"writeKernelUnavailable":         "http.go",
+		"handleSubmitTurn":               "http_turn.go",
+		"turnErrorHTTPStatus":            "http_turn.go",
+		"handleExecShell":                "http_tools.go",
+		"handleSubmitWork":               "http_work.go",
+		"handleGetWork":                  "http_work.go",
+		"handleCancelWork":               "http_work.go",
+		"handleCreateMemoryCandidate":    "http_memory.go",
+		"handleListMemoryCandidates":     "http_memory.go",
+		"handleGetMemoryCandidate":       "http_memory.go",
+		"handleRecallMemories":           "http_memory.go",
+		"handleApproveMemoryCandidate":   "http_memory.go",
+		"handleRejectMemoryCandidate":    "http_memory.go",
+		"handleSupersedeMemoryCandidate": "http_memory.go",
+		"handleGetSession":               "http_inspection.go",
+		"handleGetSessionTimeline":       "http_inspection.go",
+		"handleGetTurnContext":           "http_inspection.go",
+		"handleGetTurnAudit":             "http_inspection.go",
+		"handleGetTurnEvents":            "http_inspection.go",
+	}
+	got := kernelFunctionDeclarationFiles(t, root)
+	for functionName, wantFile := range want {
+		if gotFile := got[functionName]; gotFile != wantFile {
+			t.Fatalf("%s declared in %q, want %q", functionName, gotFile, wantFile)
+		}
+	}
+}
+
 func readRepoText(t *testing.T, repoRoot string, pathParts ...string) string {
 	t.Helper()
 	payload, err := os.ReadFile(filepath.Join(append([]string{repoRoot}, pathParts...)...))
@@ -646,6 +683,35 @@ func kernelTypeDeclarationFiles(t *testing.T, root string) map[string]string {
 				}
 				result[typeSpec.Name.Name] = name
 			}
+		}
+	}
+	return result
+}
+
+func kernelFunctionDeclarationFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read kernel package dir: %v", err)
+	}
+	result := map[string]string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		path := filepath.Join(root, name)
+		fileSet := token.NewFileSet()
+		parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			result[function.Name.Name] = name
 		}
 	}
 	return result
