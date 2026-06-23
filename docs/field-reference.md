@@ -10,6 +10,33 @@ Last verified: 2026-06-23.
 - DeepSeek/OpenAI-compatible token fields are request/exchange-level facts. They describe the whole provider request, not per-fragment or per-turn attribution.
 - Kernel compaction is executed by the kernel compaction runner. Model Gateway provides provider context and usage/accounting evidence; shells, app servers, daemons, and provider adapters must not perform compaction themselves.
 - Context cache is a provider optimization, not conversation memory. The caller still sends the prompt/context it wants the model to see.
+- Realtime chunks are transport, not canonical facts. They become durable only after an owner reduces them to a transcript item, tool result, job fact, checkpoint, or failure evidence.
+
+## Persistence Layers
+
+| Layer | Stored by default | Examples | Not for |
+| --- | --- | --- | --- |
+| Realtime transport | No. Memory or connection only. | Token deltas, stdout chunks, progress frames, heartbeat frames. | Restart replay, audit, memory, provider context. |
+| Session transcript | Yes. | User messages, final assistant-visible replies, model-visible tool calls, model-visible final tool results, approved reasoning summaries or notices. | Provider raw payloads, hidden reasoning, debug spans. |
+| Kernel durable facts | Yes. | Checkpoints, operation status, permission denials, terminal job facts, compaction outcomes, memory review decisions, provider usage accounting. | Ordinary UI info logs or stream frames. |
+| Security/control audit | Yes, low-noise. | Permission decisions, credential use, dangerous-operation decisions, control-plane writes, governance intake/publication, break-glass actions, security failures. | Ordinary tool success, routine provider calls, UI clicks. |
+| Debug trace | Only when explicitly enabled. | Provider projection summaries, response summaries, internal spans, chunk-level diagnostics, gateway decisions. | Canonical replay, memory truth, audit decisions. |
+
+Long-term fact admission is based on meaning, not log level. A normal `model.final` can be durable because it is transcript. A routine HTTP success info line should not be durable. A failure can be durable when it changes state, blocks work, or explains recovery.
+
+## Provider Context Snapshot Fields
+
+Production storage should keep derivation evidence for provider requests, not the full raw prompt by default.
+
+| Field class | Meaning | Owner | Constraint |
+| --- | --- | --- | --- |
+| Included event refs | Ledger events used to build provider context. | Model Gateway projection. | References facts; does not duplicate full prompt text. |
+| Model input kinds | Ordered context categories sent to the provider. | Model Gateway projection. | Category evidence only. |
+| Tool manifest hash or refs | Identity of the model-visible tool manifest. | Tool Registry / Model Gateway. | Avoid storing repeated manifest bodies when a stable ref is enough. |
+| Skill refs or hashes | Skill metadata selected for the turn. | Skill catalog projection. | No skill body or path by default. |
+| Compaction summary ref or hash | Summary evidence included in provider context. | Kernel compaction runner. | The user timeline must not render the summary as chat content. |
+| Gateway profile id | Provider gateway profile used for the request. | Model Gateway. | Not a credential and not a secret. |
+| Normalized usage summary | Provider-backed token/cache accounting returned by the provider. | Model Gateway normalization. | Request-level evidence, not per-fragment attribution. |
 
 ## DeepSeek Usage Fields
 

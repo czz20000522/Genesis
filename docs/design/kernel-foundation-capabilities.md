@@ -60,13 +60,19 @@ The model cannot select permission mode, sandbox profile, approval policy, crede
 
 The ledger is append-only owner truth. Restart replay rebuilds session, operation, work, memory, timeline, context, audit, and readiness projections from recorded facts.
 
+Durable storage is not a copy of every runtime signal. The Interface Kernel and owner subsystems write sparse facts. Streaming tokens, stdout chunks, heartbeats, and progress frames are realtime transport unless an owner reduces them to a transcript item, tool result, terminal job fact, checkpoint, or failure event.
+
 Observability is split by audience:
 
 - timeline for ordinary user-facing events;
-- raw events for debugging ordered facts;
-- audit for replay and evidence;
+- transcript for user and model-visible conversation recovery;
+- raw events for ordered owner facts;
+- audit for authority, risk, control, credential, and failure evidence;
 - context for provider-visible inputs;
-- capabilities and readiness for operator status.
+- capabilities and readiness for operator status;
+- debug trace for opt-in, bounded, redacted diagnostics outside canonical replay.
+
+Provider raw requests are not transcript. Production storage keeps derivation evidence such as included event refs, input kinds, manifest or skill refs, compaction refs, gateway profile id, and normalized usage. Full prompt or provider payload capture belongs only in debug trace, and even then stays bounded and redacted.
 
 ## Rejected Alternatives
 
@@ -74,3 +80,5 @@ Observability is split by audience:
 - Domain-specific kernel tools are rejected because they turn the kernel into an application.
 - Prompt-only authority controls are rejected because hidden fields and permission decisions must be enforced by validators and owner gates.
 - Version-numbered runtime route prefixes are rejected because they become stale compatibility surfaces.
+- Treating audit as a general info log is rejected because it makes authority evidence noisy and unbounded.
+- Persisting every stream chunk as a canonical ledger event is rejected because transport detail is not system truth.

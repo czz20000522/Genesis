@@ -16,11 +16,15 @@ Core principle:
 
 > Requirements must be production-grade. Implementation can be experimental or partial inside a phase, but every phase must state what still remains short of the production requirement.
 
+Requirements should be few and stable. Implementation plans are phase-local and may be condensed after the phase closes. Issues record only current gaps and leave the active ledger when ready for acceptance or retired.
+
 Issues must cite an approved requirement and design unless the issue is an obvious bug or test gap. If an issue uses that exception, say so explicitly in the issue.
 
 ## Boundary Rules
 
 - The event ledger is kernel truth. Applications, shells, provider commands, and skills do not mint ledger facts.
+- Runtime transport chunks are not kernel truth by default. Token deltas, stdout chunks, progress frames, and heartbeats stay in realtime transport or debug trace unless an owner reduces them to transcript, durable fact, audit, or failure evidence.
+- Audit is not an info log. Persist only authority changes, risk decisions, credential use, control-plane writes, dangerous-operation decisions, security failures, and recovery-relevant failures.
 - Provider context is assembled by the Model Gateway, not by shells or applications.
 - Tool execution goes through ToolRegistry and ToolGateway.
 - Model-visible schemas expose semantic fields only. Kernel ids, credentials, permission profiles, sandbox profiles, checkpoints, and audit refs are kernel-owned.

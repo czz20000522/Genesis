@@ -17,7 +17,8 @@ Requirement:
 - answers what we want, why we want it, production semantics, users and roles, core concepts, non-goals, staged delivery intent, acceptance criteria, and the relationship to current issues;
 - is written before non-trivial implementation work;
 - may be stricter than the current code;
-- must stay inside the kernel boundary.
+- must stay inside the kernel boundary;
+- should be few and stable. Extend an existing requirement when the need belongs to an existing kernel primitive.
 
 Design:
 
@@ -47,7 +48,16 @@ Retirement Record:
 
 - stores accepted or superseded issue evidence;
 - belongs in `docs/operations/kernel-retirement-log.md`;
-- must not keep retired concepts alive as active requirements.
+- must not keep retired concepts alive as active requirements;
+- cites the governing requirement and design instead of copying their full production semantics.
+
+## Size Control Rules
+
+Requirements do not record patch evidence, active checklists, live issue triage, or debug findings. Those belong in implementation plans, issue records, retirement evidence, or short-lived debug traces.
+
+Implementation plans can be detailed while work is active. After a phase closes, reduce the plan to the delivered slice, the remaining gap, and the commands needed to reproduce the evidence.
+
+Issues record only the current gap. If an issue starts carrying background, design alternatives, or a complete acceptance contract, move that content back to the requirement or design and shrink the issue.
 
 ## Requirement Template
 

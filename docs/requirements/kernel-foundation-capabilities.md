@@ -66,6 +66,18 @@ Application:
 5. Inspection surfaces expose bounded, redacted, path-safe projections. They are not hidden owner paths for raw secrets, skill bodies, provider-native payloads, or ordinary UI access to kernel internals.
 6. Development-stage retired surfaces are removed from active code, tests, and requirements. Historical evidence may remain only in operations records.
 
+### Persistence And Audit Layers
+
+Genesis separates runtime output into five layers:
+
+1. Realtime transport exists for streaming experience only. Token deltas, stdout chunks, progress frames, heartbeat frames, and stream frames live in memory or on the connection by default. They do not become long-term kernel facts until they are reduced to a completed message, tool result, job summary, terminal job fact, or another owner event.
+2. Session transcript is the recovery and user-experience spine. It stores user messages, final assistant-visible replies, model-visible tool calls, model-visible final tool results, and product-approved reasoning summaries or notices. It does not store provider raw payloads or hidden reasoning chains.
+3. Kernel durable facts store recovery and state truth. Checkpoints, terminal outcomes, permission denials, operation status, job terminal state, compaction outcome, memory review decisions, work decisions, and provider usage accounting belong here even when they are not ordinary UI content.
+4. Security and control audit is strong-persistence and low-noise. It records authority changes, permission denials, credential use, dangerous-operation decisions, control-plane writes, governance publication or intake, break-glass actions, boundary-crossing access, and security failures. Ordinary success info and UI actions do not enter this audit layer.
+5. Debug trace is opt-in. It may record provider projection summaries, response summaries, internal spans, chunk-level diagnostics, and gateway decisions, but it must have explicit enablement, bounded retention, quota, and redaction. Debug trace does not participate in replay, memory, provider context, or audit decisions.
+
+A runtime event can enter long-term facts only when it is user-visible or model-visible, required for replay/recovery/idempotency/checkpointing, changes kernel-owned state, records a permission or risk decision, records failure or abnormal termination, or feeds provider context, compaction, memory recall, or observation delivery. Otherwise it stays in realtime transport, debug trace, or aggregate metrics.
+
 ### Interface Kernel
 
 - `turn.submit` accepts user or application intent through a typed transport schema.

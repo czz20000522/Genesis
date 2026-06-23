@@ -47,6 +47,16 @@ Issues answer only:
 - current evidence;
 - focused verification needed for retirement.
 
+## Document Lifetime
+
+Requirements are few and stable. Prefer updating an existing requirement when a new need fits an existing kernel primitive. Create a new requirement only when the production semantics introduce a new long-lived kernel capability or owner boundary.
+
+Design documents live as long as the owner boundary lives. They may record rejected alternatives, but they should not carry phase checklists, issue status, or patch evidence.
+
+Implementation plans are short-lived. They can contain phase checklists and temporary red lines while work is active. When a phase closes, keep only the summary needed to explain the delivered slice and the remaining production gap; move verification evidence to the retirement log.
+
+Issues are gap records. Completed issues leave the active issue ledger. Retirement entries keep fixing commits, verification, residual risk, and acceptance condition; they should cite the requirement and design instead of restating them.
+
 ## Required Flow
 
 For every non-trivial capability:
@@ -80,3 +90,16 @@ If no approved requirement or design exists, the next step is to write that docu
 Requirements and designs must stay inside the kernel boundary. Feishu, email, calendar, calculator, document, OCR, medical, insurance, and similar domains remain user-space unless the need is reduced to a generic primitive such as `turn.submit`, `tool.invoke`, `resource.read`, `resource.write`, `credential.resolve`, `work.submit`, `work.cancel`, `memory.review`, or `audit.replay`.
 
 Temporary implementation can be limited, fake, or local to a phase. The requirement cannot be weakened to match that temporary shape. Each phase records the delta between current proof and production target.
+
+## Persistence And Audit Gate
+
+Runtime can produce many events, but long-term storage stays sparse. A runtime event may enter the durable fact layer only when it satisfies at least one condition:
+
+- it was visible to the user or model;
+- it is required for replay, recovery, idempotency, or checkpointing;
+- it changes kernel-owned state;
+- it records a permission, credential, security, risk, or control-plane decision;
+- it records failure, blocking, degradation, or abnormal termination;
+- it is an input to provider context, compaction, memory recall, or observation delivery.
+
+Everything else stays in realtime transport, debug trace, or aggregate metrics. Audit is not an info log. It records authority changes, risk decisions, control-plane writes, credential use, dangerous-operation decisions, and security failures.
