@@ -25,3 +25,13 @@ issues remain in `docs/operations/application-issues.md`.
 - Boundary evidence: Connector runtime production code does not import `genesis/internal/kernel`. External credentials are adapter configuration, not action payload fields. App command metadata and external-thread metadata are not copied into connector action payloads. Connector action failure records connector receipt/outbox state and does not write kernel facts.
 - Verification: `go test ./internal/applications/connector_runtime -count=1`; full verification recorded in the fixing commit.
 - Residual risk: This retires only the minimal owner and first delivery outcome contract. Retry scheduling, dead-letter transitions, and partial-success recovery remain active issues.
+
+### APP-CONNECTOR-DELIVERY-STATE-MACHINE-20260623 - Add retry scheduling, dead-letter, and partial-success recovery
+
+- Retired in: connector delivery state machine implementation change set.
+- Requirement: `docs/applications/connector-delivery-state-machine-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Fix summary: Added connector-local retry eligibility, `next_attempt_at`, delivery leases, `ClaimNextOutboxItem`, auto-claiming `ExecuteOutboxItem`, `ExecuteClaimedOutboxItem`, bounded retry backoff, retry exhaustion to dead-letter, non-retryable failure dead-lettering, partial-success and ambiguous-outcome recovery-required state, and duplicate suppression for terminal sent/dead-letter/recovery-required items.
+- Boundary evidence: Delivery state remains under `internal/applications/connector_runtime`. Connector actions do not contain lease ids, worker ids, credentials, or raw external payloads. Delivery receipts record bounded status, reason, attempt, external action ref, and next retry time; connector delivery failure does not mutate kernel facts.
+- Verification: `go test ./internal/applications/connector_runtime -count=1`; full verification recorded in the fixing commit.
+- Residual risk: Operator console inspection and explicit connector recovery commands for recovery-required/dead-lettered items remain active under `APP-CONNECTOR-OPERATOR-CONSOLE-20260623`. Real Feishu listener/poller hardening remains active under `APP-CONNECTOR-FEISHU-LISTENER-20260623`.

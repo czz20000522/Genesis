@@ -3,16 +3,19 @@ package connectorruntime
 import "time"
 
 const (
-	OutboxStatusQueued     = "queued"
-	OutboxStatusSent       = "sent"
-	OutboxStatusRetrying   = "retrying"
-	OutboxStatusFailed     = "failed"
-	OutboxStatusDeadLetter = "dead_lettered"
+	OutboxStatusQueued           = "queued"
+	OutboxStatusSent             = "sent"
+	OutboxStatusRetrying         = "retrying"
+	OutboxStatusDeadLetter       = "dead_lettered"
+	OutboxStatusRecoveryRequired = "recovery_required"
 
 	DeliveryStatusSent                = "sent"
 	DeliveryStatusFailed              = "failed"
 	DeliveryStatusRetrying            = "retrying"
 	DeliveryStatusDuplicateSuppressed = "duplicate_suppressed"
+	DeliveryStatusDeadLettered        = "dead_lettered"
+	DeliveryStatusPartialSuccess      = "partial_success"
+	DeliveryStatusAmbiguous           = "ambiguous"
 )
 
 type ExternalThreadRef struct {
@@ -51,6 +54,9 @@ type ConnectorOutboxItem struct {
 	Status         string            `json:"status"`
 	AttemptCount   int               `json:"attempt_count"`
 	NextAttemptAt  time.Time         `json:"next_attempt_at,omitempty"`
+	LeaseID        string            `json:"lease_id,omitempty"`
+	LeaseOwner     string            `json:"lease_owner,omitempty"`
+	LeaseExpiresAt time.Time         `json:"lease_expires_at,omitempty"`
 	IdempotencyKey string            `json:"idempotency_key"`
 	LastReceiptID  string            `json:"last_receipt_id,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`
@@ -68,9 +74,10 @@ type ConnectorAction struct {
 }
 
 type ConnectorActionResult struct {
-	ExternalActionRef string `json:"external_action_ref,omitempty"`
-	Status            string `json:"status"`
-	Reason            string `json:"reason,omitempty"`
+	ExternalActionRef string    `json:"external_action_ref,omitempty"`
+	Status            string    `json:"status"`
+	Reason            string    `json:"reason,omitempty"`
+	NextAttemptAt     time.Time `json:"next_attempt_at,omitempty"`
 }
 
 type DeliveryReceipt struct {
@@ -81,5 +88,6 @@ type DeliveryReceipt struct {
 	Status            string    `json:"status"`
 	Reason            string    `json:"reason,omitempty"`
 	Attempt           int       `json:"attempt"`
+	NextAttemptAt     time.Time `json:"next_attempt_at,omitempty"`
 	RecordedAt        time.Time `json:"recorded_at"`
 }

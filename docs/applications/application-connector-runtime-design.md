@@ -187,8 +187,9 @@ Connector never assembles provider context and never writes kernel facts.
 3. Application writes `ConnectorOutboxItem` with a connector idempotency key.
 4. Connector adapter claims an outbox item and executes a `ConnectorAction`.
 5. Adapter translates external API/CLI/SDK result into `DeliveryReceipt`.
-6. Connector updates outbox state: sent, retrying, failed, duplicate
-   suppressed, partial, or dead-lettered.
+6. Connector updates outbox state: sent, retrying, dead-lettered, or
+   recovery-required. Duplicate-suppressed and failed outcomes remain delivery
+   receipt classifications, not durable outbox states.
 
 External delivery failure is connector failure, not kernel turn failure. Kernel
 facts remain unchanged.

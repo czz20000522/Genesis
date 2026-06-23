@@ -14,6 +14,8 @@ import (
 type OutboxStore interface {
 	EnqueueCommand(context.Context, AppCommand, time.Time) (ConnectorOutboxItem, bool, error)
 	GetOutboxItem(context.Context, string) (ConnectorOutboxItem, error)
+	ClaimNextOutboxItem(context.Context, time.Time, string, time.Duration) (ConnectorOutboxItem, bool, error)
+	ClaimOutboxItem(context.Context, string, time.Time, string, time.Duration) (ConnectorOutboxItem, bool, error)
 	RecordDelivery(context.Context, ConnectorOutboxItem, DeliveryReceipt) error
 	ListOutbox(context.Context) ([]ConnectorOutboxItem, error)
 	ListReceipts(context.Context, string) ([]DeliveryReceipt, error)
@@ -86,6 +88,75 @@ func (s *FileOutboxStore) GetOutboxItem(_ context.Context, outboxID string) (Con
 	return item, nil
 }
 
+func (s *FileOutboxStore) ClaimNextOutboxItem(_ context.Context, now time.Time, owner string, leaseDuration time.Duration) (ConnectorOutboxItem, bool, error) {
+	if owner == "" {
+		return ConnectorOutboxItem{}, false, errors.New("delivery lease owner is required")
+	}
+	if leaseDuration <= 0 {
+		return ConnectorOutboxItem{}, false, errors.New("delivery lease duration must be positive")
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]ConnectorOutboxItem, 0, len(s.items))
+	for _, item := range s.items {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].CreatedAt.Before(items[j].CreatedAt)
+	})
+	for _, item := range items {
+		if !deliveryEligible(item, now) {
+			continue
+		}
+		item.LeaseID = stableOpaqueID("lease", item.OutboxID, owner, now.Format(time.RFC3339Nano))
+		item.LeaseOwner = owner
+		item.LeaseExpiresAt = now.Add(leaseDuration)
+		item.UpdatedAt = now
+		s.items[item.OutboxID] = item
+		if err := s.writeLocked(); err != nil {
+			return ConnectorOutboxItem{}, false, err
+		}
+		return item, true, nil
+	}
+	return ConnectorOutboxItem{}, false, nil
+}
+
+func (s *FileOutboxStore) ClaimOutboxItem(_ context.Context, outboxID string, now time.Time, owner string, leaseDuration time.Duration) (ConnectorOutboxItem, bool, error) {
+	if outboxID == "" {
+		return ConnectorOutboxItem{}, false, errors.New("outbox id is required")
+	}
+	if owner == "" {
+		return ConnectorOutboxItem{}, false, errors.New("delivery lease owner is required")
+	}
+	if leaseDuration <= 0 {
+		return ConnectorOutboxItem{}, false, errors.New("delivery lease duration must be positive")
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.items[outboxID]
+	if !ok {
+		return ConnectorOutboxItem{}, false, errors.New("outbox item not found")
+	}
+	if !deliveryEligible(item, now) {
+		return item, false, nil
+	}
+	item.LeaseID = stableOpaqueID("lease", item.OutboxID, owner, now.Format(time.RFC3339Nano))
+	item.LeaseOwner = owner
+	item.LeaseExpiresAt = now.Add(leaseDuration)
+	item.UpdatedAt = now
+	s.items[item.OutboxID] = item
+	if err := s.writeLocked(); err != nil {
+		return ConnectorOutboxItem{}, false, err
+	}
+	return item, true, nil
+}
+
 func (s *FileOutboxStore) RecordDelivery(_ context.Context, item ConnectorOutboxItem, receipt DeliveryReceipt) error {
 	if item.OutboxID == "" || receipt.ReceiptID == "" || receipt.OutboxID == "" {
 		return errors.New("outbox item and receipt ids are required")
@@ -101,6 +172,17 @@ func (s *FileOutboxStore) RecordDelivery(_ context.Context, item ConnectorOutbox
 	s.items[item.OutboxID] = item
 	s.receipts[item.OutboxID] = append(s.receipts[item.OutboxID], receipt)
 	return s.writeLocked()
+}
+
+func deliveryEligible(item ConnectorOutboxItem, now time.Time) bool {
+	if deliveryLeaseActive(item, now) {
+		return false
+	}
+	return item.Status == OutboxStatusQueued || (item.Status == OutboxStatusRetrying && !item.NextAttemptAt.After(now))
+}
+
+func deliveryLeaseActive(item ConnectorOutboxItem, now time.Time) bool {
+	return item.LeaseID != "" && item.LeaseExpiresAt.After(now)
 }
 
 func (s *FileOutboxStore) ListOutbox(_ context.Context) ([]ConnectorOutboxItem, error) {

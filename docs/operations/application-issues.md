@@ -20,17 +20,6 @@ Genesis Kernel. Kernel primitive gaps belong in
 
 ## Active Issues
 
-### APP-CONNECTOR-DELIVERY-STATE-MACHINE-20260623 - P2 - Add retry scheduling, dead-letter, and partial-success recovery
-
-- Status: open.
-- Requirement: `docs/applications/connector-delivery-state-machine-requirement.md`.
-- Design: `docs/applications/application-connector-runtime-design.md`.
-- Gap: The first outbox owner records queued, sent, retrying, failed, and duplicate-suppressed receipts, but it does not yet implement retry scheduling, delivery leases/claims, dead-letter transitions, partial-success recovery, or rate-limit backoff.
-- Next slice: Add an explicit delivery state machine with eligible retry selection, bounded attempt policy, dead-letter receipt, and partial-success recovery hooks. Keep these states connector-local and do not rewrite kernel turn facts.
-- Evidence: `internal/applications/connector_runtime` currently records the adapter-provided status and suppresses terminal duplicates, but does not schedule retries or transition failed/retrying items to dead-letter.
-- Verification: Retrying item becomes eligible only after `next_attempt_at`; exhausted attempts produce one dead-letter receipt; partial success records recoverable receipt state; duplicate execution of terminal sent/dead-letter items does not call the adapter.
-- Reference alignment: Codex and Reasonix show protocol boundary discipline, but Genesis needs connector-specific recovery because external delivery has side effects outside kernel truth.
-
 ### APP-CONNECTOR-FEISHU-LISTENER-20260623 - P2 - Feishu inbound listener and adapter retry hardening
 
 - Status: open.
@@ -47,8 +36,8 @@ Genesis Kernel. Kernel primitive gaps belong in
 - Status: open.
 - Requirement: `docs/applications/application-connector-runtime-requirement.md`.
 - Design: `docs/applications/application-connector-runtime-design.md`.
-- Gap: Current code does not provide operator console views for connector state or kernel projections. It only creates the inbound relay needed to submit messages.
-- Next slice: Add console inspection commands that read connector state and kernel projections without interpreting raw events as application truth.
-- Evidence: Application Connector Runtime Phase D covers operator console inspection.
-- Verification: Console inspection must fetch kernel projections through HTTP and connector state through application store APIs; it must not import kernel internals or reconstruct provider context locally.
+- Gap: Current code does not provide operator console views for connector state, delivery attempt history, recovery-required items, dead-lettered items, or kernel projections. It also does not yet expose explicit connector recovery commands for delivery state machine Phase E.
+- Next slice: Add console inspection commands that read connector state and kernel projections without interpreting raw events as application truth. Then add explicit connector recovery commands for recovery-required or dead-lettered delivery items.
+- Evidence: Application Connector Runtime Phase D covers operator console inspection; Connector Delivery State Machine Phase E covers operator projection and recovery commands.
+- Verification: Console inspection must fetch kernel projections through HTTP and connector state through application store APIs; it must not import kernel internals or reconstruct provider context locally. Recovery commands must mutate only connector-owned state and must not rewrite kernel facts.
 - Reference alignment: Aligned with Reasonix `serve/wire.go` projecting internal events to wire shape without becoming event truth owner.
