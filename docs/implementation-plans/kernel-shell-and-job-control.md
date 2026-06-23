@@ -123,7 +123,7 @@
 
 ## Phase C: Verification And Issue State
 
-**Deliverable:** focused and full verification evidence for the first two issues. Do not retire observation delivery, job control, cancellation, or interrupt issues.
+**Deliverable:** focused and full verification evidence for the first two issues. Do not retire job control, cancellation, or interrupt issues.
 
 - [ ] **Step 1: Run contract scans**
 
@@ -153,13 +153,34 @@
 
 - [ ] **Step 4: Update issue ledger or retirement evidence**
 
-  If Phase A and B-lite pass, move only the fully satisfied slices to acceptance evidence. Leave observation delivery, job status/cancel, and interrupt as active gaps.
+  If Phase A and B-lite pass, move only the fully satisfied slices to acceptance evidence. Leave job status/cancel and interrupt as active gaps.
+
+## Phase D-lite: Terminal Job Observation Delivery
+
+**Deliverable:** terminal managed-job facts enter provider context through kernel-owned observation delivery and are marked delivered only after provider success.
+
+**Fix commit:** `531f8d008`.
+
+**Completed slice:**
+
+- `job.completed`, `job.failed`, and `job.cancelled` are terminal observation sources.
+- `ProviderContextProjection` injects undelivered terminal job facts as `kernel_observation_context`.
+- `SubmitTurn` writes `kernel.observation.delivered` only after provider completion succeeds.
+- Provider failure leaves observations pending.
+- Restart replay suppresses already delivered observation ids.
+
+**Still deferred from full production delivery:**
+
+- real background process execution;
+- progress snapshots such as `job.progress` or `job.output`;
+- user-triggered continuation after idle job completion;
+- explicit auto-resume policy, if that is ever approved.
 
 ## Still Short Of Production After This Plan
 
 - Real background process management is not complete.
 - `job_status` is not implemented.
 - `job_cancel` is not implemented.
-- Observation queue delivery and delivered-id tracking are not implemented.
+- Progress snapshot delivery and idle continuation controls are not implemented.
 - Provider-stream interruption and foreground attach-or-kill behavior are not implemented.
 - Stronger sandbox and approval policy remain separate future work.

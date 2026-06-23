@@ -19,18 +19,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-OBSERVATION-DELIVERY-20260623 - P1 - Kernel observation queue and delivery checkpoints
-
-- Status: open.
-- Area: Interface Kernel / Provider context projection / Ledger.
-- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
-- Design: `docs/design/kernel-shell-and-job-control.md`.
-- Gap: Job completion and other kernel observations need a delivery model. The kernel currently has provider context projection and checkpoints, but no explicit rule for which background observations have been delivered to the model and which remain pending.
-- Next slice: Treat terminal job facts and similar system facts as Kernel Observation Queue sources. Add delivery semantics only through kernel checkpoints, not shell/UI/provider adapter logic.
-- Evidence: The current ledger is restart-safe for turns, operations, memory, and compaction evidence, but it does not track observation delivery ids for future job completions.
-- Verification: A completed background job is visible in UI/session projection immediately, does not start a provider call while the session is idle, is included in the next provider context when the session resumes or continues, and is not delivered twice after restart.
-- Reference alignment: Aligned with Codex's core/session ownership of compaction and tool-loop state: shells submit typed commands and observations; the core decides when provider context incorporates them. This rejects the drift where an external daemon or UI secretly drives model execution.
-
 ### KERNEL-JOB-CONTROL-INTERRUPT-20260623 - P2 - Interrupt and job control semantics
 
 - Status: open.

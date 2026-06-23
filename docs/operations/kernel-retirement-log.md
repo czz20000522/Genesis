@@ -12,6 +12,19 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-OBSERVATION-DELIVERY-20260623 - P1 - Kernel observation queue and delivery checkpoints
+
+- Status: ready_for_acceptance.
+- Type: runtime/model-gateway issue.
+- Fix commits: `531f8d008`.
+- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
+- Reference alignment: Aligned with Codex's core/session ownership of tool-loop and compaction state: external shells submit typed facts, while the core decides which observations enter provider context and when delivery is recorded. This rejects UI, daemon, or provider-adapter ownership of model-visible observation delivery.
+- Evidence: Terminal managed-job facts now become Kernel Observation Queue sources. `ProviderContextProjection` injects undelivered terminal job observations as `kernel_observation_context` before a provider step, `SubmitTurn` records `kernel.observation.delivered` only after the provider call returns successfully, and delivered ids suppress repeat projection after ledger replay. Provider failures append turn failure evidence without marking the observation delivered.
+- Verification: `TestSubmitTurnDeliversCompletedJobObservationToNextProviderStep`; `TestProviderFailureDoesNotMarkJobObservationDelivered`; `TestDeliveredJobObservationIsNotProjectedAgainAfterRestart`; focused observation/managed-job suite; `D:\software\Go\bin\go.exe test ./internal/kernel -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
+- Acceptance condition: reviewer confirms terminal job observations are visible to the model only through kernel-owned provider context, are not marked delivered on provider failure, and are not replayed after restart once delivered.
+- Residual risk: this is the delivery contract for terminal job observations. Real background process management, progress snapshots, `job_status`, `job_cancel`, auto-resume policy, and interrupt/attach behavior remain separate issues.
+
 ### KERNEL-SHELL-TIMEOUT-CAP-20260623 - P1 - Foreground shell timeout policy and cap
 
 - Status: ready_for_acceptance.
@@ -23,7 +36,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: `shell_exec` now exposes `timeout_sec` in the model-visible tool schema. Omitted timeout records 30 seconds; `timeout_sec=1` and `timeout_sec=180` run as foreground shell attempts; invalid zero, negative, string, and fractional values return repairable `tool_request_invalid` feedback and create no operation. Requests above the foreground cap route to the managed-job receipt path instead of being treated as validation errors.
 - Verification: `TestSubmitTurnAcceptsForegroundShellTimeoutSeconds`; `TestSubmitTurnDefaultsShellTimeoutToThirtySeconds`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellTimeoutSeconds`; `TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt`; `TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext`; focused timeout suite; `D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1`; forbidden marker scan; `git diff --check`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`.
 - Acceptance condition: reviewer confirms `timeout_sec > 180` is a valid long-task intent, not an error, and ordinary foreground shell execution is capped by the approved 1 through 180 second contract.
-- Residual risk: direct `/tools/shell_exec` still returns an operation-shaped response and does not expose a separate managed-job transport. The production job-control and observation-delivery gaps remain active under separate issues.
+- Residual risk: direct `/tools/shell_exec` still returns an operation-shaped response and does not expose a separate managed-job transport. Production job-control and interrupt behavior remain active under separate issues.
 
 ### KERNEL-MANAGED-JOB-FOUNDATION-20260623 - P1 - Minimal managed job event model
 
@@ -36,7 +49,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: A model `shell_exec` request with `timeout_sec > 180` now records `tool.call`, `job.started`, immediate receipt-style `tool.result`, `job.completed`, and `model.final` in append-only order. The `job.started` event id is the job handle. The provider receives a `managed_job_started` tool result, allowing the tool loop to close without waiting for final command output. Session replay after kernel restart preserves the job lifecycle events.
 - Verification: `TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt`; focused managed-job suite; `D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1`; forbidden marker scan; `git diff --check`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`.
 - Acceptance condition: reviewer confirms the first managed-job event protocol is sufficient for provider-loop closure and restart-safe evidence while leaving real background process management to later phases.
-- Residual risk: this phase uses an immediate/minimal terminal job event. Real background execution, `job_status`, `job_cancel`, observation delivery, delivered-id tracking, and interrupt/attach behavior remain active issues and are not retired by this entry.
+- Residual risk: this phase uses an immediate/minimal terminal job event. Real background execution, `job_status`, `job_cancel`, progress snapshots, and interrupt/attach behavior remain active issues and are not retired by this entry.
 
 ### KERNEL-USER-SPACE-BOUNDARY-20260623 - P1 - Kernel, user-space, and agent-framework boundary document
 

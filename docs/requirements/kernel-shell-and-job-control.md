@@ -236,11 +236,11 @@ Test evidence:
 
 ## Relationship To Existing Issues
 
-This requirement governs these active implementation gaps:
+This requirement governs these implementation slices:
 
-- `KERNEL-SHELL-TIMEOUT-CAP-20260623`: missing `timeout_sec`, default/cap behavior, invalid value repair feedback, and routing above the cap.
-- `KERNEL-MANAGED-JOB-FOUNDATION-20260623`: missing managed-job event model and receipt-style tool result.
-- `KERNEL-OBSERVATION-DELIVERY-20260623`: missing pending/delivered observation tracking and checkpoint delivery semantics.
+- `KERNEL-SHELL-TIMEOUT-CAP-20260623`: `ready_for_acceptance` for `timeout_sec`, default/cap behavior, invalid value repair feedback, and routing above the cap.
+- `KERNEL-MANAGED-JOB-FOUNDATION-20260623`: `ready_for_acceptance` for managed-job event model and receipt-style tool result.
+- `KERNEL-OBSERVATION-DELIVERY-20260623`: `ready_for_acceptance` for pending/delivered observation tracking and checkpoint delivery semantics.
 - `KERNEL-JOB-CONTROL-INTERRUPT-20260623`: missing interrupt, status, and cancellation semantics.
 
 `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` is adjacent authority-plane work governed by `docs/requirements/kernel-foundation-capabilities.md`.

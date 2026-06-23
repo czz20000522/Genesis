@@ -45,6 +45,18 @@ Observed live probe with `deepseek-v4-flash`:
 | `TokenUsage.CacheHitTokens` | Same as above | DeepSeek `prompt_cache_hit_tokens`; fallback to `prompt_tokens_details.cached_tokens` when explicit hit field is absent. | Input tokens served from provider cache. | Model Gateway normalization. |
 | `TokenUsage.CacheMissTokens` | Same as above | DeepSeek `prompt_cache_miss_tokens`; fallback to `input_tokens - cache_hit_tokens` only when the explicit miss field is absent and the arithmetic is valid. | Input tokens freshly processed by the provider. | Model Gateway normalization. |
 
+## Model Input Kinds
+
+`model_input_kinds` records categories of provider-visible context fragments. It is category evidence, not the full rendered provider prompt.
+
+| Kind | Source | Meaning | Owner |
+| --- | --- | --- | --- |
+| `conversation_history_context` | Ledger completed turns in the same session. | Same-session user, assistant, and model-visible tool call/result history selected for the provider request. | Model Gateway projection. |
+| `skill_index_context` | Skill catalog metadata. | Budgeted skill names and descriptions only; no skill bodies or paths. | Model Gateway projection. |
+| `approved_memory_context` | Approved memory recalls. | User-approved accumulation facts selected for this turn. | Accumulation plus Model Gateway projection. |
+| `kernel_observation_context` | Undelivered kernel observation facts such as terminal job events. | System facts delivered at a provider checkpoint and marked delivered only after provider success. | Interface Kernel / Model Gateway projection. |
+| `user_text` | Current `turn.submit` input item. | User or external-application text content. | Interface Kernel admission. |
+
 ## Permission Profile Fields
 
 `permission_mode` is the user-facing trust mode. It is not the executor contract by itself. Before admission, Genesis resolves it into separate control-plane facts:
