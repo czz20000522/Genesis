@@ -95,19 +95,21 @@ Direct HTTP `POST /tools/shell_exec` follows the same kernel owner path. It retu
 5. The immediate `tool.result` is a receipt, not the final command output.
 6. The receipt is model-visible and closes the provider tool-call loop.
 7. Terminal job facts are written later as `job.completed`, `job.failed`, or `job.cancelled`.
-8. Progress facts may be written as `job.progress` or `job.output` when useful, but they are not automatically injected into every provider step.
-9. Ledger events are append-only. A later terminal job event does not overwrite the original receipt.
+8. Non-terminal output snapshots may be written as `job.output` when they are useful durable facts. They are bounded session/UI facts, not transport chunks and not provider-visible observations by default.
+9. A separate `job.progress` event may be added only when the kernel has a generic progress schema that is not tied to a domain such as download, build, or test execution.
+10. Ledger events are append-only. A later output or terminal job event does not overwrite the original receipt.
 
 ### Kernel Observation Delivery
 
-1. `job.completed`, `job.failed`, `job.cancelled`, important progress snapshots, credential blockers, quota blockers, and similar system facts are Kernel Observation Queue sources.
-2. Idle sessions do not auto-wake the model by default.
-3. Running sessions may drain pending observations at the next safe checkpoint before a provider step.
-4. User input has higher priority than kernel observations when both are pending.
-5. Observations are marked delivered only after the provider request that contains them has been accepted by the provider boundary.
-6. Provider request failure does not mark observations delivered.
-7. Restart replay must not deliver the same completed observation twice.
-8. User-facing UI may show job progress immediately. Provider-visible context receives observations only through the kernel delivery rule.
+1. `job.completed`, `job.failed`, `job.cancelled`, credential blockers, quota blockers, and similar terminal or actionable system facts are Kernel Observation Queue sources.
+2. Routine non-terminal `job.output` snapshots are not Kernel Observation Queue sources by default. Promoting a non-terminal snapshot into provider context requires an explicit future policy, because most progress is UI/diagnostic signal rather than model intent.
+3. Idle sessions do not auto-wake the model by default.
+4. Running sessions may drain pending observations at the next safe checkpoint before a provider step.
+5. User input has higher priority than kernel observations when both are pending.
+6. Observations are marked delivered only after the provider request that contains them has been accepted by the provider boundary.
+7. Provider request failure does not mark observations delivered.
+8. Restart replay must not deliver the same completed observation twice.
+9. User-facing UI may show job progress immediately. Provider-visible context receives observations only through the kernel delivery rule.
 
 ### Checkpoints
 
@@ -154,7 +156,7 @@ Job-control semantics:
 1. Provider-visible context gets the immediate job receipt and later delivered observation summaries, not every progress tick.
 2. UI timeline can show folded job cards, live progress, output preview, and terminal status.
 3. Raw event inspection shows append-only event order.
-4. Audit projection shows lifecycle, status, truncation, timeout, cancellation, and delivery facts.
+4. Audit projection shows lifecycle, status, timeout, cancellation, delivery, and risk/control facts. Routine progress output remains a session/UI/raw-event fact unless it records failure, terminal outcome, or another audit-worthy transition.
 5. Session projection survives restart and can show currently running or terminal jobs without re-running commands.
 
 ## Non-Goals
@@ -183,8 +185,8 @@ Phase B: managed-job ledger foundation.
 
 Phase C: real job manager.
 
-- Proves: session-scoped process registry, real process lifecycle, bounded output, terminal status, status query, cancellation, and restart-safe terminal projection.
-- Still short of production: progress snapshots, idle continuation policy, foreground interrupt behavior, and stronger sandbox/approval integration can remain limited.
+- Proves: session-scoped process registry, real process lifecycle, bounded output, terminal status, status query, cancellation, executor-reported output snapshots, and restart-safe projection.
+- Still short of production: local live output sampling, foreground attach behavior, and stronger sandbox/approval integration can remain limited.
 
 Phase D: observation delivery.
 
@@ -208,6 +210,7 @@ Positive cases:
 - model-requested managed job writes `tool.call`, `job.started`, receipt `tool.result`, and terminal job event;
 - job status and cancellation use generic job controls;
 - completed job observations can enter the next provider context through kernel delivery.
+- executor-reported `job.output` snapshots are durable session/UI facts and are not injected as provider observations by default.
 
 Negative cases:
 
@@ -223,6 +226,7 @@ Fail-closed and recovery:
 - provider request failure does not mark observations delivered;
 - restart replay does not duplicate delivered observations;
 - cancellation and interruption write separate auditable facts.
+- routine progress snapshots do not enter strong audit or provider context unless a future policy explicitly promotes them.
 
 Audit and visibility:
 
@@ -246,7 +250,7 @@ This requirement governs these implementation slices:
 - `KERNEL-MANAGED-JOB-FOUNDATION-20260623`: `ready_for_acceptance` for managed-job event model and receipt-style tool result.
 - `KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623`: `ready_for_acceptance` for foreground runtime timeout as terminal-equivalent command evidence with timeout metadata and available output.
 - `KERNEL-OBSERVATION-DELIVERY-20260623`: `ready_for_acceptance` for pending/delivered observation tracking and checkpoint delivery semantics.
-- `KERNEL-JOB-CONTROL-INTERRUPT-20260623`: remaining interrupt, progress snapshot, idle continuation, and foreground attach-or-kill semantics.
+- `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`: remaining local executor live-output sampling and foreground attach-or-kill semantics.
 
 `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` is adjacent authority-plane work governed by `docs/requirements/kernel-foundation-capabilities.md`.
 

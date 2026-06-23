@@ -25,17 +25,17 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Managed job progress snapshots and idle continuation policy
+### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Local managed job streaming and attach capability
 
 - Status: open.
 - Area: Tool Runtime / Interface Kernel / Model Gateway.
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
 - Design: `docs/design/kernel-shell-and-job-control.md`.
-- Gap: Turn interruption and live job cancellation now have a minimal kernel path, but managed jobs still do not emit progress snapshots, idle sessions do not have a user-triggered continuation policy, and the local executor cannot attach/detach an already-running foreground shell into a managed job.
-- Next slice: Add sparse `job.progress` or `job.output` snapshots only when they are useful durable facts, define how a user "continue" command drains pending job observations for an idle session, and keep attach-capable foreground shell behavior behind executor capability detection instead of exposing process ids or signals.
-- Evidence: `6e3287525` adds `InterruptSession`, `POST /sessions/{id}/interrupt`, `assistant.interrupted`, `operation.interrupted`, and tests proving provider-step interruption does not cancel an existing background job. Existing managed-job tests cover terminal completion and explicit `job_cancel`.
-- Verification: Remaining verification must prove progress snapshots are bounded and not injected into every provider step, idle continuation drains queued observations without autonomous wakeup, and any future attach-capable executor behavior remains hidden behind kernel-owned executor semantics.
-- Reference alignment: Aligned with Codex and Reasonix's split between turn/session cancellation and background process lifecycle. The remaining drift risk is turning progress or continuation into UI/provider-owned behavior instead of kernel-owned observation delivery and checkpoint policy.
+- Gap: Kernel now has the first `job.output` snapshot contract: a managed executor may report bounded non-terminal output, session/UI projections can show it, and Model Gateway does not inject it as provider-visible observation by default. Remaining gaps are that the local managed shell executor still records only terminal output, and foreground shell attach/detach remains unavailable because the executor does not advertise that capability.
+- Next slice: Teach the local managed executor to emit sparse bounded `job.output` snapshots from live process output without storing transport chunks, and define attach-capable foreground shell behavior behind executor capability detection instead of exposing process ids or signals.
+- Evidence: `6e3287525` adds `InterruptSession`, `POST /sessions/{id}/interrupt`, `assistant.interrupted`, `operation.interrupted`, and tests proving provider-step interruption does not cancel an existing background job. `TestSubmitTurnDeliversAllTerminalJobObservationKinds` proves user-triggered continuation drains queued terminal observations without autonomous wakeup. `TestJobOutputSnapshotIsDurableButNotProviderObservation`, `TestManagedJobExecutorCanReportOutputSnapshot`, `TestManagedJobExecutorOutputSnapshotIsBounded`, `TestManagedJobExecutorCannotRedirectOutputSnapshotIdentity`, and `TestUITimelineFoldsDirectManagedJobEventsByJobID` prove `job.output` snapshots are bounded durable session/UI facts while remaining out of default provider observation delivery, kernel-bound to the originating job, and folded for direct shell transports.
+- Verification: Remaining verification must prove the local executor emits bounded sparse live output snapshots without turning stream chunks into long-term facts, and any future attach-capable executor behavior remains hidden behind kernel-owned executor semantics.
+- Reference alignment: Aligned with Codex background terminal list/terminate control surfaces and Reasonix's `ProgressFunc` plus session-scoped job manager. The active drift risk is turning live progress into provider-owned context, UI-owned truth, or a strong audit log instead of a kernel-owned durable fact with separate projections.
 
 ### KERNEL-SANDBOX-APPROVAL-NEXT-20260623 - P2 - Stronger sandbox and approval policy beyond the minimal profile split
 

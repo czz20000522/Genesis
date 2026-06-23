@@ -63,6 +63,12 @@ func (k *Kernel) startManagedJobExecutor(job JobProjection) error {
 	}
 	if err := k.jobExecutor.Start(context.Background(), ManagedJobStartRequest{
 		Job: job,
+		Observe: func(progress JobProjection) {
+			progress = mergeJobOutputSnapshot(job, progress)
+			if err := k.appendJobOutputEvent(progress); err != nil {
+				return
+			}
+		},
 		Complete: func(done JobProjection) {
 			if err := k.appendTerminalJobEvent(done); err != nil {
 				return
@@ -75,6 +81,22 @@ func (k *Kernel) startManagedJobExecutor(job JobProjection) error {
 		return k.appendTerminalJobEvent(failed)
 	}
 	return nil
+}
+
+func (k *Kernel) appendJobOutputEvent(job JobProjection) error {
+	k.jobMu.Lock()
+	defer k.jobMu.Unlock()
+
+	latest, ok, err := k.lookupSessionJob(job.SessionID, job.JobID)
+	if err != nil {
+		return err
+	}
+	if !ok || isTerminalJobStatus(latest.Status) {
+		return nil
+	}
+	job = mergeJobOutputSnapshot(latest, job)
+	applyJobOutputCapture(&job, captureBytes([]byte(job.Stdout), maxShellOutputBytes), captureBytes([]byte(job.Stderr), maxShellOutputBytes))
+	return k.appendJobEvent("job.output", job)
 }
 
 func (k *Kernel) appendTerminalJobEvent(job JobProjection) error {
@@ -103,6 +125,31 @@ func (k *Kernel) appendTerminalJobEvent(job JobProjection) error {
 		job.Status = "failed"
 		return k.appendJobEvent("job.failed", job)
 	}
+}
+
+func mergeJobOutputSnapshot(latest JobProjection, snapshot JobProjection) JobProjection {
+	stdout := snapshot.Stdout
+	stderr := snapshot.Stderr
+	snapshot = JobProjection{}
+	snapshot.SessionID = latest.SessionID
+	snapshot.TurnID = latest.TurnID
+	snapshot.JobID = latest.JobID
+	snapshot.Tool = latest.Tool
+	snapshot.IdempotencyKey = latest.IdempotencyKey
+	if strings.TrimSpace(latest.Status) != "" {
+		snapshot.Status = latest.Status
+	} else {
+		snapshot.Status = "running"
+	}
+	snapshot.CWD = latest.CWD
+	snapshot.Command = latest.Command
+	snapshot.TimeoutSec = latest.TimeoutSec
+	snapshot.Receipt = latest.Receipt
+	snapshot.StartedAt = latest.StartedAt
+	snapshot.ToolCallEventID = latest.ToolCallEventID
+	snapshot.Stdout = stdout
+	snapshot.Stderr = stderr
+	return snapshot
 }
 
 func (k *Kernel) appendJobEvent(eventType string, job JobProjection) error {
@@ -287,7 +334,7 @@ func (k *Kernel) lookupSessionJobByIdempotencyKey(sessionID string, tool string,
 
 func isJobFactEvent(eventType string) bool {
 	switch eventType {
-	case "job.started", "job.cancel_requested", "job.completed", "job.failed", "job.cancelled":
+	case "job.started", "job.output", "job.cancel_requested", "job.completed", "job.failed", "job.cancelled":
 		return true
 	default:
 		return false

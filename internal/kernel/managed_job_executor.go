@@ -14,6 +14,7 @@ type ManagedJobExecutor interface {
 
 type ManagedJobStartRequest struct {
 	Job      JobProjection
+	Observe  func(JobProjection)
 	Complete func(JobProjection)
 }
 

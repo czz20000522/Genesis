@@ -36,8 +36,9 @@ Managed job:
 4. Work/job owner records `job.started`.
 5. ToolGateway emits an immediate receipt-style `tool.result` for the original tool call.
 6. The provider loop is closed without waiting for final job output.
-7. Later job terminal facts are recorded as job events.
-8. Observation delivery decides when terminal job facts enter provider context.
+7. The managed executor may report sparse non-terminal output snapshots; the job owner force-binds kernel-owned job identity and records them as `job.output` only while the job is still non-terminal.
+8. Later job terminal facts are recorded as job events.
+9. Observation delivery decides when terminal job facts enter provider context.
 
 ## Protocol
 
@@ -57,8 +58,10 @@ Managed job events:
 - `tool.call`
 - `job.started`
 - receipt `tool.result`
-- optional `job.progress` or `job.output`
+- optional `job.output`
 - `job.completed`, `job.failed`, or `job.cancelled`
+
+`job.output` is a durable output snapshot for session/UI/raw-event projections. It is not a stream chunk, not a strong audit event by default, and not a provider-visible observation source unless a future checkpoint policy explicitly promotes it. Executors report output content; the kernel binds session id, job id, turn id, tool id, command/cwd, timeout, receipt, and status from the current job state so executor-supplied identity/control fields cannot redirect or rewrite job facts. A separate `job.progress` event requires a generic progress schema before it can enter the protocol.
 
 The `tool.call` and receipt `tool.result` events are provider-loop facts. Direct HTTP long shell requests write job lifecycle facts and return a job projection, but they do not forge model tool-call events.
 
@@ -93,9 +96,9 @@ Job facts are append-only. The original receipt is not overwritten by later comp
 Projection split:
 
 - provider context sees receipts and delivered observation summaries;
-- UI timeline may fold job lifecycle into one card;
+- UI timeline may fold job lifecycle and `job.output` snapshots into one card by tool-call id when present and by kernel job id for direct shell transports;
 - raw events preserve full order;
-- audit shows lifecycle, timeout, cancellation, truncation, and delivery facts;
+- audit shows lifecycle, timeout, cancellation, truncation, delivery, and control/risk facts without promoting routine progress output into a strong audit summary;
 - session projection survives restart.
 
 Observation delivery uses checkpoints:

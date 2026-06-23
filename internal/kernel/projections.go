@@ -14,6 +14,7 @@ func (k *Kernel) UITimeline(sessionID string) (UITimelineResponse, error) {
 	}
 	items := make([]UITimelineItem, 0, len(session.Events))
 	toolItemByEventID := map[string]int{}
+	toolItemByJobID := map[string]int{}
 	toolOrdinalByTurn := map[string]int{}
 	messageOrdinalByTurn := map[string]int{}
 	for _, event := range session.Events {
@@ -71,6 +72,40 @@ func (k *Kernel) UITimeline(sessionID string) (UITimelineResponse, error) {
 			items[idx].OutputSource = preview.Source
 			items[idx].OutputTruncated = preview.Truncated
 			items[idx].FullOutputAvailable = preview.FullAvailable
+			items[idx].UpdatedAt = event.CreatedAt
+		case "job.started", "job.output", "job.completed", "job.failed", "job.cancelled":
+			if event.Data.Job == nil {
+				continue
+			}
+			job := event.Data.Job
+			idx, ok := toolItemByEventID[strings.TrimSpace(job.ToolCallEventID)]
+			if !ok {
+				idx, ok = toolItemByJobID[strings.TrimSpace(job.JobID)]
+			}
+			if !ok {
+				ordinal := toolOrdinalByTurn[event.TurnID]
+				idx = len(items)
+				items = append(items, UITimelineItem{
+					ItemID:    timelineItemID(event.TurnID, "tool", ordinal),
+					TurnID:    event.TurnID,
+					Kind:      "tool",
+					Tool:      job.Tool,
+					CreatedAt: event.CreatedAt,
+				})
+				toolOrdinalByTurn[event.TurnID]++
+				if toolCallEventID := strings.TrimSpace(job.ToolCallEventID); toolCallEventID != "" {
+					toolItemByEventID[toolCallEventID] = idx
+				}
+			}
+			if jobID := strings.TrimSpace(job.JobID); jobID != "" {
+				toolItemByJobID[jobID] = idx
+			}
+			items[idx].Status = job.Status
+			items[idx].Tool = job.Tool
+			items[idx].OutputPreview = jobOutputPreview(*job)
+			items[idx].OutputSource = "job"
+			items[idx].OutputTruncated = job.StdoutTruncated || job.StderrTruncated
+			items[idx].FullOutputAvailable = strings.TrimSpace(job.Stdout) != "" || strings.TrimSpace(job.Stderr) != ""
 			items[idx].UpdatedAt = event.CreatedAt
 		case "model.final":
 			if event.Data.Final == nil {
@@ -153,6 +188,21 @@ func (k *Kernel) UITimeline(sessionID string) (UITimelineResponse, error) {
 		Status:    "ok",
 		Items:     items,
 	}, nil
+}
+
+func jobOutputPreview(job JobProjection) string {
+	switch {
+	case strings.TrimSpace(job.Stdout) != "":
+		return boundedTimelinePreview(job.Stdout)
+	case strings.TrimSpace(job.Stderr) != "":
+		return boundedTimelinePreview(job.Stderr)
+	case strings.TrimSpace(job.FailureReason) != "":
+		return boundedTimelinePreview(job.FailureReason)
+	case strings.TrimSpace(job.CancelReason) != "":
+		return boundedTimelinePreview(job.CancelReason)
+	default:
+		return boundedTimelinePreview(job.Receipt)
+	}
 }
 
 func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, error) {
@@ -537,7 +587,7 @@ func auditReplayItem(event StoredEvent) AuditReplayItem {
 		if data.Job != nil {
 			item.Tool = data.Job.Tool
 			item.ToolStatus = data.Job.Status
-			item.OutputPreview = boundedTimelinePreview(data.Job.Receipt)
+			item.OutputPreview = jobOutputPreview(*data.Job)
 		}
 	case "kernel.observation.delivered":
 		if data.KernelObservationDelivery != nil {

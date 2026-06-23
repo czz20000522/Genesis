@@ -43,6 +43,13 @@ Feature: Tool result taxonomy
     And Genesis records an assistant interruption fact
     And the existing managed job remains running unless explicit job cancellation is requested
 
+  Scenario: Managed job output snapshots are durable without becoming provider observations
+    Given a managed job reports a non-terminal output snapshot
+    When Genesis records the snapshot
+    Then session and UI projections can show the bounded job output
+    And Genesis does not inject that non-terminal output as kernel observation context by default
+    And terminal job facts remain the default job observations delivered to the provider
+
   Scenario: Long command output stays bounded and inspectable
     Given an admitted shell command produces long stdout or stderr
     When Genesis returns the tool result

@@ -68,7 +68,7 @@ func (b *sessionProjectionBuilder) applyOwnerEvent(event StoredEvent) error {
 		b.applyTurnEvent(event)
 	case "operation.running", "operation.completed", "operation.failed", "operation.blocked", "operation.interrupted", "operation.tool_infrastructure_failed":
 		b.applyOperationEvent(event)
-	case "job.started", "job.cancel_requested", "job.completed", "job.failed", "job.cancelled":
+	case "job.started", "job.output", "job.cancel_requested", "job.completed", "job.failed", "job.cancelled":
 		b.applyJobEvent(event)
 	case "work.submitted", "work.canceled":
 		return b.applyWorkEvent(event)

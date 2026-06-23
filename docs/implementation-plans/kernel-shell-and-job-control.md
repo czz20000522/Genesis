@@ -15,7 +15,7 @@
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`
 - Design: `docs/design/kernel-shell-and-job-control.md`
 - Active issues:
-  - `KERNEL-JOB-CONTROL-INTERRUPT-20260623`
+  - `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`
 
 ## Phase A: Foreground Timeout Contract
 
@@ -171,10 +171,10 @@
 - Provider failure leaves observations pending.
 - Restart replay suppresses already delivered observation ids.
 
-**Still deferred from full production delivery:**
+**Still deferred from full production delivery at Phase D time:**
 
-- progress snapshots such as `job.progress` or `job.output`;
-- user-triggered continuation after idle job completion;
+- executor-reported `job.output` snapshots, later completed by Phase H-lite;
+- local live-output sampling and foreground attach behavior;
 - explicit auto-resume policy, if that is ever approved.
 
 ## Phase E-lite: Minimal Job Control Tools
@@ -271,10 +271,10 @@
 - `job_cancel` records `job.cancel_requested` but does not forge `job.cancelled`; live executor completion writes the terminal cancellation fact.
 - Ledger-only running jobs can receive a cancellation request without pretending a host process was terminated.
 
-**Still deferred from full production delivery:**
+**Still deferred from full production delivery at Phase F time:**
 
-- progress snapshots such as `job.progress` or `job.output`;
-- user-triggered continuation after idle job completion;
+- executor-reported `job.output` snapshots, later completed by Phase H-lite;
+- local live-output sampling;
 - explicit auto-resume policy, if approved later;
 - provider-stream interruption;
 - foreground shell attach-or-kill behavior on user interrupt;
@@ -302,8 +302,29 @@
 
 **Still deferred from full production delivery:**
 
-- progress snapshots such as `job.progress` or `job.output`;
-- user-triggered continuation after idle job completion;
+- local live-output sampling;
 - explicit auto-resume policy, if approved later;
 - attach/detach of an already-running foreground shell into a managed job when an executor supports that capability;
 - stronger sandbox/approval integration for arbitrary host shell execution.
+
+## Phase H-lite: Managed Job Output Snapshot Projection
+
+**Deliverable:** managed executors can report sparse non-terminal output snapshots through the kernel-owned job boundary. The kernel records those snapshots as `job.output`, projects them to session/UI/raw-event surfaces, and keeps them out of default provider observation delivery.
+
+**Reference scan:**
+
+- Codex app-server exposes background terminal list/terminate as control-plane surfaces, keeping process lifecycle separate from turn interruption. Genesis keeps `job.output` as a job fact and does not turn it into a provider-owned stream.
+- Reasonix `internal/tool/progress.go` uses a `ProgressFunc` context sink for live frontend progress, and `internal/jobs` drains only completion summaries into the next turn. Genesis follows the split by allowing executor progress reports while only terminal job facts enter `kernel_observation_context` by default.
+
+**Completed slice:**
+
+- `ManagedJobStartRequest` exposes an `Observe(JobProjection)` callback for executor-originated non-terminal snapshots.
+- The job owner records snapshots as `job.output` only if the latest job state is still non-terminal.
+- `job.output` replays into session job projection and UI timeline output preview.
+- `job.output` is not a pending kernel observation source and does not create `kernel_observation_context` on the next provider step.
+- Routine `job.output` is not promoted into audit replay summaries; raw event inspection still preserves the append-only fact.
+
+**Still deferred from full production delivery:**
+
+- The local managed shell executor still captures output only at terminal completion; it does not yet stream sparse live stdout/stderr snapshots.
+- Foreground shell attach/detach on user interruption still requires executor capability detection.
