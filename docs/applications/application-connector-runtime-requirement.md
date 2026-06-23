@@ -17,6 +17,9 @@ The correct rule is:
 > Connector owns protocol translation and delivery; kernel owns authority,
 > execution, facts, and recovery; LLM owns only semantic intent.
 
+This is a specialization of the protocol boundary owner pattern defined in
+`docs/kernel-contract.md`.
+
 Model Gateway adapts model protocols:
 
 ```text

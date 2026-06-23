@@ -1,0 +1,182 @@
+package connectorruntime
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"sort"
+	"sync"
+	"time"
+)
+
+type OutboxStore interface {
+	EnqueueCommand(context.Context, AppCommand, time.Time) (ConnectorOutboxItem, bool, error)
+	GetOutboxItem(context.Context, string) (ConnectorOutboxItem, error)
+	RecordDelivery(context.Context, ConnectorOutboxItem, DeliveryReceipt) error
+	ListOutbox(context.Context) ([]ConnectorOutboxItem, error)
+	ListReceipts(context.Context, string) ([]DeliveryReceipt, error)
+}
+
+type FileOutboxStore struct {
+	path     string
+	mu       sync.Mutex
+	items    map[string]ConnectorOutboxItem
+	byDedupe map[string]string
+	receipts map[string][]DeliveryReceipt
+}
+
+type fileOutboxPayload struct {
+	Items    map[string]ConnectorOutboxItem `json:"items"`
+	ByDedupe map[string]string              `json:"by_dedupe"`
+	Receipts map[string][]DeliveryReceipt   `json:"receipts"`
+}
+
+func NewFileOutboxStore(path string) (*FileOutboxStore, error) {
+	if path == "" {
+		return nil, errors.New("outbox store path is required")
+	}
+	store := &FileOutboxStore{
+		path:     path,
+		items:    make(map[string]ConnectorOutboxItem),
+		byDedupe: make(map[string]string),
+		receipts: make(map[string][]DeliveryReceipt),
+	}
+	if err := store.load(); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+func (s *FileOutboxStore) EnqueueCommand(_ context.Context, command AppCommand, now time.Time) (ConnectorOutboxItem, bool, error) {
+	if err := command.validate(); err != nil {
+		return ConnectorOutboxItem{}, false, err
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	dedupeKey := command.outboxDedupeKey()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existingID, ok := s.byDedupe[dedupeKey]; ok {
+		return s.items[existingID], true, nil
+	}
+	item := command.toOutboxItem(now)
+	s.items[item.OutboxID] = item
+	s.byDedupe[dedupeKey] = item.OutboxID
+	if err := s.writeLocked(); err != nil {
+		delete(s.items, item.OutboxID)
+		delete(s.byDedupe, dedupeKey)
+		return ConnectorOutboxItem{}, false, err
+	}
+	return item, false, nil
+}
+
+func (s *FileOutboxStore) GetOutboxItem(_ context.Context, outboxID string) (ConnectorOutboxItem, error) {
+	if outboxID == "" {
+		return ConnectorOutboxItem{}, errors.New("outbox id is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.items[outboxID]
+	if !ok {
+		return ConnectorOutboxItem{}, errors.New("outbox item not found")
+	}
+	return item, nil
+}
+
+func (s *FileOutboxStore) RecordDelivery(_ context.Context, item ConnectorOutboxItem, receipt DeliveryReceipt) error {
+	if item.OutboxID == "" || receipt.ReceiptID == "" || receipt.OutboxID == "" {
+		return errors.New("outbox item and receipt ids are required")
+	}
+	if item.OutboxID != receipt.OutboxID {
+		return errors.New("receipt outbox id does not match item")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.items[item.OutboxID]; !ok {
+		return errors.New("outbox item not found")
+	}
+	s.items[item.OutboxID] = item
+	s.receipts[item.OutboxID] = append(s.receipts[item.OutboxID], receipt)
+	return s.writeLocked()
+}
+
+func (s *FileOutboxStore) ListOutbox(_ context.Context) ([]ConnectorOutboxItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]ConnectorOutboxItem, 0, len(s.items))
+	for _, item := range s.items {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].CreatedAt.Before(items[j].CreatedAt)
+	})
+	return items, nil
+}
+
+func (s *FileOutboxStore) ListReceipts(_ context.Context, outboxID string) ([]DeliveryReceipt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	receipts := append([]DeliveryReceipt(nil), s.receipts[outboxID]...)
+	sort.Slice(receipts, func(i, j int) bool {
+		return receipts[i].RecordedAt.Before(receipts[j].RecordedAt)
+	})
+	return receipts, nil
+}
+
+func (s *FileOutboxStore) load() error {
+	content, err := os.ReadFile(s.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var payload fileOutboxPayload
+	if err := json.Unmarshal(content, &payload); err != nil {
+		return err
+	}
+	if payload.Items != nil {
+		s.items = payload.Items
+	}
+	if payload.ByDedupe != nil {
+		s.byDedupe = payload.ByDedupe
+	}
+	if payload.Receipts != nil {
+		s.receipts = payload.Receipts
+	}
+	return nil
+}
+
+func (s *FileOutboxStore) writeLocked() error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return err
+	}
+	payload := fileOutboxPayload{
+		Items:    s.items,
+		ByDedupe: s.byDedupe,
+		Receipts: s.receipts,
+	}
+	content, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".connector-outbox.*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if _, err := tmp.Write(content); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, s.path)
+}

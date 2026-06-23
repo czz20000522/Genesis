@@ -49,6 +49,10 @@ The connector runtime is not kernel and not Model Gateway. It is similar in
 shape to Model Gateway because it adapts an external protocol boundary, but it
 adapts application events/actions rather than model requests/responses.
 
+This design uses the protocol boundary owner pattern from
+`docs/kernel-contract.md`: external protocol values become connector-owned refs,
+requests, actions, and receipts before any Genesis owner consumes them.
+
 ## Owner Responsibilities
 
 Connector Runtime owns:

@@ -36,19 +36,30 @@ Already implemented as `internal/applications/message_ingress` and
 
 This slice is useful but narrower than the production connector requirement.
 
-## Phase B Next Slice
+## Phase B Current Slice
 
-Promote the user-space app layer from inbound-only to connector runtime:
+The first Phase B slice implemented the outbound owner:
 
-- introduce `internal/applications/connector_runtime`;
-- define `ExternalEvent`, `ExternalThreadRef`, `RequestContext`,
-  `ApplicationSessionMapping`, `AppCommand`, `ConnectorOutboxItem`,
+- introduced `internal/applications/connector_runtime`;
+- defined `ExternalThreadRef`, `AppCommand`, `ConnectorOutboxItem`,
   `ConnectorAction`, and `DeliveryReceipt`;
+- added a file-backed outbox store with idempotency and receipt records;
+- added console connector action executor for local diagnostics;
+- added Feishu connector action executor behind a runner interface;
+- kept actual Feishu SDK/CLI production listener hardening as a later issue.
+
+Phase B also updates the generic protocol boundary owner documentation so the
+same rule applies to Model Gateway, future WebUI/CLI/desktop shells, resource
+intake, and credential-backed integrations.
+
+## Phase B Remaining Slice
+
+Unify inbound connector context:
+
+- define `ExternalEvent`, `RequestContext`, and `ApplicationSessionMapping`;
 - move or wrap current `message_ingress` behavior as the inbound connector path;
-- add a file-backed outbox store with idempotency and receipt records;
-- add console connector action executor for local diagnostics;
-- add Feishu connector action executor behind a fake runner in tests only;
-- keep actual Feishu SDK/CLI production listener hardening as a later issue.
+- keep current opaque session mapping and inbound dedupe semantics;
+- keep connector inbound code outside kernel and outside provider context.
 
 ## Tests
 

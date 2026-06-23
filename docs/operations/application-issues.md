@@ -17,16 +17,27 @@ Genesis Kernel. Kernel primitive gaps belong in
 
 ## Active Issues
 
-### APP-CONNECTOR-OUTBOX-RECEIPT-20260623 - P1 - Add connector outbox/action/receipt owner
+### APP-CONNECTOR-INBOUND-CONTEXT-UNIFICATION-20260623 - P2 - Unify inbound message slice with connector request context
 
 - Status: open.
 - Requirement: `docs/applications/application-connector-runtime-requirement.md`.
 - Design: `docs/applications/application-connector-runtime-design.md`.
-- Gap: Current code only implements the Phase A inbound slice in `internal/applications/message_ingress`. It has no `AppCommand`, `ConnectorOutbox`, `ConnectorAction`, or `DeliveryReceipt` owner, so production outbound delivery would still be underspecified if implemented next.
-- Next slice: Add the minimal connector runtime package or owner module that defines app commands, outbox items, connector actions, receipts, idempotency, and failed-delivery isolation. Console and Feishu should be adapters of the same primitives.
-- Evidence: `cmd/genesis-ingress` and `internal/applications/message_ingress` submit inbound messages to `/turn` and intentionally contain no outbound sender. The approved connector requirement now states outbound production must flow through connector outbox/receipt.
-- Verification: App command enqueue produces one outbox item; duplicate app command suppresses duplicate action; connector action failure writes receipt/retry state without changing kernel facts; connector package does not import `internal/kernel` or expose external credentials to model-visible fields.
-- Reference alignment: Codex and Reasonix keep protocol adapters outside core controller truth; Genesis extends that boundary with a connector outbox/receipt owner for production external delivery.
+- Gap: Current inbound code still lives as the Phase A `internal/applications/message_ingress` slice with `ChannelMessage`. The connector runtime now owns outbound outbox/action/receipt, but inbound `ExternalEvent`, `RequestContext`, and `ApplicationSessionMapping` are not yet unified in the connector owner.
+- Next slice: Introduce connector-owned inbound types and wrap or migrate `message_ingress` so external events normalize into `RequestContext`, then reuse the same session mapping and dedupe semantics before kernel `/turn`.
+- Evidence: `internal/applications/message_ingress` remains a separate inbound package; `internal/applications/connector_runtime` currently covers outbox/action/receipt only.
+- Verification: External event normalization must avoid raw external ids as public system ids; duplicate inbound external events must not submit duplicate kernel turns; connector runtime must still avoid kernel internals and provider-context assembly.
+- Reference alignment: Codex and Reasonix keep protocol adapters outside core controller truth. Genesis should converge inbound and outbound connector state under one user-space boundary owner without moving it into kernel.
+
+### APP-CONNECTOR-DELIVERY-STATE-MACHINE-20260623 - P2 - Add retry scheduling, dead-letter, and partial-success recovery
+
+- Status: open.
+- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Gap: The first outbox owner records queued, sent, retrying, failed, and duplicate-suppressed receipts, but it does not yet implement retry scheduling, delivery leases/claims, dead-letter transitions, partial-success recovery, or rate-limit backoff.
+- Next slice: Add an explicit delivery state machine with eligible retry selection, bounded attempt policy, dead-letter receipt, and partial-success recovery hooks. Keep these states connector-local and do not rewrite kernel turn facts.
+- Evidence: `internal/applications/connector_runtime` currently records the adapter-provided status and suppresses terminal duplicates, but does not schedule retries or transition failed/retrying items to dead-letter.
+- Verification: Retrying item becomes eligible only after `next_attempt_at`; exhausted attempts produce one dead-letter receipt; partial success records recoverable receipt state; duplicate execution of terminal sent/dead-letter items does not call the adapter.
+- Reference alignment: Codex and Reasonix show protocol boundary discipline, but Genesis needs connector-specific recovery because external delivery has side effects outside kernel truth.
 
 ### APP-CONNECTOR-FEISHU-LISTENER-20260623 - P2 - Feishu inbound listener and adapter retry hardening
 

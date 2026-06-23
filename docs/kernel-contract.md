@@ -53,6 +53,58 @@ A practical boundary test is the domain-name test. If a capability is named afte
 
 Under that rule, a calculator skill is not kernel. It is user-space instruction that can ask the model to use a governed process tool for exact arithmetic. A Feishu daemon is not kernel. It listens to Feishu, submits a turn, and renders or sends results through user-space capabilities. WebUI is not allowed to assemble provider context. Applications are not allowed to write memory truth directly.
 
+## Protocol Boundary Owner Pattern
+
+Any surface that crosses out of the Genesis canonical world must pass through a
+protocol boundary owner. A boundary owner translates an external protocol into
+stable Genesis primitives on the way in, and translates controlled Genesis
+actions or projections back into the external protocol on the way out.
+
+The rule is:
+
+```text
+External protocol <-> Boundary owner <-> Genesis canonical primitive
+```
+
+This pattern applies to model providers, external application connectors,
+future WebUI/CLI/desktop shells, resource intake, and credential-backed
+integrations. The owner name changes, but the boundary discipline stays the
+same.
+
+Common invariants:
+
+- external protocols do not directly enter core owners;
+- external identity does not directly equal system identity;
+- external errors do not directly equal system errors;
+- external paths and ids do not directly become public system ids;
+- external credentials are not given to the LLM or prompt context;
+- external actions pass through typed request/action/outcome records;
+- shells and connectors consume kernel events or projections instead of
+  rebuilding kernel truth;
+- boundary adapters translate shape and transport, not authority.
+
+Model Gateway is the provider protocol boundary:
+
+```text
+Genesis Model Protocol <-> OpenAI / DeepSeek / Claude / local model
+```
+
+Application Connector Runtime is the external application protocol boundary:
+
+```text
+External Event / Action Protocol <-> Genesis Application Event / Request / Projection / Command
+```
+
+Future WebUI, CLI, and desktop shells must follow the same pattern. They may
+submit user requests and render kernel events, timelines, audits, context
+inspection, connector receipts, or application projections, but they must not
+assemble provider context, decide tool authority, mint kernel events, write
+memory truth, or create a parallel transcript truth.
+
+The LLM is not a boundary owner. It produces semantic intent. The boundary
+owner decides how that intent becomes an admitted request, command, action, or
+receipt under the relevant authority and recovery model.
+
 ## Provider, Role, Invocation, And TaskGraph Boundaries
 
 This section records the boundary decision for future provider routing, role profiles, multi-agent execution, and project task graphs. The decision comes from the Genesis kernel rewrite discussion and from reviewing the Python TaskGraph and multi-agent design: Genesis should keep the useful control-plane ideas, but it must not copy the old implementation shape or let application roles become kernel authority.
