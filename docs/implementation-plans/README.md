@@ -28,6 +28,10 @@ Link the approved requirement and design documents.
 - Tests:
 - Evidence:
 - Still short of production:
+- Closing gate:
+  - Requirement/design/issue/BDD items checked:
+  - Drift fixed before commit:
+  - Drift recorded as active issue:
 
 ## Phase B
 
@@ -49,3 +53,5 @@ Link the approved requirement and design documents.
 
 State what must be true before related issues can move to retirement evidence.
 ```
+
+Every phase must run the closing gate before commit. If the implementation is intentionally narrower than the production requirement, the plan must name that remaining gap and either link an active issue or state why the requirement already allows the staged limitation.

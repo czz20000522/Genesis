@@ -47,7 +47,7 @@ Model-visible `shell_exec` arguments include semantic command fields and `timeou
 
 - missing means 30;
 - 1 through 180 is foreground-valid;
-- greater than 180 routes to managed job once that path exists;
+- greater than 180 routes to a managed job;
 - invalid values produce repairable `tool_request_invalid` feedback with no effect.
 
 Managed job events:

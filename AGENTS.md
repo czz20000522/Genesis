@@ -12,6 +12,7 @@ Non-trivial kernel capability work must follow this order:
 4. Implementation Plan: define Phase A/B/C delivery slices, red lines, tests, evidence, what remains short of production, and the reference scan summary.
 5. Issue: track only the current gap between approved requirements/designs and implementation.
 6. Implementation: change code only after the relevant requirement, design, and reference scan exist, except for obvious bugs or test gaps.
+7. Closing Gate: before each commit, compare the implemented slice against the governing requirement, design, plan, issue, and BDD feature. Fix in-scope drift immediately; record out-of-scope drift as an active issue before committing.
 
 Core principle:
 
@@ -22,6 +23,8 @@ Requirements should be few and stable. Implementation plans are phase-local and 
 Issues must cite an approved requirement and design unless the issue is an obvious bug or test gap. If an issue uses that exception, say so explicitly in the issue.
 
 Implementation plans and non-trivial issue updates must not jump straight from Genesis-local reasoning to code. Look for comparable behavior in `D:\software\JetBrains\python_workspace\codex-main` and `D:\software\JetBrains\python_workspace\reasonix` first. The goal is not to copy them, but to catch missing state, failure, permission, recovery, and projection semantics before coding.
+
+Each implementation slice must end with a requirement-by-requirement drift check. Passing tests is not enough if docs, issues, or retirement evidence still describe a temporary shortcut as the current contract.
 
 ## Boundary Rules
 

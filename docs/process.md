@@ -67,8 +67,9 @@ For every non-trivial capability:
 4. Write or update the implementation plan before code changes.
 5. Create or update issues only as gaps against the approved requirement or design.
 6. Implement the smallest phase that can produce evidence.
-7. Verify the phase and record the evidence.
-8. Move accepted issues out of the active issue ledger and into retirement evidence.
+7. Run the implementation closing gate.
+8. Verify the phase and record the evidence.
+9. Move accepted issues out of the active issue ledger and into retirement evidence.
 
 Obvious bugs and test gaps may skip a new requirement or design document when the current approved requirement/design already covers the expected behavior. The issue must state that it is using the bug/test-gap exception.
 
@@ -90,6 +91,21 @@ The implementation plan must record:
 
 If neither project has a comparable implementation, record that explicitly and explain which Genesis requirement/design owns the decision instead. Do not use "no reference found" as permission to skip requirement, design, failure semantics, permissions, recovery, or observability.
 
+## Implementation Closing Gate
+
+Every implementation slice must close with a requirement-by-requirement drift check before commit. The fixed order is:
+
+1. Re-open the governing requirement, design, implementation plan, active issue, and relevant BDD feature.
+2. Check each production semantic, non-goal, red line, failure behavior, permission rule, recovery rule, projection rule, and phased "still short of production" claim against the actual code, tests, and docs touched by the slice.
+3. If a drift is small and inside the slice scope, fix it before committing.
+4. If a drift is real but outside the slice scope, add or update an active issue that cites the approved requirement/design, records the evidence, and states the next slice.
+5. If an old issue, implementation-plan note, or retirement entry now describes an obsolete temporary behavior as active, rewrite it to the current positive contract or mark it superseded in the retirement log.
+6. Only then run verification and commit.
+
+This gate is mandatory even when the code compiles and tests pass. Tests prove selected behavior; the closing gate checks whether the implementation, documentation, and issue ledger still describe the same architecture.
+
+The commit message should mention the drift check in `Tested:` or `Not-tested:` when it materially shaped the slice.
+
 ## Issue Maintenance Rule
 
 Every active issue must cite an approved requirement and design unless it is an obvious bug or test gap. Issues must not carry raw requirements, design discussion, or the full acceptance contract. They should use the smallest useful shape:
@@ -103,6 +119,8 @@ Every active issue must cite an approved requirement and design unless it is an 
 - Reference alignment:
 
 If no approved requirement or design exists, the next step is to write that document instead of implementing code.
+
+Implementation drift found during the closing gate must either be fixed before commit or recorded here as an active issue. Do not leave known drift only in chat, implementation-plan notes, or a local grep result.
 
 ## Boundary Guard
 

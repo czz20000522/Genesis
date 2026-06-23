@@ -69,7 +69,9 @@
 
 ## Phase B-lite: Managed Job Receipt Event Foundation
 
-**Deliverable:** `timeout_sec > 180` creates minimal append-only job events and an immediate model-visible receipt. The first implementation may use a fake/minimal executor that completes immediately after the receipt; it must prove event order and provider-loop closure.
+> Historical phase note: this closed phase established the receipt and append-only event protocol. Phase F-lite supersedes its temporary executor behavior. Do not use this section to reintroduce terminal job facts from the receipt path.
+
+**Deliverable:** `timeout_sec > 180` creates minimal append-only job events and an immediate model-visible receipt. The phase proves event order and provider-loop closure; real executor behavior is owned by Phase F-lite and later slices.
 
 **Files:**
 
@@ -92,7 +94,8 @@
   A provider requests `shell_exec` with `timeout_sec=181`. The test expects:
 
   - no foreground operation is created;
-  - events include `tool.call`, `job.started`, receipt `tool.result`, `job.completed`, and `model.final`;
+  - events include `tool.call`, `job.started`, receipt `tool.result`, and `model.final`;
+  - terminal job events are produced later by the managed executor rather than forged inside the receipt path;
   - provider receives a tool result with status `managed_job_started`;
   - final response is returned.
 
@@ -106,11 +109,11 @@
 
 - [ ] **Step 4: Add job event helpers**
 
-  Add helpers that append `job.started` and terminal `job.completed` events. Use the `job.started` event id as the handle.
+  Add helpers that append `job.started` events and terminal job facts from executor completion. Use the `job.started` event id as the handle.
 
 - [ ] **Step 5: Route long timeout shell calls to managed jobs**
 
-  In the prepared shell execution path, when `timeout_sec > 180`, append job events and return a receipt-style `ModelToolResult` instead of calling `ExecShell`.
+  In the prepared shell execution path, when `timeout_sec > 180`, append `job.started`, return a receipt-style `ModelToolResult`, and hand the command to the managed executor instead of calling foreground `ExecShell`.
 
 - [ ] **Step 6: Run focused tests**
 
@@ -152,7 +155,7 @@
 
 - [ ] **Step 4: Update issue ledger or retirement evidence**
 
-  If Phase A and B-lite pass, move only the fully satisfied slices to acceptance evidence. Leave job status/cancel and interrupt as active gaps.
+  If Phase A and B-lite pass, move only the fully satisfied slices to acceptance evidence. At Phase C time, job status/cancel and interrupt were still active gaps; current active gap state must be read from `docs/operations/kernel-issues.md`.
 
 ## Phase D-lite: Terminal Job Observation Delivery
 
@@ -170,7 +173,6 @@
 
 **Still deferred from full production delivery:**
 
-- real background process execution;
 - progress snapshots such as `job.progress` or `job.output`;
 - user-triggered continuation after idle job completion;
 - explicit auto-resume policy, if that is ever approved.
@@ -264,7 +266,7 @@
 **Completed slice:**
 
 - `timeout_sec > 180` records `job.started`, appends the receipt `tool.result`, then starts a local managed shell executor.
-- The receipt is no longer overwritten or followed by fake immediate completion.
+- The receipt is no longer overwritten or followed by a synthetic terminal job fact.
 - The default executor runs shell commands under a cancellable session-scoped manager and records terminal job facts with exit code and bounded stdout/stderr.
 - `job_cancel` records `job.cancel_requested` but does not forge `job.cancelled`; live executor completion writes the terminal cancellation fact.
 - Ledger-only running jobs can receive a cancellation request without pretending a host process was terminated.

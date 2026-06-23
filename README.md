@@ -209,7 +209,7 @@ The runbook lives at `docs/operations/live-llm-first-run-acceptance.md`. It cove
 
 ## Tool Runtime
 
-The first kernel tool is `shell_exec`. It is deliberately small:
+The primary effectful process tool is `shell_exec`. It is deliberately small:
 
 - `plan` mode blocks shell execution fail-closed.
 - `default` mode requires a kernel-configured workspace root and uses a kernel-controlled command set from inside that workspace. It does not invoke the operating-system shell, expand environment variables, or execute arbitrary interpreters.
@@ -217,7 +217,7 @@ The first kernel tool is `shell_exec`. It is deliberately small:
 
 Genesis resolves these user-facing modes into separate kernel policy facts before execution: `authority_policy` decides whether the requested effect class is admissible, `sandbox_profile` names the executor isolation actually used, and `approval_policy` decides whether escalation can be requested. The current kernel keeps `approval_policy=never` for all three modes; approval prompts are a future shell capability, not part of the first kernel path.
 
-The tool surface is generated from `ToolRegistry` and executed through `ToolGateway`. `shell_exec` is registered with `side_effect_level=write` and `execution_kind=sandboxed_process`; capability projection, provider tool manifests, model tool preflight, and direct HTTP execution all use that same registry entry. The turn loop and provider adapters do not special-case shell execution.
+The tool surface is generated from `ToolRegistry` and executed through `ToolGateway`. The current generic model-visible tools are `shell_exec`, `job_status`, and `job_cancel`. `shell_exec` is registered with `side_effect_level=write` and `execution_kind=sandboxed_process`; `job_status` and `job_cancel` are generic kernel-control tools for managed jobs. Capability projection, provider tool manifests, model tool preflight, and direct `shell_exec` HTTP execution all project from the registry. The turn loop and provider adapters do not special-case shell execution or job control.
 
 The controlled default command set is intentionally narrow: text output, simple file reads, and simple file writes whose real path remains inside the configured workspace. Symlink/junction resolution, parent traversal, absolute path escapes, shell metacharacters, and unsupported commands are blocked before any process is spawned.
 
@@ -227,9 +227,9 @@ The HTTP request cannot select `permission_mode`, `workspace_root`, `authority_p
 
 ### Model Tool Loop
 
-`POST /turn` now supports the same governed `shell_exec` tool through the model loop. The Model Gateway exposes a kernel-generated `shell_exec` manifest to OpenAI-compatible providers, normalizes provider tool calls, and hands them to ToolGateway. ToolGateway applies the same `ToolPolicy` used by direct `POST /tools/shell_exec` calls.
+`POST /turn` supports the registry-generated model tool surface through the model loop. The Model Gateway exposes kernel-generated `shell_exec`, `job_status`, and `job_cancel` manifests to providers, normalizes provider tool calls, and hands them to ToolGateway. ToolGateway applies the same kernel policy path used by direct `POST /tools/shell_exec` calls.
 
-When the model requests `shell_exec`, the kernel writes a `tool.call` event, executes or blocks the operation, records turn-scoped `operation.*` events, writes a `tool.result` event whose `for_event_id` points back to the `tool.call`, and sends terminal-equivalent command evidence or minimal repair feedback back to the provider. Full permission and audit evidence stays in session/operation inspection. The provider must then return the final assistant text. `GET /turns/{id}/events` replays the full sequence after restart.
+When the model requests `shell_exec`, the kernel writes a `tool.call` event, executes or blocks the operation, records turn-scoped `operation.*` events for foreground execution, writes a `tool.result` event whose `for_event_id` points back to the `tool.call`, and sends terminal-equivalent command evidence, managed-job receipt, or minimal repair feedback back to the provider. `job_status` and `job_cancel` inspect or request cancellation for kernel-issued managed-job handles without exposing process ids, signals, or host termination mechanics to the model. Full permission and audit evidence stays in session/operation/job inspection. The provider must then return the final assistant text. `GET /turns/{id}/events` replays the full sequence after restart.
 
 Unsupported model-requested tools fail closed as `tool_call_rejected`; no effect is executed. This does not make email, Feishu, calendar, or other applications kernel features. Those remain external skills, CLIs, and daemons that can be reached through generic governed tools when installed and authorized.
 

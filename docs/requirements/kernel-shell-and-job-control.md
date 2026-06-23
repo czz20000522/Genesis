@@ -71,7 +71,7 @@ Application:
 2. Omitted `timeout_sec` defaults to 30 seconds.
 3. Foreground synchronous shell accepts integer seconds from 1 through 180.
 4. `timeout_sec=180` is the maximum foreground request.
-5. `timeout_sec>180` is a valid long-task intent. It routes to managed jobs once that path is available and must not continue as ordinary synchronous shell execution.
+5. `timeout_sec>180` is a valid long-task intent. It routes to managed jobs and must not continue as ordinary synchronous shell execution.
 6. Non-positive, non-integer, missing-type, or malformed timeout values produce repairable `tool_request_invalid` feedback and no effect.
 7. Timeout validation happens before command execution and before any workspace or host shell side effect.
 8. The model-visible schema uses seconds. Internal runtimes may use other units.
@@ -142,8 +142,9 @@ Job-control semantics:
 
 - job-control tools validate that the referenced handle is a kernel-owned job handle;
 - job-control tools do not let the model select permission mode, sandbox, owner, workspace root, or ledger ids;
-- `job_status` can return queued, running, completed, failed, cancelled, or unknown states as bounded observation;
-- `job_cancel` requires authority and records explicit cancellation evidence;
+- `job_status` can return running, cancel-requested, completed, failed, or cancelled states as bounded observation; an unknown handle returns repair feedback instead of a synthetic job state;
+- `job_cancel` requires kernel authority through ToolGateway policy, records an explicit cancellation request when admitted, and records terminal cancellation evidence only when the executor confirms cancellation;
+- model-visible job control arguments contain semantic fields only, currently a kernel-issued `job_id` and optional cancellation reason; authority, event ids, process ids, signals, and audit evidence are kernel-owned facts;
 - application-specific retries remain outside the kernel unless reduced to generic job or resource primitives.
 
 ### Projection
@@ -171,17 +172,17 @@ This requirement does not add:
 Phase A: timeout contract and validation.
 
 - Proves: model-visible `timeout_sec`, default 30 seconds, foreground range 1 through 180, invalid value repair feedback, and no side effects before validation.
-- Still short of production: requests above 180 seconds may be blocked or deferred until the managed-job path exists; real managed jobs are not proved.
+- Still short of production: managed-job lifecycle is outside this validation-only slice and must be proved by later phases.
 
 Phase B: managed-job ledger foundation.
 
 - Proves: `tool.call`, `job.started`, receipt `tool.result`, terminal job event, append-only event order, and provider-loop closure.
-- Still short of production: executor can be fake or minimal; status/cancel/progress can be limited.
+- Still short of production: this phase proves the ledger and provider-loop contract; real executor lifecycle, status, cancellation, and progress are later responsibilities.
 
 Phase C: real job manager.
 
 - Proves: session-scoped process registry, real process lifecycle, bounded output, terminal status, status query, cancellation, and restart-safe terminal projection.
-- Still short of production: observation delivery and interrupt behavior can remain limited.
+- Still short of production: progress snapshots, idle continuation policy, foreground interrupt behavior, and stronger sandbox/approval integration can remain limited.
 
 Phase D: observation delivery.
 
@@ -200,7 +201,7 @@ Positive cases:
 - omitted timeout uses 30 seconds;
 - 1 through 180 seconds are foreground-valid;
 - valid foreground command returns terminal-equivalent evidence;
-- values above 180 seconds become managed-job receipts once the managed-job path exists;
+- values above 180 seconds become managed-job receipts;
 - managed job writes `tool.call`, `job.started`, receipt `tool.result`, and terminal job event;
 - job status and cancellation use generic job controls;
 - completed job observations can enter the next provider context through kernel delivery.
@@ -241,7 +242,7 @@ This requirement governs these implementation slices:
 - `KERNEL-SHELL-TIMEOUT-CAP-20260623`: `ready_for_acceptance` for `timeout_sec`, default/cap behavior, invalid value repair feedback, and routing above the cap.
 - `KERNEL-MANAGED-JOB-FOUNDATION-20260623`: `ready_for_acceptance` for managed-job event model and receipt-style tool result.
 - `KERNEL-OBSERVATION-DELIVERY-20260623`: `ready_for_acceptance` for pending/delivered observation tracking and checkpoint delivery semantics.
-- `KERNEL-JOB-CONTROL-INTERRUPT-20260623`: missing interrupt, status, and cancellation semantics.
+- `KERNEL-JOB-CONTROL-INTERRUPT-20260623`: remaining interrupt, progress snapshot, idle continuation, and foreground attach-or-kill semantics.
 
 `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` is adjacent authority-plane work governed by `docs/requirements/kernel-foundation-capabilities.md`.
 
