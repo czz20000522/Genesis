@@ -35,6 +35,16 @@ behavior in reviewable Gherkin scenarios before those expectations are wired to
 step definitions. Future automation should drive public kernel commands and
 projections, not private helpers or UI copy.
 
+Production requirements live under `docs/requirements/`. They describe target
+kernel contracts before implementation slices are chosen. Issues and BDD
+features should point back to these requirements instead of relying on chat-only
+design discussion.
+
+Design documents live under `docs/design/` and answer owner, boundary, data
+flow, protocol, failure, permission, recovery, and observability questions.
+Implementation plans live under `docs/implementation-plans/` and state how
+phased delivery will land with tests and evidence.
+
 ## Initial Kernel Spike
 
 Build the first runnable kernel binary:
@@ -257,6 +267,9 @@ Rejected and superseded candidates are restart-safe review decisions and are not
 
 ## Operations Records
 
+- Kernel requirements: `docs/requirements/`
+- Kernel designs: `docs/design/`
+- Kernel implementation plans: `docs/implementation-plans/`
 - Active kernel issues: `docs/operations/kernel-issues.md`
 - Closed issue evidence: `docs/operations/kernel-retirement-log.md`
 
