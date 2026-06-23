@@ -26,6 +26,10 @@ Implementation plans and non-trivial issue updates must not jump straight from G
 
 Each implementation slice must end with a requirement-by-requirement drift check. Passing tests is not enough if docs, issues, or retirement evidence still describe a temporary shortcut as the current contract.
 
+Genesis kernel authority is local. Do not search GitHub, remotes, pull requests, releases, or online repositories for Genesis project truth unless the user explicitly asks for external publishing history. This project is developed locally; any public or remote Genesis repository is stale or unrelated to the active kernel contract.
+
+Genesis has no production users, deployed uptime obligation, architecture migration debt, or historical data cleanup debt. Development artifacts, local ledgers, generated JSONL, fixtures, and old experiments do not justify compatibility shims, migration readers, fallback loaders, old API aliases, or data cleanup paths. When old development state conflicts with the current contract, delete or regenerate it instead of preserving it.
+
 ## Boundary Rules
 
 - The event ledger is kernel truth. Applications, shells, provider commands, and skills do not mint ledger facts.

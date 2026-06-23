@@ -2,6 +2,10 @@
 
 This process keeps requirements, design, implementation plans, and issues from collapsing into one document. Genesis is moving quickly, but temporary implementation must not become accidental architecture.
 
+Genesis kernel truth is local. The active project contract lives in this checkout, its worktrees, and the approved local reference projects used for comparison. Do not search GitHub, remote repositories, pull requests, releases, or online package history for Genesis authority unless the user explicitly asks for external publishing context. Any public or remote Genesis repository should be treated as stale or unrelated to this local kernel line.
+
+Genesis has no production users, deployed data contract, uptime obligation, architecture migration debt, or historical data cleanup debt. Development artifacts, generated ledgers, local JSONL files, fixtures, old experiments, and stale task records are not compatibility obligations. If they conflict with the approved current contract, delete or regenerate them rather than preserving shims, fallback readers, migration paths, old aliases, or cleanup flows.
+
 Core principle:
 
 > Requirements must be production-grade. Implementation can be experimental or partial inside a phase, but every phase must state what still remains short of the production requirement.
@@ -81,6 +85,8 @@ Every non-trivial implementation must first look for comparable behavior in:
 - `D:\software\JetBrains\python_workspace\reasonix`
 
 The scan is about control-plane semantics, not feature parity. Check for comparable treatment of model-visible surface, tool result taxonomy, permission and sandbox ownership, registry boundaries, event or ledger recovery, provider context projection, session control, and shell or application separation.
+
+The reference scan is local. It compares Genesis against the local `codex-main` and `reasonix` checkouts. It must not look up a Genesis remote, GitHub repository, issue tracker, or release history as project authority.
 
 The implementation plan must record:
 
