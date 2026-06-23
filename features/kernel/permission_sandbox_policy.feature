@@ -22,3 +22,19 @@ Feature: Permission and sandbox policy
     Then Genesis may execute it through the host shell
     And the resolved authority policy allows full access
     And Genesis still records audit evidence and bounded output
+
+  Scenario: Unavailable stronger sandbox profiles fail closed
+    Given Genesis is configured with a stronger workspace OS sandbox profile
+    And that sandbox profile is not available to the current executor
+    When the model requests an effectful shell action
+    Then Genesis denies the effect before execution
+    And Genesis returns sandbox profile feedback to the model
+    And Genesis records blocked operation evidence without degrading to host execution
+
+  Scenario: Approval-required write tools do not run without an approval owner
+    Given Genesis is configured with approval policy on request
+    And no approval owner has granted the requested write effect
+    When the model requests an effectful shell action
+    Then Genesis denies the effect before execution
+    And Genesis returns approval required feedback to the model
+    And read-only kernel control tools remain admissible

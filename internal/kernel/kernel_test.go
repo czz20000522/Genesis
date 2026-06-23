@@ -6262,6 +6262,259 @@ func TestSubmitTurnReturnsMinimalPermissionDeniedToolResult(t *testing.T) {
 	}
 }
 
+func TestSubmitTurnBlocksUnavailableSandboxProfileBeforeExecution(t *testing.T) {
+	workspace := t.TempDir()
+	target := filepath.Join(workspace, "sandbox-profile-should-not-run.txt")
+	arguments, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": writeFileCommand(filepath.Base(target), "blocked"),
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_unavailable_sandbox", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "sandbox feedback received",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+			SandboxProfile: SandboxProfileOSWorkspace,
+			ApprovalPolicy: ApprovalPolicyNever,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "unavailable-sandbox-profile",
+		InputItems: []InputItem{{Type: "text", Text: "try unavailable sandbox shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "sandbox feedback received" {
+		t.Fatalf("final text = %q, want sandbox feedback received", resp.Final.Text)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("blocked sandbox command created %q; stat err=%v", target, err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "sandbox_profile_unavailable" || payload["executed"] != false {
+		t.Fatalf("tool result payload = %+v, want sandbox_profile_unavailable without execution", payload)
+	}
+	errorPayload, ok := payload["error"].(map[string]interface{})
+	if !ok || errorPayload["code"] != "sandbox_profile_unavailable" {
+		t.Fatalf("tool result error = %+v, want sandbox_profile_unavailable", payload["error"])
+	}
+	for _, forbidden := range []string{"permission_mode", "authority_policy", "sandbox_profile", "approval_policy", "blocked_reason", "operation_id", "cwd", "command", "started_at", "ended_at", "infrastructure_reason"} {
+		if _, ok := payload[forbidden]; ok {
+			t.Fatalf("tool result payload = %+v, must not expose %q to model", payload, forbidden)
+		}
+	}
+	projection, err := k.Session("unavailable-sandbox-profile")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 || projection.Operations[0].Status != "blocked" || projection.Operations[0].BlockedReason != "sandbox_profile_unavailable=os_workspace" {
+		t.Fatalf("operations = %+v, want blocked unavailable sandbox evidence", projection.Operations)
+	}
+}
+
+func TestSubmitTurnBlocksReadOnlySandboxOverrideBeforeExecution(t *testing.T) {
+	for _, permissionMode := range []string{PermissionModeDefault, PermissionModeYolo} {
+		t.Run(permissionMode, func(t *testing.T) {
+			workspace := t.TempDir()
+			target := filepath.Join(workspace, "read-only-sandbox-should-not-run.txt")
+			arguments, err := json.Marshal(map[string]string{
+				"cwd":     workspace,
+				"command": writeFileCommand(filepath.Base(target), "blocked"),
+			})
+			if err != nil {
+				t.Fatalf("marshal shell args: %v", err)
+			}
+			provider := &toolFeedbackProvider{
+				calls: []ModelToolCall{
+					{ToolCallID: "call_read_only_sandbox_" + permissionMode, Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+				},
+				final: "read-only sandbox feedback received",
+			}
+			k, err := New(Config{
+				LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+				Provider:     provider,
+				RuntimeToken: testRuntimeToken,
+				ToolPolicy: ToolPolicy{
+					PermissionMode: permissionMode,
+					WorkspaceRoot:  workspace,
+					SandboxProfile: SandboxProfileReadOnly,
+					ApprovalPolicy: ApprovalPolicyNever,
+				},
+			})
+			if err != nil {
+				t.Fatalf("New returned error: %v", err)
+			}
+
+			sessionID := "read-only-sandbox-override-" + permissionMode
+			resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+				SessionID:  sessionID,
+				InputItems: []InputItem{{Type: "text", Text: "try read-only sandbox shell"}},
+			})
+			if err != nil {
+				t.Fatalf("SubmitTurn returned error: %v", err)
+			}
+			if resp.Final.Text != "read-only sandbox feedback received" {
+				t.Fatalf("final text = %q, want read-only sandbox feedback received", resp.Final.Text)
+			}
+			if _, err := os.Stat(target); !os.IsNotExist(err) {
+				t.Fatalf("blocked read-only sandbox command created %q; stat err=%v", target, err)
+			}
+			payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+			if payload["status"] != "permission_denied" || payload["executed"] != false {
+				t.Fatalf("tool result payload = %+v, want permission_denied without execution", payload)
+			}
+			projection, err := k.Session(sessionID)
+			if err != nil {
+				t.Fatalf("Session returned error: %v", err)
+			}
+			if len(projection.Operations) != 1 || projection.Operations[0].Status != "blocked" || projection.Operations[0].BlockedReason != "sandbox_profile_not_allowed_for_permission_mode" {
+				t.Fatalf("operations = %+v, want blocked read-only sandbox override evidence", projection.Operations)
+			}
+		})
+	}
+}
+
+func TestSubmitTurnBlocksApprovalRequiredBeforeExecution(t *testing.T) {
+	workspace := t.TempDir()
+	target := filepath.Join(workspace, "approval-should-not-run.txt")
+	arguments, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": writeFileCommand(filepath.Base(target), "blocked"),
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_approval_required", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "approval feedback received",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+			ApprovalPolicy: ApprovalPolicyOnRequest,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "approval-required-shell",
+		InputItems: []InputItem{{Type: "text", Text: "try approval shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "approval feedback received" {
+		t.Fatalf("final text = %q, want approval feedback received", resp.Final.Text)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("approval-blocked command created %q; stat err=%v", target, err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "approval_required" || payload["executed"] != false {
+		t.Fatalf("tool result payload = %+v, want approval_required without execution", payload)
+	}
+	errorPayload, ok := payload["error"].(map[string]interface{})
+	if !ok || errorPayload["code"] != "approval_required" {
+		t.Fatalf("tool result error = %+v, want approval_required", payload["error"])
+	}
+	for _, forbidden := range []string{"permission_mode", "authority_policy", "sandbox_profile", "approval_policy", "blocked_reason", "operation_id", "cwd", "command", "started_at", "ended_at", "infrastructure_reason"} {
+		if _, ok := payload[forbidden]; ok {
+			t.Fatalf("tool result payload = %+v, must not expose %q to model", payload, forbidden)
+		}
+	}
+	projection, err := k.Session("approval-required-shell")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 || projection.Operations[0].Status != "blocked" || projection.Operations[0].BlockedReason != "approval_required" {
+		t.Fatalf("operations = %+v, want blocked approval evidence", projection.Operations)
+	}
+}
+
+func TestSubmitTurnPlanOnRequestKeepsReadOnlyDenialBeforeApproval(t *testing.T) {
+	workspace := t.TempDir()
+	target := filepath.Join(workspace, "plan-approval-should-not-run.txt")
+	arguments, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": writeFileCommand(filepath.Base(target), "blocked"),
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_plan_on_request", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "plan denial feedback received",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModePlan,
+			WorkspaceRoot:  workspace,
+			ApprovalPolicy: ApprovalPolicyOnRequest,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "plan-on-request-read-only-denial",
+		InputItems: []InputItem{{Type: "text", Text: "try plan shell with approval policy"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "plan denial feedback received" {
+		t.Fatalf("final text = %q, want plan denial feedback received", resp.Final.Text)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("plan-blocked command created %q; stat err=%v", target, err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "permission_denied" || payload["executed"] != false {
+		t.Fatalf("tool result payload = %+v, want permission_denied without execution", payload)
+	}
+	errorPayload, ok := payload["error"].(map[string]interface{})
+	if !ok || errorPayload["code"] != "permission_denied" {
+		t.Fatalf("tool result error = %+v, want permission_denied", payload["error"])
+	}
+	projection, err := k.Session("plan-on-request-read-only-denial")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 || projection.Operations[0].Status != "blocked" || projection.Operations[0].BlockedReason != "blocked_by_permission_mode=plan" {
+		t.Fatalf("operations = %+v, want hard read-only denial evidence", projection.Operations)
+	}
+}
+
 func TestSubmitTurnAcceptsForegroundShellTimeoutSeconds(t *testing.T) {
 	for _, timeoutSec := range []int{1, 180} {
 		t.Run(fmt.Sprintf("timeout_%d", timeoutSec), func(t *testing.T) {

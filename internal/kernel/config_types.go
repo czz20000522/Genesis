@@ -16,6 +16,8 @@ type Config struct {
 type ToolPolicy struct {
 	PermissionMode string
 	WorkspaceRoot  string
+	SandboxProfile string
+	ApprovalPolicy string
 }
 
 type ContextPolicy struct {

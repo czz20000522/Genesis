@@ -295,13 +295,14 @@ func (g ToolGateway) Execute(ctx context.Context, sessionID string, turnID strin
 
 func modelOperationResult(operation OperationProjection) interface{} {
 	if operation.Status == "blocked" {
+		status, code, message := blockedToolResultError(operation.BlockedReason)
 		return ToolRequestInvalidProjection{
-			Status:   "permission_denied",
+			Status:   status,
 			Tool:     operation.Tool,
 			Executed: false,
 			Error: ToolRequestError{
-				Code:    "permission_denied",
-				Message: "tool execution was blocked by kernel policy",
+				Code:    code,
+				Message: message,
 			},
 		}
 	}
@@ -323,6 +324,22 @@ func modelOperationResult(operation OperationProjection) interface{} {
 		StdoutOmittedBytes:  operation.StdoutOmittedBytes,
 		StderrOmittedBytes:  operation.StderrOmittedBytes,
 		OutputTruncation:    operation.OutputTruncation,
+	}
+}
+
+func blockedToolResultError(reason string) (string, string, string) {
+	reason = strings.TrimSpace(reason)
+	switch {
+	case reason == "approval_required":
+		return "approval_required", "approval_required", "tool execution requires approval before it can run"
+	case strings.HasPrefix(reason, "sandbox_profile_unavailable"):
+		return "sandbox_profile_unavailable", "sandbox_profile_unavailable", "tool execution requires a sandbox profile that is not available"
+	case reason == "unknown_sandbox_profile":
+		return "sandbox_profile_unavailable", "sandbox_profile_unavailable", "tool execution was blocked because the configured sandbox profile is unknown"
+	case reason == "unknown_approval_policy":
+		return "approval_policy_invalid", "approval_policy_invalid", "tool execution was blocked because the configured approval policy is unknown"
+	default:
+		return "permission_denied", "permission_denied", "tool execution was blocked by kernel policy"
 	}
 }
 

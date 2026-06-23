@@ -116,7 +116,8 @@ A runtime event can enter long-term facts only when it is user-visible or model-
 - Credentials are referenced through kernel-owned refs, not raw secrets in config, prompts, events, logs, readiness, provider context, or model-visible tool results.
 - `plan`, `default`, and `yolo` are user-facing permission modes. The kernel resolves them into `authority_policy`, `sandbox_profile`, and `approval_policy` before admission.
 - Current `default` is a controlled-workspace adapter, not an OS-level sandbox claim.
-- Current `approval_policy` is `never`. Future approval must be a typed control-plane flow, not a model-supplied escalation field.
+- Default `approval_policy` is `never`. `on_request` is a kernel-owned admission state: until an approval owner exists, write tools are blocked with structured `approval_required` feedback and no side effect.
+- A stronger workspace OS sandbox profile is a future enforcement target. If configured before an executor can enforce it, admission fails closed with structured sandbox feedback rather than silently running unconfined.
 - Tool arguments cannot select permission mode, sandbox profile, approval policy, workspace root, credential authority, or runtime client authority.
 
 ### Work Registry
@@ -177,7 +178,8 @@ Phase A: turn, ledger, fake provider, readiness, and restart-safe session replay
 Phase B: tool runtime, permission profile, shell execution, and terminal-equivalent tool results.
 
 - Proves: registry ownership, model-visible tool manifest, permission denial, command output evidence, and repair feedback.
-- Still short of production: shell sandbox is controlled workspace rather than OS sandbox; approval is not implemented; richer job progress and interrupt behavior remain governed by the shell/job requirement.
+- Proves now also: configured unavailable sandbox profiles and approval-required write effects fail closed before execution with model-repairable feedback.
+- Still short of production: shell sandbox is controlled workspace rather than OS sandbox; interactive approval is not implemented; richer job progress and interrupt behavior remain governed by the shell/job requirement.
 
 Phase C: work registry, accumulation, credential plane, and protected inspection.
 

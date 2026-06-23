@@ -217,6 +217,93 @@ func TestArchitectureBoundaryPermissionModesResolveToPolicyProfiles(t *testing.T
 	}
 }
 
+func TestArchitectureBoundarySandboxProfileCannotBroadenPermissionMode(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		permissionMode string
+		sandboxProfile string
+	}{
+		{
+			name:           "default_to_host",
+			permissionMode: PermissionModeDefault,
+			sandboxProfile: SandboxProfileHost,
+		},
+		{
+			name:           "default_to_read_only",
+			permissionMode: PermissionModeDefault,
+			sandboxProfile: SandboxProfileReadOnly,
+		},
+		{
+			name:           "yolo_to_read_only",
+			permissionMode: PermissionModeYolo,
+			sandboxProfile: SandboxProfileReadOnly,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			broadened := authorizeKernelTool(ToolPolicy{
+				PermissionMode: tt.permissionMode,
+				SandboxProfile: tt.sandboxProfile,
+				ApprovalPolicy: ApprovalPolicyNever,
+				WorkspaceRoot:  "workspace",
+			}, ToolSpec{
+				Name:            "shell_exec",
+				SideEffectLevel: ToolSideEffectWrite,
+			})
+			if broadened.Allowed || broadened.Reason != "sandbox_profile_not_allowed_for_permission_mode" {
+				t.Fatalf("sandbox decision = %+v, want fail-closed profile mismatch", broadened)
+			}
+		})
+	}
+
+	unavailable := authorizeKernelTool(ToolPolicy{
+		PermissionMode: PermissionModeYolo,
+		SandboxProfile: SandboxProfileOSWorkspace,
+		ApprovalPolicy: ApprovalPolicyNever,
+		WorkspaceRoot:  "workspace",
+	}, ToolSpec{
+		Name:            "shell_exec",
+		SideEffectLevel: ToolSideEffectWrite,
+	})
+	if unavailable.Allowed || unavailable.Reason != "sandbox_profile_unavailable=os_workspace" {
+		t.Fatalf("unavailable os workspace decision = %+v, want fail-closed unavailable sandbox", unavailable)
+	}
+}
+
+func TestArchitectureBoundaryApprovalOnRequestBlocksWriteToolsAtAdmission(t *testing.T) {
+	read := authorizeKernelTool(ToolPolicy{
+		PermissionMode: PermissionModeYolo,
+		ApprovalPolicy: ApprovalPolicyOnRequest,
+	}, ToolSpec{
+		Name:            "job_status",
+		SideEffectLevel: ToolSideEffectRead,
+	})
+	if !read.Allowed || read.Reason != "" {
+		t.Fatalf("read tool with approval policy = %+v, want allowed", read)
+	}
+
+	write := authorizeKernelTool(ToolPolicy{
+		PermissionMode: PermissionModeYolo,
+		ApprovalPolicy: ApprovalPolicyOnRequest,
+	}, ToolSpec{
+		Name:            "shell_exec",
+		SideEffectLevel: ToolSideEffectWrite,
+	})
+	if write.Allowed || write.Reason != "approval_required" {
+		t.Fatalf("write tool with approval policy = %+v, want approval_required", write)
+	}
+
+	readOnlyWrite := authorizeKernelTool(ToolPolicy{
+		PermissionMode: PermissionModePlan,
+		ApprovalPolicy: ApprovalPolicyOnRequest,
+	}, ToolSpec{
+		Name:            "shell_exec",
+		SideEffectLevel: ToolSideEffectWrite,
+	})
+	if readOnlyWrite.Allowed || readOnlyWrite.Reason != "blocked_by_permission_mode=plan" {
+		t.Fatalf("plan write with approval policy = %+v, want hard read-only denial before approval", readOnlyWrite)
+	}
+}
+
 func TestArchitectureBoundaryShellExecutionUsesResolvedSandboxProfile(t *testing.T) {
 	workspace := t.TempDir()
 	req := ShellExecRequest{

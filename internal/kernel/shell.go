@@ -410,6 +410,8 @@ func normalizedToolPolicy(policy ToolPolicy) ToolPolicy {
 	return ToolPolicy{
 		PermissionMode: mode,
 		WorkspaceRoot:  strings.TrimSpace(policy.WorkspaceRoot),
+		SandboxProfile: strings.TrimSpace(policy.SandboxProfile),
+		ApprovalPolicy: strings.TrimSpace(policy.ApprovalPolicy),
 	}
 }
 

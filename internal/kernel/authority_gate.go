@@ -10,10 +10,12 @@ const (
 
 	SandboxProfileReadOnly            = "read_only"
 	SandboxProfileControlledWorkspace = "controlled_workspace"
+	SandboxProfileOSWorkspace         = "os_workspace"
 	SandboxProfileHost                = "host"
 	SandboxProfileNone                = "none"
 
-	ApprovalPolicyNever = "never"
+	ApprovalPolicyNever     = "never"
+	ApprovalPolicyOnRequest = "on_request"
 )
 
 type ResolvedToolPolicy struct {
@@ -23,6 +25,7 @@ type ResolvedToolPolicy struct {
 	ApprovalPolicy  string
 	WorkspaceRoot   string
 	Known           bool
+	InvalidReason   string
 }
 
 type toolAuthorizationDecision struct {
@@ -35,6 +38,9 @@ func authorizeKernelTool(policy ToolPolicy, spec ToolSpec) toolAuthorizationDeci
 	if !resolved.Known {
 		return toolAuthorizationDecision{Reason: "unknown_permission_mode"}
 	}
+	if resolved.InvalidReason != "" {
+		return toolAuthorizationDecision{Reason: resolved.InvalidReason}
+	}
 	switch spec.SideEffectLevel {
 	case ToolSideEffectRead:
 		return toolAuthorizationDecision{Allowed: true}
@@ -43,6 +49,9 @@ func authorizeKernelTool(policy ToolPolicy, spec ToolSpec) toolAuthorizationDeci
 		case AuthorityPolicyReadOnly:
 			return toolAuthorizationDecision{Reason: "blocked_by_permission_mode=plan"}
 		case AuthorityPolicyWorkspaceWrite, AuthorityPolicyFullAccess:
+			if resolved.ApprovalPolicy == ApprovalPolicyOnRequest {
+				return toolAuthorizationDecision{Reason: "approval_required"}
+			}
 			return toolAuthorizationDecision{Allowed: true}
 		default:
 			return toolAuthorizationDecision{Reason: "unknown_permission_mode"}
@@ -76,5 +85,66 @@ func resolveToolPolicy(policy ToolPolicy) ResolvedToolPolicy {
 		resolved.AuthorityPolicy = AuthorityPolicyUnknown
 		resolved.SandboxProfile = SandboxProfileNone
 	}
+	applyToolPolicyOverrides(&resolved, policy)
 	return resolved
+}
+
+func applyToolPolicyOverrides(resolved *ResolvedToolPolicy, policy ToolPolicy) {
+	if resolved == nil || !resolved.Known {
+		return
+	}
+	if sandboxProfile := normalizedPolicyValue(policy.SandboxProfile); sandboxProfile != "" {
+		applySandboxProfileOverride(resolved, sandboxProfile)
+	}
+	if approvalPolicy := normalizedPolicyValue(policy.ApprovalPolicy); approvalPolicy != "" {
+		applyApprovalPolicyOverride(resolved, approvalPolicy)
+	}
+}
+
+func applySandboxProfileOverride(resolved *ResolvedToolPolicy, sandboxProfile string) {
+	switch sandboxProfile {
+	case SandboxProfileReadOnly, SandboxProfileControlledWorkspace, SandboxProfileOSWorkspace, SandboxProfileHost:
+		resolved.SandboxProfile = sandboxProfile
+	default:
+		resolved.SandboxProfile = SandboxProfileNone
+		resolved.InvalidReason = "unknown_sandbox_profile"
+		return
+	}
+	if !sandboxProfileAllowedForAuthority(resolved.AuthorityPolicy, sandboxProfile) {
+		resolved.InvalidReason = "sandbox_profile_not_allowed_for_permission_mode"
+		return
+	}
+	if sandboxProfile == SandboxProfileOSWorkspace {
+		resolved.InvalidReason = "sandbox_profile_unavailable=os_workspace"
+	}
+}
+
+func applyApprovalPolicyOverride(resolved *ResolvedToolPolicy, approvalPolicy string) {
+	switch approvalPolicy {
+	case ApprovalPolicyNever, ApprovalPolicyOnRequest:
+		resolved.ApprovalPolicy = approvalPolicy
+	default:
+		resolved.ApprovalPolicy = approvalPolicy
+		resolved.InvalidReason = "unknown_approval_policy"
+	}
+}
+
+func sandboxProfileAllowedForAuthority(authorityPolicy string, sandboxProfile string) bool {
+	switch authorityPolicy {
+	case AuthorityPolicyReadOnly:
+		return sandboxProfile == SandboxProfileReadOnly
+	case AuthorityPolicyWorkspaceWrite:
+		return sandboxProfile == SandboxProfileControlledWorkspace ||
+			sandboxProfile == SandboxProfileOSWorkspace
+	case AuthorityPolicyFullAccess:
+		return sandboxProfile == SandboxProfileControlledWorkspace ||
+			sandboxProfile == SandboxProfileOSWorkspace ||
+			sandboxProfile == SandboxProfileHost
+	default:
+		return false
+	}
+}
+
+func normalizedPolicyValue(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }

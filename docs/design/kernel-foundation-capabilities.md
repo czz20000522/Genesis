@@ -56,6 +56,18 @@ Kernel-owned control fields stay out of model-visible schemas. Provider adapters
 
 The model cannot select permission mode, sandbox profile, approval policy, credential authority, workspace root, idempotency identity, checkpoint refs, or audit refs through tool arguments.
 
+Profile resolution is an Authority Plane responsibility. Tool executors receive an already-resolved policy and must not reinterpret user-facing modes locally.
+
+Current profile semantics:
+
+- `plan` resolves to read-only authority and a read-only sandbox profile.
+- `default` resolves to workspace-write authority and `controlled_workspace`; this is an adapter-level workspace write gate, not an OS sandbox claim.
+- `yolo` resolves to full-access authority and host execution.
+- `on_request` approval blocks write-side effects at admission until an approval owner exists; it returns model-repairable `approval_required` feedback and records blocked operation evidence.
+- unavailable stronger sandbox profiles fail closed before execution and return model-repairable sandbox feedback. They must not degrade to host execution.
+
+Approval UI, prompts, or shell transports can request or display approval state, but they cannot decide authority, mint tool results, or mark a blocked operation as executed. Future interactive approval must be introduced as typed control-plane state owned by the kernel.
+
 ## Recovery And Observability
 
 The ledger is append-only owner truth. Restart replay rebuilds session, operation, work, memory, timeline, context, audit, and readiness projections from recorded facts.
