@@ -14,8 +14,10 @@ const (
 	PermissionModeDefault = "default"
 	PermissionModeYolo    = "yolo"
 
-	maxShellOutputBytes = 64 * 1024
-	maxShellDuration    = 30 * time.Second
+	maxShellOutputBytes          = 64 * 1024
+	defaultShellTimeoutSec       = 30
+	maxForegroundShellTimeoutSec = 180
+	defaultShellDuration         = time.Duration(defaultShellTimeoutSec) * time.Second
 
 	outputOmissionMarkerFormat = "\n[... %d bytes omitted ...]\n"
 
@@ -30,6 +32,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 	if err := validateShellRequest(req); err != nil {
 		return OperationProjection{}, err
 	}
+	timeoutSec := normalizedShellTimeoutSec(req.TimeoutSec)
 	k := g.kernel
 	k.operationMu.Lock()
 	defer k.operationMu.Unlock()
@@ -75,6 +78,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		ApprovalPolicy:  resolvedPolicy.ApprovalPolicy,
 		CWD:             executionPlan.cwd,
 		Command:         rawCommand,
+		TimeoutSec:      timeoutSec,
 		StartedAt:       now,
 	}
 
@@ -98,7 +102,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		code = exitCode
 		applyOperationOutputCapture(&operation, stdout, stderr)
 	} else {
-		stdout, stderr, exitCode, err := runShellProcess(ctx, operation.CWD, rawCommand)
+		stdout, stderr, exitCode, err := runShellProcess(ctx, operation.CWD, rawCommand, time.Duration(timeoutSec)*time.Second)
 		code = exitCode
 		applyOperationOutputCapture(&operation, stdout, stderr)
 		if err != nil {
@@ -164,10 +168,20 @@ func validateShellRequest(req ShellExecRequest) error {
 	if strings.TrimSpace(req.Command) == "" {
 		return errors.New("command is required")
 	}
+	if req.TimeoutSec < 0 {
+		return errors.New("timeout_sec must be greater than zero")
+	}
 	if err := validateIdempotencyKey(req.IdempotencyKey); err != nil {
 		return err
 	}
 	return nil
+}
+
+func normalizedShellTimeoutSec(timeoutSec int) int {
+	if timeoutSec == 0 {
+		return defaultShellTimeoutSec
+	}
+	return timeoutSec
 }
 
 func (k *Kernel) operationByIdempotencyKey(sessionID string, tool string, key string) (OperationProjection, bool, error) {

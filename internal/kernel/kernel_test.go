@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -5816,6 +5817,264 @@ func TestSubmitTurnReturnsMinimalPermissionDeniedToolResult(t *testing.T) {
 	}
 	if len(projection.Operations) != 1 || projection.Operations[0].Status != "blocked" || projection.Operations[0].PermissionMode != PermissionModePlan || projection.Operations[0].BlockedReason == "" {
 		t.Fatalf("operations = %+v, want full blocked operation evidence in inspection projection", projection.Operations)
+	}
+}
+
+func TestSubmitTurnAcceptsForegroundShellTimeoutSeconds(t *testing.T) {
+	for _, timeoutSec := range []int{1, 180} {
+		t.Run(fmt.Sprintf("timeout_%d", timeoutSec), func(t *testing.T) {
+			workspace := t.TempDir()
+			arguments, err := json.Marshal(map[string]interface{}{
+				"cwd":         workspace,
+				"command":     echoCommand("foreground-timeout"),
+				"timeout_sec": timeoutSec,
+			})
+			if err != nil {
+				t.Fatalf("marshal shell args: %v", err)
+			}
+			provider := &toolFeedbackProvider{
+				calls: []ModelToolCall{
+					{ToolCallID: fmt.Sprintf("call_timeout_%d", timeoutSec), Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+				},
+				final: "foreground timeout accepted",
+			}
+			k, err := New(Config{
+				LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+				Provider:     provider,
+				RuntimeToken: testRuntimeToken,
+				ToolPolicy: ToolPolicy{
+					PermissionMode: PermissionModeYolo,
+					WorkspaceRoot:  workspace,
+				},
+			})
+			if err != nil {
+				t.Fatalf("New returned error: %v", err)
+			}
+
+			resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+				SessionID:  fmt.Sprintf("foreground-timeout-%d", timeoutSec),
+				InputItems: []InputItem{{Type: "text", Text: "run foreground timeout shell"}},
+			})
+			if err != nil {
+				t.Fatalf("SubmitTurn returned error: %v", err)
+			}
+			if resp.Final.Text != "foreground timeout accepted" {
+				t.Fatalf("final text = %q, want foreground timeout accepted", resp.Final.Text)
+			}
+			payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+			if payload["status"] != "completed" || payload["executed"] != true {
+				t.Fatalf("tool result payload = %+v, want completed foreground execution", payload)
+			}
+			projection, err := k.Session(fmt.Sprintf("foreground-timeout-%d", timeoutSec))
+			if err != nil {
+				t.Fatalf("Session returned error: %v", err)
+			}
+			if len(projection.Operations) != 1 {
+				t.Fatalf("operations = %+v, want one foreground shell operation", projection.Operations)
+			}
+			operationPayload := operationJSONMap(t, projection.Operations[0])
+			assertJSONNumber(t, operationPayload, "timeout_sec", timeoutSec)
+		})
+	}
+}
+
+func TestSubmitTurnDefaultsShellTimeoutToThirtySeconds(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": echoCommand("default-timeout"),
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_default_timeout", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "default timeout accepted",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "default-shell-timeout",
+		InputItems: []InputItem{{Type: "text", Text: "run default timeout shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	projection, err := k.Session("default-shell-timeout")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 {
+		t.Fatalf("operations = %+v, want one foreground shell operation", projection.Operations)
+	}
+	operationPayload := operationJSONMap(t, projection.Operations[0])
+	assertJSONNumber(t, operationPayload, "timeout_sec", 30)
+}
+
+func TestSubmitTurnReturnsRepairFeedbackForInvalidShellTimeoutSeconds(t *testing.T) {
+	cases := []struct {
+		name      string
+		arguments string
+	}{
+		{
+			name:      "zero",
+			arguments: `{"command":"` + echoCommand("invalid-timeout") + `","timeout_sec":0}`,
+		},
+		{
+			name:      "negative",
+			arguments: `{"command":"` + echoCommand("invalid-timeout") + `","timeout_sec":-1}`,
+		},
+		{
+			name:      "string",
+			arguments: `{"command":"` + echoCommand("invalid-timeout") + `","timeout_sec":"30"}`,
+		},
+		{
+			name:      "fractional",
+			arguments: `{"command":"` + echoCommand("invalid-timeout") + `","timeout_sec":1.5}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			provider := &toolFeedbackProvider{
+				calls: []ModelToolCall{
+					{ToolCallID: "call_invalid_timeout_" + tc.name, Name: "shell_exec", Arguments: json.RawMessage(tc.arguments)},
+				},
+				final: "invalid timeout repair received",
+			}
+			k, err := New(Config{
+				LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+				Provider:     provider,
+				RuntimeToken: testRuntimeToken,
+				ToolPolicy: ToolPolicy{
+					PermissionMode: PermissionModeDefault,
+					WorkspaceRoot:  workspace,
+				},
+			})
+			if err != nil {
+				t.Fatalf("New returned error: %v", err)
+			}
+
+			_, err = k.SubmitTurn(context.Background(), TurnRequest{
+				SessionID:  "invalid-shell-timeout-" + tc.name,
+				InputItems: []InputItem{{Type: "text", Text: "try invalid timeout"}},
+			})
+			if err != nil {
+				t.Fatalf("SubmitTurn returned error: %v", err)
+			}
+			payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+			if payload["status"] != "tool_request_invalid" || payload["executed"] != false {
+				t.Fatalf("tool result payload = %+v, want repairable invalid timeout", payload)
+			}
+			projection, err := k.Session("invalid-shell-timeout-" + tc.name)
+			if err != nil {
+				t.Fatalf("Session returned error: %v", err)
+			}
+			if len(projection.Operations) != 0 {
+				t.Fatalf("operations = %+v, want no effect for invalid timeout", projection.Operations)
+			}
+		})
+	}
+}
+
+func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]interface{}{
+		"cwd":         workspace,
+		"command":     echoCommand("managed-job"),
+		"timeout_sec": 181,
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_managed_job", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "managed job receipt observed",
+	}
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "managed-job-timeout",
+		InputItems: []InputItem{{Type: "text", Text: "run long shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "managed job receipt observed" {
+		t.Fatalf("final text = %q, want managed job receipt observed", resp.Final.Text)
+	}
+	resultPayload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if resultPayload["status"] != "managed_job_started" || resultPayload["executed"] != true {
+		t.Fatalf("tool result payload = %+v, want managed job receipt", resultPayload)
+	}
+	if resultPayload["job_id"] == "" {
+		t.Fatalf("tool result payload = %+v, want job_id receipt", resultPayload)
+	}
+	projection, err := k.Session("managed-job-timeout")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want no foreground shell operation for managed job", projection.Operations)
+	}
+	eventTypes := make([]string, 0, len(projection.Events))
+	for _, event := range projection.Events {
+		eventTypes = append(eventTypes, event.Type)
+	}
+	wantTypes := []string{"turn.submitted", "tool.call", "job.started", "tool.result", "job.completed", "model.final"}
+	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Fatalf("event types = %v, want %v", eventTypes, wantTypes)
+	}
+
+	reloaded, err := New(Config{
+		LedgerPath:   ledgerPath,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	replayed, err := reloaded.Session("managed-job-timeout")
+	if err != nil {
+		t.Fatalf("reloaded Session returned error: %v", err)
+	}
+	replayedTypes := make([]string, 0, len(replayed.Events))
+	for _, event := range replayed.Events {
+		replayedTypes = append(replayedTypes, event.Type)
+	}
+	if strings.Join(replayedTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Fatalf("replayed event types = %v, want %v", replayedTypes, wantTypes)
 	}
 }
 

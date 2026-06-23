@@ -136,10 +136,11 @@ type ModelToolRound struct {
 }
 
 type ModelToolResult struct {
-	ToolCallID      string `json:"tool_call_id"`
-	ToolCallEventID string `json:"tool_call_event_id,omitempty"`
-	Name            string `json:"name"`
-	Content         string `json:"content"`
+	ToolCallID           string         `json:"tool_call_id"`
+	ToolCallEventID      string         `json:"tool_call_event_id,omitempty"`
+	Name                 string         `json:"name"`
+	Content              string         `json:"content"`
+	PendingJobCompletion *JobProjection `json:"-"`
 }
 
 type ToolRequestInvalidProjection struct {
@@ -208,6 +209,7 @@ type AuditReplayItem struct {
 	EventType            string      `json:"event_type"`
 	TurnID               string      `json:"turn_id"`
 	OperationID          string      `json:"operation_id,omitempty"`
+	JobID                string      `json:"job_id,omitempty"`
 	CreatedAt            time.Time   `json:"created_at"`
 	ModelInputKinds      []string    `json:"model_input_kinds,omitempty"`
 	Tool                 string      `json:"tool,omitempty"`
@@ -289,6 +291,7 @@ type SessionProjection struct {
 	SessionID        string                      `json:"session_id"`
 	Turns            []TurnProjection            `json:"turns"`
 	Operations       []OperationProjection       `json:"operations"`
+	Jobs             []JobProjection             `json:"jobs,omitempty"`
 	Works            []WorkProjection            `json:"works"`
 	MemoryCandidates []MemoryCandidateProjection `json:"memory_candidates"`
 	Events           []EventProjection           `json:"events"`
@@ -317,6 +320,7 @@ type EventProjection struct {
 	EventID     string    `json:"event_id"`
 	TurnID      string    `json:"turn_id"`
 	OperationID string    `json:"operation_id,omitempty"`
+	JobID       string    `json:"job_id,omitempty"`
 	WorkID      string    `json:"work_id,omitempty"`
 	CandidateID string    `json:"candidate_id,omitempty"`
 	Type        string    `json:"type"`
@@ -328,6 +332,7 @@ type ShellExecRequest struct {
 	SessionID      string `json:"session_id"`
 	CWD            string `json:"cwd"`
 	Command        string `json:"command"`
+	TimeoutSec     int    `json:"timeout_sec,omitempty"`
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
@@ -344,6 +349,7 @@ type OperationProjection struct {
 	ApprovalPolicy       string    `json:"approval_policy,omitempty"`
 	CWD                  string    `json:"cwd"`
 	Command              string    `json:"command"`
+	TimeoutSec           int       `json:"timeout_sec,omitempty"`
 	ExitCode             *int      `json:"exit_code,omitempty"`
 	Stdout               string    `json:"stdout,omitempty"`
 	Stderr               string    `json:"stderr,omitempty"`
@@ -360,6 +366,22 @@ type OperationProjection struct {
 	EndedAt              time.Time `json:"ended_at"`
 }
 
+type JobProjection struct {
+	JobID           string    `json:"job_id"`
+	SessionID       string    `json:"session_id"`
+	TurnID          string    `json:"turn_id,omitempty"`
+	Tool            string    `json:"tool"`
+	Status          string    `json:"status"`
+	CWD             string    `json:"cwd,omitempty"`
+	Command         string    `json:"command,omitempty"`
+	TimeoutSec      int       `json:"timeout_sec,omitempty"`
+	Receipt         string    `json:"receipt,omitempty"`
+	FailureReason   string    `json:"failure_reason,omitempty"`
+	StartedAt       time.Time `json:"started_at"`
+	CompletedAt     time.Time `json:"completed_at,omitempty"`
+	ToolCallEventID string    `json:"tool_call_event_id,omitempty"`
+}
+
 type ModelOperationResult struct {
 	Status              string `json:"status"`
 	Executed            bool   `json:"executed"`
@@ -373,6 +395,13 @@ type ModelOperationResult struct {
 	StdoutOmittedBytes  int    `json:"stdout_omitted_bytes,omitempty"`
 	StderrOmittedBytes  int    `json:"stderr_omitted_bytes,omitempty"`
 	OutputTruncation    string `json:"output_truncation,omitempty"`
+}
+
+type ModelManagedJobResult struct {
+	Status        string `json:"status"`
+	Executed      bool   `json:"executed"`
+	JobID         string `json:"job_id"`
+	VisibleOutput string `json:"visible_output"`
 }
 
 type WorkSubmitRequest struct {
@@ -478,6 +507,7 @@ type Event struct {
 	SessionID   string      `json:"session_id"`
 	TurnID      string      `json:"turn_id"`
 	OperationID string      `json:"operation_id,omitempty"`
+	JobID       string      `json:"job_id,omitempty"`
 	WorkID      string      `json:"work_id,omitempty"`
 	CandidateID string      `json:"candidate_id,omitempty"`
 	Type        string      `json:"type"`
@@ -490,6 +520,7 @@ type StoredEvent struct {
 	SessionID   string    `json:"session_id"`
 	TurnID      string    `json:"turn_id"`
 	OperationID string    `json:"operation_id,omitempty"`
+	JobID       string    `json:"job_id,omitempty"`
 	WorkID      string    `json:"work_id,omitempty"`
 	CandidateID string    `json:"candidate_id,omitempty"`
 	Type        string    `json:"type"`
@@ -513,6 +544,7 @@ type EventData struct {
 	Final                      *FinalMessage                     `json:"final,omitempty"`
 	TurnError                  *TurnError                        `json:"turn_error,omitempty"`
 	Operation                  *OperationProjection              `json:"operation,omitempty"`
+	Job                        *JobProjection                    `json:"job,omitempty"`
 	Work                       *WorkProjection                   `json:"work,omitempty"`
 	MemoryCandidate            *MemoryCandidateProjection        `json:"memory_candidate,omitempty"`
 	ReplacementMemoryCandidate *MemoryCandidateProjection        `json:"replacement_memory_candidate,omitempty"`

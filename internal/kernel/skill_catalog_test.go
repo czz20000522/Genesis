@@ -509,6 +509,17 @@ func TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext(t *t
 	if shellSpec.InputSchema == nil {
 		t.Fatalf("shell_exec spec = %+v, want input schema", shellSpec)
 	}
+	properties, ok := shellSpec.InputSchema["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("shell_exec schema = %+v, want properties", shellSpec.InputSchema)
+	}
+	timeoutSpec, ok := properties["timeout_sec"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("shell_exec properties = %+v, want timeout_sec", properties)
+	}
+	if timeoutSpec["type"] != "integer" {
+		t.Fatalf("timeout_sec schema = %+v, want integer type", timeoutSpec)
+	}
 }
 
 func TestSkillCatalogRejectsAuthorityAndSecretShapedMetadata(t *testing.T) {

@@ -64,6 +64,11 @@ func defaultKernelTools() []registeredTool {
 							"type":        "string",
 							"description": "Optional working directory. When omitted, the kernel uses the configured workspace root when available.",
 						},
+						"timeout_sec": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     1,
+							"description": "Foreground timeout in seconds. Omit for 30 seconds. Values above 180 are accepted as managed-job intent.",
+						},
 					},
 					"required":             []string{"command"},
 					"additionalProperties": false,

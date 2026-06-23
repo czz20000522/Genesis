@@ -309,6 +309,9 @@ func redactSessionProjection(projection SessionProjection) SessionProjection {
 	for i := range projection.Operations {
 		projection.Operations[i] = redactOperationEvidence(projection.Operations[i])
 	}
+	for i := range projection.Jobs {
+		projection.Jobs[i] = redactJobProjection(projection.Jobs[i])
+	}
 	for i := range projection.Works {
 		projection.Works[i] = redactWorkProjection(projection.Works[i])
 	}
@@ -337,6 +340,14 @@ func redactWorkProjection(work WorkProjection) WorkProjection {
 	work.CancelReason = redactEvidenceText(work.CancelReason)
 	work.CancelEvidenceRef = redactEvidenceText(work.CancelEvidenceRef)
 	return work
+}
+
+func redactJobProjection(job JobProjection) JobProjection {
+	job.CWD = redactEvidenceText(job.CWD)
+	job.Command = redactEvidenceText(job.Command)
+	job.Receipt = redactEvidenceText(job.Receipt)
+	job.FailureReason = redactEvidenceText(job.FailureReason)
+	return job
 }
 
 func redactMemoryCandidateProjection(candidate MemoryCandidateProjection) MemoryCandidateProjection {
@@ -385,6 +396,7 @@ func toInspectionEvent(event StoredEvent) Event {
 		SessionID:   event.SessionID,
 		TurnID:      event.TurnID,
 		OperationID: event.OperationID,
+		JobID:       event.JobID,
 		WorkID:      event.WorkID,
 		CandidateID: event.CandidateID,
 		Type:        event.Type,
@@ -427,6 +439,10 @@ func inspectionEventData(data EventData) EventData {
 		copied.InfrastructureReason = redactEvidenceText(copied.InfrastructureReason)
 		next.Operation = &copied
 	}
+	if data.Job != nil {
+		copied := redactJobProjection(*data.Job)
+		next.Job = &copied
+	}
 	if data.Work != nil {
 		copied := redactWorkProjection(*data.Work)
 		next.Work = &copied
@@ -456,6 +472,7 @@ func auditReplayItem(event StoredEvent) AuditReplayItem {
 		EventType:   event.Type,
 		TurnID:      event.TurnID,
 		OperationID: event.OperationID,
+		JobID:       event.JobID,
 		CreatedAt:   event.CreatedAt,
 	}
 	data := inspectionEventData(event.Data)
@@ -491,6 +508,12 @@ func auditReplayItem(event StoredEvent) AuditReplayItem {
 			case strings.TrimSpace(data.Operation.Stderr) != "":
 				item.OutputPreview = boundedTimelinePreview(data.Operation.Stderr)
 			}
+		}
+	case "job.started", "job.completed", "job.failed", "job.cancelled":
+		if data.Job != nil {
+			item.Tool = data.Job.Tool
+			item.ToolStatus = data.Job.Status
+			item.OutputPreview = boundedTimelinePreview(data.Job.Receipt)
 		}
 	case "model.final":
 		if data.Final != nil {

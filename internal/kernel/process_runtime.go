@@ -5,10 +5,14 @@ import (
 	"errors"
 	"os/exec"
 	"runtime"
+	"time"
 )
 
-func runShellProcess(ctx context.Context, cwd string, command string) (capturedOutput, capturedOutput, int, error) {
-	execCtx, cancel := context.WithTimeout(ctx, maxShellDuration)
+func runShellProcess(ctx context.Context, cwd string, command string, timeout time.Duration) (capturedOutput, capturedOutput, int, error) {
+	if timeout <= 0 {
+		timeout = defaultShellDuration
+	}
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := platformShellCommand(execCtx, command)
 	cmd.Dir = cwd

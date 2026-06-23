@@ -16,8 +16,9 @@ var ErrModelToolCallRejected = errors.New("model tool call rejected")
 var ErrToolInfrastructureFailed = errors.New("tool infrastructure failed")
 
 type shellExecToolArguments struct {
-	CWD     string `json:"cwd"`
-	Command string `json:"command"`
+	CWD        string `json:"cwd"`
+	Command    string `json:"command"`
+	TimeoutSec *int   `json:"timeout_sec,omitempty"`
 }
 
 type preparedModelToolCall struct {
@@ -110,10 +111,18 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 	if args.CWD == "" {
 		args.CWD = strings.TrimSpace(k.toolPolicy.WorkspaceRoot)
 	}
+	timeoutSec := defaultShellTimeoutSec
+	if args.TimeoutSec != nil {
+		timeoutSec = *args.TimeoutSec
+		if timeoutSec <= 0 {
+			return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_shell_exec_request", "invalid shell_exec request: timeout_sec must be greater than zero"), nil
+		}
+	}
 	if err := validateShellRequest(ShellExecRequest{
 		SessionID:      "model-tool-validation",
 		CWD:            args.CWD,
 		Command:        args.Command,
+		TimeoutSec:     timeoutSec,
 		IdempotencyKey: eventID,
 	}); err != nil {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_shell_exec_request", fmt.Sprintf("invalid shell_exec request: %v", err)), nil
@@ -123,10 +132,20 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 		providerCallID: providerCallID,
 		name:           name,
 		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			if timeoutSec > maxForegroundShellTimeoutSec {
+				return k.startManagedShellJobReceipt(sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
+					SessionID:      sessionID,
+					CWD:            args.CWD,
+					Command:        args.Command,
+					TimeoutSec:     timeoutSec,
+					IdempotencyKey: eventID,
+				})
+			}
 			operation, err := k.toolGateway().ExecShell(ctx, ShellExecRequest{
 				SessionID:      sessionID,
 				CWD:            args.CWD,
 				Command:        args.Command,
+				TimeoutSec:     timeoutSec,
 				IdempotencyKey: eventID,
 			}, turnID)
 			if err != nil {

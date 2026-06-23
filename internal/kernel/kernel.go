@@ -225,6 +225,11 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			if err := k.appendToolResultEvent(sessionID, turnID, result, forEventID); err != nil {
 				return TurnResponse{}, err
 			}
+			if result.PendingJobCompletion != nil {
+				if err := k.appendJobEvent("job.completed", *result.PendingJobCompletion); err != nil {
+					return TurnResponse{}, err
+				}
+			}
 		}
 	}
 	return TurnResponse{}, errors.New("unreachable model tool loop state")
@@ -291,11 +296,13 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 		SessionID:        sessionID,
 		Turns:            []TurnProjection{},
 		Operations:       []OperationProjection{},
+		Jobs:             []JobProjection{},
 		Works:            []WorkProjection{},
 		MemoryCandidates: []MemoryCandidateProjection{},
 		Events:           []EventProjection{},
 	}
 	turnByID := map[string]int{}
+	jobByID := map[string]int{}
 	workByID := map[string]int{}
 	candidateByID := map[string]int{}
 	for _, event := range events {
@@ -306,6 +313,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 			EventID:     event.EventID,
 			TurnID:      event.TurnID,
 			OperationID: event.OperationID,
+			JobID:       event.JobID,
 			WorkID:      event.WorkID,
 			CandidateID: event.CandidateID,
 			Type:        event.Type,
@@ -360,6 +368,24 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 					projection.Operations = append(projection.Operations, operation)
 				}
 			}
+		case "job.started", "job.completed", "job.failed", "job.cancelled":
+			if event.Data.Job == nil {
+				continue
+			}
+			job := *event.Data.Job
+			if job.JobID == "" {
+				job.JobID = event.JobID
+			}
+			if job.JobID == "" {
+				job.JobID = event.EventID
+			}
+			idx, ok := jobByID[job.JobID]
+			if ok {
+				projection.Jobs[idx] = job
+				continue
+			}
+			jobByID[job.JobID] = len(projection.Jobs)
+			projection.Jobs = append(projection.Jobs, job)
 		case "work.submitted", "work.canceled":
 			if event.Data.Work == nil {
 				continue
