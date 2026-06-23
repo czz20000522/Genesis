@@ -21,6 +21,15 @@ type shellExecToolArguments struct {
 	TimeoutSec *int   `json:"timeout_sec,omitempty"`
 }
 
+type jobStatusToolArguments struct {
+	JobID string `json:"job_id"`
+}
+
+type jobCancelToolArguments struct {
+	JobID  string `json:"job_id"`
+	Reason string `json:"reason,omitempty"`
+}
+
 type preparedModelToolCall struct {
 	eventID        string
 	providerCallID string
@@ -165,6 +174,45 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 	}, nil
 }
 
+func (k *Kernel) prepareJobStatusToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args jobStatusToolArguments
+	if err := decodeStrictModelToolArguments("job_status", arguments, &args); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+	}
+	jobID, err := validateJobControlRequest("job_status", args.JobID)
+	if err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_job_control_request", err.Error()), nil
+	}
+	return preparedModelToolCall{
+		eventID:        eventID,
+		providerCallID: providerCallID,
+		name:           name,
+		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			return k.jobStatusModelToolResult(sessionID, eventID, providerCallID, name, jobID)
+		},
+	}, nil
+}
+
+func (k *Kernel) prepareJobCancelToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args jobCancelToolArguments
+	if err := decodeStrictModelToolArguments("job_cancel", arguments, &args); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+	}
+	jobID, err := validateJobControlRequest("job_cancel", args.JobID)
+	if err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_job_control_request", err.Error()), nil
+	}
+	reason := strings.TrimSpace(args.Reason)
+	return preparedModelToolCall{
+		eventID:        eventID,
+		providerCallID: providerCallID,
+		name:           name,
+		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			return k.cancelJobModelToolResult(sessionID, turnID, eventID, providerCallID, name, jobID, reason)
+		},
+	}, nil
+}
+
 func decodeStrictModelToolArguments(tool string, arguments json.RawMessage, target interface{}) error {
 	if len(arguments) == 0 {
 		return fmt.Errorf("%w: %s arguments are required", ErrModelToolCallRejected, tool)
@@ -237,6 +285,17 @@ func modelOperationResult(operation OperationProjection) interface{} {
 	}
 }
 
+func modelJobControlResult(job JobProjection, cancelRequested bool, visibleOutput string) ModelJobControlResult {
+	return ModelJobControlResult{
+		Status:          strings.TrimSpace(job.Status),
+		Executed:        true,
+		JobID:           strings.TrimSpace(job.JobID),
+		Tool:            strings.TrimSpace(job.Tool),
+		CancelRequested: cancelRequested,
+		VisibleOutput:   strings.TrimSpace(visibleOutput),
+	}
+}
+
 func invalidPreparedModelToolCall(eventID string, providerCallID string, name string, code string, message string) preparedModelToolCall {
 	tool := strings.TrimSpace(name)
 	if tool == "" {
@@ -256,6 +315,31 @@ func invalidPreparedModelToolCall(eventID string, providerCallID string, name st
 			},
 		},
 	}
+}
+
+func invalidModelToolResult(eventID string, providerCallID string, name string, code string, message string) (ModelToolResult, error) {
+	prepared := invalidPreparedModelToolCall(eventID, providerCallID, name, code, message)
+	content, err := json.Marshal(prepared.requestInvalid)
+	if err != nil {
+		return ModelToolResult{}, err
+	}
+	return ModelToolResult{
+		ToolCallID:      prepared.providerCallID,
+		ToolCallEventID: prepared.eventID,
+		Name:            prepared.name,
+		Content:         string(content),
+	}, nil
+}
+
+func validateJobControlRequest(tool string, jobID string) (string, error) {
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return "", fmt.Errorf("invalid %s request: job_id is required", tool)
+	}
+	if err := validateIdempotencyKey(jobID); err != nil {
+		return "", fmt.Errorf("invalid %s request: invalid job_id: %v", tool, err)
+	}
+	return jobID, nil
 }
 
 func toolRequestInvalidMessage(err error) string {

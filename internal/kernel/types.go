@@ -377,6 +377,7 @@ type JobProjection struct {
 	TimeoutSec      int       `json:"timeout_sec,omitempty"`
 	Receipt         string    `json:"receipt,omitempty"`
 	FailureReason   string    `json:"failure_reason,omitempty"`
+	CancelReason    string    `json:"cancel_reason,omitempty"`
 	StartedAt       time.Time `json:"started_at"`
 	CompletedAt     time.Time `json:"completed_at,omitempty"`
 	ToolCallEventID string    `json:"tool_call_event_id,omitempty"`
@@ -407,6 +408,15 @@ type ModelManagedJobResult struct {
 	Executed      bool   `json:"executed"`
 	JobID         string `json:"job_id"`
 	VisibleOutput string `json:"visible_output"`
+}
+
+type ModelJobControlResult struct {
+	Status          string `json:"status"`
+	Executed        bool   `json:"executed"`
+	JobID           string `json:"job_id"`
+	Tool            string `json:"tool,omitempty"`
+	CancelRequested bool   `json:"cancel_requested,omitempty"`
+	VisibleOutput   string `json:"visible_output,omitempty"`
 }
 
 type WorkSubmitRequest struct {

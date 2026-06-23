@@ -347,6 +347,7 @@ func redactJobProjection(job JobProjection) JobProjection {
 	job.Command = redactEvidenceText(job.Command)
 	job.Receipt = redactEvidenceText(job.Receipt)
 	job.FailureReason = redactEvidenceText(job.FailureReason)
+	job.CancelReason = redactEvidenceText(job.CancelReason)
 	return job
 }
 

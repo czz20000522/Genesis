@@ -22,6 +22,7 @@ type Kernel struct {
 	clock           func() time.Time
 	turnMu          sync.Mutex
 	operationMu     sync.Mutex
+	jobMu           sync.Mutex
 	memoryReviewMu  sync.Mutex
 	workMu          sync.Mutex
 }
@@ -371,7 +372,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 					projection.Operations = append(projection.Operations, operation)
 				}
 			}
-		case "job.started", "job.completed", "job.failed", "job.cancelled":
+		case "job.started", "job.cancel_requested", "job.completed", "job.failed", "job.cancelled":
 			if event.Data.Job == nil {
 				continue
 			}

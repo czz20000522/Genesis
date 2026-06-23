@@ -12,6 +12,7 @@ const (
 	ToolSideEffectWrite = "write"
 
 	ToolExecutionKindSandboxedProcess = "sandboxed_process"
+	ToolExecutionKindKernelControl    = "kernel_control"
 )
 
 type registeredTool struct {
@@ -77,6 +78,50 @@ func defaultKernelTools() []registeredTool {
 				ExecutionKind:   ToolExecutionKindSandboxedProcess,
 			},
 			Prepare: (*Kernel).prepareShellExecToolCall,
+		},
+		{
+			Spec: ToolSpec{
+				Name:        "job_status",
+				Description: "Inspect a Genesis-managed job by kernel-issued job id without creating a new operation.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"job_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Kernel-issued job id returned by a prior managed job receipt.",
+						},
+					},
+					"required":             []string{"job_id"},
+					"additionalProperties": false,
+				},
+				SideEffectLevel: ToolSideEffectRead,
+				ExecutionKind:   ToolExecutionKindKernelControl,
+			},
+			Prepare: (*Kernel).prepareJobStatusToolCall,
+		},
+		{
+			Spec: ToolSpec{
+				Name:        "job_cancel",
+				Description: "Request cancellation for a Genesis-managed job by kernel-issued job id.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"job_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Kernel-issued job id returned by a prior managed job receipt.",
+						},
+						"reason": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional user-visible cancellation reason.",
+						},
+					},
+					"required":             []string{"job_id"},
+					"additionalProperties": false,
+				},
+				SideEffectLevel: ToolSideEffectWrite,
+				ExecutionKind:   ToolExecutionKindKernelControl,
+			},
+			Prepare: (*Kernel).prepareJobCancelToolCall,
 		},
 	}
 }

@@ -1506,8 +1506,14 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if got := strings.Join(inspection.ModelInputKinds, ","); got != strings.Join([]string{ModelInputKindSkillIndexContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}, ",") {
 		t.Fatalf("model input kinds = %v", inspection.ModelInputKinds)
 	}
-	if len(inspection.ToolManifest) != 1 || inspection.ToolManifest[0].Name != "shell_exec" {
-		t.Fatalf("tool manifest = %+v, want shell_exec", inspection.ToolManifest)
+	toolNames := toolSpecNames(inspection.ToolManifest)
+	for _, want := range []string{"shell_exec", "job_status", "job_cancel"} {
+		if !containsString(toolNames, want) {
+			t.Fatalf("tool manifest = %+v, want %s", inspection.ToolManifest, want)
+		}
+	}
+	if containsString(toolNames, "job_terminate") {
+		t.Fatalf("tool manifest = %+v, must not expose process-level terminate tool", inspection.ToolManifest)
 	}
 	if len(inspection.SkillCatalog) != 1 || inspection.SkillCatalog[0].Name != "lark-im" {
 		t.Fatalf("skill catalog = %+v, want persisted lark-im summary", inspection.SkillCatalog)
@@ -5465,6 +5471,24 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
+func toolSpecNames(specs []ToolSpec) []string {
+	names := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		names = append(names, spec.Name)
+	}
+	return names
+}
+
+func countSessionEventType(events []EventProjection, eventType string) int {
+	count := 0
+	for _, event := range events {
+		if event.Type == eventType {
+			count++
+		}
+	}
+	return count
+}
+
 func modelInputTextByKind(items []ModelInputItem, kind string) (string, bool) {
 	for _, item := range items {
 		if item.Kind == kind {
@@ -5472,6 +5496,50 @@ func modelInputTextByKind(items []ModelInputItem, kind string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func submitCompletedManagedJobForTest(t *testing.T, ledgerPath string, workspace string, sessionID string) string {
+	t.Helper()
+	arguments, err := json.Marshal(map[string]interface{}{
+		"cwd":         workspace,
+		"command":     echoCommand("managed-job"),
+		"timeout_sec": 181,
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_create_managed_job", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "managed job created",
+	}
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "create managed job"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	projection, err := k.Session(sessionID)
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Jobs) != 1 || projection.Jobs[0].JobID == "" || projection.Jobs[0].Status != "completed" {
+		t.Fatalf("jobs = %+v, want one completed managed job", projection.Jobs)
+	}
+	return projection.Jobs[0].JobID
 }
 
 func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
@@ -6268,6 +6336,315 @@ func TestDeliveredJobObservationIsNotProjectedAgainAfterRestart(t *testing.T) {
 	}
 	if _, ok := modelInputTextByKind(contextProjection.InputItems, ModelInputKindKernelObservationContext); ok {
 		t.Fatalf("provider context after restart = %+v, want delivered observation suppressed", contextProjection.InputItems)
+	}
+}
+
+func TestSubmitTurnProjectsGenericJobControlToolManifest(t *testing.T) {
+	provider := &toolFeedbackProvider{final: "manifest observed"}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy:   ToolPolicy{PermissionMode: PermissionModePlan},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "job-control-manifest",
+		InputItems: []InputItem{{Type: "text", Text: "show tools"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1", len(requests))
+	}
+	names := toolSpecNames(requests[0].ToolManifest)
+	for _, want := range []string{"shell_exec", "job_status", "job_cancel"} {
+		if !containsString(names, want) {
+			t.Fatalf("tool manifest names = %v, want %s", names, want)
+		}
+	}
+	if containsString(names, "job_terminate") {
+		t.Fatalf("tool manifest names = %v, must not expose process-level terminate tool", names)
+	}
+}
+
+func TestSubmitTurnJobStatusReturnsCompletedJobAfterRestartWithoutOperation(t *testing.T) {
+	workspace := t.TempDir()
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	sessionID := "job-status-completed"
+	jobID := submitCompletedManagedJobForTest(t, ledgerPath, workspace, sessionID)
+	arguments, err := json.Marshal(map[string]string{"job_id": jobID})
+	if err != nil {
+		t.Fatalf("marshal job_status args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_job_status_completed", Name: "job_status", Arguments: json.RawMessage(arguments)},
+		},
+		final: "job status observed",
+	}
+	reloaded, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	if _, err := reloaded.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "check job"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "completed" || payload["job_id"] != jobID || payload["tool"] != "shell_exec" {
+		t.Fatalf("job_status payload = %+v, want completed shell job %s", payload, jobID)
+	}
+	projection, err := reloaded.Session(sessionID)
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want job_status to create no operations", projection.Operations)
+	}
+}
+
+func TestSubmitTurnJobStatusReturnsRepairFeedbackForUnknownJob(t *testing.T) {
+	arguments := json.RawMessage(`{"job_id":"job_missing"}`)
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_job_status_missing", Name: "job_status", Arguments: arguments},
+		},
+		final: "job status repair observed",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy:   ToolPolicy{PermissionMode: PermissionModePlan},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "job-status-missing",
+		InputItems: []InputItem{{Type: "text", Text: "check missing job"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "tool_request_invalid" {
+		t.Fatalf("job_status payload = %+v, want repair feedback", payload)
+	}
+	errorPayload, ok := payload["error"].(map[string]interface{})
+	if !ok || errorPayload["code"] != "job_not_found" {
+		t.Fatalf("job_status error = %+v, want job_not_found", payload["error"])
+	}
+}
+
+func TestSubmitTurnRejectsJobControlToolControlPlaneFields(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		tool      string
+		arguments json.RawMessage
+	}{
+		{name: "status permission mode", tool: "job_status", arguments: json.RawMessage(`{"job_id":"job_x","permission_mode":"yolo"}`)},
+		{name: "cancel terminate signal", tool: "job_cancel", arguments: json.RawMessage(`{"job_id":"job_x","reason":"stop","signal":"kill"}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &toolFeedbackProvider{
+				calls: []ModelToolCall{
+					{ToolCallID: "call_" + strings.ReplaceAll(tc.name, " ", "_"), Name: tc.tool, Arguments: tc.arguments},
+				},
+				final: "repair observed",
+			}
+			k, err := New(Config{
+				LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+				Provider:     provider,
+				RuntimeToken: testRuntimeToken,
+				ToolPolicy:   ToolPolicy{PermissionMode: PermissionModePlan},
+			})
+			if err != nil {
+				t.Fatalf("New returned error: %v", err)
+			}
+			if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+				SessionID:  "job-control-field-" + strings.ReplaceAll(tc.name, " ", "-"),
+				InputItems: []InputItem{{Type: "text", Text: "try invalid job control"}},
+			}); err != nil {
+				t.Fatalf("SubmitTurn returned error: %v", err)
+			}
+			payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+			if payload["status"] != "tool_request_invalid" {
+				t.Fatalf("%s payload = %+v, want repair feedback", tc.tool, payload)
+			}
+			errorPayload, ok := payload["error"].(map[string]interface{})
+			if !ok || errorPayload["code"] != "invalid_tool_arguments" {
+				t.Fatalf("%s error = %+v, want invalid_tool_arguments", tc.tool, payload["error"])
+			}
+		})
+	}
+}
+
+func TestSubmitTurnJobCancelTerminalJobReturnsCurrentStateWithoutCompetingTerminalEvent(t *testing.T) {
+	workspace := t.TempDir()
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	sessionID := "job-cancel-terminal"
+	jobID := submitCompletedManagedJobForTest(t, ledgerPath, workspace, sessionID)
+	arguments, err := json.Marshal(map[string]string{"job_id": jobID, "reason": "no longer needed"})
+	if err != nil {
+		t.Fatalf("marshal job_cancel args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_job_cancel_completed", Name: "job_cancel", Arguments: json.RawMessage(arguments)},
+		},
+		final: "job cancel observed",
+	}
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "cancel completed job"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "completed" || payload["job_id"] != jobID {
+		t.Fatalf("job_cancel terminal payload = %+v, want current completed state", payload)
+	}
+	projection, err := k.Session(sessionID)
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if got := countSessionEventType(projection.Events, "job.cancel_requested"); got != 0 {
+		t.Fatalf("job.cancel_requested count = %d, want 0 for terminal no-op", got)
+	}
+	if got := countSessionEventType(projection.Events, "job.cancelled"); got != 0 {
+		t.Fatalf("job.cancelled count = %d, want 0 for terminal no-op", got)
+	}
+}
+
+func TestSubmitTurnJobCancelRunningJobRecordsCancellationOnce(t *testing.T) {
+	workspace := t.TempDir()
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	sessionID := "job-cancel-running"
+	jobID := "job_running_cancel"
+	cancelArgs, err := json.Marshal(map[string]string{"job_id": jobID, "reason": "user requested stop"})
+	if err != nil {
+		t.Fatalf("marshal job_cancel args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_job_cancel_running", Name: "job_cancel", Arguments: json.RawMessage(cancelArgs)},
+		},
+		final: "job cancel observed",
+	}
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if err := k.appendJobEvent("job.started", JobProjection{
+		JobID:      jobID,
+		SessionID:  sessionID,
+		TurnID:     "turn_background_job",
+		Tool:       "shell_exec",
+		Status:     "running",
+		CWD:        workspace,
+		Command:    echoCommand("running"),
+		TimeoutSec: 600,
+		Receipt:    "Command was accepted as managed job " + jobID + ".",
+		StartedAt:  time.Date(2026, 6, 23, 1, 2, 3, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("appendJobEvent returned error: %v", err)
+	}
+
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "cancel running job"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "cancelled" || payload["job_id"] != jobID {
+		t.Fatalf("job_cancel running payload = %+v, want cancelled job", payload)
+	}
+	projection, err := k.Session(sessionID)
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Jobs) != 1 || projection.Jobs[0].Status != "cancelled" {
+		t.Fatalf("jobs = %+v, want cancelled job projection", projection.Jobs)
+	}
+	if got := countSessionEventType(projection.Events, "job.cancel_requested"); got != 1 {
+		t.Fatalf("job.cancel_requested count = %d, want 1", got)
+	}
+	if got := countSessionEventType(projection.Events, "job.cancelled"); got != 1 {
+		t.Fatalf("job.cancelled count = %d, want 1", got)
+	}
+
+	secondProvider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_job_cancel_running_again", Name: "job_cancel", Arguments: json.RawMessage(cancelArgs)},
+		},
+		final: "job cancel observed again",
+	}
+	reloaded, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     secondProvider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if _, err := reloaded.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "cancel running job again"}},
+	}); err != nil {
+		t.Fatalf("second SubmitTurn returned error: %v", err)
+	}
+	replayed, err := reloaded.Session(sessionID)
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if got := countSessionEventType(replayed.Events, "job.cancel_requested"); got != 1 {
+		t.Fatalf("job.cancel_requested count after duplicate = %d, want 1", got)
+	}
+	if got := countSessionEventType(replayed.Events, "job.cancelled"); got != 1 {
+		t.Fatalf("job.cancelled count after duplicate = %d, want 1", got)
 	}
 }
 
