@@ -25,18 +25,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-OWNER-TOOL-CONTEXT-20260623 - P2 - Tool registrations should not receive the whole Kernel
-
-- Status: open.
-- Area: Architecture Governance / Tool Runtime.
-- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
-- Design: `docs/design/kernel-owner-structure-governance.md`.
-- Gap: `registeredTool.Prepare` currently accepts `*Kernel`, giving every future registered tool broad access to ledger, provider, memory, work, job, and policy fields. That is too wide for a registry that should enforce least authority.
-- Next slice: Introduce a narrow tool invocation context or owner-specific executor interface for registered tools. Shell/job tools receive only the authority needed to validate, authorize, execute, append operation/job evidence, and produce model-visible results.
-- Evidence: `internal/kernel/tool_registry.go` defines `Prepare func(*Kernel, ...)`, and model tool handling resolves that registration before tool execution.
-- Verification: New tools cannot register a `Prepare` function that receives `*Kernel`; tool registry, tool gateway, model loop, shell/job control, and architecture tests pass.
-- Reference alignment: Aligned with Codex's `CoreToolRuntime` over typed `ToolInvocation` and Reasonix's `Tool` interface plus per-run `Registry`. Genesis should not pass the whole kernel object as the tool execution capability.
-
 ### KERNEL-JOB-CONTROL-INTERRUPT-20260623 - P2 - Interrupt and managed executor semantics
 
 - Status: open.

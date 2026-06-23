@@ -52,6 +52,19 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Acceptance condition: reviewer confirms HTTP files remain transport surfaces, not hidden turn, tool, work, memory, session, audit, or timeline owners.
 - Residual risk: Handler grouping is file-level governance. A future router abstraction may be useful if route count grows, but it is not needed for the current kernel slice.
 
+### KERNEL-OWNER-TOOL-CONTEXT-20260623 - P2 - Tool registry binding uses narrow invocation context
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `8d969d722`, `5d244a42e`.
+- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
+- Design: `docs/design/kernel-owner-structure-governance.md`.
+- Reference alignment: Aligned with Codex's `CoreToolRuntime` over typed `ToolInvocation` and Reasonix's `Tool` interface plus per-run `Registry`. Genesis keeps a registry-owned execution binding, but the binding no longer declares the whole kernel object as the tool authority.
+- Evidence: `registeredTool.Prepare` now accepts `toolInvocationContext` instead of `*Kernel`. Default tool entries call only context methods for shell execution, job status, and job cancel preparation. `TestArchitectureBoundaryToolRegistryDoesNotBindWholeKernel` fails if `Prepare func(*Kernel, ...)` or `Prepare: (*Kernel)` returns to `tool_registry.go`.
+- Verification: `D:\software\Go\bin\go.exe test ./internal/kernel -run 'TestArchitectureBoundaryToolRegistry|TestSubmitTurn.*Job|TestSubmitTurn.*Shell|TestSubmitTurn.*Tool|TestToolCapability|TestHTTPCapabilities' -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `git diff --check`.
+- Acceptance condition: reviewer confirms tool registrations no longer declare broad `*Kernel` authority and future tools must extend a narrow invocation context or owner-specific executor interface.
+- Residual risk: `toolInvocationContext` is still an internal same-package interface for current built-in tools. A future external plugin/runtime boundary needs a separate requirement if tools become installable outside the kernel package.
+
 ### KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623 - P2 - Foreground timeout preserves terminal outcome evidence
 
 - Status: ready_for_acceptance.
