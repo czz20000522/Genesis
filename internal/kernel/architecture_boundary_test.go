@@ -389,7 +389,16 @@ func TestArchitectureBoundaryCoreLoopHasNoProviderNativeWireTerms(t *testing.T) 
 		"provider.go",
 		"provider_command.go",
 		"tool_registry.go",
-		"types.go",
+		"config_types.go",
+		"context_compaction_types.go",
+		"event_types.go",
+		"inspection_types.go",
+		"memory_types.go",
+		"provider_accounting_types.go",
+		"skill_catalog_types.go",
+		"tool_types.go",
+		"turn_types.go",
+		"work_types.go",
 	} {
 		content := readRepoText(t, root, file)
 		for _, forbidden := range []string{
@@ -445,6 +454,135 @@ func TestArchitectureBoundaryProviderWireTermsStayInsideAdapterFiles(t *testing.
 	}
 }
 
+func TestArchitectureBoundaryKernelSessionDelegatesOwnerReplay(t *testing.T) {
+	root := kernelPackageDir(t)
+	body := functionBodySource(t, filepath.Join(root, "kernel.go"), "Session")
+	for _, forbidden := range []string{
+		`"turn.submitted"`,
+		`"model.final"`,
+		`"turn.failed"`,
+		`"operation.`,
+		`"job.`,
+		`"work.`,
+		`"memory.`,
+		"mergeWorkProjection",
+		"mergeMemoryCandidateProjection",
+		"OperationProjection{",
+		"JobProjection{",
+		"WorkProjection{",
+		"MemoryCandidateProjection{",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("Kernel.Session directly contains owner replay marker %q; delegate replay to owner projection helpers", forbidden)
+		}
+	}
+}
+
+func TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles(t *testing.T) {
+	root := kernelPackageDir(t)
+	want := map[string]string{
+		"Config":                              "config_types.go",
+		"ToolPolicy":                          "config_types.go",
+		"ContextPolicy":                       "config_types.go",
+		"ReadyResponse":                       "config_types.go",
+		"CapabilitiesResponse":                "config_types.go",
+		"ProviderStatus":                      "config_types.go",
+		"ReadyCheck":                          "config_types.go",
+		"TurnRequest":                         "turn_types.go",
+		"InputItem":                           "turn_types.go",
+		"TurnResponse":                        "turn_types.go",
+		"TurnEventsResponse":                  "turn_types.go",
+		"FinalMessage":                        "turn_types.go",
+		"TurnProjection":                      "turn_types.go",
+		"TurnError":                           "turn_types.go",
+		"ToolSpec":                            "tool_types.go",
+		"ModelToolCall":                       "tool_types.go",
+		"ModelToolRound":                      "tool_types.go",
+		"ModelToolResult":                     "tool_types.go",
+		"ToolRequestInvalidProjection":        "tool_types.go",
+		"ToolRequestError":                    "tool_types.go",
+		"ToolCapabilityProjection":            "tool_types.go",
+		"ShellExecRequest":                    "tool_types.go",
+		"OperationProjection":                 "tool_types.go",
+		"JobProjection":                       "tool_types.go",
+		"KernelObservationDeliveryProjection": "tool_types.go",
+		"ModelOperationResult":                "tool_types.go",
+		"ModelManagedJobResult":               "tool_types.go",
+		"ModelJobControlResult":               "tool_types.go",
+		"ToolCallProjection":                  "tool_types.go",
+		"ToolResultProjection":                "tool_types.go",
+		"WorkSubmitRequest":                   "work_types.go",
+		"WorkCancelRequest":                   "work_types.go",
+		"WorkProjection":                      "work_types.go",
+		"MemoryCandidateRequest":              "memory_types.go",
+		"MemoryCandidateListResponse":         "memory_types.go",
+		"MemoryRecallRequest":                 "memory_types.go",
+		"MemoryRecallResponse":                "memory_types.go",
+		"MemoryApprovalRequest":               "memory_types.go",
+		"MemoryRejectionRequest":              "memory_types.go",
+		"MemorySupersessionRequest":           "memory_types.go",
+		"MemorySupersessionProjection":        "memory_types.go",
+		"MemoryCandidateProjection":           "memory_types.go",
+		"MemoryRecall":                        "memory_types.go",
+		"Event":                               "event_types.go",
+		"StoredEvent":                         "event_types.go",
+		"EventData":                           "event_types.go",
+		"EventProjection":                     "event_types.go",
+		"AuditReplayResponse":                 "inspection_types.go",
+		"AuditReplayItem":                     "inspection_types.go",
+		"UITimelineResponse":                  "inspection_types.go",
+		"UITimelineItem":                      "inspection_types.go",
+		"ContextInspectionResponse":           "inspection_types.go",
+		"ContextRuntimeSnapshot":              "inspection_types.go",
+		"PermissionInspection":                "inspection_types.go",
+		"SessionProjection":                   "inspection_types.go",
+		"TokenUsage":                          "provider_accounting_types.go",
+		"ModelContextAccountingProjection":    "provider_accounting_types.go",
+		"ContextCompactionProjection":         "context_compaction_types.go",
+		"ContextCacheStabilityProjection":     "context_compaction_types.go",
+		"SkillDescriptor":                     "skill_catalog_types.go",
+		"SkillCatalogProjection":              "skill_catalog_types.go",
+		"SkillCatalogItemProjection":          "skill_catalog_types.go",
+		"SkillCatalogExclusionProjection":     "skill_catalog_types.go",
+	}
+	got := kernelTypeDeclarationFiles(t, root)
+	for typeName, wantFile := range want {
+		if gotFile := got[typeName]; gotFile != wantFile {
+			t.Fatalf("%s declared in %q, want %q", typeName, gotFile, wantFile)
+		}
+	}
+}
+
+func TestArchitectureBoundaryHTTPTransportDoesNotReplayOwnerFacts(t *testing.T) {
+	root := kernelPackageDir(t)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read kernel package dir: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, "http") || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		content := readRepoText(t, root, name)
+		for _, forbidden := range []string{
+			"loadEvents(",
+			"appendEvent(",
+			"appendOperationEvent(",
+			"appendJobEvent(",
+			"appendTerminalJobEvent(",
+			"appendMemoryCandidateEvent(",
+			"appendWorkEvent(",
+			"mergeWorkProjection(",
+			"mergeMemoryCandidateProjection(",
+		} {
+			if strings.Contains(content, forbidden) {
+				t.Fatalf("%s contains owner state/replay helper %q; HTTP transport must auth/decode/delegate/encode only", name, forbidden)
+			}
+		}
+	}
+}
+
 func readRepoText(t *testing.T, repoRoot string, pathParts ...string) string {
 	t.Helper()
 	payload, err := os.ReadFile(filepath.Join(append([]string{repoRoot}, pathParts...)...))
@@ -452,6 +590,65 @@ func readRepoText(t *testing.T, repoRoot string, pathParts ...string) string {
 		t.Fatalf("read %s: %v", filepath.Join(pathParts...), err)
 	}
 	return string(payload)
+}
+
+func functionBodySource(t *testing.T, path string, functionName string) string {
+	t.Helper()
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, path, payload, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name.Name != functionName || function.Body == nil {
+			continue
+		}
+		start := fileSet.Position(function.Body.Pos()).Offset
+		end := fileSet.Position(function.Body.End()).Offset
+		return string(payload[start:end])
+	}
+	t.Fatalf("function %s not found in %s", functionName, path)
+	return ""
+}
+
+func kernelTypeDeclarationFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read kernel package dir: %v", err)
+	}
+	result := map[string]string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		path := filepath.Join(root, name)
+		fileSet := token.NewFileSet()
+		parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, declaration := range parsed.Decls {
+			general, ok := declaration.(*ast.GenDecl)
+			if !ok || general.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range general.Specs {
+				typeSpec, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				result[typeSpec.Name.Name] = name
+			}
+		}
+	}
+	return result
 }
 
 type markdownIssueSection struct {
