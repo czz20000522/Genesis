@@ -8,6 +8,7 @@ import (
 type Config struct {
 	LedgerPath    string
 	Provider      Provider
+	JobExecutor   ManagedJobExecutor
 	RuntimeToken  string
 	ToolPolicy    ToolPolicy
 	ContextPolicy ContextPolicy
@@ -136,11 +137,11 @@ type ModelToolRound struct {
 }
 
 type ModelToolResult struct {
-	ToolCallID           string         `json:"tool_call_id"`
-	ToolCallEventID      string         `json:"tool_call_event_id,omitempty"`
-	Name                 string         `json:"name"`
-	Content              string         `json:"content"`
-	PendingJobCompletion *JobProjection `json:"-"`
+	ToolCallID      string         `json:"tool_call_id"`
+	ToolCallEventID string         `json:"tool_call_event_id,omitempty"`
+	Name            string         `json:"name"`
+	Content         string         `json:"content"`
+	PendingJobStart *JobProjection `json:"-"`
 }
 
 type ToolRequestInvalidProjection struct {
@@ -375,6 +376,11 @@ type JobProjection struct {
 	CWD             string    `json:"cwd,omitempty"`
 	Command         string    `json:"command,omitempty"`
 	TimeoutSec      int       `json:"timeout_sec,omitempty"`
+	ExitCode        *int      `json:"exit_code,omitempty"`
+	Stdout          string    `json:"stdout,omitempty"`
+	Stderr          string    `json:"stderr,omitempty"`
+	StdoutTruncated bool      `json:"stdout_truncated,omitempty"`
+	StderrTruncated bool      `json:"stderr_truncated,omitempty"`
 	Receipt         string    `json:"receipt,omitempty"`
 	FailureReason   string    `json:"failure_reason,omitempty"`
 	CancelReason    string    `json:"cancel_reason,omitempty"`
@@ -417,6 +423,11 @@ type ModelJobControlResult struct {
 	Tool            string `json:"tool,omitempty"`
 	CancelRequested bool   `json:"cancel_requested,omitempty"`
 	VisibleOutput   string `json:"visible_output,omitempty"`
+	ExitCode        *int   `json:"exit_code,omitempty"`
+	Stdout          string `json:"stdout,omitempty"`
+	Stderr          string `json:"stderr,omitempty"`
+	StdoutTruncated bool   `json:"stdout_truncated,omitempty"`
+	StderrTruncated bool   `json:"stderr_truncated,omitempty"`
 }
 
 type WorkSubmitRequest struct {

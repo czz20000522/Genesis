@@ -89,6 +89,15 @@ func kernelObservationContext(observations []kernelObservation) string {
 		if failure := strings.TrimSpace(job.FailureReason); failure != "" {
 			lines = append(lines, "  failure_reason: "+failure)
 		}
+		if job.ExitCode != nil {
+			lines = append(lines, fmt.Sprintf("  exit_code: %d", *job.ExitCode))
+		}
+		if stdout := strings.TrimSpace(job.Stdout); stdout != "" {
+			lines = append(lines, "  stdout: "+boundedTimelinePreview(stdout))
+		}
+		if stderr := strings.TrimSpace(job.Stderr); stderr != "" {
+			lines = append(lines, "  stderr: "+boundedTimelinePreview(stderr))
+		}
 	}
 	return strings.Join(lines, "\n")
 }

@@ -293,6 +293,11 @@ func modelJobControlResult(job JobProjection, cancelRequested bool, visibleOutpu
 		Tool:            strings.TrimSpace(job.Tool),
 		CancelRequested: cancelRequested,
 		VisibleOutput:   strings.TrimSpace(visibleOutput),
+		ExitCode:        job.ExitCode,
+		Stdout:          job.Stdout,
+		Stderr:          job.Stderr,
+		StdoutTruncated: job.StdoutTruncated,
+		StderrTruncated: job.StderrTruncated,
 	}
 }
 

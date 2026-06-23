@@ -408,6 +408,17 @@ func applyOperationOutputCapture(operation *OperationProjection, stdout captured
 	}
 }
 
+func applyJobOutputCapture(job *JobProjection, stdout capturedOutput, stderr capturedOutput) {
+	job.Stdout = stdout.Text
+	job.Stderr = stderr.Text
+	if stdout.Truncated {
+		job.StdoutTruncated = true
+	}
+	if stderr.Truncated {
+		job.StderrTruncated = true
+	}
+}
+
 func headTailLimits(limit int) (int, int) {
 	if limit <= 0 {
 		return 0, 0

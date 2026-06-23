@@ -177,7 +177,7 @@
 
 ## Phase E-lite: Minimal Job Control Tools
 
-**Deliverable:** model-visible generic job control with `job_status` and `job_cancel`. This phase completes the first job-control surface without implementing provider-stream interruption, foreground attach-or-kill, or real background process management.
+**Deliverable:** model-visible generic job control with `job_status` and `job_cancel`. This phase completes the first job-control surface. At Phase E-lite time it did not implement provider-stream interruption, foreground attach-or-kill, or real background process management; Phase F-lite below adds the first real managed executor boundary.
 
 **Fix commit:** `ce72dfa44`.
 
@@ -185,7 +185,7 @@
 
 - The model-visible manifest includes `shell_exec`, `job_status`, and `job_cancel`, with no process-level `job_terminate`.
 - `job_status` replays current job state from the session ledger and creates no operations.
-- `job_cancel` records `job.cancel_requested` and `job.cancelled` once for a non-terminal job.
+- `job_cancel` records a semantic `job.cancel_requested` fact for a non-terminal job. Terminal cancellation is executor-owned in Phase F-lite.
 - Cancelling completed, failed, or already cancelled jobs returns the current terminal state without writing a competing terminal fact.
 - Unknown job ids and model-supplied process/control-plane fields return structured repair feedback.
 
@@ -223,7 +223,7 @@
 
   Cover:
 
-  - cancelling a running job records `job.cancel_requested` and `job.cancelled` once when the executor can accept cancellation;
+  - cancelling a running job records `job.cancel_requested` and does not forge `job.cancelled` before executor confirmation;
   - cancelling a terminal job returns the terminal state without writing a competing terminal event;
   - duplicate cancel request is idempotent;
   - unknown job id returns structured `job_not_found`;
@@ -245,10 +245,35 @@
   D:\software\Go\bin\go.exe test ./internal/kernel -run "TestSubmitTurn.*JobStatus|TestSubmitTurn.*JobCancel|TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt" -count=1
   ```
 
-## Still Short Of Production After This Plan
+## Still Short After Phase E-lite
 
-- Real background process management is not complete.
-- `job_status` and `job_cancel` are ledger-backed generic tools only; they do not yet inspect or control a real host process.
 - Progress snapshot delivery and idle continuation controls are not implemented.
 - Provider-stream interruption and foreground attach-or-kill behavior are not implemented.
 - Stronger sandbox and approval policy remain separate future work.
+
+## Phase F-lite: Minimal Managed Executor Boundary
+
+**Deliverable:** long-running `shell_exec` requests start a real kernel-owned managed shell job after the receipt `tool.result` is recorded. `job_cancel` records a semantic cancellation request and asks the executor to cancel the live job; terminal `job.completed`, `job.failed`, or `job.cancelled` facts are written only by executor completion.
+
+**Reference scan:**
+
+- Codex app-server separates `turn/interrupt` from process control. `turn/interrupt` completes a turn as interrupted, while `process/spawn`, `process/kill`, and `process/exited` are separate process APIs. Genesis follows the same boundary by keeping model-visible `job_cancel` semantic and hiding process ids/signals behind the kernel executor.
+- Reasonix `internal/jobs` uses a session-scoped background job manager whose jobs survive turns and are cancelled explicitly or on controller close. Genesis follows that lifetime model for local managed shell jobs, while retaining Genesis's append-only ledger as the durable fact source.
+- Reasonix shell cancellation kills the process tree (`taskkill /T` on Windows, process group kill on Unix). Genesis uses the same executor-level responsibility and does not expose those mechanics to the model.
+
+**Completed slice:**
+
+- `timeout_sec > 180` records `job.started`, appends the receipt `tool.result`, then starts a local managed shell executor.
+- The receipt is no longer overwritten or followed by fake immediate completion.
+- The default executor runs shell commands under a cancellable session-scoped manager and records terminal job facts with exit code and bounded stdout/stderr.
+- `job_cancel` records `job.cancel_requested` but does not forge `job.cancelled`; live executor completion writes the terminal cancellation fact.
+- Ledger-only running jobs can receive a cancellation request without pretending a host process was terminated.
+
+**Still deferred from full production delivery:**
+
+- progress snapshots such as `job.progress` or `job.output`;
+- user-triggered continuation after idle job completion;
+- explicit auto-resume policy, if approved later;
+- provider-stream interruption;
+- foreground shell attach-or-kill behavior on user interrupt;
+- stronger sandbox/approval integration for arbitrary host shell execution.

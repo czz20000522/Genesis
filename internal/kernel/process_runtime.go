@@ -14,8 +14,17 @@ func runShellProcess(ctx context.Context, cwd string, command string, timeout ti
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := platformShellCommand(execCtx, command)
+	return runShellProcessContext(execCtx, cwd, command)
+}
+
+func runShellProcessContext(ctx context.Context, cwd string, command string) (capturedOutput, capturedOutput, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd := platformShellCommand(ctx, command)
 	cmd.Dir = cwd
+	configureShellProcessTermination(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	var stdout cappedBuffer
 	var stderr cappedBuffer
 	stdout.limit = maxShellOutputBytes

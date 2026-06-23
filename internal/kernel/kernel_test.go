@@ -5489,6 +5489,30 @@ func countSessionEventType(events []EventProjection, eventType string) int {
 	return count
 }
 
+func waitForSessionJobStatus(t *testing.T, k *Kernel, sessionID string, jobID string, status string) JobProjection {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var latest JobProjection
+	for time.Now().Before(deadline) {
+		projection, err := k.Session(sessionID)
+		if err != nil {
+			t.Fatalf("Session returned error while waiting for job %s: %v", jobID, err)
+		}
+		for _, job := range projection.Jobs {
+			if job.JobID != jobID {
+				continue
+			}
+			latest = job
+			if job.Status == status {
+				return job
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("job %s status = %+v, want %s", jobID, latest, status)
+	return JobProjection{}
+}
+
 func modelInputTextByKind(items []ModelInputItem, kind string) (string, bool) {
 	for _, item := range items {
 		if item.Kind == kind {
@@ -5517,6 +5541,7 @@ func submitCompletedManagedJobForTest(t *testing.T, ledgerPath string, workspace
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
+		JobExecutor:  completingManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeYolo,
@@ -6072,7 +6097,7 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 	workspace := t.TempDir()
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
-		"command":     echoCommand("managed-job"),
+		"command":     longRunningShellCommand(30),
 		"timeout_sec": 181,
 	})
 	if err != nil {
@@ -6097,6 +6122,7 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
+	defer k.Close()
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
 		SessionID:  "managed-job-timeout",
@@ -6115,6 +6141,7 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 	if resultPayload["job_id"] == "" {
 		t.Fatalf("tool result payload = %+v, want job_id receipt", resultPayload)
 	}
+	jobID, _ := resultPayload["job_id"].(string)
 	projection, err := k.Session("managed-job-timeout")
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
@@ -6126,9 +6153,12 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 	for _, event := range projection.Events {
 		eventTypes = append(eventTypes, event.Type)
 	}
-	wantTypes := []string{"turn.submitted", "tool.call", "job.started", "tool.result", "job.completed", "kernel.observation.delivered", "model.final"}
+	wantTypes := []string{"turn.submitted", "tool.call", "job.started", "tool.result", "model.final"}
 	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
 		t.Fatalf("event types = %v, want %v", eventTypes, wantTypes)
+	}
+	if len(projection.Jobs) != 1 || projection.Jobs[0].JobID != jobID || projection.Jobs[0].Status != "running" {
+		t.Fatalf("jobs = %+v, want running managed job %s", projection.Jobs, jobID)
 	}
 
 	reloaded, err := New(Config{
@@ -6174,6 +6204,7 @@ func TestSubmitTurnDeliversCompletedJobObservationToNextProviderStep(t *testing.
 	k, err := New(Config{
 		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
 		Provider:     provider,
+		JobExecutor:  completingManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeYolo,
@@ -6247,6 +6278,7 @@ func TestProviderFailureDoesNotMarkJobObservationDelivered(t *testing.T) {
 	k, err := New(Config{
 		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
 		Provider:     provider,
+		JobExecutor:  completingManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeYolo,
@@ -6546,7 +6578,7 @@ func TestSubmitTurnJobCancelTerminalJobReturnsCurrentStateWithoutCompetingTermin
 	}
 }
 
-func TestSubmitTurnJobCancelRunningJobRecordsCancellationOnce(t *testing.T) {
+func TestSubmitTurnJobCancelLedgerOnlyRunningJobRecordsRequestWithoutForgingTerminalFact(t *testing.T) {
 	workspace := t.TempDir()
 	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
 	sessionID := "job-cancel-running"
@@ -6595,21 +6627,21 @@ func TestSubmitTurnJobCancelRunningJobRecordsCancellationOnce(t *testing.T) {
 		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
 	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
-	if payload["status"] != "cancelled" || payload["job_id"] != jobID {
-		t.Fatalf("job_cancel running payload = %+v, want cancelled job", payload)
+	if payload["status"] != "cancel_requested" || payload["job_id"] != jobID || payload["cancel_requested"] != true {
+		t.Fatalf("job_cancel running payload = %+v, want cancel_requested job", payload)
 	}
 	projection, err := k.Session(sessionID)
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
 	}
-	if len(projection.Jobs) != 1 || projection.Jobs[0].Status != "cancelled" {
-		t.Fatalf("jobs = %+v, want cancelled job projection", projection.Jobs)
+	if len(projection.Jobs) != 1 || projection.Jobs[0].Status != "cancel_requested" {
+		t.Fatalf("jobs = %+v, want cancel_requested job projection", projection.Jobs)
 	}
 	if got := countSessionEventType(projection.Events, "job.cancel_requested"); got != 1 {
 		t.Fatalf("job.cancel_requested count = %d, want 1", got)
 	}
-	if got := countSessionEventType(projection.Events, "job.cancelled"); got != 1 {
-		t.Fatalf("job.cancelled count = %d, want 1", got)
+	if got := countSessionEventType(projection.Events, "job.cancelled"); got != 0 {
+		t.Fatalf("job.cancelled count = %d, want 0 without executor confirmation", got)
 	}
 
 	secondProvider := &toolFeedbackProvider{
@@ -6643,8 +6675,92 @@ func TestSubmitTurnJobCancelRunningJobRecordsCancellationOnce(t *testing.T) {
 	if got := countSessionEventType(replayed.Events, "job.cancel_requested"); got != 1 {
 		t.Fatalf("job.cancel_requested count after duplicate = %d, want 1", got)
 	}
-	if got := countSessionEventType(replayed.Events, "job.cancelled"); got != 1 {
-		t.Fatalf("job.cancelled count after duplicate = %d, want 1", got)
+	if got := countSessionEventType(replayed.Events, "job.cancelled"); got != 0 {
+		t.Fatalf("job.cancelled count after duplicate = %d, want 0 without executor confirmation", got)
+	}
+}
+
+func TestSubmitTurnJobCancelReachesLiveManagedExecutor(t *testing.T) {
+	workspace := t.TempDir()
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	sessionID := "job-cancel-live-executor"
+	startArgs, err := json.Marshal(map[string]interface{}{
+		"cwd":         workspace,
+		"command":     longRunningShellCommand(30),
+		"timeout_sec": 181,
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	startProvider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_start_live_job", Name: "shell_exec", Arguments: json.RawMessage(startArgs)},
+		},
+		final: "job started",
+	}
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     startProvider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	defer k.Close()
+
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "start live job"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn start returned error: %v", err)
+	}
+	projection, err := k.Session(sessionID)
+	if err != nil {
+		t.Fatalf("Session after start returned error: %v", err)
+	}
+	if len(projection.Jobs) != 1 || projection.Jobs[0].Status != "running" {
+		t.Fatalf("jobs after start = %+v, want running live job", projection.Jobs)
+	}
+	jobID := projection.Jobs[0].JobID
+
+	cancelArgs, err := json.Marshal(map[string]string{"job_id": jobID, "reason": "test cancellation"})
+	if err != nil {
+		t.Fatalf("marshal job_cancel args: %v", err)
+	}
+	cancelProvider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_cancel_live_job", Name: "job_cancel", Arguments: json.RawMessage(cancelArgs)},
+		},
+		final: "job cancellation requested",
+	}
+	k.provider = cancelProvider
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "cancel live job"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn cancel returned error: %v", err)
+	}
+	payload := decodeJSONMap(t, cancelProvider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "cancel_requested" || payload["cancel_requested"] != true {
+		t.Fatalf("job_cancel payload = %+v, want cancel_requested receipt", payload)
+	}
+	cancelled := waitForSessionJobStatus(t, k, sessionID, jobID, "cancelled")
+	if strings.TrimSpace(cancelled.CancelReason) != "test cancellation" {
+		t.Fatalf("cancelled job = %+v, want cancel reason", cancelled)
+	}
+	projection, err = k.Session(sessionID)
+	if err != nil {
+		t.Fatalf("Session after cancellation returned error: %v", err)
+	}
+	if got := countSessionEventType(projection.Events, "job.cancel_requested"); got != 1 {
+		t.Fatalf("job.cancel_requested count = %d, want 1", got)
+	}
+	if got := countSessionEventType(projection.Events, "job.cancelled"); got != 1 {
+		t.Fatalf("job.cancelled count = %d, want 1", got)
 	}
 }
 
@@ -7662,10 +7778,28 @@ type jobObservationFailingProvider struct {
 	requests []ModelRequest
 }
 
+type completingManagedJobExecutor struct{}
+
 type countingTextProvider struct {
 	mu    sync.Mutex
 	calls int
 	text  string
+}
+
+func (completingManagedJobExecutor) Start(_ context.Context, request ManagedJobStartRequest) error {
+	completed := request.Job
+	completed.Status = "completed"
+	exitCode := 0
+	completed.ExitCode = &exitCode
+	completed.Stdout = "managed job completed"
+	if request.Complete != nil {
+		request.Complete(completed)
+	}
+	return nil
+}
+
+func (completingManagedJobExecutor) Cancel(_ string, _ string) (bool, error) {
+	return false, nil
 }
 
 func (p singleToolCallProvider) Name() string {
@@ -8063,6 +8197,16 @@ func echoCommand(value string) string {
 		return "Write-Output " + value
 	}
 	return "printf " + value
+}
+
+func longRunningShellCommand(seconds int) string {
+	if seconds <= 0 {
+		seconds = 30
+	}
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("Start-Sleep -Seconds %d", seconds)
+	}
+	return fmt.Sprintf("sleep %d", seconds)
 }
 
 func readMissingFileCommand(filename string) string {

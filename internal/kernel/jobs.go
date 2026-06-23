@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -27,9 +28,6 @@ func (k *Kernel) startManagedShellJobReceipt(sessionID string, turnID string, to
 	if err := k.appendJobEvent("job.started", started); err != nil {
 		return ModelToolResult{}, err
 	}
-	completed := started
-	completed.Status = "completed"
-	completed.CompletedAt = k.clock()
 	content, err := json.Marshal(ModelManagedJobResult{
 		Status:        "managed_job_started",
 		Executed:      true,
@@ -40,12 +38,63 @@ func (k *Kernel) startManagedShellJobReceipt(sessionID string, turnID string, to
 		return ModelToolResult{}, err
 	}
 	return ModelToolResult{
-		ToolCallID:           strings.TrimSpace(providerCallID),
-		ToolCallEventID:      strings.TrimSpace(toolCallEventID),
-		Name:                 strings.TrimSpace(toolName),
-		Content:              string(content),
-		PendingJobCompletion: &completed,
+		ToolCallID:      strings.TrimSpace(providerCallID),
+		ToolCallEventID: strings.TrimSpace(toolCallEventID),
+		Name:            strings.TrimSpace(toolName),
+		Content:         string(content),
+		PendingJobStart: &started,
 	}, nil
+}
+
+func (k *Kernel) startManagedJobExecutor(job JobProjection) error {
+	if k.jobExecutor == nil {
+		failed := job
+		failed.Status = "failed"
+		failed.FailureReason = "managed job executor is unavailable"
+		return k.appendTerminalJobEvent(failed)
+	}
+	if err := k.jobExecutor.Start(context.Background(), ManagedJobStartRequest{
+		Job: job,
+		Complete: func(done JobProjection) {
+			if err := k.appendTerminalJobEvent(done); err != nil {
+				return
+			}
+		},
+	}); err != nil {
+		failed := job
+		failed.Status = "failed"
+		failed.FailureReason = "managed job executor start failed: " + err.Error()
+		return k.appendTerminalJobEvent(failed)
+	}
+	return nil
+}
+
+func (k *Kernel) appendTerminalJobEvent(job JobProjection) error {
+	k.jobMu.Lock()
+	defer k.jobMu.Unlock()
+
+	latest, ok, err := k.lookupSessionJob(job.SessionID, job.JobID)
+	if err != nil {
+		return err
+	}
+	if ok && isTerminalJobStatus(latest.Status) {
+		return nil
+	}
+	if strings.TrimSpace(job.Status) == "" {
+		job.Status = "failed"
+	}
+	if job.CompletedAt.IsZero() {
+		job.CompletedAt = k.clock()
+	}
+	switch strings.TrimSpace(job.Status) {
+	case "completed":
+		return k.appendJobEvent("job.completed", job)
+	case "cancelled":
+		return k.appendJobEvent("job.cancelled", job)
+	default:
+		job.Status = "failed"
+		return k.appendJobEvent("job.failed", job)
+	}
 }
 
 func (k *Kernel) appendJobEvent(eventType string, job JobProjection) error {
@@ -97,16 +146,17 @@ func (k *Kernel) jobStatusModelToolResult(sessionID string, toolCallEventID stri
 
 func (k *Kernel) cancelJobModelToolResult(sessionID string, turnID string, toolCallEventID string, providerCallID string, toolName string, jobID string, reason string) (ModelToolResult, error) {
 	k.jobMu.Lock()
-	defer k.jobMu.Unlock()
-
 	job, ok, err := k.lookupSessionJob(sessionID, jobID)
 	if err != nil {
+		k.jobMu.Unlock()
 		return ModelToolResult{}, err
 	}
 	if !ok {
+		k.jobMu.Unlock()
 		return invalidModelToolResult(toolCallEventID, providerCallID, toolName, "job_not_found", fmt.Sprintf("job %q was not found", jobID))
 	}
 	if isTerminalJobStatus(job.Status) {
+		k.jobMu.Unlock()
 		content, err := json.Marshal(modelJobControlResult(job, false, jobCancelVisibleOutput(job, false)))
 		if err != nil {
 			return ModelToolResult{}, err
@@ -119,21 +169,26 @@ func (k *Kernel) cancelJobModelToolResult(sessionID string, turnID string, toolC
 		}, nil
 	}
 
-	cancelled := job
-	cancelled.SessionID = strings.TrimSpace(sessionID)
-	cancelled.TurnID = strings.TrimSpace(turnID)
-	cancelled.Status = "cancel_requested"
-	cancelled.CancelReason = strings.TrimSpace(reason)
-	cancelled.CompletedAt = time.Time{}
-	if err := k.appendJobEvent("job.cancel_requested", cancelled); err != nil {
-		return ModelToolResult{}, err
+	requested := job
+	requested.SessionID = strings.TrimSpace(sessionID)
+	requested.TurnID = strings.TrimSpace(turnID)
+	requested.Status = "cancel_requested"
+	requested.CancelReason = strings.TrimSpace(reason)
+	requested.CompletedAt = time.Time{}
+	alreadyRequested := strings.TrimSpace(job.Status) == "cancel_requested"
+	if !alreadyRequested {
+		if err := k.appendJobEvent("job.cancel_requested", requested); err != nil {
+			k.jobMu.Unlock()
+			return ModelToolResult{}, err
+		}
 	}
-	cancelled.Status = "cancelled"
-	cancelled.CompletedAt = k.clock()
-	if err := k.appendJobEvent("job.cancelled", cancelled); err != nil {
-		return ModelToolResult{}, err
+	k.jobMu.Unlock()
+	if k.jobExecutor != nil {
+		if _, err := k.jobExecutor.Cancel(jobID, reason); err != nil {
+			return ModelToolResult{}, fmt.Errorf("%w: managed job cancel failed: %v", ErrToolInfrastructureFailed, err)
+		}
 	}
-	content, err := json.Marshal(modelJobControlResult(cancelled, true, jobCancelVisibleOutput(cancelled, true)))
+	content, err := json.Marshal(modelJobControlResult(requested, true, jobCancelVisibleOutput(requested, true)))
 	if err != nil {
 		return ModelToolResult{}, err
 	}
@@ -214,7 +269,7 @@ func jobStatusVisibleOutput(job JobProjection) string {
 func jobCancelVisibleOutput(job JobProjection, cancelRequested bool) string {
 	jobID := strings.TrimSpace(job.JobID)
 	if cancelRequested {
-		return fmt.Sprintf("job %s cancellation was requested and recorded as cancelled.", jobID)
+		return fmt.Sprintf("job %s cancellation was requested. The executor will record a terminal job fact when cancellation is confirmed.", jobID)
 	}
 	return fmt.Sprintf("job %s is already %s; no new cancellation event was recorded.", jobID, strings.TrimSpace(job.Status))
 }

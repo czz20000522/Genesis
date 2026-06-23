@@ -13,6 +13,7 @@ import (
 type Kernel struct {
 	ledger          Ledger
 	provider        Provider
+	jobExecutor     ManagedJobExecutor
 	runtimeToken    string
 	toolPolicy      ToolPolicy
 	contextPolicy   ContextPolicy
@@ -35,6 +36,10 @@ func New(config Config) (*Kernel, error) {
 	if provider == nil {
 		provider = FakeProvider{}
 	}
+	jobExecutor := config.JobExecutor
+	if jobExecutor == nil {
+		jobExecutor = newLocalManagedJobExecutor()
+	}
 	clock := config.Clock
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
@@ -47,6 +52,7 @@ func New(config Config) (*Kernel, error) {
 	return &Kernel{
 		ledger:          NewJSONLLedger(config.LedgerPath),
 		provider:        provider,
+		jobExecutor:     jobExecutor,
 		runtimeToken:    strings.TrimSpace(config.RuntimeToken),
 		toolPolicy:      normalizedToolPolicy(config.ToolPolicy),
 		contextPolicy:   normalizedContextPolicy(config.ContextPolicy),
@@ -55,6 +61,12 @@ func New(config Config) (*Kernel, error) {
 		skillExclusions: skillCatalog.Exclusions,
 		clock:           clock,
 	}, nil
+}
+
+func (k *Kernel) Close() {
+	if closer, ok := k.jobExecutor.(interface{ Close() }); ok {
+		closer.Close()
+	}
 }
 
 func (k *Kernel) Ready() ReadyResponse {
@@ -229,8 +241,8 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			if err := k.appendToolResultEvent(sessionID, turnID, result, forEventID); err != nil {
 				return TurnResponse{}, err
 			}
-			if result.PendingJobCompletion != nil {
-				if err := k.appendJobEvent("job.completed", *result.PendingJobCompletion); err != nil {
+			if result.PendingJobStart != nil {
+				if err := k.startManagedJobExecutor(*result.PendingJobStart); err != nil {
 					return TurnResponse{}, err
 				}
 			}
