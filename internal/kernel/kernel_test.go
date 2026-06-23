@@ -1191,8 +1191,13 @@ func TestObservabilityProjectionsSeparateRawAuditAndProviderContext(t *testing.T
 					ExecutionKind:   "sandboxed_process",
 				}},
 				RuntimeContext: &ContextRuntimeSnapshot{
-					Provider:   ProviderStatus{Name: "test-provider", Status: "ok"},
-					Permission: PermissionInspection{PermissionMode: PermissionModeDefault, Sandbox: "workspace"},
+					Provider: ProviderStatus{Name: "test-provider", Status: "ok"},
+					Permission: PermissionInspection{
+						PermissionMode:  PermissionModeDefault,
+						AuthorityPolicy: AuthorityPolicyWorkspaceWrite,
+						SandboxProfile:  SandboxProfileControlledWorkspace,
+						ApprovalPolicy:  ApprovalPolicyNever,
+					},
 				},
 			},
 		},
@@ -1509,8 +1514,14 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if len(inspection.RecalledMemories) != 1 || inspection.RecalledMemories[0].Source != "turn:context-inspection-source" {
 		t.Fatalf("recalled memories = %+v, want source refs", inspection.RecalledMemories)
 	}
-	if inspection.Runtime == nil || inspection.Runtime.Provider.Name != "capturing" || inspection.Runtime.Permission.PermissionMode != PermissionModeDefault || inspection.Runtime.Permission.Sandbox != "workspace" {
-		t.Fatalf("runtime snapshot = %+v, want original provider and permission summary", inspection.Runtime)
+	if inspection.Runtime == nil || inspection.Runtime.Provider.Name != "capturing" {
+		t.Fatalf("runtime snapshot = %+v, want original provider", inspection.Runtime)
+	}
+	if inspection.Runtime.Permission.PermissionMode != PermissionModeDefault ||
+		inspection.Runtime.Permission.AuthorityPolicy != AuthorityPolicyWorkspaceWrite ||
+		inspection.Runtime.Permission.SandboxProfile != SandboxProfileControlledWorkspace ||
+		inspection.Runtime.Permission.ApprovalPolicy != ApprovalPolicyNever {
+		t.Fatalf("runtime permission = %+v, want resolved default policy profile", inspection.Runtime.Permission)
 	}
 	inspectionJSON, err := json.Marshal(inspection)
 	if err != nil {
@@ -1888,6 +1899,11 @@ func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *test
 	if operation.ExitCode == nil || *operation.ExitCode != 0 {
 		t.Fatalf("exit code = %v, want 0", operation.ExitCode)
 	}
+	if operation.AuthorityPolicy != AuthorityPolicyWorkspaceWrite ||
+		operation.SandboxProfile != SandboxProfileControlledWorkspace ||
+		operation.ApprovalPolicy != ApprovalPolicyNever {
+		t.Fatalf("operation policy = %+v, want resolved default policy profile", operation)
+	}
 	content, err := os.ReadFile(filepath.Join(workspace, "output.txt"))
 	if err != nil {
 		t.Fatalf("read output file: %v", err)
@@ -1909,6 +1925,11 @@ func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *test
 	}
 	if projection.Operations[0].OperationID != operation.OperationID {
 		t.Fatalf("operation id = %q, want %q", projection.Operations[0].OperationID, operation.OperationID)
+	}
+	if projection.Operations[0].AuthorityPolicy != AuthorityPolicyWorkspaceWrite ||
+		projection.Operations[0].SandboxProfile != SandboxProfileControlledWorkspace ||
+		projection.Operations[0].ApprovalPolicy != ApprovalPolicyNever {
+		t.Fatalf("projected operation policy = %+v, want resolved default policy profile", projection.Operations[0])
 	}
 	if len(projection.Events) != 2 || projection.Events[0].OperationID != operation.OperationID || projection.Events[1].OperationID != operation.OperationID {
 		t.Fatalf("events = %+v, want operation event", projection.Events)
@@ -5730,7 +5751,7 @@ func TestSubmitTurnFeedsNonZeroShellExitToModel(t *testing.T) {
 	if !strings.Contains(stderr, "GENESIS_TOOL_COMMAND_FAILURE") {
 		t.Fatalf("stderr = %q, want command failure marker", stderr)
 	}
-	for _, forbidden := range []string{"tool", "operation_id", "session_id", "turn_id", "idempotency_key", "started_at", "ended_at", "permission_mode", "cwd", "command", "blocked_reason", "infrastructure_reason"} {
+	for _, forbidden := range []string{"tool", "operation_id", "session_id", "turn_id", "idempotency_key", "started_at", "ended_at", "permission_mode", "authority_policy", "sandbox_profile", "approval_policy", "cwd", "command", "blocked_reason", "infrastructure_reason"} {
 		if _, ok := payload[forbidden]; ok {
 			t.Fatalf("tool result payload = %+v, must not expose control-plane field %q", payload, forbidden)
 		}
@@ -5784,7 +5805,7 @@ func TestSubmitTurnReturnsMinimalPermissionDeniedToolResult(t *testing.T) {
 	if !ok || errorPayload["code"] != "permission_denied" {
 		t.Fatalf("tool result error = %+v, want permission_denied", payload["error"])
 	}
-	for _, forbidden := range []string{"permission_mode", "blocked_reason", "operation_id", "cwd", "command", "started_at", "ended_at", "infrastructure_reason"} {
+	for _, forbidden := range []string{"permission_mode", "authority_policy", "sandbox_profile", "approval_policy", "blocked_reason", "operation_id", "cwd", "command", "started_at", "ended_at", "infrastructure_reason"} {
 		if _, ok := payload[forbidden]; ok {
 			t.Fatalf("tool result payload = %+v, must not expose %q to model", payload, forbidden)
 		}
@@ -6136,6 +6157,9 @@ func TestSubmitTurnRejectsDuplicateToolCallIDBeforeAnyEffect(t *testing.T) {
 func TestSubmitTurnReturnsRepairFeedbackForUnknownModelToolArgumentFields(t *testing.T) {
 	for _, field := range []string{
 		"permission_mode",
+		"authority_policy",
+		"sandbox_profile",
+		"approval_policy",
 		"event_id",
 		"operation_id",
 		"lease_id",
@@ -6572,6 +6596,9 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 			"operation_id",
 			"lease_id",
 			"permission_mode",
+			"authority_policy",
+			"sandbox_profile",
+			"approval_policy",
 			"for_event_id",
 		} {
 			if strings.Contains(rawRequest, forbidden) {

@@ -174,6 +174,82 @@ func TestArchitectureBoundaryAuthorityGateUsesToolSideEffectLevel(t *testing.T) 
 	}
 }
 
+func TestArchitectureBoundaryPermissionModesResolveToPolicyProfiles(t *testing.T) {
+	for _, tt := range []struct {
+		mode            string
+		authorityPolicy string
+		sandboxProfile  string
+		approvalPolicy  string
+	}{
+		{
+			mode:            PermissionModePlan,
+			authorityPolicy: AuthorityPolicyReadOnly,
+			sandboxProfile:  SandboxProfileReadOnly,
+			approvalPolicy:  ApprovalPolicyNever,
+		},
+		{
+			mode:            PermissionModeDefault,
+			authorityPolicy: AuthorityPolicyWorkspaceWrite,
+			sandboxProfile:  SandboxProfileControlledWorkspace,
+			approvalPolicy:  ApprovalPolicyNever,
+		},
+		{
+			mode:            PermissionModeYolo,
+			authorityPolicy: AuthorityPolicyFullAccess,
+			sandboxProfile:  SandboxProfileHost,
+			approvalPolicy:  ApprovalPolicyNever,
+		},
+	} {
+		t.Run(tt.mode, func(t *testing.T) {
+			resolved := resolveToolPolicy(ToolPolicy{PermissionMode: tt.mode, WorkspaceRoot: "workspace"})
+			if !resolved.Known {
+				t.Fatalf("resolved policy = %+v, want known policy", resolved)
+			}
+			if resolved.AuthorityPolicy != tt.authorityPolicy || resolved.SandboxProfile != tt.sandboxProfile || resolved.ApprovalPolicy != tt.approvalPolicy {
+				t.Fatalf("resolved policy = %+v, want authority=%q sandbox=%q approval=%q", resolved, tt.authorityPolicy, tt.sandboxProfile, tt.approvalPolicy)
+			}
+		})
+	}
+
+	unknown := resolveToolPolicy(ToolPolicy{PermissionMode: "surprise"})
+	if unknown.Known || unknown.AuthorityPolicy != AuthorityPolicyUnknown || unknown.SandboxProfile != SandboxProfileNone || unknown.ApprovalPolicy != ApprovalPolicyNever {
+		t.Fatalf("unknown resolved policy = %+v, want fail-closed unknown profile", unknown)
+	}
+}
+
+func TestArchitectureBoundaryShellExecutionUsesResolvedSandboxProfile(t *testing.T) {
+	workspace := t.TempDir()
+	req := ShellExecRequest{
+		SessionID: "sandbox-profile-selection",
+		CWD:       workspace,
+		Command:   writeFileCommand("profile.txt", "ok"),
+	}
+
+	controlled, reason := prepareShellExecution(ResolvedToolPolicy{
+		PermissionMode:  PermissionModeYolo,
+		AuthorityPolicy: AuthorityPolicyWorkspaceWrite,
+		SandboxProfile:  SandboxProfileControlledWorkspace,
+		ApprovalPolicy:  ApprovalPolicyNever,
+		WorkspaceRoot:   workspace,
+		Known:           true,
+	}, req)
+	if reason != "" || controlled.controlled == nil {
+		t.Fatalf("controlled profile execution = %+v reason=%q, want controlled workspace plan", controlled, reason)
+	}
+
+	host, reason := prepareShellExecution(ResolvedToolPolicy{
+		PermissionMode:  PermissionModeDefault,
+		AuthorityPolicy: AuthorityPolicyFullAccess,
+		SandboxProfile:  SandboxProfileHost,
+		ApprovalPolicy:  ApprovalPolicyNever,
+		WorkspaceRoot:   workspace,
+		Known:           true,
+	}, req)
+	if reason != "" || host.controlled != nil {
+		t.Fatalf("host profile execution = %+v reason=%q, want host shell plan", host, reason)
+	}
+}
+
 func TestArchitectureBoundaryToolRegistryRejectsIncompleteSpecs(t *testing.T) {
 	_, err := NewToolRegistry([]registeredTool{{
 		Spec: ToolSpec{

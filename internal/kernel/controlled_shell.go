@@ -35,16 +35,16 @@ type controlledShellCommand struct {
 	stdout string
 }
 
-func prepareShellExecution(policy ToolPolicy, req ShellExecRequest) (shellExecutionPlan, string) {
+func prepareShellExecution(policy ResolvedToolPolicy, req ShellExecRequest) (shellExecutionPlan, string) {
 	plan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
-	switch policy.PermissionMode {
-	case PermissionModeDefault:
+	switch policy.SandboxProfile {
+	case SandboxProfileControlledWorkspace:
 		return prepareDefaultShellExecution(policy, req)
 	}
 	return plan, ""
 }
 
-func prepareDefaultShellExecution(policy ToolPolicy, req ShellExecRequest) (shellExecutionPlan, string) {
+func prepareDefaultShellExecution(policy ResolvedToolPolicy, req ShellExecRequest) (shellExecutionPlan, string) {
 	plan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
 	if strings.TrimSpace(policy.WorkspaceRoot) == "" {
 		return plan, "workspace_root_required"

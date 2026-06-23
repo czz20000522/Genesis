@@ -266,23 +266,15 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 }
 
 func (k *Kernel) contextRuntimeSnapshot() *ContextRuntimeSnapshot {
+	policy := resolveToolPolicy(k.toolPolicy)
 	return &ContextRuntimeSnapshot{
 		Provider: safeProviderStatusForInspection(k.provider.Ready()),
 		Permission: PermissionInspection{
-			PermissionMode: k.toolPolicy.PermissionMode,
-			Sandbox:        permissionSandboxSummary(k.toolPolicy),
+			PermissionMode:  policy.PermissionMode,
+			AuthorityPolicy: policy.AuthorityPolicy,
+			SandboxProfile:  policy.SandboxProfile,
+			ApprovalPolicy:  policy.ApprovalPolicy,
 		},
-	}
-}
-
-func permissionSandboxSummary(policy ToolPolicy) string {
-	switch policy.PermissionMode {
-	case PermissionModeYolo:
-		return "host"
-	case PermissionModeDefault:
-		return "workspace"
-	default:
-		return "none"
 	}
 }
 

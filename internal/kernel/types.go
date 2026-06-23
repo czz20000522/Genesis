@@ -265,8 +265,10 @@ type ContextRuntimeSnapshot struct {
 }
 
 type PermissionInspection struct {
-	PermissionMode string `json:"permission_mode"`
-	Sandbox        string `json:"sandbox"`
+	PermissionMode  string `json:"permission_mode"`
+	AuthorityPolicy string `json:"authority_policy"`
+	SandboxProfile  string `json:"sandbox_profile"`
+	ApprovalPolicy  string `json:"approval_policy"`
 }
 
 type FinalMessage struct {
@@ -337,6 +339,9 @@ type OperationProjection struct {
 	IdempotencyKey       string    `json:"idempotency_key,omitempty"`
 	Status               string    `json:"status"`
 	PermissionMode       string    `json:"permission_mode"`
+	AuthorityPolicy      string    `json:"authority_policy,omitempty"`
+	SandboxProfile       string    `json:"sandbox_profile,omitempty"`
+	ApprovalPolicy       string    `json:"approval_policy,omitempty"`
 	CWD                  string    `json:"cwd"`
 	Command              string    `json:"command"`
 	ExitCode             *int      `json:"exit_code,omitempty"`

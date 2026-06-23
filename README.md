@@ -202,11 +202,13 @@ The first kernel tool is `shell_exec`. It is deliberately small:
 - `default` mode requires a kernel-configured workspace root and uses a kernel-controlled command set from inside that workspace. It does not invoke the operating-system shell, expand environment variables, or execute arbitrary interpreters.
 - `yolo` mode is explicit high-trust execution and is the only mode that invokes the operating-system shell. It can only be selected by kernel startup configuration.
 
+Genesis resolves these user-facing modes into separate kernel policy facts before execution: `authority_policy` decides whether the requested effect class is admissible, `sandbox_profile` names the executor isolation actually used, and `approval_policy` decides whether escalation can be requested. The current kernel keeps `approval_policy=never` for all three modes; approval prompts are a future shell capability, not part of the first kernel path.
+
 The tool surface is generated from `ToolRegistry` and executed through `ToolGateway`. `shell_exec` is registered with `side_effect_level=write` and `execution_kind=sandboxed_process`; capability projection, provider tool manifests, model tool preflight, and direct HTTP execution all use that same registry entry. The turn loop and provider adapters do not special-case shell execution.
 
 The controlled default command set is intentionally narrow: text output, simple file reads, and simple file writes whose real path remains inside the configured workspace. Symlink/junction resolution, parent traversal, absolute path escapes, shell metacharacters, and unsupported commands are blocked before any process is spawned.
 
-The HTTP request cannot select `permission_mode` or `workspace_root`; those are kernel-owned authority fields. Every allowed call first records a `running` operation before process execution, then records completion or failure with tool name, permission mode, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
+The HTTP request cannot select `permission_mode`, `workspace_root`, `authority_policy`, `sandbox_profile`, or `approval_policy`; those are kernel-owned control-plane fields. Every allowed call first records a `running` operation before process execution, then records completion or failure with tool name, resolved permission profile, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
 
 `shell_exec` accepts an optional `idempotency_key` control-plane field. Within the same `session_id` and tool, the first operation for a key owns the effect. Later retries with the same key return the persisted operation projection and do not execute the command again or append new operation events.
 

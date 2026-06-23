@@ -36,6 +36,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 
 	now := k.clock()
 	policy := k.toolPolicy
+	resolvedPolicy := resolveToolPolicy(policy)
 	rawCommand := strings.TrimSpace(req.Command)
 	sessionID := strings.TrimSpace(req.SessionID)
 	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
@@ -59,19 +60,22 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 	executionPlan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
 	reason := authorization.Reason
 	if authorization.Allowed {
-		executionPlan, reason = prepareShellExecution(policy, req)
+		executionPlan, reason = prepareShellExecution(resolvedPolicy, req)
 	}
 	operation := OperationProjection{
-		OperationID:    newID("op", now),
-		SessionID:      sessionID,
-		TurnID:         strings.TrimSpace(turnID),
-		Tool:           "shell_exec",
-		IdempotencyKey: idempotencyKey,
-		Status:         "running",
-		PermissionMode: policy.PermissionMode,
-		CWD:            executionPlan.cwd,
-		Command:        rawCommand,
-		StartedAt:      now,
+		OperationID:     newID("op", now),
+		SessionID:       sessionID,
+		TurnID:          strings.TrimSpace(turnID),
+		Tool:            "shell_exec",
+		IdempotencyKey:  idempotencyKey,
+		Status:          "running",
+		PermissionMode:  resolvedPolicy.PermissionMode,
+		AuthorityPolicy: resolvedPolicy.AuthorityPolicy,
+		SandboxProfile:  resolvedPolicy.SandboxProfile,
+		ApprovalPolicy:  resolvedPolicy.ApprovalPolicy,
+		CWD:             executionPlan.cwd,
+		Command:         rawCommand,
+		StartedAt:       now,
 	}
 
 	if reason != "" {

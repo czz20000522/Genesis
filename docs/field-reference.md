@@ -45,6 +45,19 @@ Observed live probe with `deepseek-v4-flash`:
 | `TokenUsage.CacheHitTokens` | Same as above | DeepSeek `prompt_cache_hit_tokens`; fallback to `prompt_tokens_details.cached_tokens` when explicit hit field is absent. | Input tokens served from provider cache. | Model Gateway normalization. |
 | `TokenUsage.CacheMissTokens` | Same as above | DeepSeek `prompt_cache_miss_tokens`; fallback to `input_tokens - cache_hit_tokens` only when the explicit miss field is absent and the arithmetic is valid. | Input tokens freshly processed by the provider. | Model Gateway normalization. |
 
+## Permission Profile Fields
+
+`permission_mode` is the user-facing trust mode. It is not the executor contract by itself. Before admission, Genesis resolves it into separate control-plane facts:
+
+| Field | Meaning | Current values | Owner |
+| --- | --- | --- | --- |
+| `permission_mode` | User-facing trust mode selected by kernel startup/configuration. | `plan`, `default`, `yolo`. | Tool System authority gate. |
+| `authority_policy` | Effect-admission policy derived from `permission_mode`. | `read_only`, `workspace_write`, `full_access`, or `unknown` for fail-closed diagnostics. | Tool System authority gate. |
+| `sandbox_profile` | Actual execution isolation profile selected by the kernel. | `read_only`, `controlled_workspace`, `host`, or `none` for fail-closed diagnostics. | Tool System authority gate. |
+| `approval_policy` | Whether the kernel may request escalation for a denied effect. | `never` in the current kernel. | Tool System authority gate. |
+
+`controlled_workspace` is not an OS-level sandbox claim. It means the current default executor uses Genesis-owned command parsing, workspace containment, and link checks instead of invoking the host shell. Provider-visible tool results must not include these control-plane fields.
+
 ## Model Context Accounting
 
 `model.context.accounted` is ledger evidence written after a provider response with usage. It records which provider-context exchange produced the usage, so compaction can use provider-backed facts without owning provider tokenization.
