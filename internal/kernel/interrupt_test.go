@@ -191,6 +191,32 @@ func TestInterruptSessionDuringForegroundShellWritesInterruptedToolResult(t *tes
 	if payload["status"] != "interrupted" || payload["executed"] != true {
 		t.Fatalf("tool result payload = %+v, want interrupted executed result", payload)
 	}
+	if payload["interrupt_reason"] != foregroundAttachUnavailableKilledReason {
+		t.Fatalf("tool result payload = %+v, want foreground attach unavailable kill reason", payload)
+	}
+	if got := countSessionEventType(projection.Events, "job.started"); got != 0 {
+		t.Fatalf("job.started count = %d, want no managed job when foreground attach is unavailable", got)
+	}
+}
+
+func TestLocalManagedJobExecutorDoesNotAdvertiseForegroundAttach(t *testing.T) {
+	capabilities := managedJobExecutorCapabilities(newLocalManagedJobExecutor())
+	if capabilities.ForegroundAttach {
+		t.Fatalf("local managed executor capabilities = %+v, want no foreground attach support", capabilities)
+	}
+}
+
+func TestForegroundInterruptReasonStaysKillFallbackUntilAttachIsImplemented(t *testing.T) {
+	k, err := New(Config{
+		LedgerPath:  filepath.Join(t.TempDir(), "events.jsonl"),
+		JobExecutor: attachAdvertisingManagedJobExecutor{},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if reason := k.foregroundShellInterruptReason(); reason != foregroundAttachUnavailableKilledReason {
+		t.Fatalf("foreground interrupt reason = %q, want truthful kill fallback until attach execution path exists", reason)
+	}
 }
 
 func TestHTTPInterruptSessionRequestsActiveTurnCancellation(t *testing.T) {
@@ -292,6 +318,20 @@ type blockingManagedJobExecutor struct {
 	started   []JobProjection
 	cancels   int
 	startedCh chan JobProjection
+}
+
+type attachAdvertisingManagedJobExecutor struct{}
+
+func (attachAdvertisingManagedJobExecutor) Start(_ context.Context, _ ManagedJobStartRequest) error {
+	return nil
+}
+
+func (attachAdvertisingManagedJobExecutor) Cancel(_ string, _ string) (bool, error) {
+	return false, nil
+}
+
+func (attachAdvertisingManagedJobExecutor) Capabilities() ManagedJobExecutorCapabilities {
+	return ManagedJobExecutorCapabilities{ForegroundAttach: true}
 }
 
 func newBlockingManagedJobExecutor() *blockingManagedJobExecutor {

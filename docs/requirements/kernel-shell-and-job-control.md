@@ -95,7 +95,7 @@ Direct HTTP `POST /tools/shell_exec` follows the same kernel owner path. It retu
 5. The immediate `tool.result` is a receipt, not the final command output.
 6. The receipt is model-visible and closes the provider tool-call loop.
 7. Terminal job facts are written later as `job.completed`, `job.failed`, or `job.cancelled`.
-8. Non-terminal output snapshots may be written as `job.output` when they are useful durable facts. They are bounded session/UI facts, not transport chunks and not provider-visible observations by default. Snapshot persistence is bounded both per event and per job; after a live snapshot is already truncated, further live output remains realtime/debug signal until terminal job evidence is recorded.
+8. Non-terminal output snapshots may be written as `job.output` when they are useful durable facts. They are bounded session/UI facts, not transport chunks and not provider-visible observations by default. Snapshot persistence is bounded both per event and per job; after a live snapshot is already truncated, further live output is not recorded as `job.output` again until terminal job evidence is recorded.
 9. A separate `job.progress` event may be added only when the kernel has a generic progress schema that is not tied to a domain such as download, build, or test execution.
 10. Ledger events are append-only. A later output or terminal job event does not overwrite the original receipt.
 
@@ -131,7 +131,7 @@ Checkpoints are control-plane state. The model does not fabricate checkpoint ref
 1. Interrupting provider streaming cancels the provider step, writes `assistant.interrupted`, and returns the session to a resumable checkpoint.
 2. Interrupting an already-managed background job does not cancel it.
 3. Interrupting foreground shell execution attempts to detach or attach it as a managed job when the executor supports that capability.
-4. If the executor cannot attach foreground shell work as a managed job, the kernel kills the process and writes an interrupted tool result with structured evidence.
+4. If the executor cannot attach foreground shell work as a managed job, the kernel kills the process and writes an interrupted tool result with structured evidence such as `interrupt_reason=foreground_attach_unavailable_killed`.
 5. Explicit job cancellation is a separate control path. It may be invoked by a user control command or a model-visible job-control tool after permission validation.
 6. Job cancellation writes cancellation request and terminal cancellation evidence. It is not represented as an ordinary nonzero command exit.
 
@@ -195,8 +195,8 @@ Phase D: observation delivery.
 
 Phase E: interrupt behavior.
 
-- Proves: assistant interruption, foreground shell attach-or-kill behavior by executor capability, background job survival, explicit cancellation, and separate audit facts for interruption versus cancellation.
-- Still short of production until complete: user interrupt semantics remain constrained by executor capability.
+- Proves: assistant interruption, foreground shell kill fallback when attach is unavailable, background job survival, explicit cancellation, and separate audit facts for interruption versus cancellation.
+- Still short of production until complete: true foreground attach remains constrained by executor capability.
 
 ## Acceptance Criteria
 
@@ -251,7 +251,7 @@ This requirement governs these implementation slices:
 - `KERNEL-MANAGED-JOB-FOUNDATION-20260623`: `ready_for_acceptance` for managed-job event model and receipt-style tool result.
 - `KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623`: `ready_for_acceptance` for foreground runtime timeout as terminal-equivalent command evidence with timeout metadata and available output.
 - `KERNEL-OBSERVATION-DELIVERY-20260623`: `ready_for_acceptance` for pending/delivered observation tracking and checkpoint delivery semantics.
-- `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`: remaining foreground attach-or-kill semantics after the local managed executor sparse-output slice.
+- `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`: remaining true foreground attach semantics after the local managed executor sparse-output and kill-fallback slices.
 
 `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` is adjacent authority-plane work governed by `docs/requirements/kernel-foundation-capabilities.md`.
 

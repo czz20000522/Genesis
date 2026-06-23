@@ -20,6 +20,14 @@ type ManagedJobExecutor interface {
 	Cancel(jobID string, reason string) (bool, error)
 }
 
+type ManagedJobExecutorCapabilities struct {
+	ForegroundAttach bool
+}
+
+type managedJobExecutorCapabilityReporter interface {
+	Capabilities() ManagedJobExecutorCapabilities
+}
+
 type ManagedJobStartRequest struct {
 	Job      JobProjection
 	Observe  func(JobProjection)
@@ -109,6 +117,10 @@ func (e *localManagedJobExecutor) Start(_ context.Context, request ManagedJobSta
 	return nil
 }
 
+func (e *localManagedJobExecutor) Capabilities() ManagedJobExecutorCapabilities {
+	return ManagedJobExecutorCapabilities{}
+}
+
 func (e *localManagedJobExecutor) Cancel(jobID string, reason string) (bool, error) {
 	jobID = strings.TrimSpace(jobID)
 	if jobID == "" {
@@ -125,6 +137,17 @@ func (e *localManagedJobExecutor) Cancel(jobID string, reason string) (bool, err
 	e.mu.Unlock()
 	cancel()
 	return true, nil
+}
+
+func managedJobExecutorCapabilities(executor ManagedJobExecutor) ManagedJobExecutorCapabilities {
+	if executor == nil {
+		return ManagedJobExecutorCapabilities{}
+	}
+	reporter, ok := executor.(managedJobExecutorCapabilityReporter)
+	if !ok {
+		return ManagedJobExecutorCapabilities{}
+	}
+	return reporter.Capabilities()
 }
 
 func (e *localManagedJobExecutor) Close() {

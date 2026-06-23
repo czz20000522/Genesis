@@ -83,6 +83,8 @@ The job handle is a kernel-issued job event id, not a model-created id.
 - Cancellation: explicit job-control fact; not an ordinary command exit.
 - Interruption: session/control fact; distinct from cancellation.
 
+Foreground shell interruption is capability-gated. If the active executor cannot attach foreground shell work into a managed job, the kernel cancels the foreground process and returns an interrupted tool result with `interrupt_reason=foreground_attach_unavailable_killed`. That fallback records the absence of attach support without exposing process ids, signals, or host process handles to the model or transport callers.
+
 ## Permission And Authority
 
 Timeout and command arguments do not select permission mode, sandbox profile, workspace root, approval policy, or credential authority.

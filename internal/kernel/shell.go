@@ -21,10 +21,10 @@ const (
 
 	outputOmissionMarkerFormat = "\n[... %d bytes omitted ...]\n"
 
-	staleRunningOperationReason = "stale_running_operation"
-	foregroundTimeoutReason     = "foreground_timeout"
-	foregroundInterruptedReason = "foreground_interrupted"
-	foregroundTimeoutExitCode   = 124
+	staleRunningOperationReason             = "stale_running_operation"
+	foregroundTimeoutReason                 = "foreground_timeout"
+	foregroundAttachUnavailableKilledReason = "foreground_attach_unavailable_killed"
+	foregroundTimeoutExitCode               = 124
 )
 
 type shellInvokeResult struct {
@@ -195,7 +195,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		}
 		if interrupted {
 			operation.Interrupted = true
-			operation.InterruptReason = foregroundInterruptedReason
+			operation.InterruptReason = k.foregroundShellInterruptReason()
 		}
 		applyOperationOutputCapture(&operation, stdout, stderr)
 		if err != nil && !timedOut && !interrupted {
@@ -223,6 +223,10 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		return OperationProjection{}, err
 	}
 	return redactOperationEvidence(operation), nil
+}
+
+func (k *Kernel) foregroundShellInterruptReason() string {
+	return foregroundAttachUnavailableKilledReason
 }
 
 func (g ToolGateway) lookupShellEffectByIdempotencyKey(sessionID string, key string) (shellInvokeResult, bool, error) {
