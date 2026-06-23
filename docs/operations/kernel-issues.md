@@ -13,6 +13,7 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Feishu/Base links may point to collaboration artifacts, but this repo must contain enough evidence to understand the current status without opening Feishu.
 - Every active `KERNEL-*` issue must include a `Reference alignment` field that compares the issue to Codex, Reasonix, or an explicitly rejected drift risk.
 - Issues record the current gap between approved requirements/designs and the implementation. They must not carry raw requirements, design discussion, or the full production acceptance contract.
+- Every active issue must cite an approved requirement and design unless it is an obvious bug or test gap. If an issue uses that exception, state the exception explicitly.
 - Prefer `Gap`, `Next slice`, `Evidence`, and `Verification` over broad `Problem` or `Suggestion` text when adding new issues.
 - When an issue removes a concept from the current kernel contract, long-term tests must assert the positive replacement behavior. Do not keep permanent tests whose only purpose is locking retired names, aliases, routes, or historical helper APIs out of the tree; use temporary scans or retirement-log evidence for cleanup windows, then fold the guard into the current owner contract.
 
@@ -23,6 +24,7 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Status: open.
 - Area: Tool Runtime / shell execution policy.
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
 - Gap: The current `shell_exec` path has a fixed short execution shape. It does not yet expose a model-visible `timeout_sec`, enforce the foreground default of 30 seconds, cap ordinary foreground execution at 180 seconds, or convert requests above the cap into managed work.
 - Next slice: Add `timeout_sec` validation and cap behavior for the current shell path. Keep requests above the cap tied to the managed-job requirement instead of pretending they are ordinary foreground shell work.
 - Evidence: Current permission work resolved `permission_mode` into `authority_policy`, `sandbox_profile`, and `approval_policy`, but timeout ownership has not been split from the shell execution path.
@@ -34,6 +36,7 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Status: open.
 - Area: Work Registry / Tool Runtime.
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
 - Gap: The kernel contract mentions future long-running jobs, but the current implementation has no `job.started`, `job.completed`, job handle, receipt-style `tool.result`, or job inspection surface. Without this, long commands either block the provider loop or must be killed instead of checkpointed.
 - Next slice: Introduce the minimal generic job event sequence for long shell work: `tool.call`, `job.started`, immediate receipt-style `tool.result`, and terminal `job.completed` or `job.failed`.
 - Evidence: `docs/kernel-contract.md` currently says long-running kernel-owned jobs are future events, and current shell operation projection is only synchronous operation evidence.
@@ -45,6 +48,7 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Status: open.
 - Area: Interface Kernel / Provider context projection / Ledger.
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
 - Gap: Job completion and other kernel observations need a delivery model. The kernel currently has provider context projection and checkpoints, but no explicit rule for which background observations have been delivered to the model and which remain pending.
 - Next slice: Treat terminal job facts and similar system facts as Kernel Observation Queue sources. Add delivery semantics only through kernel checkpoints, not shell/UI/provider adapter logic.
 - Evidence: The current ledger is restart-safe for turns, operations, memory, and compaction evidence, but it does not track observation delivery ids for future job completions.
@@ -56,6 +60,7 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Status: open.
 - Area: Tool Runtime / session control.
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
 - Gap: The current minimal kernel does not define how user interruption interacts with provider streaming, foreground shell execution, or already-managed background jobs. This becomes ambiguous once foreground cap and managed jobs exist.
 - Next slice: Define the minimal interrupt and job-control behavior around provider streaming, foreground shell execution, managed jobs, and explicit cancellation.
 - Evidence: Current shell and provider paths are short synchronous paths. There is no job handle or cancel owner yet, so cancellation cannot be audited separately from ordinary command failure.
@@ -67,6 +72,7 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Status: open.
 - Area: Authority Plane / Tool Runtime.
 - Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
+- Design: `docs/design/kernel-foundation-capabilities.md`.
 - Gap: The current foundation correctly separates `permission_mode`, `authority_policy`, `sandbox_profile`, and `approval_policy`, but `approval_policy` is always `never`, and `default` uses a controlled workspace adapter rather than an OS-level sandbox. That is acceptable for the first ground layer, but not enough for broader arbitrary command execution.
 - Next slice: Keep the current split as the owner path while adding future stronger sandbox and approval behavior only through kernel-owned profile resolution and typed control-plane flow.
 - Evidence: Current docs and tests now state `controlled_workspace` is not an OS sandbox and provider-visible tool results must not include permission/profile control-plane fields.

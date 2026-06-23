@@ -4,6 +4,8 @@ This directory is the production-requirements layer for Genesis Kernel.
 
 Requirements answer only what the kernel needs, why it is needed, the production semantics, and what is explicitly not a goal. They do not carry implementation details, design debate, issue triage, or acceptance evidence for a specific patch.
 
+The full development process is defined in `docs/process.md`.
+
 Core principle:
 
 > Requirements must be production-grade. Implementation can be experimental or partial inside a phase, but every phase must state what still remains short of the production requirement.

@@ -40,6 +40,9 @@ kernel contracts before implementation slices are chosen. Issues and BDD
 features should point back to these requirements instead of relying on chat-only
 design discussion.
 
+The process contract lives at `docs/process.md`. It keeps requirements, design,
+implementation plans, and issues as separate document types.
+
 Design documents live under `docs/design/` and answer owner, boundary, data
 flow, protocol, failure, permission, recovery, and observability questions.
 Implementation plans live under `docs/implementation-plans/` and state how
@@ -267,6 +270,7 @@ Rejected and superseded candidates are restart-safe review decisions and are not
 
 ## Operations Records
 
+- Development process: `docs/process.md`
 - Kernel requirements: `docs/requirements/`
 - Kernel designs: `docs/design/`
 - Kernel implementation plans: `docs/implementation-plans/`
