@@ -382,6 +382,11 @@ type JobProjection struct {
 	ToolCallEventID string    `json:"tool_call_event_id,omitempty"`
 }
 
+type KernelObservationDeliveryProjection struct {
+	ObservationEventIDs []string `json:"observation_event_ids,omitempty"`
+	ModelInputKind      string   `json:"model_input_kind,omitempty"`
+}
+
 type ModelOperationResult struct {
 	Status              string `json:"status"`
 	Executed            bool   `json:"executed"`
@@ -529,25 +534,26 @@ type StoredEvent struct {
 }
 
 type EventData struct {
-	IdempotencyKey             string                            `json:"idempotency_key,omitempty"`
-	InputItems                 []InputItem                       `json:"input_items,omitempty"`
-	IngressRisks               []IngressRisk                     `json:"ingress_risks,omitempty"`
-	ModelInputKinds            []string                          `json:"model_input_kinds,omitempty"`
-	ToolManifest               []ToolSpec                        `json:"tool_manifest,omitempty"`
-	SkillCatalog               []SkillCatalogItemProjection      `json:"skill_catalog,omitempty"`
-	RuntimeContext             *ContextRuntimeSnapshot           `json:"runtime_context,omitempty"`
-	RecalledMemories           []MemoryRecall                    `json:"recalled_memories,omitempty"`
-	ToolCall                   *ToolCallProjection               `json:"tool_call,omitempty"`
-	ToolResult                 *ToolResultProjection             `json:"tool_result,omitempty"`
-	ModelContextAccounting     *ModelContextAccountingProjection `json:"model_context_accounting,omitempty"`
-	ContextCompaction          *ContextCompactionProjection      `json:"context_compaction,omitempty"`
-	Final                      *FinalMessage                     `json:"final,omitempty"`
-	TurnError                  *TurnError                        `json:"turn_error,omitempty"`
-	Operation                  *OperationProjection              `json:"operation,omitempty"`
-	Job                        *JobProjection                    `json:"job,omitempty"`
-	Work                       *WorkProjection                   `json:"work,omitempty"`
-	MemoryCandidate            *MemoryCandidateProjection        `json:"memory_candidate,omitempty"`
-	ReplacementMemoryCandidate *MemoryCandidateProjection        `json:"replacement_memory_candidate,omitempty"`
+	IdempotencyKey             string                               `json:"idempotency_key,omitempty"`
+	InputItems                 []InputItem                          `json:"input_items,omitempty"`
+	IngressRisks               []IngressRisk                        `json:"ingress_risks,omitempty"`
+	ModelInputKinds            []string                             `json:"model_input_kinds,omitempty"`
+	ToolManifest               []ToolSpec                           `json:"tool_manifest,omitempty"`
+	SkillCatalog               []SkillCatalogItemProjection         `json:"skill_catalog,omitempty"`
+	RuntimeContext             *ContextRuntimeSnapshot              `json:"runtime_context,omitempty"`
+	RecalledMemories           []MemoryRecall                       `json:"recalled_memories,omitempty"`
+	ToolCall                   *ToolCallProjection                  `json:"tool_call,omitempty"`
+	ToolResult                 *ToolResultProjection                `json:"tool_result,omitempty"`
+	ModelContextAccounting     *ModelContextAccountingProjection    `json:"model_context_accounting,omitempty"`
+	ContextCompaction          *ContextCompactionProjection         `json:"context_compaction,omitempty"`
+	Final                      *FinalMessage                        `json:"final,omitempty"`
+	TurnError                  *TurnError                           `json:"turn_error,omitempty"`
+	Operation                  *OperationProjection                 `json:"operation,omitempty"`
+	Job                        *JobProjection                       `json:"job,omitempty"`
+	KernelObservationDelivery  *KernelObservationDeliveryProjection `json:"kernel_observation_delivery,omitempty"`
+	Work                       *WorkProjection                      `json:"work,omitempty"`
+	MemoryCandidate            *MemoryCandidateProjection           `json:"memory_candidate,omitempty"`
+	ReplacementMemoryCandidate *MemoryCandidateProjection           `json:"replacement_memory_candidate,omitempty"`
 }
 
 type ModelContextAccountingProjection struct {

@@ -137,6 +137,9 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			}
 			return TurnResponse{}, providerCompleteError(err)
 		}
+		if err := k.appendKernelObservationDelivered(sessionID, turnID, providerContext.KernelObservationEventIDs); err != nil {
+			return TurnResponse{}, err
+		}
 		if err := k.appendModelContextAccounting(sessionID, turnID, roundIndex, providerContext, modelResp); err != nil {
 			return TurnResponse{}, err
 		}
@@ -769,14 +772,16 @@ func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID stri
 		return ProviderContextProjection{}, false
 	}
 	history := sameSessionConversationHistoryProjection(events, projection.SessionID, turnID)
-	projection.InputItems = modelInputItemsFromSubmittedEvent(submitted, history.Text, policy.SkillIndexChars)
+	observations := pendingKernelObservations(events, projection.SessionID)
+	projection.InputItems = modelInputItemsFromSubmittedEvent(submitted, history.Text, policy.SkillIndexChars, kernelObservationContext(observations))
+	projection.KernelObservationEventIDs = kernelObservationEventIDs(observations)
 	projection.ToolRounds = modelToolRoundsFromStoredEvents(events, turnID)
 	projection.HistoryTurnIDs = history.TurnIDs()
 	projection.CompactedThroughTurnID = history.CompactedThroughTurnID
 	return projection, true
 }
 
-func modelInputItemsFromSubmittedEvent(data EventData, historyContext string, skillIndexBudget int) []ModelInputItem {
+func modelInputItemsFromSubmittedEvent(data EventData, historyContext string, skillIndexBudget int, observationContext string) []ModelInputItem {
 	items := []ModelInputItem{}
 	if strings.TrimSpace(historyContext) != "" {
 		items = append(items, ModelInputItem{Kind: ModelInputKindConversationHistoryContext, Text: historyContext})
@@ -786,6 +791,9 @@ func modelInputItemsFromSubmittedEvent(data EventData, historyContext string, sk
 	}
 	if context := approvedMemoryContext(data.RecalledMemories); context != "" {
 		items = append(items, ModelInputItem{Kind: ModelInputKindApprovedMemoryContext, Text: context})
+	}
+	if context := strings.TrimSpace(observationContext); context != "" {
+		items = append(items, ModelInputItem{Kind: ModelInputKindKernelObservationContext, Text: context})
 	}
 	for _, item := range data.InputItems {
 		if item.Type == "text" && item.Text != "" {

@@ -24,13 +24,14 @@ type ModelRequest struct {
 }
 
 type ProviderContextProjection struct {
-	SessionID              string
-	TurnID                 string
-	InputItems             []ModelInputItem
-	ToolManifest           []ToolSpec
-	ToolRounds             []ModelToolRound
-	HistoryTurnIDs         []string
-	CompactedThroughTurnID string
+	SessionID                 string
+	TurnID                    string
+	InputItems                []ModelInputItem
+	ToolManifest              []ToolSpec
+	ToolRounds                []ModelToolRound
+	KernelObservationEventIDs []string
+	HistoryTurnIDs            []string
+	CompactedThroughTurnID    string
 }
 
 func (p ProviderContextProjection) ModelRequest() ModelRequest {
@@ -48,6 +49,7 @@ const (
 	ModelInputKindApprovedMemoryContext      = "approved_memory_context"
 	ModelInputKindSkillIndexContext          = "skill_index_context"
 	ModelInputKindConversationHistoryContext = "conversation_history_context"
+	ModelInputKindKernelObservationContext   = "kernel_observation_context"
 )
 
 type ModelInputItem struct {

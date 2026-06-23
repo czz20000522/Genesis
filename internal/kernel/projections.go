@@ -443,6 +443,13 @@ func inspectionEventData(data EventData) EventData {
 		copied := redactJobProjection(*data.Job)
 		next.Job = &copied
 	}
+	if data.KernelObservationDelivery != nil {
+		copied := KernelObservationDeliveryProjection{
+			ObservationEventIDs: append([]string(nil), data.KernelObservationDelivery.ObservationEventIDs...),
+			ModelInputKind:      data.KernelObservationDelivery.ModelInputKind,
+		}
+		next.KernelObservationDelivery = &copied
+	}
 	if data.Work != nil {
 		copied := redactWorkProjection(*data.Work)
 		next.Work = &copied
@@ -514,6 +521,11 @@ func auditReplayItem(event StoredEvent) AuditReplayItem {
 			item.Tool = data.Job.Tool
 			item.ToolStatus = data.Job.Status
 			item.OutputPreview = boundedTimelinePreview(data.Job.Receipt)
+		}
+	case "kernel.observation.delivered":
+		if data.KernelObservationDelivery != nil {
+			item.ToolStatus = "delivered"
+			item.OutputPreview = boundedTimelinePreview(strings.Join(data.KernelObservationDelivery.ObservationEventIDs, "\n"))
 		}
 	case "model.final":
 		if data.Final != nil {

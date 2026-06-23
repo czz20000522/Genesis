@@ -5465,6 +5465,15 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
+func modelInputTextByKind(items []ModelInputItem, kind string) (string, bool) {
+	for _, item := range items {
+		if item.Kind == kind {
+			return item.Text, true
+		}
+	}
+	return "", false
+}
+
 func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 	workspace := t.TempDir()
 	provider := &toolFeedbackProvider{
@@ -6049,7 +6058,7 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 	for _, event := range projection.Events {
 		eventTypes = append(eventTypes, event.Type)
 	}
-	wantTypes := []string{"turn.submitted", "tool.call", "job.started", "tool.result", "job.completed", "model.final"}
+	wantTypes := []string{"turn.submitted", "tool.call", "job.started", "tool.result", "job.completed", "kernel.observation.delivered", "model.final"}
 	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
 		t.Fatalf("event types = %v, want %v", eventTypes, wantTypes)
 	}
@@ -6075,6 +6084,190 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 	}
 	if strings.Join(replayedTypes, ",") != strings.Join(wantTypes, ",") {
 		t.Fatalf("replayed event types = %v, want %v", replayedTypes, wantTypes)
+	}
+}
+
+func TestSubmitTurnDeliversCompletedJobObservationToNextProviderStep(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]interface{}{
+		"cwd":         workspace,
+		"command":     echoCommand("queued-job"),
+		"timeout_sec": 181,
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_job_observation", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "job observation received",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "job-observation-delivery",
+		InputItems: []InputItem{{Type: "text", Text: "run long shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	requests := provider.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2", len(requests))
+	}
+	observationContext, ok := modelInputTextByKind(requests[1].InputItems, ModelInputKindKernelObservationContext)
+	if !ok {
+		t.Fatalf("second provider input items = %+v, want kernel observation context", requests[1].InputItems)
+	}
+	if !strings.Contains(observationContext, "job.completed") || !strings.Contains(observationContext, "shell_exec") {
+		t.Fatalf("observation context = %q, want completed shell job fact", observationContext)
+	}
+
+	projection, err := k.Session("job-observation-delivery")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	var completedEventID string
+	var delivered *KernelObservationDeliveryProjection
+	for _, event := range projection.Events {
+		switch event.Type {
+		case "job.completed":
+			completedEventID = event.EventID
+		case "kernel.observation.delivered":
+			delivered = event.Data.KernelObservationDelivery
+		}
+	}
+	if completedEventID == "" {
+		t.Fatalf("session events = %+v, want job.completed", projection.Events)
+	}
+	if delivered == nil || !containsString(delivered.ObservationEventIDs, completedEventID) {
+		t.Fatalf("delivery event = %+v, want completed event id %s", delivered, completedEventID)
+	}
+	if !strings.Contains(observationContext, completedEventID) {
+		t.Fatalf("observation context = %q, want source event id %s", observationContext, completedEventID)
+	}
+	if resp.Final.Text != "job observation received" {
+		t.Fatalf("final text = %q, want job observation received", resp.Final.Text)
+	}
+}
+
+func TestProviderFailureDoesNotMarkJobObservationDelivered(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]interface{}{
+		"cwd":         workspace,
+		"command":     echoCommand("queued-job"),
+		"timeout_sec": 181,
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &jobObservationFailingProvider{
+		call: ModelToolCall{ToolCallID: "call_job_observation_failure", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "job-observation-provider-failure",
+		InputItems: []InputItem{{Type: "text", Text: "run long shell"}},
+	})
+	if err == nil {
+		t.Fatal("SubmitTurn returned nil error, want provider failure")
+	}
+	requests := provider.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2", len(requests))
+	}
+	if _, ok := modelInputTextByKind(requests[1].InputItems, ModelInputKindKernelObservationContext); !ok {
+		t.Fatalf("second provider input items = %+v, want kernel observation context before failure", requests[1].InputItems)
+	}
+	projection, err := k.Session("job-observation-provider-failure")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	for _, event := range projection.Events {
+		if event.Type == "kernel.observation.delivered" {
+			t.Fatalf("events = %+v, want no delivered observation after provider failure", projection.Events)
+		}
+	}
+}
+
+func TestDeliveredJobObservationIsNotProjectedAgainAfterRestart(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]interface{}{
+		"cwd":         workspace,
+		"command":     echoCommand("queued-job"),
+		"timeout_sec": 181,
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_job_observation_restart", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "job observation received",
+	}
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "job-observation-restart",
+		InputItems: []InputItem{{Type: "text", Text: "run long shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+
+	reloaded, err := New(Config{
+		LedgerPath:   ledgerPath,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	contextProjection, err := reloaded.ProviderContextProjection(resp.TurnID)
+	if err != nil {
+		t.Fatalf("ProviderContextProjection after restart returned error: %v", err)
+	}
+	if _, ok := modelInputTextByKind(contextProjection.InputItems, ModelInputKindKernelObservationContext); ok {
+		t.Fatalf("provider context after restart = %+v, want delivered observation suppressed", contextProjection.InputItems)
 	}
 }
 
@@ -7086,6 +7279,12 @@ type toolFeedbackProvider struct {
 	requests []ModelRequest
 }
 
+type jobObservationFailingProvider struct {
+	mu       sync.Mutex
+	call     ModelToolCall
+	requests []ModelRequest
+}
+
 type countingTextProvider struct {
 	mu    sync.Mutex
 	calls int
@@ -7158,6 +7357,34 @@ func (p *toolFeedbackProvider) Complete(_ context.Context, req ModelRequest) (Mo
 }
 
 func (p *toolFeedbackProvider) Requests() []ModelRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]ModelRequest(nil), p.requests...)
+}
+
+func (p *jobObservationFailingProvider) Name() string {
+	return "job-observation-failing"
+}
+
+func (p *jobObservationFailingProvider) Ready() ProviderStatus {
+	return ProviderStatus{Name: p.Name(), Status: "ok"}
+}
+
+func (p *jobObservationFailingProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, req)
+	callCount := len(p.requests)
+	p.mu.Unlock()
+	if callCount == 1 {
+		return ModelResponse{
+			Model:     "job-observation-failing-model",
+			ToolCalls: []ModelToolCall{p.call},
+		}, nil
+	}
+	return ModelResponse{}, errors.New("provider failed after observation")
+}
+
+func (p *jobObservationFailingProvider) Requests() []ModelRequest {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return append([]ModelRequest(nil), p.requests...)
