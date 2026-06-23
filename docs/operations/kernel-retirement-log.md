@@ -13,6 +13,19 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-DIRECT-SHELL-MANAGED-JOB-PARITY-20260623 - P2 - Direct shell transport shares managed-job routing
+
+- Status: ready_for_acceptance.
+- Type: runtime/tool transport issue.
+- Fix commits: `1070e2ef6`.
+- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
+- Design: `docs/design/kernel-shell-and-job-control.md`.
+- Reference alignment: Aligned with Codex and Reasonix's shared-owner pattern: transports and shells submit into the core/controller path rather than owning independent tool lifecycle semantics. Genesis keeps direct HTTP as a transport projection over Tool Runtime and managed-job ledger facts.
+- Evidence: Direct `POST /tools/shell_exec` now distinguishes omitted `timeout_sec` from explicit invalid values, rejects explicit non-positive timeout before effects, routes `timeout_sec > 180` to the same managed shell job ledger/executor path, returns HTTP 202 with a `JobProjection` receipt for a newly accepted long job, and returns the existing job projection on idempotent retry without appending a second `job.started`. Foreground direct requests still return `OperationProjection`. Direct HTTP long jobs do not forge provider-loop `tool.call` or `tool.result` events.
+- Verification: `TestHTTPShellExecLongTimeoutReturnsManagedJobReceipt`; `TestHTTPShellExecRejectsExplicitZeroTimeout`; focused HTTP shell and job-control kernel tests; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
+- Acceptance condition: reviewer confirms direct shell transport no longer has a parallel long-running shell lifecycle and that direct HTTP job receipts are job projections, not ordinary operation projections or fake provider tool results.
+- Residual risk: foreground process timeout outcome metadata remains active under `KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623`; provider-stream and foreground interrupt/attach behavior remain active under `KERNEL-JOB-CONTROL-INTERRUPT-20260623`.
+
 ### KERNEL-OBSERVATION-DELIVERY-20260623 - P1 - Kernel observation queue and delivery checkpoints
 
 - Status: ready_for_acceptance.
@@ -50,7 +63,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: `shell_exec` now exposes `timeout_sec` in the model-visible tool schema. Omitted timeout records 30 seconds; `timeout_sec=1` and `timeout_sec=180` run as foreground shell attempts; invalid zero, negative, string, and fractional values return repairable `tool_request_invalid` feedback and create no operation. Requests above the foreground cap route to the managed-job receipt path instead of being treated as validation errors.
 - Verification: `TestSubmitTurnAcceptsForegroundShellTimeoutSeconds`; `TestSubmitTurnDefaultsShellTimeoutToThirtySeconds`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellTimeoutSeconds`; `TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt`; `TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext`; focused timeout suite; `D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1`; forbidden marker scan; `git diff --check`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`.
 - Acceptance condition: reviewer confirms `timeout_sec > 180` is a valid long-task intent, not an error, and ordinary foreground shell execution is capped by the approved 1 through 180 second contract.
-- Residual risk: direct `/tools/shell_exec` still returns an operation-shaped response and does not expose a separate managed-job transport. Production job-control and interrupt behavior remain active under separate issues.
+- Residual risk: direct `/tools/shell_exec` managed-job routing is now covered by `KERNEL-DIRECT-SHELL-MANAGED-JOB-PARITY-20260623`. Foreground timeout outcome metadata, production job-control, and interrupt behavior remain active under separate issues.
 
 ### KERNEL-MANAGED-JOB-FOUNDATION-20260623 - P1 - Minimal managed job event model
 

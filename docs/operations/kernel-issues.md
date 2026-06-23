@@ -48,18 +48,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Verification: The existing positive contract remains true; when a stronger sandbox or approval flow is added, unknown or unavailable sandbox profiles fail closed, approval denial returns structured feedback without execution, and model-supplied control-plane fields are rejected as repairable invalid requests.
 - Reference alignment: Aligned with Codex's sandbox/approval split and Reasonix's central controller model. The active drift risk is over-promising `default` as a real OS sandbox or turning approval into shell/UI-local logic.
 
-### KERNEL-DIRECT-SHELL-MANAGED-JOB-PARITY-20260623 - P2 - Direct shell transport does not share managed-job routing
-
-- Status: open.
-- Area: Tool Runtime / HTTP transport.
-- Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
-- Design: `docs/design/kernel-shell-and-job-control.md`.
-- Gap: The model-visible `shell_exec` path routes `timeout_sec > 180` to a managed-job receipt, but direct `POST /tools/shell_exec` still calls `ExecShell` and returns an operation-shaped response. That direct transport can therefore run a long timeout synchronously instead of returning a managed-job handle.
-- Next slice: Decide the direct tool transport contract: either make `/tools/shell_exec` foreground-only with explicit validation and docs, or introduce a response union/projection that can return managed-job receipts without pretending they are ordinary operations. Do not duplicate a second managed-job owner in HTTP.
-- Evidence: `README.md` still documents direct `/tools/shell_exec` as active; `internal/kernel/http.go` routes it to `ExecShell`; `internal/kernel/model_tools.go` routes model `timeout_sec > 180` through `startManagedShellJobReceipt`.
-- Verification: Add transport-level tests for `timeout_sec > 180`, invalid direct timeout values, and idempotency behavior before moving this issue to acceptance.
-- Reference alignment: Aligned with Codex/Reasonix's principle that shells/transports submit into the same owner path rather than growing parallel lifecycle semantics. The drift risk is letting direct HTTP become a second shell execution contract.
-
 ### KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623 - P2 - Foreground timeout lacks structured outcome evidence
 
 - Status: open.
