@@ -34,8 +34,11 @@ type preparedModelToolCall struct {
 	eventID        string
 	providerCallID string
 	name           string
+	spec           ToolSpec
+	hasSpec        bool
 	requestInvalid *ToolRequestInvalidProjection
 	execute        func(context.Context, string, string) (ModelToolResult, error)
+	onDenied       func(context.Context, string, string) (ModelToolResult, error)
 }
 
 type ToolGateway struct {
@@ -108,6 +111,8 @@ func (g ToolGateway) prepareCall(call ModelToolCall) (preparedModelToolCall, err
 	if err != nil {
 		return preparedModelToolCall{}, err
 	}
+	prepared.spec = definition.Spec
+	prepared.hasSpec = true
 	return prepared, nil
 }
 
@@ -140,6 +145,28 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 		eventID:        eventID,
 		providerCallID: providerCallID,
 		name:           name,
+		onDenied: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			operation, err := k.toolGateway().ExecShell(ctx, ShellExecRequest{
+				SessionID:      sessionID,
+				CWD:            args.CWD,
+				Command:        args.Command,
+				TimeoutSec:     timeoutSec,
+				IdempotencyKey: eventID,
+			}, turnID)
+			if err != nil {
+				return ModelToolResult{}, fmt.Errorf("%w: %w", ErrToolInfrastructureFailed, err)
+			}
+			content, err := json.Marshal(modelOperationResult(operation))
+			if err != nil {
+				return ModelToolResult{}, err
+			}
+			return ModelToolResult{
+				ToolCallID:      providerCallID,
+				ToolCallEventID: eventID,
+				Name:            name,
+				Content:         string(content),
+			}, nil
+		},
 		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
 			if timeoutSec > maxForegroundShellTimeoutSec {
 				return k.startManagedShellJobReceipt(sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
@@ -241,6 +268,15 @@ func (g ToolGateway) Execute(ctx context.Context, sessionID string, turnID strin
 			Content:         string(content),
 		}, nil
 	}
+	if prepared.hasSpec {
+		authorization := authorizeKernelTool(g.kernel.toolPolicy, prepared.spec)
+		if !authorization.Allowed {
+			if prepared.onDenied != nil {
+				return prepared.onDenied(ctx, sessionID, turnID)
+			}
+			return permissionDeniedModelToolResult(prepared.eventID, prepared.providerCallID, prepared.name)
+		}
+	}
 	if prepared.execute == nil {
 		return ModelToolResult{}, fmt.Errorf("%w: prepared tool %q has no executable payload", ErrModelToolCallRejected, prepared.name)
 	}
@@ -332,6 +368,31 @@ func invalidModelToolResult(eventID string, providerCallID string, name string, 
 		ToolCallID:      prepared.providerCallID,
 		ToolCallEventID: prepared.eventID,
 		Name:            prepared.name,
+		Content:         string(content),
+	}, nil
+}
+
+func permissionDeniedModelToolResult(eventID string, providerCallID string, name string) (ModelToolResult, error) {
+	tool := strings.TrimSpace(name)
+	if tool == "" {
+		tool = "unknown"
+	}
+	content, err := json.Marshal(ToolRequestInvalidProjection{
+		Status:   "permission_denied",
+		Tool:     tool,
+		Executed: false,
+		Error: ToolRequestError{
+			Code:    "permission_denied",
+			Message: "tool execution was blocked by kernel policy",
+		},
+	})
+	if err != nil {
+		return ModelToolResult{}, err
+	}
+	return ModelToolResult{
+		ToolCallID:      strings.TrimSpace(providerCallID),
+		ToolCallEventID: strings.TrimSpace(eventID),
+		Name:            tool,
 		Content:         string(content),
 	}, nil
 }

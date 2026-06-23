@@ -76,9 +76,8 @@ func kernelObservationContext(observations []kernelObservation) string {
 	for _, observation := range observations {
 		job := observation.Job
 		lines = append(lines, fmt.Sprintf(
-			"- %s event_id=%s job_id=%s tool=%s status=%s",
+			"- %s job_id=%s tool=%s status=%s",
 			strings.TrimSpace(observation.EventType),
-			strings.TrimSpace(observation.EventID),
 			strings.TrimSpace(job.JobID),
 			strings.TrimSpace(job.Tool),
 			strings.TrimSpace(job.Status),
