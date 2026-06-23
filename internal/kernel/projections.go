@@ -85,6 +85,20 @@ func (k *Kernel) UITimeline(sessionID string) (UITimelineResponse, error) {
 			}
 			messageOrdinalByTurn[event.TurnID]++
 			items = append(items, item)
+		case "assistant.interrupted":
+			text := "turn interrupted"
+			if event.Data.TurnInterruption != nil && strings.TrimSpace(event.Data.TurnInterruption.Reason) != "" {
+				text = event.Data.TurnInterruption.Reason
+			}
+			items = append(items, UITimelineItem{
+				ItemID:    timelineItemID(event.TurnID, "notice", messageOrdinalByTurn[event.TurnID]),
+				TurnID:    event.TurnID,
+				Kind:      "notice",
+				Status:    "interrupted",
+				Text:      redactEvidenceText(text),
+				CreatedAt: event.CreatedAt,
+			})
+			messageOrdinalByTurn[event.TurnID]++
 		case "context.compaction.started":
 			items = append(items, UITimelineItem{
 				ItemID:    timelineItemID(event.TurnID, "notice", messageOrdinalByTurn[event.TurnID]),
@@ -502,7 +516,7 @@ func auditReplayItem(event StoredEvent) AuditReplayItem {
 			item.OutputPreview = preview.Text
 			item.OutputTruncated = preview.Truncated
 		}
-	case "operation.running", "operation.completed", "operation.failed", "operation.blocked":
+	case "operation.running", "operation.completed", "operation.failed", "operation.blocked", "operation.interrupted":
 		if data.Operation != nil {
 			item.Tool = data.Operation.Tool
 			item.ToolStatus = data.Operation.Status
@@ -533,6 +547,11 @@ func auditReplayItem(event StoredEvent) AuditReplayItem {
 	case "model.final":
 		if data.Final != nil {
 			item.Usage = data.Final.Usage
+		}
+	case "assistant.interrupted":
+		item.ToolStatus = "interrupted"
+		if data.TurnInterruption != nil {
+			item.OutputPreview = boundedTimelinePreview(data.TurnInterruption.Reason)
 		}
 	case "turn.failed":
 		if data.TurnError != nil {

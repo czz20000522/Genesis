@@ -279,3 +279,31 @@
 - provider-stream interruption;
 - foreground shell attach-or-kill behavior on user interrupt;
 - stronger sandbox/approval integration for arbitrary host shell execution.
+
+## Phase G-lite: Turn Interrupt Control
+
+**Deliverable:** user-space shells can submit a typed interrupt command for the active session turn. Provider-step interruption records a durable `assistant.interrupted` fact and does not cancel existing managed jobs. Foreground shell interruption records an `operation.interrupted` outcome and closes the original model tool call with an interrupted tool result.
+
+**Reference scan:**
+
+- Codex app-server marks stale in-progress turns as interrupted when thread status resolves away from active, and keeps background-terminal list/terminate APIs separate from turn interruption. Genesis follows that split by keeping `assistant.interrupted` as a turn/control fact and `job_cancel` as the explicit managed-job cancellation path.
+- Codex app-server exposes background terminal termination through a process-specific app-server surface, not as the model's generic tool result. Genesis keeps process ids, signals, and `taskkill` mechanics behind the managed executor and does not expose them through `job_cancel` or interruption payloads.
+- Reasonix ACP sessions hold a per-turn `context.CancelFunc`; `session/cancel` aborts the active turn and reports `stopReason=cancelled`. Genesis follows the same per-turn cancellation model through `InterruptSession`, while recording the durable `assistant.interrupted` event in the kernel ledger.
+- Reasonix provider history repair fills interrupted tool-call holes with an explicit interrupted placeholder when resuming. Genesis's foreground shell interrupt path instead records an actual `tool.result(status=interrupted)` before closing the current turn, so provider history remains paired without synthetic provider-adapter repair.
+
+**Completed slice:**
+
+- `InterruptSession` is the kernel-owned typed control command for active turn cancellation.
+- `POST /sessions/{id}/interrupt` is a thin HTTP delegate that authenticates, decodes, calls `InterruptSession`, and returns `202 Accepted` for an active turn.
+- Active provider-step cancellation writes `assistant.interrupted`, returns `ErrTurnInterrupted`, projects the turn as `interrupted`, and does not write `turn.failed`.
+- Interrupting a later provider turn does not call the managed job executor's `Cancel` path for an existing background job.
+- Interrupting foreground `shell_exec` through the active turn context writes `operation.interrupted`, writes a paired `tool.result(status=interrupted)`, and then records `assistant.interrupted` without calling the provider for a final answer.
+- UI timeline, raw event, audit replay, session projection, and idempotency replay recognize interrupted turns and interrupted operations.
+
+**Still deferred from full production delivery:**
+
+- progress snapshots such as `job.progress` or `job.output`;
+- user-triggered continuation after idle job completion;
+- explicit auto-resume policy, if approved later;
+- attach/detach of an already-running foreground shell into a managed job when an executor supports that capability;
+- stronger sandbox/approval integration for arbitrary host shell execution.

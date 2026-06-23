@@ -22,10 +22,19 @@ type Kernel struct {
 	skillExclusions []SkillCatalogExclusionProjection
 	clock           func() time.Time
 	turnMu          sync.Mutex
+	activeTurnMu    sync.Mutex
+	activeTurns     map[string]*activeTurn
 	operationMu     sync.Mutex
 	jobMu           sync.Mutex
 	memoryReviewMu  sync.Mutex
 	workMu          sync.Mutex
+}
+
+type activeTurn struct {
+	sessionID string
+	turnID    string
+	cancel    context.CancelFunc
+	reason    string
 }
 
 func New(config Config) (*Kernel, error) {
@@ -60,6 +69,7 @@ func New(config Config) (*Kernel, error) {
 		skillCatalog:    skillCatalog.Items,
 		skillExclusions: skillCatalog.Exclusions,
 		clock:           clock,
+		activeTurns:     map[string]*activeTurn{},
 	}, nil
 }
 
@@ -136,14 +146,20 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		}
 	}
 
+	runCtx, finishActiveTurn := k.beginActiveTurn(ctx, sessionID, turnID)
+	defer finishActiveTurn()
+
 	toolGateway := k.toolGateway()
 	for roundIndex := 0; roundIndex <= maxModelToolRounds; roundIndex++ {
 		providerContext, err := k.ProviderContextProjection(turnID)
 		if err != nil {
 			return TurnResponse{}, err
 		}
-		modelResp, err := k.provider.Complete(ctx, providerContext.ModelRequest())
+		modelResp, err := k.provider.Complete(runCtx, providerContext.ModelRequest())
 		if err != nil {
+			if isTurnContextInterrupted(runCtx, err) {
+				return k.completeInterruptedTurn(sessionID, turnID)
+			}
 			failure := turnFailureFromProviderError(err)
 			if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
 				return TurnResponse{}, appendErr
@@ -219,8 +235,11 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			return TurnResponse{}, err
 		}
 		for _, call := range preparedCalls {
-			result, err := toolGateway.Execute(ctx, sessionID, turnID, call)
+			result, err := toolGateway.Execute(runCtx, sessionID, turnID, call)
 			if err != nil {
+				if isTurnContextInterrupted(runCtx, err) {
+					return k.completeInterruptedTurn(sessionID, turnID)
+				}
 				code := "tool_call_rejected"
 				if errors.Is(err, ErrToolInfrastructureFailed) {
 					code = "tool_infrastructure_failed"
@@ -245,6 +264,9 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 				if err := k.startManagedJobExecutor(*result.PendingJobStart); err != nil {
 					return TurnResponse{}, err
 				}
+			}
+			if isTurnContextInterrupted(runCtx, nil) {
+				return k.completeInterruptedTurn(sessionID, turnID)
 			}
 		}
 	}
@@ -339,6 +361,8 @@ func (e replayedTurnFailure) Unwrap() error {
 		return ErrProviderUnavailable
 	case "tool_call_rejected":
 		return ErrModelToolCallRejected
+	case "turn_interrupted":
+		return ErrTurnInterrupted
 	default:
 		return nil
 	}
@@ -373,6 +397,8 @@ func (k *Kernel) turnByIdempotencyKey(sessionID string, key string) (TurnRespons
 				copied := *event.Data.Final
 				final = &copied
 			}
+		case "assistant.interrupted":
+			failure = &TurnError{Code: "turn_interrupted", Message: "turn was interrupted"}
 		case "turn.failed":
 			if event.Data.TurnError != nil {
 				copied := *event.Data.TurnError

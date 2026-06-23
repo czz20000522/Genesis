@@ -28,6 +28,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleSubmitTurn(w, r, k)
+		case r.Method == http.MethodPost && isSessionInterruptPath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
+			handleInterruptSession(w, r, k)
 		case r.Method == http.MethodPost && r.URL.Path == "/tools/shell_exec":
 			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
 				return

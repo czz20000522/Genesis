@@ -124,6 +124,8 @@ type OperationProjection struct {
 	TimeoutSec           int       `json:"timeout_sec,omitempty"`
 	TimedOut             bool      `json:"timed_out,omitempty"`
 	TimeoutReason        string    `json:"timeout_reason,omitempty"`
+	Interrupted          bool      `json:"interrupted,omitempty"`
+	InterruptReason      string    `json:"interrupt_reason,omitempty"`
 	ElapsedMs            int64     `json:"elapsed_ms,omitempty"`
 	ExitCode             *int      `json:"exit_code,omitempty"`
 	Stdout               string    `json:"stdout,omitempty"`
@@ -175,6 +177,8 @@ type ModelOperationResult struct {
 	ExitCode            *int   `json:"exit_code,omitempty"`
 	TimedOut            bool   `json:"timed_out,omitempty"`
 	TimeoutReason       string `json:"timeout_reason,omitempty"`
+	Interrupted         bool   `json:"interrupted,omitempty"`
+	InterruptReason     string `json:"interrupt_reason,omitempty"`
 	ElapsedMs           int64  `json:"elapsed_ms,omitempty"`
 	Stdout              string `json:"stdout,omitempty"`
 	Stderr              string `json:"stderr,omitempty"`

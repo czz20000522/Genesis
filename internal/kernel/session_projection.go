@@ -64,9 +64,9 @@ func (b *sessionProjectionBuilder) appendRawEvent(event StoredEvent) {
 
 func (b *sessionProjectionBuilder) applyOwnerEvent(event StoredEvent) error {
 	switch event.Type {
-	case "turn.submitted", "model.final", "turn.failed":
+	case "turn.submitted", "model.final", "turn.failed", "assistant.interrupted":
 		b.applyTurnEvent(event)
-	case "operation.running", "operation.completed", "operation.failed", "operation.blocked", "operation.tool_infrastructure_failed":
+	case "operation.running", "operation.completed", "operation.failed", "operation.blocked", "operation.interrupted", "operation.tool_infrastructure_failed":
 		b.applyOperationEvent(event)
 	case "job.started", "job.cancel_requested", "job.completed", "job.failed", "job.cancelled":
 		b.applyJobEvent(event)
@@ -110,6 +110,17 @@ func (b *sessionProjectionBuilder) applyTurnEvent(event StoredEvent) {
 		b.projection.Turns[idx].Status = "failed"
 		if event.Data.TurnError != nil {
 			b.projection.Turns[idx].Error = event.Data.TurnError
+		}
+		b.projection.Turns[idx].CompletedAt = event.CreatedAt
+	case "assistant.interrupted":
+		idx, ok := b.turnByID[event.TurnID]
+		if !ok {
+			return
+		}
+		b.projection.Turns[idx].Status = "interrupted"
+		if event.Data.TurnInterruption != nil {
+			b.projection.Turns[idx].Interruption = event.Data.TurnInterruption
+			b.projection.Turns[idx].Error = &TurnError{Code: "turn_interrupted", Message: "turn was interrupted"}
 		}
 		b.projection.Turns[idx].CompletedAt = event.CreatedAt
 	}

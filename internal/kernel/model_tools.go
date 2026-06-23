@@ -311,6 +311,8 @@ func modelOperationResult(operation OperationProjection) interface{} {
 		ExitCode:            operation.ExitCode,
 		TimedOut:            operation.TimedOut,
 		TimeoutReason:       operation.TimeoutReason,
+		Interrupted:         operation.Interrupted,
+		InterruptReason:     operation.InterruptReason,
 		ElapsedMs:           operation.ElapsedMs,
 		Stdout:              operation.Stdout,
 		Stderr:              operation.Stderr,

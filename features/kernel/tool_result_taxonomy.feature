@@ -29,6 +29,20 @@ Feature: Tool result taxonomy
     Then Genesis reports a tool infrastructure failure
     And Genesis does not disguise it as command stdout, command stderr, or a normal command exit
 
+  Scenario: Foreground shell interruption is not an ordinary command failure
+    Given the model requests an admitted foreground shell command
+    When the user interrupts the active turn while that command is still running
+    Then Genesis records an interrupted operation result
+    And Genesis returns an interrupted tool result for the original tool call
+    And Genesis records an assistant interruption fact instead of a model final answer
+
+  Scenario: Turn interruption does not cancel existing managed jobs
+    Given a session already has a running Genesis-managed job
+    When the user interrupts a later active provider turn in the same session
+    Then Genesis cancels the active provider step
+    And Genesis records an assistant interruption fact
+    And the existing managed job remains running unless explicit job cancellation is requested
+
   Scenario: Long command output stays bounded and inspectable
     Given an admitted shell command produces long stdout or stderr
     When Genesis returns the tool result

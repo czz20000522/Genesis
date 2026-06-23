@@ -8,14 +8,16 @@ import (
 	"time"
 )
 
-func runShellProcess(ctx context.Context, cwd string, command string, timeout time.Duration) (capturedOutput, capturedOutput, int, bool, error) {
+func runShellProcess(ctx context.Context, cwd string, command string, timeout time.Duration) (capturedOutput, capturedOutput, int, bool, bool, error) {
 	if timeout <= 0 {
 		timeout = defaultShellDuration
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	stdout, stderr, exitCode, err := runShellProcessContext(execCtx, cwd, command)
-	return stdout, stderr, exitCode, errors.Is(execCtx.Err(), context.DeadlineExceeded), err
+	timedOut := errors.Is(execCtx.Err(), context.DeadlineExceeded)
+	interrupted := errors.Is(execCtx.Err(), context.Canceled)
+	return stdout, stderr, exitCode, timedOut, interrupted, err
 }
 
 func runShellProcessContext(ctx context.Context, cwd string, command string) (capturedOutput, capturedOutput, int, error) {

@@ -23,6 +23,7 @@ const (
 
 	staleRunningOperationReason = "stale_running_operation"
 	foregroundTimeoutReason     = "foreground_timeout"
+	foregroundInterruptedReason = "foreground_interrupted"
 	foregroundTimeoutExitCode   = 124
 )
 
@@ -185,15 +186,19 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		code = exitCode
 		applyOperationOutputCapture(&operation, stdout, stderr)
 	} else {
-		stdout, stderr, exitCode, timedOut, err := runShellProcess(ctx, operation.CWD, rawCommand, time.Duration(timeoutSec)*time.Second)
+		stdout, stderr, exitCode, timedOut, interrupted, err := runShellProcess(ctx, operation.CWD, rawCommand, time.Duration(timeoutSec)*time.Second)
 		code = exitCode
 		if timedOut {
 			code = foregroundTimeoutExitCode
 			operation.TimedOut = true
 			operation.TimeoutReason = foregroundTimeoutReason
 		}
+		if interrupted {
+			operation.Interrupted = true
+			operation.InterruptReason = foregroundInterruptedReason
+		}
 		applyOperationOutputCapture(&operation, stdout, stderr)
-		if err != nil && !timedOut {
+		if err != nil && !timedOut && !interrupted {
 			operation.EndedAt = k.clock()
 			operation.ElapsedMs = operationElapsedMs(operation.StartedAt, operation.EndedAt)
 			operation.Status = "tool_infrastructure_failed"
@@ -207,7 +212,9 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 	operation.EndedAt = k.clock()
 	operation.ElapsedMs = operationElapsedMs(operation.StartedAt, operation.EndedAt)
 	operation.ExitCode = &code
-	if code == 0 {
+	if operation.Interrupted {
+		operation.Status = "interrupted"
+	} else if code == 0 {
 		operation.Status = "completed"
 	} else {
 		operation.Status = "failed"

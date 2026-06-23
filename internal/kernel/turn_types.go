@@ -21,6 +21,18 @@ type TurnResponse struct {
 	Error     *TurnError   `json:"error,omitempty"`
 }
 
+type TurnInterruptRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+type TurnInterruptionProjection struct {
+	SessionID     string    `json:"session_id"`
+	TurnID        string    `json:"turn_id"`
+	Status        string    `json:"status"`
+	Reason        string    `json:"reason,omitempty"`
+	InterruptedAt time.Time `json:"interrupted_at"`
+}
+
 type TurnEventsResponse struct {
 	Items []Event `json:"items"`
 }
@@ -32,17 +44,18 @@ type FinalMessage struct {
 }
 
 type TurnProjection struct {
-	TurnID           string         `json:"turn_id"`
-	IdempotencyKey   string         `json:"idempotency_key,omitempty"`
-	Status           string         `json:"status"`
-	InputItems       []InputItem    `json:"input_items"`
-	IngressRisks     []IngressRisk  `json:"ingress_risks,omitempty"`
-	ModelInputKinds  []string       `json:"model_input_kinds,omitempty"`
-	RecalledMemories []MemoryRecall `json:"recalled_memories,omitempty"`
-	FinalMessage     FinalMessage   `json:"final,omitempty"`
-	Error            *TurnError     `json:"error,omitempty"`
-	StartedAt        time.Time      `json:"started_at"`
-	CompletedAt      time.Time      `json:"completed_at,omitempty"`
+	TurnID           string                      `json:"turn_id"`
+	IdempotencyKey   string                      `json:"idempotency_key,omitempty"`
+	Status           string                      `json:"status"`
+	InputItems       []InputItem                 `json:"input_items"`
+	IngressRisks     []IngressRisk               `json:"ingress_risks,omitempty"`
+	ModelInputKinds  []string                    `json:"model_input_kinds,omitempty"`
+	RecalledMemories []MemoryRecall              `json:"recalled_memories,omitempty"`
+	FinalMessage     FinalMessage                `json:"final,omitempty"`
+	Error            *TurnError                  `json:"error,omitempty"`
+	Interruption     *TurnInterruptionProjection `json:"interruption,omitempty"`
+	StartedAt        time.Time                   `json:"started_at"`
+	CompletedAt      time.Time                   `json:"completed_at,omitempty"`
 }
 
 type TurnError struct {
