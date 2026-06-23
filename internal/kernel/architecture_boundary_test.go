@@ -251,6 +251,7 @@ func TestArchitectureBoundaryShellExecutionUsesResolvedSandboxProfile(t *testing
 }
 
 func TestArchitectureBoundaryToolRegistryRejectsIncompleteSpecs(t *testing.T) {
+	validPrepare := defaultKernelTools()[0].Prepare
 	_, err := NewToolRegistry([]registeredTool{{
 		Spec: ToolSpec{
 			Name:            "bad.tool",
@@ -259,7 +260,7 @@ func TestArchitectureBoundaryToolRegistryRejectsIncompleteSpecs(t *testing.T) {
 			SideEffectLevel: ToolSideEffectRead,
 			ExecutionKind:   ToolExecutionKindSandboxedProcess,
 		},
-		Prepare: (*Kernel).prepareShellExecToolCall,
+		Prepare: validPrepare,
 	}})
 	if err == nil {
 		t.Fatal("NewToolRegistry accepted a dotted tool id")
@@ -272,7 +273,7 @@ func TestArchitectureBoundaryToolRegistryRejectsIncompleteSpecs(t *testing.T) {
 			InputSchema:     map[string]interface{}{"type": "object"},
 			SideEffectLevel: ToolSideEffectRead,
 		},
-		Prepare: (*Kernel).prepareShellExecToolCall,
+		Prepare: validPrepare,
 	}})
 	if err == nil {
 		t.Fatal("NewToolRegistry accepted a tool without execution_kind")
@@ -378,6 +379,22 @@ func TestArchitectureBoundaryKernelIssuesRequireReferenceAlignment(t *testing.T)
 		if !hasReferenceAlignmentOrRejectedDrift(issue.body) {
 			t.Fatalf("retirement log architecture issue %s has no Reference alignment or Rejected drift risk field", issue.id)
 		}
+	}
+}
+
+func TestArchitectureBoundaryToolRegistryDoesNotBindWholeKernel(t *testing.T) {
+	root := kernelPackageDir(t)
+	content := readRepoText(t, root, "tool_registry.go")
+	for _, forbidden := range []string{
+		"Prepare func(*Kernel",
+		"Prepare: (*Kernel)",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("tool_registry.go contains broad kernel tool binding %q; use toolInvocationContext instead", forbidden)
+		}
+	}
+	if !strings.Contains(content, "type toolInvocationContext interface") {
+		t.Fatal("tool_registry.go does not declare toolInvocationContext")
 	}
 }
 

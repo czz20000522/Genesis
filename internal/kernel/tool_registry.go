@@ -17,7 +17,13 @@ const (
 
 type registeredTool struct {
 	Spec    ToolSpec
-	Prepare func(*Kernel, string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	Prepare func(toolInvocationContext, string, string, string, json.RawMessage) (preparedModelToolCall, error)
+}
+
+type toolInvocationContext interface {
+	prepareShellExecToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	prepareJobStatusToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	prepareJobCancelToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 }
 
 type ToolRegistry struct {
@@ -77,7 +83,9 @@ func defaultKernelTools() []registeredTool {
 				SideEffectLevel: ToolSideEffectWrite,
 				ExecutionKind:   ToolExecutionKindSandboxedProcess,
 			},
-			Prepare: (*Kernel).prepareShellExecToolCall,
+			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+				return ctx.prepareShellExecToolCall(eventID, providerCallID, name, arguments)
+			},
 		},
 		{
 			Spec: ToolSpec{
@@ -97,7 +105,9 @@ func defaultKernelTools() []registeredTool {
 				SideEffectLevel: ToolSideEffectRead,
 				ExecutionKind:   ToolExecutionKindKernelControl,
 			},
-			Prepare: (*Kernel).prepareJobStatusToolCall,
+			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+				return ctx.prepareJobStatusToolCall(eventID, providerCallID, name, arguments)
+			},
 		},
 		{
 			Spec: ToolSpec{
@@ -121,7 +131,9 @@ func defaultKernelTools() []registeredTool {
 				SideEffectLevel: ToolSideEffectWrite,
 				ExecutionKind:   ToolExecutionKindKernelControl,
 			},
-			Prepare: (*Kernel).prepareJobCancelToolCall,
+			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+				return ctx.prepareJobCancelToolCall(eventID, providerCallID, name, arguments)
+			},
 		},
 	}
 }
