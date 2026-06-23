@@ -15,8 +15,7 @@
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`
 - Design: `docs/design/kernel-shell-and-job-control.md`
 - Active issues:
-  - `KERNEL-SHELL-TIMEOUT-CAP-20260623`
-  - `KERNEL-MANAGED-JOB-FOUNDATION-20260623`
+  - `KERNEL-JOB-CONTROL-INTERRUPT-20260623`
 
 ## Phase A: Foreground Timeout Contract
 
@@ -176,11 +175,71 @@
 - user-triggered continuation after idle job completion;
 - explicit auto-resume policy, if that is ever approved.
 
+## Phase E-lite: Minimal Job Control Tools
+
+**Deliverable:** model-visible generic job control with `job_status` and `job_cancel`. This phase completes the first job-control surface without implementing provider-stream interruption, foreground attach-or-kill, or real background process management.
+
+**Files:**
+
+- Modify: `internal/kernel/tool_registry.go`
+- Modify: `internal/kernel/model_tools.go`
+- Modify: `internal/kernel/jobs.go`
+- Modify: `internal/kernel/types.go`
+- Test: `internal/kernel/kernel_test.go`
+
+**Red lines:**
+
+- The model supplies a kernel-issued `job_id` and optional semantic cancel reason only.
+- The model never supplies process id, signal, force flag, permission mode, sandbox profile, workspace root, event id, or audit refs.
+- `job_status` is read-only and must not create operations or strong audit facts.
+- `job_cancel` is a semantic request. The kernel decides executor behavior; the model does not choose terminate mechanics.
+- Terminal jobs are idempotent under cancellation. A cancel request against a completed, failed, or already cancelled job returns the current terminal state instead of creating a competing terminal fact.
+
+- [ ] **Step 1: Write failing model-tool manifest tests**
+
+  Assert the registered model-visible tools include `shell_exec`, `job_status`, and `job_cancel`, with no application-specific job tools or process-level terminate tool.
+
+- [ ] **Step 2: Write failing job status tests**
+
+  Cover:
+
+  - completed managed job returns `status=completed`;
+  - unknown job id returns structured `job_not_found` feedback;
+  - model-supplied control-plane fields are rejected as `tool_request_invalid`;
+  - restart replay can still answer status from the ledger;
+  - status query creates no operation.
+
+- [ ] **Step 3: Write failing job cancel tests**
+
+  Cover:
+
+  - cancelling a running job records `job.cancel_requested` and `job.cancelled` once when the executor can accept cancellation;
+  - cancelling a terminal job returns the terminal state without writing a competing terminal event;
+  - duplicate cancel request is idempotent;
+  - unknown job id returns structured `job_not_found`;
+  - model-supplied terminate mechanics are rejected.
+
+- [ ] **Step 4: Implement job lookup projection**
+
+  Add a small job lookup helper that replays current job state from ledger events. It must remain generic and independent of application domains.
+
+- [ ] **Step 5: Register and execute job control tools**
+
+  Register `job_status` as read-side-effect and `job_cancel` as write-side-effect. Both route through `ToolGateway`, return model-visible JSON, and preserve tool-call closure.
+
+- [ ] **Step 6: Run focused tests**
+
+  Run:
+
+  ```powershell
+  D:\software\Go\bin\go.exe test ./internal/kernel -run "TestSubmitTurn.*JobStatus|TestSubmitTurn.*JobCancel|TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt" -count=1
+  ```
+
 ## Still Short Of Production After This Plan
 
 - Real background process management is not complete.
-- `job_status` is not implemented.
-- `job_cancel` is not implemented.
+- `job_status` is planned by Phase E-lite but not implemented yet.
+- `job_cancel` is planned by Phase E-lite but not implemented yet.
 - Progress snapshot delivery and idle continuation controls are not implemented.
 - Provider-stream interruption and foreground attach-or-kill behavior are not implemented.
 - Stronger sandbox and approval policy remain separate future work.
