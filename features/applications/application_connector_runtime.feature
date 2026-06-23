@@ -29,6 +29,31 @@ Feature: Application connector runtime
     Then the connector should record a delivery receipt with retry state
     And the kernel turn facts should remain unchanged
 
+  Scenario: Retry scheduled delivery waits until the next attempt time
+    Given a connector outbox item failed with a retryable rate limit result
+    And the connector recorded a next attempt time in the future
+    When a delivery worker asks for eligible outbox items
+    Then that item should not be eligible for execution
+    And no connector adapter should be called
+
+  Scenario: Terminal delivery state suppresses duplicate execution
+    Given a connector outbox item has already reached sent state
+    When a delivery worker attempts to execute it again
+    Then the connector should not call the adapter
+    And it should record a duplicate-suppressed delivery receipt
+
+  Scenario: Exhausted retries move to dead letter
+    Given a connector outbox item has reached the maximum retry attempts
+    When the next connector delivery attempt fails with a retryable error
+    Then the connector should record a dead-letter receipt
+    And the item should not become eligible for automatic delivery again
+
+  Scenario: Partial external success requires recovery instead of blind retry
+    Given a connector action uploaded an attachment but did not send the final message
+    When the adapter reports partial success
+    Then the connector should record recovery-required delivery state
+    And a later worker should not repeat the same action without reconciliation or operator recovery
+
   Scenario: External identities do not grant kernel authority
     Given an external sender has an admin role in Feishu
     When the connector maps the event into a request context

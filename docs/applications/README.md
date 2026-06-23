@@ -58,3 +58,12 @@ or model-owned external credential.
 
 Application issues belong in `docs/operations/application-issues.md`. Kernel
 issues remain in `docs/operations/kernel-issues.md`.
+
+## Application Requirements
+
+- `application-connector-runtime-requirement.md`: the broad connector boundary
+  contract for external events, request context, application commands, outbox,
+  actions, and receipts.
+- `connector-delivery-state-machine-requirement.md`: the production delivery
+  state machine for connector outbox retry, leases, dead-letter,
+  partial-success recovery, and receipts.

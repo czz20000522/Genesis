@@ -120,6 +120,10 @@ failed, retrying, duplicate suppressed, partially completed, or dead-lettered.
 External errors are translated into connector receipt reasons instead of being
 treated as kernel errors.
 
+Detailed retry scheduling, lease, dead-letter, and partial-success recovery
+semantics are governed by
+`docs/applications/connector-delivery-state-machine-requirement.md`.
+
 ## Non-Goals
 
 - No Feishu, WeChat, email, calendar, or document owner inside the kernel.

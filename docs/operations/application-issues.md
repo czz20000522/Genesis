@@ -23,7 +23,7 @@ Genesis Kernel. Kernel primitive gaps belong in
 ### APP-CONNECTOR-DELIVERY-STATE-MACHINE-20260623 - P2 - Add retry scheduling, dead-letter, and partial-success recovery
 
 - Status: open.
-- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Requirement: `docs/applications/connector-delivery-state-machine-requirement.md`.
 - Design: `docs/applications/application-connector-runtime-design.md`.
 - Gap: The first outbox owner records queued, sent, retrying, failed, and duplicate-suppressed receipts, but it does not yet implement retry scheduling, delivery leases/claims, dead-letter transitions, partial-success recovery, or rate-limit backoff.
 - Next slice: Add an explicit delivery state machine with eligible retry selection, bounded attempt policy, dead-letter receipt, and partial-success recovery hooks. Keep these states connector-local and do not rewrite kernel turn facts.
