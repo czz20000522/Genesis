@@ -104,12 +104,30 @@ The scan is about control-plane semantics, not feature parity. Check for compara
 
 The reference scan is local. It compares Genesis against the local `codex-main` and `reasonix` checkouts. It must not look up a Genesis remote, GitHub repository, issue tracker, or release history as project authority.
 
+The scan must read implementation behavior, not just names. A reference is not
+"aligned" merely because both projects have a `Session`, `Controller`, `Tool`,
+`Job`, `Queue`, or `Provider` symbol. The scan should trace the actual path from
+entrypoint to owner state transition and projection: which public request starts
+the behavior, which owner creates or mutates state, which events or records are
+written, which fields are model-visible, how errors and retries are represented,
+and which tests prove the behavior. For example, do not assume that a user
+pressing "new conversation" means the core creates a durable session record at
+that moment; Codex and Reasonix must be checked for their actual session/thread
+creation, lazy initialization, projection, and persistence semantics before
+Genesis adopts or rejects a similar behavior.
+
 The implementation plan must record:
 
 - which Codex or Reasonix files, modules, docs, or tests were inspected;
 - what behavior or boundary was learned;
+- the concrete implementation path observed, including entrypoint, owner,
+  state/event writes, projection, and relevant tests;
 - whether Genesis aligns, intentionally differs, or rejects a drift risk;
 - which unanswered differences remain as active issues or future slices.
+
+Superficial reference scans are implementation drift. If the scan only lists
+similarly named modules or broad product ideas without describing the control
+flow and state semantics, stop before coding and deepen the reference scan.
 
 If neither project has a comparable implementation, record that explicitly and explain which Genesis requirement/design owns the decision instead. Do not use "no reference found" as permission to skip requirement, design, failure semantics, permissions, recovery, or observability.
 

@@ -22,7 +22,7 @@ Requirements should be few and stable. Implementation plans are phase-local and 
 
 Issues must cite an approved requirement and design unless the issue is an obvious bug or test gap. If an issue uses that exception, say so explicitly in the issue.
 
-Implementation plans and non-trivial issue updates must not jump straight from Genesis-local reasoning to code. Look for comparable behavior in `D:\software\JetBrains\python_workspace\codex-main` and `D:\software\JetBrains\python_workspace\reasonix` first. The goal is not to copy them, but to catch missing state, failure, permission, recovery, and projection semantics before coding.
+Implementation plans and non-trivial issue updates must not jump straight from Genesis-local reasoning to code. Look for comparable behavior in `D:\software\JetBrains\python_workspace\codex-main` and `D:\software\JetBrains\python_workspace\reasonix` first. The goal is not to copy them, but to catch missing state, failure, permission, recovery, and projection semantics before coding. Reference scans must inspect concrete implementation paths, not just similarly named concepts: identify the entrypoint, owner state transition, persisted event/record, projection, model-visible fields, error/retry semantics, and tests. If the scan only says "Codex has sessions" or "Reasonix has a controller", it is not sufficient.
 
 Each implementation slice must end with a requirement-by-requirement drift check. Passing tests is not enough if docs, issues, or retirement evidence still describe a temporary shortcut as the current contract.
 
