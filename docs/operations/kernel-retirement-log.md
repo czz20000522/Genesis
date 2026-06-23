@@ -13,6 +13,32 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-OWNER-SESSION-PROJECTION-20260623 - P1 - Session projection delegates owner replay
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `8d969d722`, `694c8e31c`.
+- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
+- Design: `docs/design/kernel-owner-structure-governance.md`.
+- Reference alignment: Aligned with Codex and Reasonix control-plane separation. Codex keeps tool/session behavior behind typed runtime surfaces and core events; Reasonix records a frontend/controller/agent/tool/provider separation where CLI/frontends do not own tool or provider internals. Genesis keeps `Session()` as a projection entry point instead of a cross-owner replay switch.
+- Evidence: `Kernel.Session()` now validates the session id, loads events, delegates to `projectSessionProjection`, and redacts the final projection. The replay switch moved to `session_projection.go`, which composes turn, operation, job, work, memory, and raw event projection helpers outside the core kernel method. `TestArchitectureBoundaryKernelSessionDelegatesOwnerReplay` fails if owner replay markers return to `kernel.go`'s `Session()` body.
+- Verification: `D:\software\Go\bin\go.exe test ./internal/kernel -run 'TestArchitectureBoundary(KernelSessionDelegatesOwnerReplay|OwnerDTOsLiveInNamedFiles|HTTPTransportDoesNotReplayOwnerFacts|CoreLoopHasNoProviderNativeWireTerms|KernelIssuesRequireReferenceAlignment)' -count=1`; `D:\software\Go\bin\go.exe test ./internal/kernel -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `git diff --check`.
+- Acceptance condition: reviewer confirms `kernel.go` no longer owns turn/tool/job/work/memory replay and future owner projection growth must extend owner projection helpers rather than `Kernel.Session()`.
+- Residual risk: `session_projection.go` is still a same-package composer. A future package split is intentionally not part of this phase. HTTP transport and ToolRegistry authority remain active P2 issues.
+
+### KERNEL-OWNER-DTO-FILES-20260623 - P1 - Public DTOs live in owner and projection files
+
+- Status: ready_for_acceptance.
+- Type: architecture issue.
+- Fix commits: `8d969d722`, `694c8e31c`.
+- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
+- Design: `docs/design/kernel-owner-structure-governance.md`.
+- Reference alignment: Aligned with Reasonix's package-level split between provider, tool, permission, config, and agent types, and with Codex's protocol/runtime separation. Genesis keeps one small kernel package for now, but file names now expose owner placement.
+- Evidence: The global `internal/kernel/types.go` file was removed. Public DTOs now live in `config_types.go`, `turn_types.go`, `tool_types.go`, `work_types.go`, `memory_types.go`, `event_types.go`, `inspection_types.go`, `provider_accounting_types.go`, `context_compaction_types.go`, and `skill_catalog_types.go`. `TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles` fails if these owner and projection declarations move back into a global DTO file or the wrong owner file.
+- Verification: `D:\software\Go\bin\go.exe test ./internal/kernel -run 'TestArchitectureBoundary(KernelSessionDelegatesOwnerReplay|OwnerDTOsLiveInNamedFiles|HTTPTransportDoesNotReplayOwnerFacts|CoreLoopHasNoProviderNativeWireTerms|KernelIssuesRequireReferenceAlignment)' -count=1`; `D:\software\Go\bin\go.exe test ./internal/kernel -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `git diff --check`.
+- Acceptance condition: reviewer confirms public DTO ownership is visible at file level without changing runtime schema or adding compatibility aliases.
+- Residual risk: file-level grouping is a guardrail, not a package-level owner system. If the kernel grows beyond this phase, a package split may need a separate requirement.
+
 ### KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623 - P2 - Foreground timeout preserves terminal outcome evidence
 
 - Status: ready_for_acceptance.

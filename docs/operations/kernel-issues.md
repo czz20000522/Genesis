@@ -25,30 +25,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-OWNER-SESSION-PROJECTION-20260623 - P1 - Session projection must stop owning every replay branch
-
-- Status: open.
-- Area: Architecture Governance / session projection.
-- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
-- Design: `docs/design/kernel-owner-structure-governance.md`.
-- Gap: `Kernel.Session()` currently rebuilds turns, operations, jobs, work records, memory candidates, and raw event projection in one central method. New owners can keep adding replay branches there, turning `kernel.go` into the cross-owner aggregation owner.
-- Next slice: Move session replay into projection helpers so `Kernel.Session()` only validates the session id, loads events, delegates composition, and redacts the final projection.
-- Evidence: `internal/kernel/kernel.go` currently switches on `turn.*`, `operation.*`, `job.*`, `work.*`, and `memory.*` event types inside `Session()`.
-- Verification: Architecture guard fails if `kernel.go` directly contains owner replay event names inside `Session()`; focused session projection tests and full Go verification pass after the split.
-- Reference alignment: Aligned with Codex and Reasonix control-plane separation. Codex keeps tool/session behavior behind typed core runtime surfaces; Reasonix records an acyclic direction where CLI/frontends do not own agent/tool/provider internals. Genesis should keep session composition as a projection surface, not an ever-growing kernel method.
-
-### KERNEL-OWNER-DTO-FILES-20260623 - P1 - Public DTOs need owner and projection homes
-
-- Status: open.
-- Area: Architecture Governance / type ownership.
-- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
-- Design: `docs/design/kernel-owner-structure-governance.md`.
-- Gap: `internal/kernel/types.go` defines config, turn, audit, UI timeline, context inspection, session, operation, job, work, memory, event, and compaction DTOs. The owner boundary is invisible at file level.
-- Next slice: Split DTOs into owner or projection files such as config, turn, tool/job, work, memory, event, inspection, and compaction type files while preserving all exported names and JSON schemas.
-- Evidence: `types.go` currently defines `SessionProjection`, `OperationProjection`, `JobProjection`, `WorkProjection`, `MemoryCandidateProjection`, `EventData`, and multiple inspection/timeline DTOs in the same file.
-- Verification: Architecture guard fails when owner DTOs reappear in the global type file; full Go verification proves no schema or behavior change.
-- Reference alignment: Aligned with Reasonix's package-level split between provider, tool, permission, config, and agent types, and with Codex's protocol/runtime separation. Genesis keeps one small kernel package for now, but file names must still expose owner placement.
-
 ### KERNEL-OWNER-HTTP-TRANSPORT-20260623 - P2 - HTTP transport files should stay thin delegates
 
 - Status: open.
