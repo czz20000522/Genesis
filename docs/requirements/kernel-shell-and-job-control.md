@@ -95,7 +95,7 @@ Direct HTTP `POST /tools/shell_exec` follows the same kernel owner path. It retu
 5. The immediate `tool.result` is a receipt, not the final command output.
 6. The receipt is model-visible and closes the provider tool-call loop.
 7. Terminal job facts are written later as `job.completed`, `job.failed`, or `job.cancelled`.
-8. Non-terminal output snapshots may be written as `job.output` when they are useful durable facts. They are bounded session/UI facts, not transport chunks and not provider-visible observations by default.
+8. Non-terminal output snapshots may be written as `job.output` when they are useful durable facts. They are bounded session/UI facts, not transport chunks and not provider-visible observations by default. Snapshot persistence is bounded both per event and per job; after a live snapshot is already truncated, further live output remains realtime/debug signal until terminal job evidence is recorded.
 9. A separate `job.progress` event may be added only when the kernel has a generic progress schema that is not tied to a domain such as download, build, or test execution.
 10. Ledger events are append-only. A later output or terminal job event does not overwrite the original receipt.
 
@@ -186,7 +186,7 @@ Phase B: managed-job ledger foundation.
 Phase C: real job manager.
 
 - Proves: session-scoped process registry, real process lifecycle, bounded output, terminal status, status query, cancellation, executor-reported output snapshots, and restart-safe projection.
-- Still short of production: local live output sampling, foreground attach behavior, and stronger sandbox/approval integration can remain limited.
+- Still short of production: foreground attach behavior and stronger sandbox/approval integration can remain limited.
 
 Phase D: observation delivery.
 
@@ -227,6 +227,7 @@ Fail-closed and recovery:
 - restart replay does not duplicate delivered observations;
 - cancellation and interruption write separate auditable facts.
 - routine progress snapshots do not enter strong audit or provider context unless a future policy explicitly promotes them.
+- routine progress snapshots cannot grow without a per-job bound; terminal job output remains the durable bounded command result.
 
 Audit and visibility:
 
@@ -250,7 +251,7 @@ This requirement governs these implementation slices:
 - `KERNEL-MANAGED-JOB-FOUNDATION-20260623`: `ready_for_acceptance` for managed-job event model and receipt-style tool result.
 - `KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623`: `ready_for_acceptance` for foreground runtime timeout as terminal-equivalent command evidence with timeout metadata and available output.
 - `KERNEL-OBSERVATION-DELIVERY-20260623`: `ready_for_acceptance` for pending/delivered observation tracking and checkpoint delivery semantics.
-- `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`: remaining local executor live-output sampling and foreground attach-or-kill semantics.
+- `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`: remaining foreground attach-or-kill semantics after the local managed executor sparse-output slice.
 
 `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` is adjacent authority-plane work governed by `docs/requirements/kernel-foundation-capabilities.md`.
 

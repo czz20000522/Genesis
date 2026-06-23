@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"errors"
+	"io"
 	"os/exec"
 	"runtime"
 	"time"
@@ -21,29 +22,40 @@ func runShellProcess(ctx context.Context, cwd string, command string, timeout ti
 }
 
 func runShellProcessContext(ctx context.Context, cwd string, command string) (capturedOutput, capturedOutput, int, error) {
+	var stdout cappedBuffer
+	var stderr cappedBuffer
+	stdout.limit = maxShellOutputBytes
+	stderr.limit = maxShellOutputBytes
+	exitCode, err := runShellProcessContextWithOutput(ctx, cwd, command, &stdout, &stderr)
+	return stdout.Capture(), stderr.Capture(), exitCode, err
+}
+
+func runShellProcessContextWithOutput(ctx context.Context, cwd string, command string, stdout io.Writer, stderr io.Writer) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
 	}
 	cmd := platformShellCommand(ctx, command)
 	cmd.Dir = cwd
 	configureShellProcessTermination(cmd)
 	cmd.WaitDelay = 2 * time.Second
-	var stdout cappedBuffer
-	var stderr cappedBuffer
-	stdout.limit = maxShellOutputBytes
-	stderr.limit = maxShellOutputBytes
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err := cmd.Run()
 	if err == nil {
-		return stdout.Capture(), stderr.Capture(), 0, nil
+		return 0, nil
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
-		return stdout.Capture(), stderr.Capture(), exitErr.ExitCode(), nil
+		return exitErr.ExitCode(), nil
 	}
-	return stdout.Capture(), stderr.Capture(), 0, err
+	return 0, err
 }
 
 func platformShellCommand(ctx context.Context, command string) *exec.Cmd {

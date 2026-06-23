@@ -283,6 +283,172 @@ func TestManagedJobExecutorCannotRedirectOutputSnapshotIdentity(t *testing.T) {
 	}
 }
 
+func TestLocalManagedJobExecutorEmitsSparseOutputSnapshot(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]interface{}{
+		"cwd":         workspace,
+		"command":     echoCommand("local-progress"),
+		"timeout_sec": 181,
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_local_progress_job", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "local progress observed",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "local-executor-progress-snapshot",
+		InputItems: []InputItem{{Type: "text", Text: "run local managed shell"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	session := waitForSessionProjection(t, k, "local-executor-progress-snapshot", func(session SessionProjection) bool {
+		return countSessionEventType(session.Events, "job.output") > 0 &&
+			(countSessionEventType(session.Events, "job.completed")+
+				countSessionEventType(session.Events, "job.failed")+
+				countSessionEventType(session.Events, "job.cancelled")) > 0
+	})
+	progressEvents := 0
+	terminalEvents := 0
+	outputBeforeTerminal := false
+	terminalSeen := false
+	for _, event := range session.Events {
+		switch event.Type {
+		case "job.output":
+			progressEvents++
+			if terminalSeen {
+				t.Fatalf("job.output appeared after terminal job fact: %+v", session.Events)
+			}
+			outputBeforeTerminal = true
+			if event.Data.Job == nil || event.Data.Job.Status != "running" || !strings.Contains(event.Data.Job.Stdout, "local-progress") {
+				t.Fatalf("job.output event = %+v, want running local output snapshot", event)
+			}
+		case "job.completed", "job.failed", "job.cancelled":
+			terminalEvents++
+			terminalSeen = true
+		}
+	}
+	if progressEvents != 1 {
+		t.Fatalf("job.output events = %d, want exactly one sparse snapshot for one small output", progressEvents)
+	}
+	if terminalEvents != 1 || !outputBeforeTerminal {
+		t.Fatalf("terminal events = %d, outputBeforeTerminal = %v, want one terminal fact after progress", terminalEvents, outputBeforeTerminal)
+	}
+}
+
+func waitForSessionProjection(t *testing.T, k *Kernel, sessionID string, ready func(SessionProjection) bool) SessionProjection {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var latest SessionProjection
+	for time.Now().Before(deadline) {
+		session, err := k.Session(sessionID)
+		if err != nil {
+			t.Fatalf("Session returned error while waiting for %s: %v", sessionID, err)
+		}
+		latest = session
+		if ready(session) {
+			return session
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("session %s did not reach expected projection before timeout; latest = %+v", sessionID, latest)
+	return SessionProjection{}
+}
+
+func TestManagedJobOutputCaptureDoesNotEmitEveryChunk(t *testing.T) {
+	snapshots := []JobProjection{}
+	capture := newManagedJobOutputCapture(func(snapshot JobProjection) {
+		snapshots = append(snapshots, snapshot)
+	})
+	writer := capture.stdoutWriter()
+
+	for i := 0; i < 5; i++ {
+		if _, err := writer.Write([]byte("x")); err != nil {
+			t.Fatalf("write chunk %d returned error: %v", i, err)
+		}
+	}
+	if len(snapshots) != 1 {
+		t.Fatalf("snapshots = %d, want one first-output snapshot, not one per chunk", len(snapshots))
+	}
+
+	if _, err := writer.Write([]byte(strings.Repeat("y", managedJobOutputSnapshotMinBytes))); err != nil {
+		t.Fatalf("write threshold chunk returned error: %v", err)
+	}
+	if len(snapshots) != 2 {
+		t.Fatalf("snapshots = %d, want second snapshot after byte threshold", len(snapshots))
+	}
+	if !strings.Contains(snapshots[1].Stdout, "x") || !strings.Contains(snapshots[1].Stdout, "y") {
+		t.Fatalf("second snapshot stdout = %q, want accumulated bounded output", snapshots[1].Stdout)
+	}
+}
+
+func TestManagedJobOutputCaptureCapsDurableSnapshotsPerJob(t *testing.T) {
+	snapshots := []JobProjection{}
+	capture := newManagedJobOutputCapture(func(snapshot JobProjection) {
+		snapshots = append(snapshots, snapshot)
+	})
+	writer := capture.stdoutWriter()
+
+	for i := 0; i < managedJobOutputSnapshotMaxEvents+5; i++ {
+		if _, err := writer.Write([]byte(strings.Repeat("x", managedJobOutputSnapshotMinBytes))); err != nil {
+			t.Fatalf("write threshold chunk %d returned error: %v", i, err)
+		}
+	}
+	if len(snapshots) != managedJobOutputSnapshotMaxEvents {
+		t.Fatalf("snapshots = %d, want per-job cap %d", len(snapshots), managedJobOutputSnapshotMaxEvents)
+	}
+	stdout, stderr := capture.capture()
+	if stdout.Text == "" || stderr.Text != "" {
+		t.Fatalf("capture stdout=%q stderr=%q, want terminal capture preserved after snapshot cap", stdout.Text, stderr.Text)
+	}
+}
+
+func TestManagedJobOutputCaptureStopsAfterTruncatedSnapshot(t *testing.T) {
+	snapshots := []JobProjection{}
+	capture := newManagedJobOutputCapture(func(snapshot JobProjection) {
+		snapshots = append(snapshots, snapshot)
+	})
+	writer := capture.stdoutWriter()
+
+	if _, err := writer.Write([]byte(strings.Repeat("x", maxShellOutputBytes+managedJobOutputSnapshotMinBytes))); err != nil {
+		t.Fatalf("write truncating chunk returned error: %v", err)
+	}
+	if len(snapshots) != 1 {
+		t.Fatalf("snapshots = %d, want one truncated snapshot", len(snapshots))
+	}
+	if !snapshots[0].StdoutTruncated {
+		t.Fatalf("snapshot = %+v, want truncated stdout", snapshots[0])
+	}
+	for i := 0; i < managedJobOutputSnapshotMaxEvents+5; i++ {
+		if _, err := writer.Write([]byte(strings.Repeat("y", managedJobOutputSnapshotMinBytes))); err != nil {
+			t.Fatalf("write after truncation %d returned error: %v", i, err)
+		}
+	}
+	if len(snapshots) != 1 {
+		t.Fatalf("snapshots = %d, want no more durable snapshots after truncation", len(snapshots))
+	}
+	stdout, _ := capture.capture()
+	if !stdout.Truncated {
+		t.Fatalf("terminal capture = %+v, want full command capture still bounded/truncated", stdout)
+	}
+}
+
 func TestUITimelineFoldsDirectManagedJobEventsByJobID(t *testing.T) {
 	workspace := t.TempDir()
 	sessionID := "direct-job-timeline"

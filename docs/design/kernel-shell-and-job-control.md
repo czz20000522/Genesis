@@ -61,7 +61,7 @@ Managed job events:
 - optional `job.output`
 - `job.completed`, `job.failed`, or `job.cancelled`
 
-`job.output` is a durable output snapshot for session/UI/raw-event projections. It is not a stream chunk, not a strong audit event by default, and not a provider-visible observation source unless a future checkpoint policy explicitly promotes it. Executors report output content; the kernel binds session id, job id, turn id, tool id, command/cwd, timeout, receipt, and status from the current job state so executor-supplied identity/control fields cannot redirect or rewrite job facts. A separate `job.progress` event requires a generic progress schema before it can enter the protocol.
+`job.output` is a durable output snapshot for session/UI/raw-event projections. It is not a stream chunk, not a strong audit event by default, and not a provider-visible observation source unless a future checkpoint policy explicitly promotes it. Executors report output content; the kernel binds session id, job id, turn id, tool id, command/cwd, timeout, receipt, and status from the current job state so executor-supplied identity/control fields cannot redirect or rewrite job facts. Local live output sampling is also lifetime-bounded: a job may record only a small fixed number of durable non-terminal snapshots, and once a snapshot is already truncated, further live output is not recorded as `job.output` again until the terminal job fact. A separate `job.progress` event requires a generic progress schema before it can enter the protocol.
 
 The `tool.call` and receipt `tool.result` events are provider-loop facts. Direct HTTP long shell requests write job lifecycle facts and return a job projection, but they do not forge model tool-call events.
 

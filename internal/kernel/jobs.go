@@ -95,7 +95,7 @@ func (k *Kernel) appendJobOutputEvent(job JobProjection) error {
 		return nil
 	}
 	job = mergeJobOutputSnapshot(latest, job)
-	applyJobOutputCapture(&job, captureBytes([]byte(job.Stdout), maxShellOutputBytes), captureBytes([]byte(job.Stderr), maxShellOutputBytes))
+	normalizeJobOutputSnapshot(&job)
 	return k.appendJobEvent("job.output", job)
 }
 
@@ -130,6 +130,8 @@ func (k *Kernel) appendTerminalJobEvent(job JobProjection) error {
 func mergeJobOutputSnapshot(latest JobProjection, snapshot JobProjection) JobProjection {
 	stdout := snapshot.Stdout
 	stderr := snapshot.Stderr
+	stdoutTruncated := snapshot.StdoutTruncated
+	stderrTruncated := snapshot.StderrTruncated
 	snapshot = JobProjection{}
 	snapshot.SessionID = latest.SessionID
 	snapshot.TurnID = latest.TurnID
@@ -149,7 +151,20 @@ func mergeJobOutputSnapshot(latest JobProjection, snapshot JobProjection) JobPro
 	snapshot.ToolCallEventID = latest.ToolCallEventID
 	snapshot.Stdout = stdout
 	snapshot.Stderr = stderr
+	snapshot.StdoutTruncated = stdoutTruncated
+	snapshot.StderrTruncated = stderrTruncated
 	return snapshot
+}
+
+func normalizeJobOutputSnapshot(job *JobProjection) {
+	if job == nil {
+		return
+	}
+	stdoutAlreadyTruncated := job.StdoutTruncated
+	stderrAlreadyTruncated := job.StderrTruncated
+	applyJobOutputCapture(job, captureBytes([]byte(job.Stdout), maxShellOutputBytes), captureBytes([]byte(job.Stderr), maxShellOutputBytes))
+	job.StdoutTruncated = job.StdoutTruncated || stdoutAlreadyTruncated
+	job.StderrTruncated = job.StderrTruncated || stderrAlreadyTruncated
 }
 
 func (k *Kernel) appendJobEvent(eventType string, job JobProjection) error {

@@ -3,8 +3,16 @@ package kernel
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
+	"time"
+)
+
+const (
+	managedJobOutputSnapshotMinBytes    = 1024
+	managedJobOutputSnapshotMinInterval = 2 * time.Second
+	managedJobOutputSnapshotMaxEvents   = 8
 )
 
 type ManagedJobExecutor interface {
@@ -75,7 +83,9 @@ func (e *localManagedJobExecutor) Start(_ context.Context, request ManagedJobSta
 			e.mu.Unlock()
 		}()
 
-		stdout, stderr, exitCode, err := runShellProcessContext(jobCtx, job.CWD, job.Command)
+		output := newManagedJobOutputCapture(request.Observe)
+		exitCode, err := runShellProcessContextWithOutput(jobCtx, job.CWD, job.Command, output.stdoutWriter(), output.stderrWriter())
+		stdout, stderr := output.capture()
 		finished := job
 		if err == nil {
 			finished.ExitCode = &exitCode
@@ -130,4 +140,123 @@ func (e *localManagedJobExecutor) cancelReason(jobID string) string {
 		return ""
 	}
 	return active.reason
+}
+
+type managedJobOutputCapture struct {
+	mu sync.Mutex
+
+	stdout cappedBuffer
+	stderr cappedBuffer
+
+	observe            func(JobProjection)
+	emitted            bool
+	stopped            bool
+	snapshotCount      int
+	bytesSinceSnapshot int
+	lastSnapshot       time.Time
+	now                func() time.Time
+}
+
+func newManagedJobOutputCapture(observe func(JobProjection)) *managedJobOutputCapture {
+	capture := &managedJobOutputCapture{
+		observe: observe,
+		now:     time.Now,
+	}
+	capture.stdout.limit = maxShellOutputBytes
+	capture.stderr.limit = maxShellOutputBytes
+	return capture
+}
+
+func (c *managedJobOutputCapture) stdoutWriter() io.Writer {
+	return managedJobOutputStreamWriter{capture: c, stream: "stdout"}
+}
+
+func (c *managedJobOutputCapture) stderrWriter() io.Writer {
+	return managedJobOutputStreamWriter{capture: c, stream: "stderr"}
+}
+
+func (c *managedJobOutputCapture) capture() (capturedOutput, capturedOutput) {
+	if c == nil {
+		return capturedOutput{}, capturedOutput{}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stdout.Capture(), c.stderr.Capture()
+}
+
+func (c *managedJobOutputCapture) write(stream string, data []byte) (int, error) {
+	if c == nil {
+		return len(data), nil
+	}
+	written := len(data)
+	if written == 0 {
+		return 0, nil
+	}
+
+	var snapshot JobProjection
+	shouldObserve := false
+	c.mu.Lock()
+	switch stream {
+	case "stderr":
+		_, _ = c.stderr.Write(data)
+	default:
+		_, _ = c.stdout.Write(data)
+	}
+	c.bytesSinceSnapshot += written
+	now := c.now()
+	if c.shouldObserveLocked(now) {
+		snapshot = c.snapshotLocked()
+		c.emitted = true
+		c.snapshotCount++
+		if c.snapshotCount >= managedJobOutputSnapshotMaxEvents || snapshot.StdoutTruncated || snapshot.StderrTruncated {
+			c.stopped = true
+		}
+		c.bytesSinceSnapshot = 0
+		c.lastSnapshot = now
+		shouldObserve = true
+	}
+	c.mu.Unlock()
+
+	if shouldObserve && c.observe != nil {
+		c.observe(snapshot)
+	}
+	return written, nil
+}
+
+func (c *managedJobOutputCapture) shouldObserveLocked(now time.Time) bool {
+	if c.observe == nil || c.stopped {
+		return false
+	}
+	if !c.emitted {
+		return true
+	}
+	if c.bytesSinceSnapshot >= managedJobOutputSnapshotMinBytes {
+		return true
+	}
+	if !c.lastSnapshot.IsZero() && now.Sub(c.lastSnapshot) >= managedJobOutputSnapshotMinInterval {
+		return true
+	}
+	return false
+}
+
+func (c *managedJobOutputCapture) snapshotLocked() JobProjection {
+	stdout := c.stdout.Capture()
+	stderr := c.stderr.Capture()
+	snapshot := JobProjection{
+		Status: "running",
+	}
+	applyJobOutputCapture(&snapshot, stdout, stderr)
+	return snapshot
+}
+
+type managedJobOutputStreamWriter struct {
+	capture *managedJobOutputCapture
+	stream  string
+}
+
+func (w managedJobOutputStreamWriter) Write(data []byte) (int, error) {
+	if w.capture == nil {
+		return len(data), nil
+	}
+	return w.capture.write(w.stream, data)
 }
