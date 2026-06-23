@@ -74,6 +74,8 @@ Application:
 5. `timeout_sec>180` is a valid long-task intent. It routes to managed jobs and must not continue as ordinary synchronous shell execution.
 6. Non-positive, non-integer, missing-type, or malformed timeout values produce repairable `tool_request_invalid` feedback and no effect.
 7. Timeout validation happens before command execution and before any workspace or host shell side effect.
+
+Direct HTTP `POST /tools/shell_exec` follows the same kernel owner path. It returns a foreground operation projection for `timeout_sec` values within the foreground cap, and returns a managed job projection for `timeout_sec>180`. It does not create a parallel direct-HTTP lifecycle owner. Because direct HTTP can distinguish an omitted JSON field from an explicit value, omitted `timeout_sec` defaults to 30 seconds while explicit non-positive values are invalid.
 8. The model-visible schema uses seconds. Internal runtimes may use other units.
 
 ### Terminal-Equivalent Command Results
@@ -202,7 +204,8 @@ Positive cases:
 - 1 through 180 seconds are foreground-valid;
 - valid foreground command returns terminal-equivalent evidence;
 - values above 180 seconds become managed-job receipts;
-- managed job writes `tool.call`, `job.started`, receipt `tool.result`, and terminal job event;
+- direct HTTP shell transport returns a job receipt/projection for values above 180 seconds instead of running synchronously;
+- model-requested managed job writes `tool.call`, `job.started`, receipt `tool.result`, and terminal job event;
 - job status and cancellation use generic job controls;
 - completed job observations can enter the next provider context through kernel delivery.
 

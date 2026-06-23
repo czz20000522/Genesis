@@ -13,6 +13,31 @@ import (
 
 const maxRequestBytes = 1024 * 1024
 
+type shellExecHTTPRequest struct {
+	SessionID      string `json:"session_id"`
+	CWD            string `json:"cwd"`
+	Command        string `json:"command"`
+	TimeoutSec     *int   `json:"timeout_sec,omitempty"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+}
+
+func (req shellExecHTTPRequest) shellExecRequest() (ShellExecRequest, error) {
+	timeoutSec := 0
+	if req.TimeoutSec != nil {
+		timeoutSec = *req.TimeoutSec
+		if timeoutSec <= 0 {
+			return ShellExecRequest{}, errors.New("timeout_sec must be greater than zero")
+		}
+	}
+	return ShellExecRequest{
+		SessionID:      req.SessionID,
+		CWD:            req.CWD,
+		Command:        req.Command,
+		TimeoutSec:     timeoutSec,
+		IdempotencyKey: req.IdempotencyKey,
+	}, nil
+}
+
 func Handler(k *Kernel) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -179,8 +204,17 @@ func turnErrorHTTPStatus(err TurnError) int {
 }
 
 func handleExecShell(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	var req ShellExecRequest
-	if !decodeRequest(w, r, &req) {
+	var httpReq shellExecHTTPRequest
+	if !decodeRequest(w, r, &httpReq) {
+		return
+	}
+	req, err := httpReq.shellExecRequest()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if normalizedShellTimeoutSec(req.TimeoutSec) > maxForegroundShellTimeoutSec {
+		handleManagedExecShell(w, r, k, req)
 		return
 	}
 	operation, err := k.ExecShell(r.Context(), req)
@@ -196,6 +230,52 @@ func handleExecShell(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	writeJSON(w, http.StatusOK, operation)
+}
+
+func handleManagedExecShell(w http.ResponseWriter, r *http.Request, k *Kernel, req ShellExecRequest) {
+	definition, ok := k.toolGateway().registry.Resolve("shell_exec")
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", "shell_exec is not registered")
+		return
+	}
+	authorization := authorizeKernelTool(k.toolPolicy, definition.Spec)
+	if !authorization.Allowed {
+		operation, err := k.ExecShell(r.Context(), req)
+		if writeKernelUnavailable(w, err) {
+			return
+		}
+		if errors.Is(err, ErrToolInfrastructureFailed) {
+			writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, operation)
+		return
+	}
+	job, created, err := k.prepareManagedShellJob(req, "", "")
+	if writeKernelUnavailable(w, err) {
+		return
+	}
+	if errors.Is(err, ErrToolInfrastructureFailed) {
+		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if created {
+		if err := k.startManagedJobExecutor(job); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusAccepted, job)
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
 }
 
 func handleSubmitWork(w http.ResponseWriter, r *http.Request, k *Kernel) {

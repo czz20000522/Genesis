@@ -372,6 +372,7 @@ type JobProjection struct {
 	SessionID       string    `json:"session_id"`
 	TurnID          string    `json:"turn_id,omitempty"`
 	Tool            string    `json:"tool"`
+	IdempotencyKey  string    `json:"idempotency_key,omitempty"`
 	Status          string    `json:"status"`
 	CWD             string    `json:"cwd,omitempty"`
 	Command         string    `json:"command,omitempty"`

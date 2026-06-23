@@ -223,9 +223,11 @@ The tool surface is generated from `ToolRegistry` and executed through `ToolGate
 
 The controlled default command set is intentionally narrow: text output, simple file reads, and simple file writes whose real path remains inside the configured workspace. Symlink/junction resolution, parent traversal, absolute path escapes, shell metacharacters, and unsupported commands are blocked before any process is spawned.
 
-The HTTP request cannot select `permission_mode`, `workspace_root`, `authority_policy`, `sandbox_profile`, or `approval_policy`; those are kernel-owned control-plane fields. Every allowed call first records a `running` operation before process execution, then records completion or failure with tool name, resolved permission profile, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
+The HTTP request cannot select `permission_mode`, `workspace_root`, `authority_policy`, `sandbox_profile`, or `approval_policy`; those are kernel-owned control-plane fields. Foreground HTTP calls first record a `running` operation before process execution, then record completion or failure with tool name, resolved permission profile, command, cwd, status, exit code, bounded stdout/stderr, timestamps, and blocker reason when blocked. Operations are persisted in the event ledger and projected through `GET /sessions/{id}` after restart.
 
-`shell_exec` accepts an optional `idempotency_key` control-plane field. Within the same `session_id` and tool, the first operation for a key owns the effect. Later retries with the same key return the persisted operation projection and do not execute the command again or append new operation events.
+Direct `POST /tools/shell_exec` is a transport projection over the same kernel owner path. Foreground requests return an `OperationProjection`. Requests with `timeout_sec > 180` return a managed `JobProjection` receipt with HTTP 202 when a new job is accepted, and the latest job projection with HTTP 200 for an idempotent retry. Omitted `timeout_sec` defaults to 30 seconds; explicit non-positive values are invalid.
+
+`shell_exec` accepts an optional `idempotency_key` control-plane field. Within the same `session_id` and tool, the first foreground operation or managed job for a key owns the effect. Later retries with the same key return the persisted operation or job projection and do not execute the command again or append duplicate lifecycle start events.
 
 ### Model Tool Loop
 

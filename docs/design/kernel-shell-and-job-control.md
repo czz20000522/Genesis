@@ -50,6 +50,8 @@ Model-visible `shell_exec` arguments include semantic command fields and `timeou
 - greater than 180 routes to a managed job;
 - invalid values produce repairable `tool_request_invalid` feedback with no effect.
 
+Direct `POST /tools/shell_exec` uses the same timeout routing. It decodes omitted `timeout_sec` as the 30 second default, rejects explicit non-positive values before effects, returns foreground operation projections for foreground-valid requests, and returns managed job projections for values above 180 seconds. The HTTP transport does not own managed-job lifecycle; it delegates to the same job ledger and executor path as model-requested long shell work.
+
 Managed job events:
 
 - `tool.call`
@@ -57,6 +59,8 @@ Managed job events:
 - receipt `tool.result`
 - optional `job.progress` or `job.output`
 - `job.completed`, `job.failed`, or `job.cancelled`
+
+The `tool.call` and receipt `tool.result` events are provider-loop facts. Direct HTTP long shell requests write job lifecycle facts and return a job projection, but they do not forge model tool-call events.
 
 Job-control commands:
 

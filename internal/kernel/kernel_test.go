@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -2449,6 +2450,110 @@ func TestHTTPShellExecAndSessionProjection(t *testing.T) {
 	}
 	if len(projection.Operations) != 1 {
 		t.Fatalf("len(Operations) = %d, want 1", len(projection.Operations))
+	}
+}
+
+func TestHTTPShellExecLongTimeoutReturnsManagedJobReceipt(t *testing.T) {
+	workspace := t.TempDir()
+	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
+		PermissionMode: PermissionModeYolo,
+		WorkspaceRoot:  workspace,
+	})
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	payload, err := json.Marshal(map[string]interface{}{
+		"session_id":      "http-shell-managed",
+		"cwd":             workspace,
+		"command":         echoCommand("http-managed"),
+		"timeout_sec":     maxForegroundShellTimeoutSec + 1,
+		"idempotency_key": "http-managed-1",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	resp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", payload)
+	if err != nil {
+		t.Fatalf("POST /tools/shell_exec failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	var job JobProjection
+	if err := json.NewDecoder(resp.Body).Decode(&job); err != nil {
+		t.Fatalf("decode managed job response: %v", err)
+	}
+	if job.JobID == "" || job.Status != "running" || job.Tool != "shell_exec" {
+		t.Fatalf("job response = %+v, want running shell_exec job", job)
+	}
+	if job.IdempotencyKey != "http-managed-1" {
+		t.Fatalf("job idempotency key = %q, want http-managed-1", job.IdempotencyKey)
+	}
+	if strings.TrimSpace(job.Receipt) == "" {
+		t.Fatalf("job response = %+v, want receipt", job)
+	}
+
+	completed := waitForSessionJobStatus(t, k, "http-shell-managed", job.JobID, "completed")
+	if completed.ExitCode == nil || *completed.ExitCode != 0 || !strings.Contains(completed.Stdout, "http-managed") {
+		t.Fatalf("completed job = %+v, want terminal output", completed)
+	}
+	projection, err := k.Session("http-shell-managed")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want direct managed path to create no operation", projection.Operations)
+	}
+	if got := countSessionEventType(projection.Events, "job.started"); got != 1 {
+		t.Fatalf("job.started count = %d, want 1", got)
+	}
+
+	secondResp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", payload)
+	if err != nil {
+		t.Fatalf("second POST /tools/shell_exec failed: %v", err)
+	}
+	defer secondResp.Body.Close()
+	if secondResp.StatusCode != http.StatusOK {
+		t.Fatalf("second status = %d, want 200 for existing job projection", secondResp.StatusCode)
+	}
+	var second JobProjection
+	if err := json.NewDecoder(secondResp.Body).Decode(&second); err != nil {
+		t.Fatalf("decode second managed job response: %v", err)
+	}
+	if second.JobID != job.JobID {
+		t.Fatalf("second job id = %q, want %q", second.JobID, job.JobID)
+	}
+	projection, err = k.Session("http-shell-managed")
+	if err != nil {
+		t.Fatalf("Session after second request returned error: %v", err)
+	}
+	if got := countSessionEventType(projection.Events, "job.started"); got != 1 {
+		t.Fatalf("job.started count after idempotent retry = %d, want 1", got)
+	}
+}
+
+func TestHTTPShellExecRejectsExplicitZeroTimeout(t *testing.T) {
+	workspace := t.TempDir()
+	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+	})
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	body := []byte(`{"session_id":"http-shell-zero-timeout","cwd":` + strconv.Quote(workspace) + `,"command":` + strconv.Quote(echoCommand("zero")) + `,"timeout_sec":0}`)
+	resp, err := postJSONWithAuth(server.URL+"/tools/shell_exec", body)
+	if err != nil {
+		t.Fatalf("POST /tools/shell_exec failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	if _, err := k.Session("http-shell-zero-timeout"); err != ErrSessionNotFound {
+		t.Fatalf("Session error = %v, want ErrSessionNotFound", err)
 	}
 }
 

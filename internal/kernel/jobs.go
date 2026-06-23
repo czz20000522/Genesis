@@ -9,41 +9,80 @@ import (
 )
 
 func (k *Kernel) startManagedShellJobReceipt(sessionID string, turnID string, toolCallEventID string, providerCallID string, toolName string, req ShellExecRequest) (ModelToolResult, error) {
-	startedAt := k.clock()
-	jobID := newID("job", startedAt)
-	receipt := fmt.Sprintf("Command was accepted as managed job %s. No synchronous command output is available in this tool result; terminal job evidence is recorded in the session events.", jobID)
-	started := JobProjection{
-		JobID:           jobID,
-		SessionID:       strings.TrimSpace(sessionID),
-		TurnID:          strings.TrimSpace(turnID),
-		Tool:            "shell_exec",
-		Status:          "running",
-		CWD:             strings.TrimSpace(req.CWD),
-		Command:         strings.TrimSpace(req.Command),
-		TimeoutSec:      normalizedShellTimeoutSec(req.TimeoutSec),
-		Receipt:         receipt,
-		StartedAt:       startedAt,
-		ToolCallEventID: strings.TrimSpace(toolCallEventID),
+	req.SessionID = sessionID
+	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	if req.IdempotencyKey == "" {
+		req.IdempotencyKey = strings.TrimSpace(toolCallEventID)
 	}
-	if err := k.appendJobEvent("job.started", started); err != nil {
+	started, created, err := k.prepareManagedShellJob(req, turnID, toolCallEventID)
+	if err != nil {
 		return ModelToolResult{}, err
 	}
 	content, err := json.Marshal(ModelManagedJobResult{
 		Status:        "managed_job_started",
 		Executed:      true,
-		JobID:         jobID,
-		VisibleOutput: receipt,
+		JobID:         started.JobID,
+		VisibleOutput: started.Receipt,
 	})
 	if err != nil {
 		return ModelToolResult{}, err
 	}
-	return ModelToolResult{
+	result := ModelToolResult{
 		ToolCallID:      strings.TrimSpace(providerCallID),
 		ToolCallEventID: strings.TrimSpace(toolCallEventID),
 		Name:            strings.TrimSpace(toolName),
 		Content:         string(content),
-		PendingJobStart: &started,
-	}, nil
+	}
+	if created {
+		result.PendingJobStart = &started
+	}
+	return result, nil
+}
+
+func (k *Kernel) prepareManagedShellJob(req ShellExecRequest, turnID string, toolCallEventID string) (JobProjection, bool, error) {
+	if err := validateShellRequest(req); err != nil {
+		return JobProjection{}, false, err
+	}
+	timeoutSec := normalizedShellTimeoutSec(req.TimeoutSec)
+	if timeoutSec <= maxForegroundShellTimeoutSec {
+		return JobProjection{}, false, fmt.Errorf("managed shell jobs require timeout_sec greater than %d", maxForegroundShellTimeoutSec)
+	}
+	sessionID := strings.TrimSpace(req.SessionID)
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+
+	k.jobMu.Lock()
+	defer k.jobMu.Unlock()
+	if idempotencyKey != "" {
+		job, ok, err := k.lookupSessionJobByIdempotencyKey(sessionID, "shell_exec", idempotencyKey)
+		if err != nil {
+			return JobProjection{}, false, err
+		}
+		if ok {
+			return job, false, nil
+		}
+	}
+
+	startedAt := k.clock()
+	jobID := newID("job", startedAt)
+	receipt := fmt.Sprintf("Command was accepted as managed job %s. No synchronous command output is available in this tool result; terminal job evidence is recorded in the session events.", jobID)
+	started := JobProjection{
+		JobID:           jobID,
+		SessionID:       sessionID,
+		TurnID:          strings.TrimSpace(turnID),
+		Tool:            "shell_exec",
+		IdempotencyKey:  idempotencyKey,
+		Status:          "running",
+		CWD:             strings.TrimSpace(req.CWD),
+		Command:         strings.TrimSpace(req.Command),
+		TimeoutSec:      timeoutSec,
+		Receipt:         receipt,
+		StartedAt:       startedAt,
+		ToolCallEventID: strings.TrimSpace(toolCallEventID),
+	}
+	if err := k.appendJobEvent("job.started", started); err != nil {
+		return JobProjection{}, false, err
+	}
+	return started, true, nil
 }
 
 func (k *Kernel) startManagedJobExecutor(job JobProjection) error {
@@ -228,6 +267,45 @@ func (k *Kernel) lookupSessionJob(sessionID string, jobID string) (JobProjection
 		}
 		if strings.TrimSpace(job.JobID) != jobID {
 			continue
+		}
+		latest = job
+		found = true
+	}
+	if !found {
+		return JobProjection{}, false, nil
+	}
+	return latest, true, nil
+}
+
+func (k *Kernel) lookupSessionJobByIdempotencyKey(sessionID string, tool string, key string) (JobProjection, bool, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	tool = strings.TrimSpace(tool)
+	key = strings.TrimSpace(key)
+	if sessionID == "" || tool == "" || key == "" {
+		return JobProjection{}, false, nil
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		return JobProjection{}, false, err
+	}
+	var latest JobProjection
+	found := false
+	for _, event := range events {
+		if event.SessionID != sessionID || event.Data.Job == nil {
+			continue
+		}
+		if !isJobFactEvent(event.Type) {
+			continue
+		}
+		job := *event.Data.Job
+		if strings.TrimSpace(job.Tool) != tool || strings.TrimSpace(job.IdempotencyKey) != key {
+			continue
+		}
+		if strings.TrimSpace(job.JobID) == "" {
+			job.JobID = strings.TrimSpace(event.JobID)
+		}
+		if strings.TrimSpace(job.JobID) == "" && event.Type == "job.started" {
+			job.JobID = strings.TrimSpace(event.EventID)
 		}
 		latest = job
 		found = true
