@@ -6085,6 +6085,82 @@ func TestSubmitTurnAcceptsForegroundShellTimeoutSeconds(t *testing.T) {
 	}
 }
 
+func TestSubmitTurnForegroundShellTimeoutRecordsTerminalOutcome(t *testing.T) {
+	workspace := t.TempDir()
+	arguments, err := json.Marshal(map[string]interface{}{
+		"cwd":         workspace,
+		"command":     timeoutAfterOutputCommand(),
+		"timeout_sec": 1,
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_foreground_timeout_outcome", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "timeout outcome observed",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "foreground-timeout-outcome",
+		InputItems: []InputItem{{Type: "text", Text: "run foreground timeout shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "timeout outcome observed" {
+		t.Fatalf("final text = %q, want timeout outcome observed", resp.Final.Text)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "failed" || payload["executed"] != true {
+		t.Fatalf("tool result payload = %+v, want failed executed command result", payload)
+	}
+	if payload["timed_out"] != true || payload["timeout_reason"] != "foreground_timeout" {
+		t.Fatalf("tool result payload = %+v, want foreground timeout metadata", payload)
+	}
+	if !strings.Contains(fmt.Sprint(payload["stdout"]), "before-timeout") {
+		t.Fatalf("tool result stdout = %+v, want captured pre-timeout output", payload["stdout"])
+	}
+	elapsed, ok := payload["elapsed_ms"].(float64)
+	if !ok || elapsed <= 0 {
+		t.Fatalf("tool result elapsed_ms = %+v, want positive elapsed time", payload["elapsed_ms"])
+	}
+
+	projection, err := k.Session("foreground-timeout-outcome")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 {
+		t.Fatalf("operations = %+v, want one timeout operation", projection.Operations)
+	}
+	operation := projection.Operations[0]
+	if operation.Status != "failed" || !operation.TimedOut || operation.TimeoutReason != "foreground_timeout" {
+		t.Fatalf("operation = %+v, want failed foreground timeout operation", operation)
+	}
+	if operation.InfrastructureReason != "" {
+		t.Fatalf("operation infrastructure reason = %q, want ordinary timeout outcome", operation.InfrastructureReason)
+	}
+	if operation.ElapsedMs <= 0 {
+		t.Fatalf("operation elapsed_ms = %d, want positive elapsed time", operation.ElapsedMs)
+	}
+	if !strings.Contains(operation.Stdout, "before-timeout") {
+		t.Fatalf("operation stdout = %q, want captured pre-timeout output", operation.Stdout)
+	}
+}
+
 func TestSubmitTurnDefaultsShellTimeoutToThirtySeconds(t *testing.T) {
 	workspace := t.TempDir()
 	arguments, err := json.Marshal(map[string]string{
@@ -8677,6 +8753,13 @@ func longRunningShellCommand(seconds int) string {
 		return fmt.Sprintf("Start-Sleep -Seconds %d", seconds)
 	}
 	return fmt.Sprintf("sleep %d", seconds)
+}
+
+func timeoutAfterOutputCommand() string {
+	if runtime.GOOS == "windows" {
+		return "Write-Output before-timeout; Start-Sleep -Seconds 3"
+	}
+	return "printf before-timeout; sleep 3"
 }
 
 func readMissingFileCommand(filename string) string {

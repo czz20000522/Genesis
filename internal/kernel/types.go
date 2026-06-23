@@ -351,6 +351,9 @@ type OperationProjection struct {
 	CWD                  string    `json:"cwd"`
 	Command              string    `json:"command"`
 	TimeoutSec           int       `json:"timeout_sec,omitempty"`
+	TimedOut             bool      `json:"timed_out,omitempty"`
+	TimeoutReason        string    `json:"timeout_reason,omitempty"`
+	ElapsedMs            int64     `json:"elapsed_ms,omitempty"`
 	ExitCode             *int      `json:"exit_code,omitempty"`
 	Stdout               string    `json:"stdout,omitempty"`
 	Stderr               string    `json:"stderr,omitempty"`
@@ -399,6 +402,9 @@ type ModelOperationResult struct {
 	Status              string `json:"status"`
 	Executed            bool   `json:"executed"`
 	ExitCode            *int   `json:"exit_code,omitempty"`
+	TimedOut            bool   `json:"timed_out,omitempty"`
+	TimeoutReason       string `json:"timeout_reason,omitempty"`
+	ElapsedMs           int64  `json:"elapsed_ms,omitempty"`
 	Stdout              string `json:"stdout,omitempty"`
 	Stderr              string `json:"stderr,omitempty"`
 	StdoutTruncated     bool   `json:"stdout_truncated,omitempty"`

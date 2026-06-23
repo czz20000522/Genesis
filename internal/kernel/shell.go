@@ -22,6 +22,8 @@ const (
 	outputOmissionMarkerFormat = "\n[... %d bytes omitted ...]\n"
 
 	staleRunningOperationReason = "stale_running_operation"
+	foregroundTimeoutReason     = "foreground_timeout"
+	foregroundTimeoutExitCode   = 124
 )
 
 func (k *Kernel) ExecShell(ctx context.Context, req ShellExecRequest) (OperationProjection, error) {
@@ -86,6 +88,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		operation.Status = "blocked"
 		operation.BlockedReason = reason
 		operation.EndedAt = k.clock()
+		operation.ElapsedMs = operationElapsedMs(operation.StartedAt, operation.EndedAt)
 		if err := k.appendOperationEvent(operation); err != nil {
 			return OperationProjection{}, err
 		}
@@ -102,11 +105,17 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		code = exitCode
 		applyOperationOutputCapture(&operation, stdout, stderr)
 	} else {
-		stdout, stderr, exitCode, err := runShellProcess(ctx, operation.CWD, rawCommand, time.Duration(timeoutSec)*time.Second)
+		stdout, stderr, exitCode, timedOut, err := runShellProcess(ctx, operation.CWD, rawCommand, time.Duration(timeoutSec)*time.Second)
 		code = exitCode
+		if timedOut {
+			code = foregroundTimeoutExitCode
+			operation.TimedOut = true
+			operation.TimeoutReason = foregroundTimeoutReason
+		}
 		applyOperationOutputCapture(&operation, stdout, stderr)
-		if err != nil {
+		if err != nil && !timedOut {
 			operation.EndedAt = k.clock()
+			operation.ElapsedMs = operationElapsedMs(operation.StartedAt, operation.EndedAt)
 			operation.Status = "tool_infrastructure_failed"
 			operation.InfrastructureReason = "shell_runtime_failed"
 			if appendErr := k.appendOperationEvent(operation); appendErr != nil {
@@ -116,6 +125,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		}
 	}
 	operation.EndedAt = k.clock()
+	operation.ElapsedMs = operationElapsedMs(operation.StartedAt, operation.EndedAt)
 	operation.ExitCode = &code
 	if code == 0 {
 		operation.Status = "completed"
@@ -133,10 +143,22 @@ func (k *Kernel) failStaleRunningOperation(operation OperationProjection) (Opera
 	operation.BlockedReason = staleRunningOperationReason
 	operation.Stderr = staleRunningOperationReason
 	operation.EndedAt = k.clock()
+	operation.ElapsedMs = operationElapsedMs(operation.StartedAt, operation.EndedAt)
 	if err := k.appendOperationEvent(operation); err != nil {
 		return OperationProjection{}, err
 	}
 	return redactOperationEvidence(operation), nil
+}
+
+func operationElapsedMs(startedAt time.Time, endedAt time.Time) int64 {
+	if startedAt.IsZero() || endedAt.IsZero() || endedAt.Before(startedAt) {
+		return 0
+	}
+	elapsed := endedAt.Sub(startedAt).Milliseconds()
+	if elapsed == 0 {
+		return 1
+	}
+	return elapsed
 }
 
 func (k *Kernel) appendOperationEvent(operation OperationProjection) error {
