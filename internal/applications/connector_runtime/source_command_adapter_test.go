@@ -3,8 +3,10 @@ package connectorruntime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +86,60 @@ func TestSourceCommandFramesRejectVerifiedEventWithoutEvidence(t *testing.T) {
 	}
 }
 
+func TestSourceCommandFramesRejectVerifiedEventWithUncheckedEvidence(t *testing.T) {
+	ctx := context.Background()
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-verified-weak-evidence")
+	frames := `{"kind":"source.event","source_id":"source_feishu_chat","connector":"feishu","adapter_ref":"feishu-source-adapter","event":{"connector":"feishu","external_event_id":"evt_verified","event_type":"message.created","thread_ref":{"connector":"feishu","kind":"chat","external_id":"oc_1"},"sender_ref":{"connector":"feishu","kind":"user","external_id":"ou_1"},"message_ref":{"connector":"feishu","kind":"message","external_id":"om_1"},"body":"hello","source_validation":"verified"},"verification_evidence":{"source_event_ref":"evt_verified","validation_status":"unchecked","adapter_ref":"feishu-source-adapter"}}` + "\n"
+
+	err := ConsumeSourceCommandFrames(ctx, strings.NewReader(frames), SourceCommandFrameConsumer{
+		ExpectedSourceID:   "source_feishu_chat",
+		ExpectedConnector:  "feishu",
+		ExpectedAdapterRef: "feishu-source-adapter",
+		SourceStore:        sourceStore,
+		FailureStore:       failureStore,
+	}, func(event ExternalEvent) error {
+		t.Fatalf("verified event with weak evidence must not be handled: %+v", event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ConsumeSourceCommandFrames returned error: %v", err)
+	}
+	failures, err := failureStore.ListSourceFailures(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceFailures returned error: %v", err)
+	}
+	if len(failures) != 1 || failures[0].Reason != "source_verification_failed" {
+		t.Fatalf("failures = %+v, want weak evidence rejection", failures)
+	}
+}
+
+func TestSourceCommandFramesRejectEventConnectorMismatch(t *testing.T) {
+	ctx := context.Background()
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-connector-mismatch")
+	frames := `{"kind":"source.event","source_id":"source_feishu_chat","connector":"feishu","adapter_ref":"feishu-source-adapter","event":{"connector":"email","external_event_id":"evt_wrong_connector","event_type":"message.created","thread_ref":{"connector":"email","kind":"inbox","external_id":"thread_1"},"sender_ref":{"connector":"email","kind":"user","external_id":"sender_1"},"message_ref":{"connector":"email","kind":"message","external_id":"msg_1"},"body":"hello","source_validation":"unchecked"}}` + "\n"
+
+	err := ConsumeSourceCommandFrames(ctx, strings.NewReader(frames), SourceCommandFrameConsumer{
+		ExpectedSourceID:   "source_feishu_chat",
+		ExpectedConnector:  "feishu",
+		ExpectedAdapterRef: "feishu-source-adapter",
+		SourceStore:        sourceStore,
+		FailureStore:       failureStore,
+	}, func(event ExternalEvent) error {
+		t.Fatalf("event from mismatched connector must not be handled: %+v", event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ConsumeSourceCommandFrames returned error: %v", err)
+	}
+	failures, err := failureStore.ListSourceFailures(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceFailures returned error: %v", err)
+	}
+	if len(failures) != 1 || failures[0].Reason != "source_payload_malformed" {
+		t.Fatalf("failures = %+v, want connector mismatch failure", failures)
+	}
+}
+
 func TestSourceCommandFramesRejectUnsupportedSourceValidation(t *testing.T) {
 	ctx := context.Background()
 	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-bad-validation")
@@ -105,6 +161,43 @@ func TestSourceCommandFramesRejectUnsupportedSourceValidation(t *testing.T) {
 	}
 	if len(failures) != 1 || failures[0].Reason != "source_verification_failed" {
 		t.Fatalf("failures = %+v, want source validation failure", failures)
+	}
+}
+
+func TestSourceCommandFrameFailureUsesExpectedSourceIdentity(t *testing.T) {
+	ctx := context.Background()
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-failure-expected-identity")
+	frames := `{"kind":"source.failed","source_id":"sk-raw-secret","connector":"sk-connector-secret","event_source":"Bearer token","reason":"source_runtime_failed","detail":"raw payload {\"secret\":\"value\"}","payload_hash":"not-a-hash"}` + "\n"
+
+	err := ConsumeSourceCommandFrames(ctx, strings.NewReader(frames), SourceCommandFrameConsumer{
+		ExpectedSourceID:   "source_feishu_chat",
+		ExpectedConnector:  "feishu",
+		ExpectedAdapterRef: "feishu-source-adapter",
+		SourceStore:        sourceStore,
+		FailureStore:       failureStore,
+	}, func(event ExternalEvent) error {
+		t.Fatalf("source.failed frame must not emit event: %+v", event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ConsumeSourceCommandFrames returned error: %v", err)
+	}
+	failures, err := failureStore.ListSourceFailures(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceFailures returned error: %v", err)
+	}
+	if len(failures) != 1 {
+		t.Fatalf("failures = %+v, want one source failure", failures)
+	}
+	failure := failures[0]
+	if failure.Connector != "feishu" || failure.EventSource != "feishu-source-adapter" || failure.SourceRunRef != "source_feishu_chat" {
+		t.Fatalf("failure identity = connector %q event_source %q source %q, want expected source identity", failure.Connector, failure.EventSource, failure.SourceRunRef)
+	}
+	if failure.PayloadHash != "" {
+		t.Fatalf("payload_hash = %q, want invalid adapter-supplied hash dropped", failure.PayloadHash)
+	}
+	if strings.Contains(failure.Detail, "secret") || strings.Contains(failure.DiagnosticExcerpt, "secret") {
+		t.Fatalf("failure diagnostics were not redacted: %+v", failure)
 	}
 }
 
@@ -249,49 +342,90 @@ func TestSourceCommandAdapterHelper(t *testing.T) {
 	}
 	switch mode {
 	case "ready-event-stopped":
-		frames := []SourceCommandFrame{
-			{Kind: SourceFrameKindReady, SourceID: "source_feishu_chat", Connector: "feishu", AdapterRef: "feishu-source-adapter"},
-			{
-				Kind:     SourceFrameKindEvent,
-				SourceID: "source_feishu_chat",
-				Event: &ExternalEvent{
-					Connector:       "feishu",
-					ExternalEventID: "evt_self",
-					EventType:       "message.created",
-					ThreadRef:       ExternalThreadRef{Connector: "feishu", Kind: "chat", ExternalID: "oc_1"},
-					SenderRef:       ExternalRef{Connector: "feishu", Kind: "user", ExternalID: "bot_self"},
-					MessageRef:      ExternalRef{Connector: "feishu", Kind: "message", ExternalID: "om_self"},
-					Body:            "self message",
-					ReceivedAt:      time.Date(2026, 6, 24, 16, 0, 0, 0, time.UTC),
-				},
-			},
-			{
-				Kind:     SourceFrameKindEvent,
-				SourceID: "source_feishu_chat",
-				Event: &ExternalEvent{
-					Connector:        "feishu",
-					ExternalEventID:  "evt_1",
-					EventType:        "message.created",
-					ThreadRef:        ExternalThreadRef{Connector: "feishu", Kind: "chat", ExternalID: "oc_1"},
-					SenderRef:        ExternalRef{Connector: "feishu", Kind: "user", ExternalID: "ou_1"},
-					MessageRef:       ExternalRef{Connector: "feishu", Kind: "message", ExternalID: "om_1"},
-					Body:             "hello",
-					ReceivedAt:       time.Date(2026, 6, 24, 16, 0, 1, 0, time.UTC),
-					SourceValidation: SourceValidationUnchecked,
-				},
-			},
-			{Kind: SourceFrameKindStopped, SourceID: "source_feishu_chat"},
+		emitReadyEventStoppedFrames(t)
+	case "fail-once-then-ready-event-stopped":
+		attemptFile := os.Getenv("GENESIS_SOURCE_COMMAND_ATTEMPT_FILE")
+		if attemptFile == "" {
+			t.Fatal("GENESIS_SOURCE_COMMAND_ATTEMPT_FILE is required")
 		}
-		encoder := json.NewEncoder(os.Stdout)
-		for _, frame := range frames {
-			if err := encoder.Encode(frame); err != nil {
-				t.Fatalf("encode frame: %v", err)
+		attempt := 0
+		if raw, err := os.ReadFile(attemptFile); err == nil && strings.TrimSpace(string(raw)) != "" {
+			parsed, parseErr := strconv.Atoi(strings.TrimSpace(string(raw)))
+			if parseErr != nil {
+				t.Fatalf("parse attempt file: %v", parseErr)
 			}
+			attempt = parsed
 		}
+		attempt++
+		if err := os.WriteFile(attemptFile, []byte(strconv.Itoa(attempt)), 0o600); err != nil {
+			t.Fatalf("write attempt file: %v", err)
+		}
+		if attempt == 1 {
+			fmt.Fprintln(os.Stderr, "transient source runtime failure")
+			os.Exit(42)
+		}
+		emitReadyEventStoppedFrames(t)
 	default:
 		t.Fatalf("unknown source command helper mode %q", mode)
 	}
 	os.Exit(0)
+}
+
+func emitReadyEventStoppedFrames(t *testing.T) {
+	t.Helper()
+	sourceID := envOrFallback("GENESIS_SOURCE_COMMAND_SOURCE_ID", "source_feishu_chat")
+	connector := envOrFallback("GENESIS_SOURCE_COMMAND_CONNECTOR", "feishu")
+	adapterRef := envOrFallback("GENESIS_SOURCE_COMMAND_ADAPTER_REF", "feishu-source-adapter")
+	frames := []SourceCommandFrame{
+		{Kind: SourceFrameKindReady, SourceID: sourceID, Connector: connector, AdapterRef: adapterRef},
+		{
+			Kind:       SourceFrameKindEvent,
+			SourceID:   sourceID,
+			Connector:  connector,
+			AdapterRef: adapterRef,
+			Event: &ExternalEvent{
+				Connector:       connector,
+				ExternalEventID: "evt_self",
+				EventType:       "message.created",
+				ThreadRef:       ExternalThreadRef{Connector: connector, Kind: "chat", ExternalID: "oc_1"},
+				SenderRef:       ExternalRef{Connector: connector, Kind: "user", ExternalID: "bot_self"},
+				MessageRef:      ExternalRef{Connector: connector, Kind: "message", ExternalID: "om_self"},
+				Body:            "self message",
+				ReceivedAt:      time.Date(2026, 6, 24, 16, 0, 0, 0, time.UTC),
+			},
+		},
+		{
+			Kind:       SourceFrameKindEvent,
+			SourceID:   sourceID,
+			Connector:  connector,
+			AdapterRef: adapterRef,
+			Event: &ExternalEvent{
+				Connector:        connector,
+				ExternalEventID:  "evt_1",
+				EventType:        "message.created",
+				ThreadRef:        ExternalThreadRef{Connector: connector, Kind: "chat", ExternalID: "oc_1"},
+				SenderRef:        ExternalRef{Connector: connector, Kind: "user", ExternalID: "ou_1"},
+				MessageRef:       ExternalRef{Connector: connector, Kind: "message", ExternalID: "om_1"},
+				Body:             "hello",
+				ReceivedAt:       time.Date(2026, 6, 24, 16, 0, 1, 0, time.UTC),
+				SourceValidation: SourceValidationUnchecked,
+			},
+		},
+		{Kind: SourceFrameKindStopped, SourceID: sourceID, Connector: connector, AdapterRef: adapterRef},
+	}
+	encoder := json.NewEncoder(os.Stdout)
+	for _, frame := range frames {
+		if err := encoder.Encode(frame); err != nil {
+			t.Fatalf("encode frame: %v", err)
+		}
+	}
+}
+
+func envOrFallback(name string, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func newSourceCommandTestStores(t *testing.T, name string) (*FileSourceSupervisorStore, *FileSourceFailureStore) {

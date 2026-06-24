@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -214,6 +216,51 @@ func TestFeishuListenInvalidSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 	}
 }
 
+func TestFeishuListenRetriesRecoverableSourceCommandFailure(t *testing.T) {
+	var submitCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/turn" {
+			t.Fatalf("path = %q, want /turn", r.URL.Path)
+		}
+		submitCount++
+		_ = json.NewEncoder(w).Encode(connectorruntime.TurnSubmitResponse{
+			SessionID: "session-1",
+			TurnID:    "turn-1",
+			Final:     connectorruntime.FinalAnswer{Text: "listener final"},
+		})
+	}))
+	t.Cleanup(server.Close)
+	dir := testsupport.ProjectTempDir(t, "feishu-listen-source-retry")
+	attemptFile := filepath.Join(dir, "attempts.txt")
+
+	var stdout bytes.Buffer
+	err := runWithIO(context.Background(), []string{
+		"feishu-listen",
+		"--kernel-url", server.URL,
+		"--runtime-token", "token",
+		"--state", filepath.Join(dir, "state.json"),
+		"--source-command", os.Args[0],
+		"--source-command-arg", "-test.run=TestFeishuListenSourceCommandHelper",
+		"--source-command-arg", "--",
+		"--source-command-arg", "fail-once-then-event",
+		"--source-command-arg", attemptFile,
+		"--source-id", "source_feishu_chat",
+		"--source-state", filepath.Join(dir, "source-failures.json"),
+		"--source-supervisor-state", filepath.Join(dir, "source-supervisor.json"),
+		"--source-attempts", "2",
+		"--source-backoff", "0s",
+	}, strings.NewReader(""), &stdout, io.Discard)
+	if err != nil {
+		t.Fatalf("runWithIO returned error: %v\n%s", err, stdout.String())
+	}
+	if submitCount != 1 {
+		t.Fatalf("submit count = %d, want one kernel turn after source retry", submitCount)
+	}
+	if !strings.Contains(stdout.String(), "listener final") {
+		t.Fatalf("listener output = %s, want kernel final", stdout.String())
+	}
+}
+
 func TestFeishuProbeReportsInstalledAdapterReadiness(t *testing.T) {
 	var stdout bytes.Buffer
 	if err := runWithIO(context.Background(), []string{
@@ -256,6 +303,80 @@ func TestFeishuProbeRejectsMissingProfileWithoutKernelCall(t *testing.T) {
 	if got.Ready || got.EventSource.Status != connectorruntime.ProbeStatusFailed || got.FinalDelivery.Status != connectorruntime.ProbeStatusFailed {
 		t.Fatalf("probe report = %+v", got)
 	}
+}
+
+func TestFeishuListenSourceCommandHelper(t *testing.T) {
+	mode, attemptFile := sourceCommandHelperArgs()
+	if mode == "" {
+		return
+	}
+	switch mode {
+	case "fail-once-then-event":
+		if attemptFile == "" {
+			t.Fatal("attempt file argument is required")
+		}
+		attempt := 0
+		if raw, err := os.ReadFile(attemptFile); err == nil && strings.TrimSpace(string(raw)) != "" {
+			parsed, parseErr := strconv.Atoi(strings.TrimSpace(string(raw)))
+			if parseErr != nil {
+				t.Fatalf("parse attempt file: %v", parseErr)
+			}
+			attempt = parsed
+		}
+		attempt++
+		if err := os.WriteFile(attemptFile, []byte(strconv.Itoa(attempt)), 0o600); err != nil {
+			t.Fatalf("write attempt file: %v", err)
+		}
+		if attempt == 1 {
+			fmt.Fprintln(os.Stderr, "transient source runtime failure")
+			os.Exit(42)
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		frames := []connectorruntime.SourceCommandFrame{
+			{Kind: connectorruntime.SourceFrameKindReady, SourceID: "source_feishu_chat", Connector: "feishu", AdapterRef: "feishu-source-adapter"},
+			{
+				Kind:     connectorruntime.SourceFrameKindEvent,
+				SourceID: "source_feishu_chat",
+				Event: &connectorruntime.ExternalEvent{
+					Connector:        "feishu",
+					ExternalEventID:  "evt_retry_success",
+					EventType:        "message.created",
+					ThreadRef:        connectorruntime.ExternalThreadRef{Connector: "feishu", Kind: "chat", ExternalID: "oc_1"},
+					SenderRef:        connectorruntime.ExternalRef{Connector: "feishu", Kind: "user", ExternalID: "ou_1"},
+					MessageRef:       connectorruntime.ExternalRef{Connector: "feishu", Kind: "message", ExternalID: "om_1"},
+					Body:             "hello after retry",
+					SourceValidation: connectorruntime.SourceValidationUnchecked,
+				},
+			},
+			{Kind: connectorruntime.SourceFrameKindStopped, SourceID: "source_feishu_chat", Connector: "feishu", AdapterRef: "feishu-source-adapter"},
+		}
+		for _, frame := range frames {
+			if err := encoder.Encode(frame); err != nil {
+				t.Fatalf("encode frame: %v", err)
+			}
+		}
+	default:
+		t.Fatalf("unknown helper mode %q", mode)
+	}
+	os.Exit(0)
+}
+
+func sourceCommandHelperArgs() (string, string) {
+	for i, arg := range os.Args {
+		if arg != "--" {
+			continue
+		}
+		mode := ""
+		attemptFile := ""
+		if i+1 < len(os.Args) {
+			mode = os.Args[i+1]
+		}
+		if i+2 < len(os.Args) {
+			attemptFile = os.Args[i+2]
+		}
+		return mode, attemptFile
+	}
+	return "", ""
 }
 
 func testFeishuExternalEvent(eventID string) connectorruntime.ExternalEvent {

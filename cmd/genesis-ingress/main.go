@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"genesis/internal/applications/connector_runtime"
 )
@@ -73,6 +74,8 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	sourceCommand := fs.String("source-command", "", "direct source adapter executable that emits source_command NDJSON frames")
 	sourceID := fs.String("source-id", "feishu.im.message.receive", "stable connector source id; do not include profile or credential material")
 	sourceAdapterRef := fs.String("source-adapter-ref", "feishu-source-adapter", "connector-local source adapter reference")
+	sourceAttempts := fs.Int("source-attempts", 1, "maximum source_command attempts after recoverable runtime failures")
+	sourceBackoff := fs.Duration("source-backoff", time.Second, "backoff between recoverable source_command attempts")
 	deliverFinal := fs.Bool("deliver-final", false, "enqueue and deliver kernel final_text back through the connector outbox")
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
 	sourceFailurePath := fs.String("source-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_STATE", filepath.Join(".genesis_ingress", "source_failures.json")), "connector source failure state file")
@@ -83,6 +86,12 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	fs.Var(&sourceCommandArgs, "source-command-arg", "argument passed to the source adapter executable; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *sourceAttempts < 1 {
+		return fmt.Errorf("feishu-listen --source-attempts must be at least 1")
+	}
+	if *sourceBackoff < 0 {
+		return fmt.Errorf("feishu-listen --source-backoff must not be negative")
 	}
 	_, runtime, err := buildRuntime(flags, stdin)
 	if err != nil {
@@ -118,7 +127,14 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		FailureStore:    sourceFailureStore,
 		IgnoreSenderIDs: append([]string(nil), ignoreSenderIDs...),
 	}
-	return adapter.Consume(ctx, func(event connectorruntime.ExternalEvent) error {
+	supervisor := connectorruntime.SourceCommandSupervisor{
+		Adapter: adapter,
+		Retry: connectorruntime.SourceCommandRetryPolicy{
+			MaxAttempts: *sourceAttempts,
+			Backoff:     *sourceBackoff,
+		},
+	}
+	return supervisor.Run(ctx, func(event connectorruntime.ExternalEvent) error {
 		result, err := runtime.ProcessExternalEvent(ctx, event)
 		if encodeErr := encoder.Encode(result); encodeErr != nil {
 			return encodeErr

@@ -134,9 +134,11 @@ Current automated coverage includes:
   `SourceAttempt`, `SourceCursor`, `SourceFailureRecord`, and
   `SourceVerificationEvidence` state. The Feishu source adapter command owns
   `lark-cli event consume` and raw Feishu payload parsing, then emits typed
-  source frames. This is still a bounded smoke-grade source path: it does not
-  yet make source validation verified and does not provide a production process
-  supervisor, webhook signature verification, or credential/profile refresh.
+  source frames. Runtime now has bounded generic retry/backoff for recoverable
+  `source_command` process failures; blocked readiness failures do not retry.
+  This is still a bounded smoke-grade source path: it does not yet make source
+  validation verified and does not provide full production process supervision,
+  webhook signature verification, or credential/profile refresh.
   Runtime source code must not know Feishu event consume argv, identity flags,
   event keys, or raw source payload envelopes.
   `genesis-ingress feishu-probe` now gives operators a no-side-effect

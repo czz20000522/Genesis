@@ -212,6 +212,12 @@ The first Feishu source adapter may internally use `lark-cli`, SDK, HTTP, or
 webhook details, but those details are adapter-owned and observable to the
 runtime only through source frames.
 
+This phase also includes bounded generic retry/backoff for recoverable
+`source_command` process failures. Retry applies to the source adapter process
+boundary, not to malformed events, kernel submission policy, session mapping,
+or external protocol translation. Blocked source readiness failures must not be
+retried as if they were transient runtime failures.
+
 ### Phase D: Event Verification
 
 Add event or event-batch verification evidence for sources that support it:

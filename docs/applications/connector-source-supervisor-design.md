@@ -258,6 +258,11 @@ Readiness never upgrades an event to verified. A Feishu `lark-cli event consume`
 source that starts successfully emits unchecked events until the connector has
 durable event authenticity evidence.
 
+`source_validation=verified` requires evidence whose own status is verified,
+whose kind and reference are non-empty, and whose adapter binding matches the
+configured source adapter. Weak assertions such as `validation_status=unchecked`
+or adapter-mismatched evidence must be rejected before `ExternalEvent` emission.
+
 ## Source Lifecycle
 
 Source lifecycle is connector-local:
@@ -281,6 +286,18 @@ policy rejection. `stopped` records an operator or supervisor stop.
 Each start, probe, consume, or poll attempt creates a `SourceAttempt`. Attempts
 must be bounded and observable. A repeated source failure updates connector
 source state and failure records, not kernel facts.
+
+Minimum source command supervision is generic. The runtime may retry a
+`source_command` process after recoverable runtime failures with bounded
+attempts and backoff, but blocked readiness failures such as missing command,
+invalid executable, invalid environment, missing profile, or credential posture
+must fail closed without retry churn. The retry loop owns timing; process
+attempts and run status are recorded at the source command intake boundary. The
+source adapter still owns external protocol details and only emits typed
+frames. Handler errors after a valid `ExternalEvent` is emitted belong to
+Application Connector Runtime or kernel submission; they must not be
+reclassified as source runtime failures, written into source run diagnostics, or
+repaired by restarting the source adapter.
 
 ## Cursor And Dedupe Interaction
 
@@ -314,6 +331,14 @@ broker can replace the readiness probe implementation without changing source
 supervisor ownership.
 
 ## Failure Semantics
+
+`SourceFailureRecord` is a connector fact, not a raw adapter payload mirror.
+Failure records use configured source identity where available; untrusted frame
+fields cannot override connector, source run, or adapter identity. Adapter
+provided payload hashes are only accepted when they match the canonical
+`sha256:<hex>` shape. Raw payloads stay out of durable failure facts unless a
+separate resource/debug owner with TTL, quota, and access boundaries stores
+them.
 
 Malformed, unauthenticated, policy-rejected, unsupported, or adapter-failed
 source data must be classified before kernel submission.

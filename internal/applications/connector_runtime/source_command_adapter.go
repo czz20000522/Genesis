@@ -22,12 +22,13 @@ const (
 )
 
 type SourceCommandFrameConsumer struct {
-	ExpectedSourceID  string
-	ExpectedConnector string
-	SourceStore       SourceSupervisorStore
-	FailureStore      SourceFailureStore
-	IgnoreSenderIDs   []string
-	Now               func() time.Time
+	ExpectedSourceID   string
+	ExpectedConnector  string
+	ExpectedAdapterRef string
+	SourceStore        SourceSupervisorStore
+	FailureStore       SourceFailureStore
+	IgnoreSenderIDs    []string
+	Now                func() time.Time
 }
 
 type SourceCommandAdapter struct {
@@ -79,11 +80,11 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 	adapterRef := strings.TrimSpace(a.AdapterRef)
 	switch {
 	case sourceID == "":
-		return errors.New("source command source_id is required")
+		return sourceCommandBlockedError(errors.New("source command source_id is required"))
 	case connector == "":
-		return errors.New("source command connector is required")
+		return sourceCommandBlockedError(errors.New("source command connector is required"))
 	case adapterRef == "":
-		return errors.New("source command adapter_ref is required")
+		return sourceCommandBlockedError(errors.New("source command adapter_ref is required"))
 	}
 	startedAt := sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now})
 	if err := a.recordRun(ctx, SourceRunStatusStarting, "", startedAt, time.Time{}); err != nil {
@@ -98,7 +99,7 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeBlocked, ""); recordErr != nil {
 			return recordErr
 		}
-		return err
+		return sourceCommandBlockedError(err)
 	}
 	env, err := a.environment()
 	if err != nil {
@@ -109,7 +110,7 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeBlocked, ""); recordErr != nil {
 			return recordErr
 		}
-		return err
+		return sourceCommandBlockedError(err)
 	}
 
 	cmd := exec.CommandContext(ctx, executable, a.Args...)
@@ -117,7 +118,7 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 	cmd.Env = env
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return sourceCommandBlockedError(err)
 	}
 	var stderr connectorCommandCappedBuffer
 	stderr.limit = maxConnectorCommandOutputBytes
@@ -130,28 +131,38 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeBlocked, ""); recordErr != nil {
 			return recordErr
 		}
-		return err
+		return sourceCommandBlockedError(err)
 	}
 	consumer := SourceCommandFrameConsumer{
-		ExpectedSourceID:  sourceID,
-		ExpectedConnector: connector,
-		SourceStore:       a.SourceStore,
-		FailureStore:      a.FailureStore,
-		IgnoreSenderIDs:   append([]string(nil), a.IgnoreSenderIDs...),
-		Now:               a.Now,
+		ExpectedSourceID:   sourceID,
+		ExpectedConnector:  connector,
+		ExpectedAdapterRef: adapterRef,
+		SourceStore:        a.SourceStore,
+		FailureStore:       a.FailureStore,
+		IgnoreSenderIDs:    append([]string(nil), a.IgnoreSenderIDs...),
+		Now:                a.Now,
 	}
 	consumeErr := ConsumeSourceCommandFrames(ctx, stdout, consumer, handle)
 	endedAt := sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now})
 	if consumeErr != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
+		if errors.Is(consumeErr, errSourceCommandHandlerFailed) {
+			if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeFailed, ""); recordErr != nil {
+				return recordErr
+			}
+			if recordErr := a.recordRun(ctx, SourceRunStatusStopped, "", startedAt, endedAt); recordErr != nil {
+				return recordErr
+			}
+			return consumeErr
+		}
 		if recordErr := a.recordRun(ctx, SourceRunStatusDegraded, consumeErr.Error(), startedAt, endedAt); recordErr != nil {
 			return recordErr
 		}
 		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeFailed, ""); recordErr != nil {
 			return recordErr
 		}
-		return consumeErr
+		return sourceCommandRuntimeError(consumeErr)
 	}
 	waitErr := cmd.Wait()
 	if waitErr != nil {
@@ -175,7 +186,7 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeFailed, ""); recordErr != nil {
 			return recordErr
 		}
-		return errors.New("source command failed")
+		return sourceCommandRuntimeError(errors.New("source command failed"))
 	}
 	if err := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeStopped, ""); err != nil {
 		return err
@@ -381,6 +392,9 @@ func consumeSourceEventFrame(ctx context.Context, consumer SourceCommandFrameCon
 	if err := event.Validate(); err != nil {
 		return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "source_payload_malformed", err), "")
 	}
+	if err := validateSourceEventBinding(consumer, frame, event); err != nil {
+		return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "source_payload_malformed", err), "")
+	}
 	if !validSourceValidationStatus(event.SourceValidation) {
 		return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "source_verification_failed", errors.New("source event validation status is invalid")), "")
 	}
@@ -392,8 +406,8 @@ func consumeSourceEventFrame(ctx context.Context, consumer SourceCommandFrameCon
 			return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "source_verification_failed", errors.New("verified source event missing verification evidence")), "")
 		}
 		evidence := *frame.VerificationEvidence
-		if strings.TrimSpace(evidence.SourceEventRef) != event.ExternalEventID {
-			return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "source_verification_failed", errors.New("verification evidence event ref mismatch")), "")
+		if err := validateSourceVerificationEvidenceForEvent(consumer, frame, event, evidence); err != nil {
+			return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "source_verification_failed", err), "")
 		}
 		if consumer.SourceStore != nil {
 			if err := consumer.SourceStore.RecordSourceVerification(ctx, evidence); err != nil {
@@ -405,7 +419,7 @@ func consumeSourceEventFrame(ctx context.Context, consumer SourceCommandFrameCon
 		return "", nil
 	}
 	if err := handle(event); err != nil {
-		return "", err
+		return "", sourceCommandHandlerError(err)
 	}
 	if frame.Cursor != nil {
 		cursor, err := sourceCursorFromFrame(frame.SourceID, *frame.Cursor)
@@ -504,6 +518,22 @@ func validateExpectedSourceFrame(consumer SourceCommandFrameConsumer, frame Sour
 	if expectedConnector != "" && strings.TrimSpace(frame.Connector) != "" && strings.TrimSpace(frame.Connector) != expectedConnector {
 		return errors.New("source frame connector mismatch")
 	}
+	expectedAdapterRef := strings.TrimSpace(consumer.ExpectedAdapterRef)
+	if expectedAdapterRef != "" && strings.TrimSpace(frame.AdapterRef) != "" && strings.TrimSpace(frame.AdapterRef) != expectedAdapterRef {
+		return errors.New("source frame adapter_ref mismatch")
+	}
+	return nil
+}
+
+func validateSourceEventBinding(consumer SourceCommandFrameConsumer, frame SourceCommandFrame, event ExternalEvent) error {
+	expectedConnector := strings.TrimSpace(consumer.ExpectedConnector)
+	eventConnector := strings.TrimSpace(event.Connector)
+	if expectedConnector != "" && eventConnector != expectedConnector {
+		return errors.New("source event connector mismatch")
+	}
+	if frameConnector := strings.TrimSpace(frame.Connector); frameConnector != "" && eventConnector != frameConnector {
+		return errors.New("source frame connector does not match event connector")
+	}
 	return nil
 }
 
@@ -546,6 +576,31 @@ func sourceCursorFromFrame(sourceID string, frame SourceCommandCursorFrame) (Sou
 	return normalizeSourceCursor(cursor)
 }
 
+func validateSourceVerificationEvidenceForEvent(consumer SourceCommandFrameConsumer, frame SourceCommandFrame, event ExternalEvent, evidence SourceVerificationEvidence) error {
+	evidence.SourceEventRef = strings.TrimSpace(evidence.SourceEventRef)
+	evidence.ValidationStatus = strings.TrimSpace(evidence.ValidationStatus)
+	evidence.EvidenceKind = strings.TrimSpace(evidence.EvidenceKind)
+	evidence.EvidenceRef = strings.TrimSpace(evidence.EvidenceRef)
+	evidence.AdapterRef = strings.TrimSpace(evidence.AdapterRef)
+	switch {
+	case evidence.SourceEventRef != strings.TrimSpace(event.ExternalEventID):
+		return errors.New("verification evidence event ref mismatch")
+	case evidence.ValidationStatus != SourceValidationVerified:
+		return errors.New("verification evidence status must be verified")
+	case evidence.EvidenceKind == "" || evidence.EvidenceRef == "":
+		return errors.New("verified source event requires evidence kind and ref")
+	}
+	expectedAdapterRef := strings.TrimSpace(consumer.ExpectedAdapterRef)
+	if expectedAdapterRef != "" && evidence.AdapterRef != expectedAdapterRef {
+		return errors.New("verification evidence adapter_ref mismatch")
+	}
+	frameAdapterRef := strings.TrimSpace(frame.AdapterRef)
+	if frameAdapterRef != "" && evidence.AdapterRef != frameAdapterRef {
+		return errors.New("verification evidence frame adapter_ref mismatch")
+	}
+	return nil
+}
+
 func sourceFrameValidationFailure(frame SourceCommandFrame, reason string, cause error) SourceCommandFrame {
 	frame.Kind = SourceFrameKindFailed
 	frame.Reason = reason
@@ -563,17 +618,21 @@ func recordSourceCommandFrameFailure(ctx context.Context, consumer SourceCommand
 	if reason == "" {
 		reason = "source_runtime_failed"
 	}
-	connector := firstNonEmpty(frame.Connector, "source_command")
-	eventSource := firstNonEmpty(frame.EventSource, "source_command")
+	connector := firstNonEmpty(consumer.ExpectedConnector, frame.Connector, "source_command")
+	eventSource := firstNonEmpty(consumer.ExpectedAdapterRef, frame.EventSource, "source_command")
 	detail := safeSourceFailureDiagnostic(firstNonEmpty(frame.Detail, reason))
+	payloadHash := ""
+	if validSourcePayloadHash(frame.PayloadHash) {
+		payloadHash = strings.TrimSpace(frame.PayloadHash)
+	}
 	record := SourceFailureRecord{
 		Connector:         connector,
 		EventSource:       eventSource,
-		SourceRunRef:      strings.TrimSpace(frame.SourceID),
+		SourceRunRef:      firstNonEmpty(consumer.ExpectedSourceID, frame.SourceID),
 		Reason:            reason,
 		Detail:            detail,
 		DiagnosticExcerpt: detail,
-		PayloadHash:       strings.TrimSpace(frame.PayloadHash),
+		PayloadHash:       payloadHash,
 		PayloadSizeBytes:  frame.PayloadSizeBytes,
 		SourceValidation:  SourceValidationRejected,
 	}
@@ -583,6 +642,22 @@ func recordSourceCommandFrameFailure(ctx context.Context, consumer SourceCommand
 		record.DiagnosticExcerpt = safeSourceFailureDiagnostic(fmt.Sprintf("%s; source_bytes=%d", detail, len(rawLine)))
 	}
 	return consumer.FailureStore.RecordSourceFailure(ctx, record)
+}
+
+func validSourcePayloadHash(value string) bool {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "sha256:") || len(value) != len("sha256:")+64 {
+		return false
+	}
+	for _, r := range strings.TrimPrefix(value, "sha256:") {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func sourceCommandNow(consumer SourceCommandFrameConsumer) time.Time {
