@@ -381,10 +381,9 @@ Current related active issues:
 
 - `KERNEL-SANDBOX-APPROVAL-NEXT-20260623`: implementation gap for stronger sandbox and approval beyond the current authority-profile split.
 - `KERNEL-JOB-CONTROL-INTERRUPT-20260623`: remaining interrupt, progress snapshot, idle continuation, and foreground attach-or-kill semantics. It is governed by the shell/job requirement because it extends the generic Tool Runtime and managed-job path rather than the foundation baseline itself.
-- `KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624`: future gap for a real executor pool, provider-order commit under concurrent completion, and crash/replay guarantees. `shell_exec` remains serial; only registered owner-backed pure-read tools such as `resource_read` may become executor-pool candidates.
 
 Related ready-for-acceptance shell/job evidence:
 
-- `KERNEL-SHELL-TIMEOUT-CAP-20260623`, `KERNEL-MANAGED-JOB-FOUNDATION-20260623`, `KERNEL-OBSERVATION-DELIVERY-20260623`, and `KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624` are recorded in `docs/operations/kernel-retirement-log.md`.
+- `KERNEL-SHELL-TIMEOUT-CAP-20260623`, `KERNEL-MANAGED-JOB-FOUNDATION-20260623`, `KERNEL-OBSERVATION-DELIVERY-20260623`, `KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624`, and `KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624` are recorded in `docs/operations/kernel-retirement-log.md`.
 
 Issues should cite this requirement only for gaps against these production semantics. They should not restate the full requirement or reopen application-specific kernel ownership.

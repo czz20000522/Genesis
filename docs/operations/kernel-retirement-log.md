@@ -22,6 +22,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Verification: `go test ./internal/kernel -count=1`; `git diff --check`.
 - Reference alignment: Matches Reasonix trusted read-only metadata and Codex opt-in parallel support while rejecting shell command text as a read classifier.
 
+### KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624 - P2 - Tool scheduling and pure-read executor pool
+
+- Status: ready_for_acceptance.
+- Conclusion: Tool execution now plans by trusted effect/footprint policy, keeps effectful and process-control work serial, runs only eligible `pure_read` batches concurrently, and commits `tool.result` events in provider call order.
+- Fix commits: `56dadd307`, `7b06851ff`, `05738e97a`, `efdcd8a20`, `5da33e29e`, `665a9222f`.
+- Verification: `go test ./internal/kernel -count=1`; `go test -race ./internal/kernel -run "TestExecuteToolBatchesRunsPureReadBatchConcurrently|TestExecuteToolBatchesKeepsProcessIOBatchSerialByDefault|TestResourceReadPreparesPureReadAccessPlan" -count=1`; `git diff --check`.
+- Reference alignment: Matches Reasonix's read-only batch fan-out and Codex's explicit parallel support gate while intentionally not adopting shell parallelism.
+
 ### KERNEL-UI-LIVE-TIMELINE-PROJECTION-20260624 - P1 - UI timeline projection
 
 - Status: ready_for_acceptance.
