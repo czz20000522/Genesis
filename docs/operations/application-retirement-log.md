@@ -65,3 +65,7 @@ tests, governing requirement/design, or still-active issues.
 ### APP-CONNECTOR-IMPLEMENTATION-PLAN-DRIFT-20260624 - Reframe connector plan as implemented slices plus production gaps
 
 - Retired: the connector implementation plan no longer presents retired delivery-state-machine work as an active issue and now points future work at remaining production boundaries. Evidence: commit `7906bd430`.
+
+### APP-CONNECTOR-DRIVER-MIGRATION-20260625 - Move Feishu final delivery to connector_command
+
+- Retired: Feishu final delivery and probe readiness now use `ConnectorCommandAdapter` by default, with `genesis-feishu-connector-adapter` owning the lark-cli send-message protocol and command-template retained only as explicit smoke fallback. Evidence: commit `c69928afe`.

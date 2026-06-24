@@ -109,7 +109,9 @@ Reference scan:
 
 Evidence:
 
-- In progress: Feishu final delivery now configures `ConnectorCommandAdapter`, and a new user-space `genesis-feishu-connector-adapter` owns the lark-cli send-message syntax.
+- Completed by `c69928afe`.
+- Feishu final delivery now configures `ConnectorCommandAdapter`, and the user-space `genesis-feishu-connector-adapter` owns the lark-cli send-message syntax.
+- The transitional command-template driver is marked as an explicit local smoke fallback and guarded out of `genesis-ingress`.
 
 ## Phase 3: Connector Credential/Profile Readiness
 
