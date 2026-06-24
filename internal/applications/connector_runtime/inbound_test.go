@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"genesis/internal/testsupport"
 )
 
 func TestProcessExternalEventSubmitsOpaqueKernelTurn(t *testing.T) {
@@ -289,7 +291,7 @@ func TestInvalidExternalEventRejectsMismatchedConnectorRefs(t *testing.T) {
 }
 
 func TestFileInboundStorePersistsDuplicateAcrossReopen(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "connector-inbound-state.json")
+	path := filepath.Join(testsupport.ProjectTempDir(t, "connector-inbound-reopen"), "connector-inbound-state.json")
 	store, err := NewFileInboundStore(path)
 	if err != nil {
 		t.Fatalf("NewFileInboundStore returned error: %v", err)
@@ -330,7 +332,7 @@ func TestFileInboundStorePersistsDuplicateAcrossReopen(t *testing.T) {
 
 func newTestInboundStore(t *testing.T) *FileInboundStore {
 	t.Helper()
-	store, err := NewFileInboundStore(filepath.Join(t.TempDir(), "connector-inbound-state.json"))
+	store, err := NewFileInboundStore(filepath.Join(testsupport.ProjectTempDir(t, "connector-inbound"), "connector-inbound-state.json"))
 	if err != nil {
 		t.Fatalf("NewFileInboundStore returned error: %v", err)
 	}

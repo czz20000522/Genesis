@@ -5,11 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"genesis/internal/testsupport"
 )
 
 func TestFileOutboxStoreConcurrentInstancesPreserveIndependentEnqueues(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "connector-outbox.json")
+	path := filepath.Join(testsupport.ProjectTempDir(t, "outbox-concurrent-enqueue"), "connector-outbox.json")
 	first, err := NewFileOutboxStore(path)
 	if err != nil {
 		t.Fatalf("first NewFileOutboxStore returned error: %v", err)
@@ -45,7 +47,7 @@ func TestFileOutboxStoreConcurrentInstancesPreserveIndependentEnqueues(t *testin
 
 func TestFileOutboxStoreConcurrentInstancesPreserveReceiptHistory(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "connector-outbox.json")
+	path := filepath.Join(testsupport.ProjectTempDir(t, "outbox-concurrent-receipts"), "connector-outbox.json")
 	seed, err := NewFileOutboxStore(path)
 	if err != nil {
 		t.Fatalf("seed NewFileOutboxStore returned error: %v", err)
@@ -101,7 +103,7 @@ func TestFileOutboxStoreConcurrentInstancesPreserveReceiptHistory(t *testing.T) 
 
 func TestFileOutboxStoreConcurrentInstancesDoNotClaimSameItem(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "connector-outbox.json")
+	path := filepath.Join(testsupport.ProjectTempDir(t, "outbox-concurrent-claim"), "connector-outbox.json")
 	seed, err := NewFileOutboxStore(path)
 	if err != nil {
 		t.Fatalf("seed NewFileOutboxStore returned error: %v", err)

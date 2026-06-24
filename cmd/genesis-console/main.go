@@ -23,6 +23,13 @@ type InspectionReport struct {
 	KernelErrors   map[string]string                             `json:"kernel_errors,omitempty"`
 }
 
+type InspectFilters struct {
+	Connector       string
+	InboundStatus   string
+	OutboxStatus    string
+	KernelSessionID string
+}
+
 type RecoveryResult struct {
 	Item    connectorruntime.ConnectorOutboxItem `json:"item"`
 	Receipt connectorruntime.DeliveryReceipt     `json:"receipt"`
@@ -55,11 +62,21 @@ func runInspect(ctx context.Context, args []string, stdout io.Writer, stderr io.
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
 	kernelURL := fs.String("kernel-url", os.Getenv("GENESIS_KERNEL_URL"), "optional Genesis Kernel HTTP URL for session projections")
 	runtimeToken := fs.String("runtime-token", os.Getenv("GENESIS_RUNTIME_TOKEN"), "Genesis runtime bearer token")
+	connector := fs.String("connector", "", "filter connector records by connector name")
+	inboundStatus := fs.String("inbound-status", "", "filter inbound records by connector-local status")
+	outboxStatus := fs.String("outbox-status", "", "filter outbox records by connector-local status")
+	kernelSessionID := fs.String("kernel-session-id", "", "filter inbound records and kernel projection by kernel session id")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	report, err := inspectConnectorState(ctx, *inboundPath, *outboxPath, strings.TrimRight(*kernelURL, "/"), *runtimeToken)
+	filters := InspectFilters{
+		Connector:       strings.TrimSpace(*connector),
+		InboundStatus:   strings.TrimSpace(*inboundStatus),
+		OutboxStatus:    strings.TrimSpace(*outboxStatus),
+		KernelSessionID: strings.TrimSpace(*kernelSessionID),
+	}
+	report, err := inspectConnectorState(ctx, *inboundPath, *outboxPath, strings.TrimRight(*kernelURL, "/"), *runtimeToken, filters)
 	if err != nil {
 		return err
 	}
@@ -96,7 +113,7 @@ func runRequeueOutbox(ctx context.Context, args []string, stdout io.Writer, stde
 	return nil
 }
 
-func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath string, kernelURL string, runtimeToken string) (InspectionReport, error) {
+func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath string, kernelURL string, runtimeToken string, filters InspectFilters) (InspectionReport, error) {
 	inboundStore, err := connectorruntime.NewFileInboundStore(inboundPath)
 	if err != nil {
 		return InspectionReport{}, err
@@ -113,6 +130,8 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 	if err != nil {
 		return InspectionReport{}, err
 	}
+	inbound = filterInbound(inbound, filters)
+	outbox = filterOutbox(outbox, filters)
 	receipts := make(map[string][]connectorruntime.DeliveryReceipt, len(outbox))
 	for _, item := range outbox {
 		itemReceipts, err := outboxStore.ListReceipts(ctx, item.OutboxID)
@@ -136,6 +155,43 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 		}
 	}
 	return report, nil
+}
+
+func filterInbound(records []connectorruntime.InboundSubmissionRecord, filters InspectFilters) []connectorruntime.InboundSubmissionRecord {
+	if filters.Connector == "" && filters.InboundStatus == "" && filters.KernelSessionID == "" {
+		return records
+	}
+	filtered := make([]connectorruntime.InboundSubmissionRecord, 0, len(records))
+	for _, record := range records {
+		if filters.Connector != "" && record.Connector != filters.Connector {
+			continue
+		}
+		if filters.InboundStatus != "" && record.Status != filters.InboundStatus {
+			continue
+		}
+		if filters.KernelSessionID != "" && record.KernelSessionID != filters.KernelSessionID {
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+	return filtered
+}
+
+func filterOutbox(items []connectorruntime.ConnectorOutboxItem, filters InspectFilters) []connectorruntime.ConnectorOutboxItem {
+	if filters.Connector == "" && filters.OutboxStatus == "" {
+		return items
+	}
+	filtered := make([]connectorruntime.ConnectorOutboxItem, 0, len(items))
+	for _, item := range items {
+		if filters.Connector != "" && item.Connector != filters.Connector {
+			continue
+		}
+		if filters.OutboxStatus != "" && item.Status != filters.OutboxStatus {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
 }
 
 func uniqueKernelSessionIDs(inbound []connectorruntime.InboundSubmissionRecord) []string {

@@ -76,6 +76,16 @@ issues remain in `docs/operations/application-issues.md`.
 - Verification: `TestConsoleInspectReadsConnectorStateAndKernelProjection`; `go test ./cmd/genesis-console -count=1`.
 - Residual risk: This retires only the read-only inspection view. Recovery commands for recovery-required and dead-lettered connector state remain active under `APP-CONNECTOR-OPERATOR-CONSOLE-20260623`.
 
+### APP-CONNECTOR-OPERATOR-CONSOLE-FILTERS-20260624 - Add focused connector inspection filters
+
+- Retired in: operator console filter implementation change set.
+- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Fix summary: Added `genesis-console inspect` filters for connector name, inbound status, outbox status, and kernel session id. Receipts are loaded only for filtered outbox items, and kernel session projections are fetched only for filtered inbound session ids.
+- Boundary evidence: Filtering is a read-only console projection over connector-owned state plus optional kernel HTTP projection reads. It does not parse kernel raw events, write kernel facts, fabricate tool results, mutate memory, or reinterpret connector delivery outcomes as kernel truth.
+- Verification: `TestConsoleInspectFiltersConnectorStatusAndSession`; `go test ./cmd/genesis-console -count=1`.
+- Residual risk: Source-failure/dead-letter inspection and recovery-required reconciliation remain active under `APP-CONNECTOR-OPERATOR-CONSOLE-20260623`.
+
 ### APP-CONNECTOR-FINAL-TEXT-DELIVERY-SMOKE-20260624 - Deliver ordinary kernel final text through connector outbox
 
 - Retired in: Feishu final-text delivery smoke implementation change set.

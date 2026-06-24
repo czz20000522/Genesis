@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"genesis/internal/testsupport"
 )
 
 func TestEnqueueAppCommandCreatesOneOutboxItemWithOpaqueID(t *testing.T) {
@@ -194,7 +196,7 @@ func TestExecuteOutboxItemSuppressesDuplicateSentDelivery(t *testing.T) {
 
 func newTestOutboxStore(t *testing.T) *FileOutboxStore {
 	t.Helper()
-	store, err := NewFileOutboxStore(filepath.Join(t.TempDir(), "connector-outbox.json"))
+	store, err := NewFileOutboxStore(filepath.Join(testsupport.ProjectTempDir(t, "connector-outbox"), "connector-outbox.json"))
 	if err != nil {
 		t.Fatalf("NewFileOutboxStore returned error: %v", err)
 	}

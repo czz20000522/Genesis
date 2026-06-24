@@ -7,10 +7,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"genesis/internal/testsupport"
 )
 
 func TestConnectorCommandAdapterSendsTypedActionAndReadsTypedResult(t *testing.T) {
-	capturePath := t.TempDir() + "/captured-action.json"
+	capturePath := testsupport.ProjectTempDir(t, "connector-command-adapter") + "/captured-action.json"
 	adapter := testConnectorCommandAdapter("sent", capturePath)
 
 	result, err := adapter.Execute(context.Background(), testConnectorSendAction())

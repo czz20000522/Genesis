@@ -8,16 +8,19 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"genesis/internal/applications/connector_runtime"
+	"genesis/internal/testsupport"
 )
 
 func TestConsoleInspectReadsConnectorStateAndKernelProjection(t *testing.T) {
 	ctx := context.Background()
-	inboundPath := filepath.Join(t.TempDir(), "inbound.json")
-	outboxPath := filepath.Join(t.TempDir(), "outbox.json")
+	dir := testsupport.ProjectTempDir(t, "genesis-console-inspect")
+	inboundPath := filepath.Join(dir, "inbound.json")
+	outboxPath := filepath.Join(dir, "outbox.json")
 
 	inboundStore, err := connectorruntime.NewFileInboundStore(inboundPath)
 	if err != nil {
@@ -119,9 +122,144 @@ func TestConsoleInspectReadsConnectorStateAndKernelProjection(t *testing.T) {
 	}
 }
 
+func TestConsoleInspectFiltersConnectorStatusAndSession(t *testing.T) {
+	ctx := context.Background()
+	dir := testsupport.ProjectTempDir(t, "genesis-console-filters")
+	inboundPath := filepath.Join(dir, "inbound.json")
+	outboxPath := filepath.Join(dir, "outbox.json")
+
+	inboundStore, err := connectorruntime.NewFileInboundStore(inboundPath)
+	if err != nil {
+		t.Fatalf("NewFileInboundStore returned error: %v", err)
+	}
+	keepInbound := connectorruntime.InboundSubmissionRecord{
+		RequestID:            "req_keep",
+		DedupeKey:            "dedupe_keep",
+		KernelIdempotencyKey: "turn_keep",
+		Connector:            "feishu",
+		EventType:            "message.created",
+		ApplicationSessionID: "app_keep",
+		KernelSessionID:      "kernel_keep",
+		TurnID:               "turn_keep",
+		Status:               connectorruntime.SubmissionStatusSubmitted,
+		CreatedAt:            time.Date(2026, 6, 24, 12, 1, 0, 0, time.UTC),
+		UpdatedAt:            time.Date(2026, 6, 24, 12, 1, 1, 0, time.UTC),
+	}
+	dropInbound := keepInbound
+	dropInbound.RequestID = "req_drop"
+	dropInbound.DedupeKey = "dedupe_drop"
+	dropInbound.KernelIdempotencyKey = "turn_drop"
+	dropInbound.Connector = "email"
+	dropInbound.ApplicationSessionID = "app_drop"
+	dropInbound.KernelSessionID = "kernel_drop"
+	dropInbound.TurnID = "turn_drop"
+	dropInbound.Status = connectorruntime.SubmissionStatusFailed
+	for _, record := range []connectorruntime.InboundSubmissionRecord{keepInbound, dropInbound} {
+		if _, reserved, err := inboundStore.Reserve(ctx, record); err != nil || !reserved {
+			t.Fatalf("Reserve(%s) returned reserved=%v err=%v", record.RequestID, reserved, err)
+		}
+		if err := inboundStore.Complete(ctx, record); err != nil {
+			t.Fatalf("Complete(%s) returned error: %v", record.RequestID, err)
+		}
+	}
+
+	outboxStore, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		t.Fatalf("NewFileOutboxStore returned error: %v", err)
+	}
+	keepItem, _, err := outboxStore.EnqueueCommand(ctx, connectorruntime.AppCommand{
+		CommandID: "cmd_keep",
+		Kind:      "send_message",
+		TargetRef: connectorruntime.ExternalThreadRef{
+			Connector:  "feishu",
+			Kind:       "chat",
+			ExternalID: "oc_keep",
+		},
+		Body:      "keep",
+		DedupeKey: "reply_keep",
+	}, time.Date(2026, 6, 24, 12, 1, 2, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("enqueue keep item: %v", err)
+	}
+	keepItem.Status = connectorruntime.OutboxStatusDeadLetter
+	if err := outboxStore.RecordDelivery(ctx, keepItem, connectorruntime.DeliveryReceipt{
+		ReceiptID:  "receipt_keep",
+		OutboxID:   keepItem.OutboxID,
+		Connector:  "feishu",
+		Status:     connectorruntime.DeliveryStatusDeadLettered,
+		Attempt:    1,
+		RecordedAt: time.Date(2026, 6, 24, 12, 1, 3, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("record keep receipt: %v", err)
+	}
+	dropItem, _, err := outboxStore.EnqueueCommand(ctx, connectorruntime.AppCommand{
+		CommandID: "cmd_drop",
+		Kind:      "send_message",
+		TargetRef: connectorruntime.ExternalThreadRef{
+			Connector:  "email",
+			Kind:       "thread",
+			ExternalID: "mail_drop",
+		},
+		Body:      "drop",
+		DedupeKey: "reply_drop",
+	}, time.Date(2026, 6, 24, 12, 1, 4, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("enqueue drop item: %v", err)
+	}
+	dropItem.Status = connectorruntime.OutboxStatusSent
+	if err := outboxStore.RecordDelivery(ctx, dropItem, connectorruntime.DeliveryReceipt{
+		ReceiptID:  "receipt_drop",
+		OutboxID:   dropItem.OutboxID,
+		Connector:  "email",
+		Status:     connectorruntime.DeliveryStatusSent,
+		Attempt:    1,
+		RecordedAt: time.Date(2026, 6, 24, 12, 1, 5, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("record drop receipt: %v", err)
+	}
+
+	var requestedSessions []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedSessions = append(requestedSessions, strings.TrimPrefix(r.URL.Path, "/sessions/"))
+		_ = json.NewEncoder(w).Encode(map[string]string{"session_id": "kernel_keep"})
+	}))
+	t.Cleanup(server.Close)
+
+	var stdout bytes.Buffer
+	if err := run(ctx, []string{
+		"inspect",
+		"--inbound-state", inboundPath,
+		"--outbox-state", outboxPath,
+		"--kernel-url", server.URL,
+		"--runtime-token", "token",
+		"--connector", "feishu",
+		"--inbound-status", connectorruntime.SubmissionStatusSubmitted,
+		"--outbox-status", connectorruntime.OutboxStatusDeadLetter,
+		"--kernel-session-id", "kernel_keep",
+	}, &stdout, io.Discard); err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	var got InspectionReport
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("decode report: %v\n%s", err, stdout.String())
+	}
+	if len(got.Inbound) != 1 || got.Inbound[0].RequestID != "req_keep" {
+		t.Fatalf("filtered inbound = %+v", got.Inbound)
+	}
+	if len(got.Outbox) != 1 || got.Outbox[0].OutboxID != keepItem.OutboxID {
+		t.Fatalf("filtered outbox = %+v", got.Outbox)
+	}
+	if len(got.Receipts) != 1 || len(got.Receipts[keepItem.OutboxID]) != 1 {
+		t.Fatalf("filtered receipts = %+v", got.Receipts)
+	}
+	if len(requestedSessions) != 1 || requestedSessions[0] != "kernel_keep" {
+		t.Fatalf("requested sessions = %+v, want kernel_keep only", requestedSessions)
+	}
+}
+
 func TestConsoleRequeueOutboxMutatesOnlyConnectorState(t *testing.T) {
 	ctx := context.Background()
-	outboxPath := filepath.Join(t.TempDir(), "outbox.json")
+	outboxPath := filepath.Join(testsupport.ProjectTempDir(t, "genesis-console-requeue"), "outbox.json")
 	outboxStore, err := connectorruntime.NewFileOutboxStore(outboxPath)
 	if err != nil {
 		t.Fatalf("NewFileOutboxStore returned error: %v", err)

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"genesis/internal/applications/connector_runtime"
+	"genesis/internal/testsupport"
 )
 
 func TestFeishuOnceSubmitsInboundMessageWithoutOutboundCLIFlags(t *testing.T) {
@@ -35,7 +36,7 @@ func TestFeishuOnceSubmitsInboundMessageWithoutOutboundCLIFlags(t *testing.T) {
 		"feishu-once",
 		"--kernel-url", server.URL,
 		"--runtime-token", "token",
-		"--state", filepath.Join(t.TempDir(), "state.json"),
+		"--state", filepath.Join(testsupport.ProjectTempDir(t, "feishu-once"), "state.json"),
 		"--message-id", "msg-1",
 		"--thread-id", "chat-1",
 		"--user-id", "user-1",
@@ -94,7 +95,7 @@ func TestFeishuListenConsumesNDJSONEventsAndDedupes(t *testing.T) {
 		"feishu-listen",
 		"--kernel-url", server.URL,
 		"--runtime-token", "token",
-		"--state", filepath.Join(t.TempDir(), "state.json"),
+		"--state", filepath.Join(testsupport.ProjectTempDir(t, "feishu-listen"), "state.json"),
 		"--profile", "codex",
 		"--stdin-jsonl",
 	}, &input, &stdout, io.Discard)
@@ -127,7 +128,7 @@ func TestFeishuListenRequiresExplicitProfileBeforeKernelCall(t *testing.T) {
 		"feishu-listen",
 		"--kernel-url", server.URL,
 		"--runtime-token", "token",
-		"--state", filepath.Join(t.TempDir(), "state.json"),
+		"--state", filepath.Join(testsupport.ProjectTempDir(t, "feishu-listen-missing-profile"), "state.json"),
 		"--stdin-jsonl",
 	}, &input, io.Discard, io.Discard)
 	if err == nil {
