@@ -214,6 +214,32 @@ Done when:
 
 - Contract tests prove current fail-closed semantics and future implementation boundaries without pretending sandbox/approval is production-complete.
 
+Reference scan:
+
+- Codex approval tests keep approval requests as control-plane events that
+  precede execution. Sandbox policy and approval policy are not model-authored
+  tool arguments.
+- Reasonix separates permission policy, interactive approval, and sandbox
+  wrapper. The UI can display approval prompts, but the permission gate remains
+  the authority surface.
+- Genesis alignment: current `on_request` remains a blocker until a kernel-owned
+  approval owner exists; `os_workspace` remains blocked until a real executor can
+  enforce it.
+
+Evidence:
+
+- `docs/requirements/kernel-foundation-capabilities.md` now defines future
+  sandbox enforcement and approval decision production semantics.
+- `docs/design/kernel-foundation-capabilities.md` now documents future
+  approval/sandbox flow and reference alignment.
+- Existing contracts continue to cover current fail-closed behavior:
+  `TestSubmitTurnBlocksUnavailableSandboxProfileBeforeExecution`,
+  `TestSubmitTurnBlocksApprovalRequiredBeforeExecution`,
+  `TestSubmitTurnPlanOnRequestKeepsReadOnlyDenialBeforeApproval`,
+  `TestArchitectureBoundarySandboxProfileCannotBroadenPermissionMode`,
+  `TestArchitectureBoundaryApprovalOnRequestBlocksWriteToolsAtAdmission`, and
+  `TestSubmitTurnReturnsRepairFeedbackForUnknownModelToolArgumentFields`.
+
 ## Phase 6: Foreground Attach Executor Requirement And Contract Tests
 
 Issue:

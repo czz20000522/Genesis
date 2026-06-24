@@ -222,6 +222,72 @@ Current profile semantics:
 
 Approval UI, prompts, or shell transports can request or display approval state, but they cannot decide authority, mint tool results, or mark a blocked operation as executed. Future interactive approval must be introduced as typed control-plane state owned by the kernel.
 
+### Future Sandbox / Approval Flow
+
+The current kernel blocks `approval_policy=on_request` write effects because no
+interactive approval owner exists yet. A production approval path must extend
+the same Authority Plane instead of adding a shell-local prompt or transport
+shortcut.
+
+Future flow:
+
+```text
+model tool call
+  -> ToolGateway validates schema and rejects hidden control fields
+  -> Authority Plane resolves permission_mode / authority_policy /
+     sandbox_profile / approval_policy
+  -> approval required?
+       yes: write approval.requested and stop before effect
+       no: continue
+  -> sandbox profile enforceable?
+       no: write sandbox block and stop before effect
+       yes: acquire sandbox execution boundary
+  -> execute tool
+  -> write operation/tool result evidence
+```
+
+Approval decision flow:
+
+```text
+shell/UI/application displays approval.requested
+  -> caller submits approval decision command
+  -> kernel validates approval id, authority, policy snapshot, and evidence
+  -> denied: write approval.denied and terminal operation block
+  -> approved: write approval.approved before effect admission resumes
+```
+
+The approval owner must keep decision fields out of model-visible tool schemas.
+The model can request an effect; it cannot invent approval ids, permission
+modes, sandbox profiles, workspace roots, credential refs, or decision evidence.
+
+Sandbox enforcement flow:
+
+```text
+resolved sandbox_profile
+  -> executor capability check
+  -> profile unavailable: fail closed before effect
+  -> profile available: run inside adapter boundary
+  -> executor reports sandbox terminal outcome
+```
+
+The sandbox adapter may be OS-specific. Its unavailability is an explicit
+kernel blocker, not a reason to fall back to host shell. The adapter reports
+enforcement evidence to the kernel; provider-visible results remain minimal
+repair or command evidence and do not expose process ids, host handles, policy
+snapshots, or sandbox internals.
+
+Reference alignment:
+
+- Codex keeps approval policy, sandbox policy, and requested sandbox overrides
+  in control-plane state; approval requests are events that precede execution,
+  and approval responses are not model-authored tool results.
+- Reasonix separates permission policy, interactive approval, and sandbox
+  wrapper. A tool can be permission-gated before execution, and the UI renders
+  approval as a standalone control surface rather than chat text.
+- Genesis intentionally differs by failing closed for `os_workspace` until a
+  concrete executor can enforce it; no silent host fallback is allowed for a
+  configured stronger profile.
+
 ## Recovery And Observability
 
 The ledger is append-only owner truth. Restart replay rebuilds session, operation, work, memory, timeline, context, audit, and readiness projections from recorded facts.
