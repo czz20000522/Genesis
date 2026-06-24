@@ -148,6 +148,30 @@ failed, retrying, duplicate suppressed, partially completed, or dead-lettered.
 External errors are translated into connector receipt reasons instead of being
 treated as kernel errors.
 
+`ReconciliationProbe` is a connector-specific, read-only external status query
+for an outbox item that is already in `recovery_required`. It exists only to
+collect connector-local evidence about an ambiguous or partial outbound action.
+It must not resend the action, infer success by fuzzy content search, mutate
+kernel facts, or silently mark the outbox item as sent.
+
+A reconciliation probe is allowed only when the connector has an exact lookup
+handle for the external action, such as a safe `external_action_ref`, a provider
+receipt reference, or a connector idempotency key that the external provider can
+query deterministically. If none of those exact handles exist, the probe outcome
+is unavailable and the item stays `recovery_required` for operator decision.
+
+`ReconciliationEvidence` is the connector-owned durable fact produced by a
+successful probe attempt. It records outbox id, connector, action kind, query
+kind, safe query reference or hash, observed external status, checked time,
+adapter reference, and a safe diagnostic reason. It stores no raw external API
+response, raw CLI output, credential, header, token, attachment content, or
+unbounded message body.
+
+Reconciliation evidence may support a later terminal connector decision such as
+sent or dead-lettered, but that decision remains connector-owned outbox state.
+It never rewrites the original kernel turn, original connector action, or prior
+delivery receipts.
+
 Connector-local file stores used for smoke runs are still durable state for the
 duration of the run. Any file-backed inbound, source failure, outbox, or receipt
 store must serialize load-modify-write cycles across processes and use atomic
@@ -218,6 +242,10 @@ Phase D adds operator console inspection for connector state plus kernel
 projections without letting the console reinterpret raw kernel events as its own
 truth.
 
+Phase D also defines connector-specific reconciliation probe semantics for
+`recovery_required` outbox items. It may add requirement/design and contract
+tests before any live external probe exists.
+
 Phase E adds resource intake and richer connector action types only when they
 are backed by connector-owned idempotency, receipt, and recovery semantics.
 
@@ -234,6 +262,10 @@ are backed by connector-owned idempotency, receipt, and recovery semantics.
   request context.
 - Connector action execution records delivery receipt, retry state, and failure
   reason in connector state only.
+- Recovery-required outbox items can be inspected without resending the action;
+  connector-specific reconciliation probes, when available, require exact
+  external lookup handles and produce connector-local evidence before any
+  terminal recovery decision.
 - Malformed or rejected external source events create connector-local source
   failure diagnostics without persisting raw external payloads in canonical
   connector state.

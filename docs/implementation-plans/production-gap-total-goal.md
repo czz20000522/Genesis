@@ -177,6 +177,24 @@ Done when:
 
 - Requirement/design describe probe input, evidence, terminal outcomes, and fail-closed behavior.
 
+Reference scan:
+
+- Codex and Reasonix do not provide a direct external-channel outbox
+  reconciliation probe to copy. The reusable pattern is evidence separation:
+  external or host-observed receipts are not model claims, and recovery/retry
+  paths do not rewrite prior facts.
+- Genesis alignment: reconciliation probes are connector-local read-only status
+  queries that produce evidence. They cannot resend the action, fuzzily search
+  external content, or mutate kernel facts.
+
+Evidence:
+
+- `docs/applications/application-connector-runtime-requirement.md` now defines
+  `ReconciliationProbe` and `ReconciliationEvidence`.
+- `docs/applications/application-connector-runtime-design.md` now requires exact
+  external lookup handles, read-only probe behavior, unavailable outcomes when
+  handles are missing, and connector-owned terminal decisions.
+
 ## Phase 5: Sandbox / Approval Requirement And Contract Tests
 
 Issue:

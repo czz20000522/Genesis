@@ -333,6 +333,82 @@ controls, credential/profile refresh, source verification, and driver migration
 require the connector source verification/lifecycle boundary; they must not
 accrete inside the Feishu smoke source function.
 
+## Reconciliation Probe Design
+
+Reconciliation probes are connector-local read-only recovery helpers for
+`recovery_required` outbox items. They are not kernel tools, not model-visible
+capabilities, and not external action retries.
+
+Input preconditions:
+
+- the outbox item exists and has status `recovery_required`;
+- the item has no active delivery lease;
+- the connector adapter for this item supports a reconciliation probe;
+- the item or its receipts contain an exact external lookup handle:
+  `external_action_ref`, provider receipt ref, or connector idempotency key
+  that the external provider can query deterministically.
+
+If the item has only target ref and message body, the probe must fail closed as
+unavailable. It must not scan chat history by text, compare recent messages
+fuzzily, resend the action, or ask the LLM to infer the outcome.
+
+Probe execution:
+
+```text
+Operator / scheduled recovery worker
+        |
+        v
+Connector reconciliation probe
+        |
+        v
+External system read-only status query
+        |
+        v
+ReconciliationEvidence
+        |
+        v
+Operator or approved connector policy resolves recovery_required
+```
+
+The probe result is evidence, not the terminal outbox transition itself. The
+current implementation path remains an explicit operator recovery command; a
+future automatic resolver must cite probe evidence and preserve all prior
+receipts.
+
+`ReconciliationEvidence`:
+
+```text
+probe_id
+outbox_id
+connector
+action_kind
+query_kind: external_action_ref / external_receipt_ref / idempotency_key
+query_ref_hash or safe query_ref
+observed_status: sent / not_found / failed / unknown / unavailable
+evidence_ref
+reason
+checked_at
+adapter_ref
+```
+
+Allowed terminal support:
+
+- `sent`: the external system confirms the exact action exists or was accepted;
+- `dead_lettered`: the external system confirms the exact action was rejected,
+  expired, impossible, or definitively absent under a reliable idempotency
+  lookup;
+- `recovery_required`: the probe was unavailable, inconclusive, timed out, or
+  lacked exact lookup handles.
+
+Reconciliation evidence is connector state. It must not mutate kernel events,
+memory, jobs, provider context, audit, or tool results. It must not overwrite
+the original `DeliveryReceipt` that created `recovery_required`; it can only
+append evidence and support a later connector-owned terminal receipt.
+
+Raw external status payloads, HTTP bodies, CLI output, headers, tokens,
+attachment content, and message bodies remain debug trace material only. Durable
+evidence stores safe refs, hashes, bounded reasons, and observed status.
+
 ## Observability
 
 Application connector state is separate from kernel event truth:
@@ -375,6 +451,11 @@ event truth.
 
 Genesis should align with the boundary-adapter shape but differ by adding a
 connector outbox/receipt owner for production outbound external actions.
+
+For reconciliation specifically, neither Codex nor Reasonix provides a direct
+external-channel outbox probe to copy. The useful reference is their evidence
+posture: host- or adapter-observed receipts are separate from the model's
+claims, and retry/recovery paths do not silently rewrite earlier facts.
 
 ## Rejected Alternatives
 
