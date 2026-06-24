@@ -274,6 +274,7 @@ func normalizeSourceRun(run SourceRun) (SourceRun, error) {
 	run.Connector = strings.TrimSpace(run.Connector)
 	run.AdapterRef = strings.TrimSpace(run.AdapterRef)
 	run.Status = strings.TrimSpace(run.Status)
+	run.BlockedReasonCode = strings.TrimSpace(run.BlockedReasonCode)
 	run.BlockedReason = strings.TrimSpace(run.BlockedReason)
 	switch {
 	case run.SourceID == "":
@@ -284,6 +285,8 @@ func normalizeSourceRun(run SourceRun) (SourceRun, error) {
 		return SourceRun{}, errors.New("source run adapter ref is required")
 	case !validSourceRunStatus(run.Status):
 		return SourceRun{}, errors.New("source run status is invalid")
+	case run.BlockedReasonCode != "" && !validSourceReadinessReasonCode(run.BlockedReasonCode):
+		return SourceRun{}, errors.New("source run blocked reason code is invalid")
 	}
 	now := time.Now().UTC()
 	if run.StartedAt.IsZero() {
@@ -403,6 +406,21 @@ func validSourceAttemptOutcome(outcome string) bool {
 func validSourceEvidenceKind(kind string) bool {
 	switch kind {
 	case SourceEvidenceKindWebhookSignature, SourceEvidenceKindProviderEventSignature, SourceEvidenceKindTrustedLocalAdapterAttestation:
+		return true
+	default:
+		return false
+	}
+}
+
+func validSourceReadinessReasonCode(code string) bool {
+	switch code {
+	case SourceReadinessReasonMissingProfile,
+		SourceReadinessReasonProfileExpired,
+		SourceReadinessReasonPermissionDenied,
+		SourceReadinessReasonRefreshRequired,
+		SourceReadinessReasonOperatorActionRequired,
+		SourceReadinessReasonSourceCommandInvalid,
+		SourceReadinessReasonSourceRuntimeFailed:
 		return true
 	default:
 		return false

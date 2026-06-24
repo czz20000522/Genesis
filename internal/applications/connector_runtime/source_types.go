@@ -16,21 +16,30 @@ const (
 
 	SourceCursorKindExternalEventID = "external_event_id"
 
+	SourceReadinessReasonMissingProfile         = "missing_profile"
+	SourceReadinessReasonProfileExpired         = "profile_expired"
+	SourceReadinessReasonPermissionDenied       = "permission_denied"
+	SourceReadinessReasonRefreshRequired        = "refresh_required"
+	SourceReadinessReasonOperatorActionRequired = "operator_action_required"
+	SourceReadinessReasonSourceCommandInvalid   = "source_command_invalid"
+	SourceReadinessReasonSourceRuntimeFailed    = "source_runtime_failed"
+
 	SourceEvidenceKindWebhookSignature               = "webhook_signature"
 	SourceEvidenceKindProviderEventSignature         = "provider_event_signature"
 	SourceEvidenceKindTrustedLocalAdapterAttestation = "trusted_local_adapter_attestation"
 )
 
 type SourceRun struct {
-	SourceID      string    `json:"source_id"`
-	Connector     string    `json:"connector"`
-	AdapterRef    string    `json:"adapter_ref"`
-	Status        string    `json:"status"`
-	StartedAt     time.Time `json:"started_at"`
-	StoppedAt     time.Time `json:"stopped_at,omitempty"`
-	LastReadyAt   time.Time `json:"last_ready_at,omitempty"`
-	BlockedReason string    `json:"blocked_reason,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	SourceID          string    `json:"source_id"`
+	Connector         string    `json:"connector"`
+	AdapterRef        string    `json:"adapter_ref"`
+	Status            string    `json:"status"`
+	StartedAt         time.Time `json:"started_at"`
+	StoppedAt         time.Time `json:"stopped_at,omitempty"`
+	LastReadyAt       time.Time `json:"last_ready_at,omitempty"`
+	BlockedReasonCode string    `json:"blocked_reason_code,omitempty"`
+	BlockedReason     string    `json:"blocked_reason,omitempty"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type SourceAttempt struct {

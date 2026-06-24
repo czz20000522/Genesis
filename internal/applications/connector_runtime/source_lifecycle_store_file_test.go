@@ -161,3 +161,23 @@ func TestFileSourceLifecycleStoreKeepsRunStartedAtAcrossStatusUpdates(t *testing
 		t.Fatalf("last_ready_at = %s, want %s", runs[0].LastReadyAt, readyAt)
 	}
 }
+
+func TestFileSourceLifecycleStoreRejectsInvalidReadinessReasonCode(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(testsupport.ProjectTempDir(t, "source-lifecycle-reason-code"), "source-lifecycle.json")
+	store, err := NewFileSourceLifecycleStore(path)
+	if err != nil {
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
+	}
+	err = store.UpsertSourceRun(ctx, SourceRun{
+		SourceID:          "source_feishu_events",
+		Connector:         "feishu",
+		AdapterRef:        "feishu-source-adapter",
+		Status:            SourceRunStatusBlocked,
+		BlockedReasonCode: "transient_text_only_reason",
+		BlockedReason:     "operator detail",
+	})
+	if err == nil {
+		t.Fatal("UpsertSourceRun should reject unknown readiness reason code")
+	}
+}

@@ -87,13 +87,13 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 		return sourceCommandBlockedError(errors.New("source command adapter_ref is required"))
 	}
 	startedAt := sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now})
-	if err := a.recordRun(ctx, SourceRunStatusStarting, "", startedAt, time.Time{}); err != nil {
+	if err := a.recordRun(ctx, SourceRunStatusStarting, "", "", startedAt, time.Time{}); err != nil {
 		return err
 	}
 	executable, err := a.resolveExecutable()
 	if err != nil {
 		endedAt := sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now})
-		if recordErr := a.recordRun(ctx, SourceRunStatusBlocked, err.Error(), startedAt, time.Time{}); recordErr != nil {
+		if recordErr := a.recordRun(ctx, SourceRunStatusBlocked, SourceReadinessReasonSourceCommandInvalid, err.Error(), startedAt, time.Time{}); recordErr != nil {
 			return recordErr
 		}
 		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeBlocked, ""); recordErr != nil {
@@ -104,7 +104,7 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 	env, err := a.environment()
 	if err != nil {
 		endedAt := sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now})
-		if recordErr := a.recordRun(ctx, SourceRunStatusBlocked, err.Error(), startedAt, time.Time{}); recordErr != nil {
+		if recordErr := a.recordRun(ctx, SourceRunStatusBlocked, SourceReadinessReasonSourceCommandInvalid, err.Error(), startedAt, time.Time{}); recordErr != nil {
 			return recordErr
 		}
 		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeBlocked, ""); recordErr != nil {
@@ -125,7 +125,7 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		endedAt := sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now})
-		if recordErr := a.recordRun(ctx, SourceRunStatusBlocked, err.Error(), startedAt, time.Time{}); recordErr != nil {
+		if recordErr := a.recordRun(ctx, SourceRunStatusBlocked, SourceReadinessReasonSourceCommandInvalid, err.Error(), startedAt, time.Time{}); recordErr != nil {
 			return recordErr
 		}
 		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeBlocked, ""); recordErr != nil {
@@ -151,12 +151,12 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 			if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeFailed, ""); recordErr != nil {
 				return recordErr
 			}
-			if recordErr := a.recordRun(ctx, SourceRunStatusStopped, "", startedAt, endedAt); recordErr != nil {
+			if recordErr := a.recordRun(ctx, SourceRunStatusStopped, "", "", startedAt, endedAt); recordErr != nil {
 				return recordErr
 			}
 			return consumeErr
 		}
-		if recordErr := a.recordRun(ctx, SourceRunStatusDegraded, consumeErr.Error(), startedAt, endedAt); recordErr != nil {
+		if recordErr := a.recordRun(ctx, SourceRunStatusDegraded, SourceReadinessReasonSourceRuntimeFailed, consumeErr.Error(), startedAt, endedAt); recordErr != nil {
 			return recordErr
 		}
 		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeFailed, ""); recordErr != nil {
@@ -180,7 +180,7 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 		}, ""); err != nil {
 			return err
 		}
-		if recordErr := a.recordRun(ctx, SourceRunStatusDegraded, detail, startedAt, endedAt); recordErr != nil {
+		if recordErr := a.recordRun(ctx, SourceRunStatusDegraded, SourceReadinessReasonSourceRuntimeFailed, detail, startedAt, endedAt); recordErr != nil {
 			return recordErr
 		}
 		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeFailed, ""); recordErr != nil {
@@ -191,7 +191,7 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 	if err := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeStopped, ""); err != nil {
 		return err
 	}
-	if err := a.recordRun(ctx, SourceRunStatusStopped, "", startedAt, endedAt); err != nil {
+	if err := a.recordRun(ctx, SourceRunStatusStopped, "", "", startedAt, endedAt); err != nil {
 		return err
 	}
 	return nil
@@ -294,18 +294,19 @@ func (a SourceCommandAdapter) environment() ([]string, error) {
 	return append([]string(nil), env...), nil
 }
 
-func (a SourceCommandAdapter) recordRun(ctx context.Context, status string, blockedReason string, startedAt time.Time, boundaryAt time.Time) error {
+func (a SourceCommandAdapter) recordRun(ctx context.Context, status string, blockedReasonCode string, blockedReason string, startedAt time.Time, boundaryAt time.Time) error {
 	if a.SourceStore == nil {
 		return nil
 	}
 	run := SourceRun{
-		SourceID:      strings.TrimSpace(a.SourceID),
-		Connector:     strings.TrimSpace(a.Connector),
-		AdapterRef:    strings.TrimSpace(a.AdapterRef),
-		Status:        status,
-		StartedAt:     startedAt,
-		BlockedReason: blockedReason,
-		UpdatedAt:     sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now}),
+		SourceID:          strings.TrimSpace(a.SourceID),
+		Connector:         strings.TrimSpace(a.Connector),
+		AdapterRef:        strings.TrimSpace(a.AdapterRef),
+		Status:            status,
+		StartedAt:         startedAt,
+		BlockedReasonCode: blockedReasonCode,
+		BlockedReason:     blockedReason,
+		UpdatedAt:         sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now}),
 	}
 	if status == SourceRunStatusReady {
 		run.LastReadyAt = boundaryAt

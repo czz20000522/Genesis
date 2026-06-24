@@ -174,7 +174,7 @@ func TestFeishuListenMissingSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSourceRuns returned error: %v", err)
 	}
-	if len(runs) != 1 || runs[0].Status != connectorruntime.SourceRunStatusBlocked || !strings.Contains(runs[0].BlockedReason, "source command executable") {
+	if len(runs) != 1 || runs[0].Status != connectorruntime.SourceRunStatusBlocked || runs[0].BlockedReasonCode != connectorruntime.SourceReadinessReasonSourceCommandInvalid || !strings.Contains(runs[0].BlockedReason, "source command executable") {
 		t.Fatalf("source runs = %+v, want blocked missing source command readiness record", runs)
 	}
 }
@@ -211,7 +211,7 @@ func TestFeishuListenInvalidSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSourceRuns returned error: %v", err)
 	}
-	if len(runs) != 1 || runs[0].Status != connectorruntime.SourceRunStatusBlocked || !strings.Contains(runs[0].BlockedReason, "direct executable") {
+	if len(runs) != 1 || runs[0].Status != connectorruntime.SourceRunStatusBlocked || runs[0].BlockedReasonCode != connectorruntime.SourceReadinessReasonSourceCommandInvalid || !strings.Contains(runs[0].BlockedReason, "direct executable") {
 		t.Fatalf("source runs = %+v, want blocked invalid source command readiness record", runs)
 	}
 }
