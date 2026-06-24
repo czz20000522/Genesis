@@ -55,13 +55,15 @@ phased delivery will land with tests and evidence.
 Build the first runnable kernel binary:
 
 ```powershell
-D:\software\Go\bin\go.exe build -o $env:TEMP\genesisd.exe .\cmd\genesisd
+$root = Join-Path (Get-Location) ".genesis-live\manual"
+New-Item -ItemType Directory -Force "$root\bin" | Out-Null
+D:\software\Go\bin\go.exe build -o "$root\bin\genesisd.exe" .\cmd\genesisd
 ```
 
 Build the optional operator setup tool:
 
 ```powershell
-D:\software\Go\bin\go.exe build -o $env:TEMP\genesisctl.exe .\cmd\genesisctl
+D:\software\Go\bin\go.exe build -o "$root\bin\genesisctl.exe" .\cmd\genesisctl
 ```
 
 ## Development Verification
@@ -86,9 +88,9 @@ The MSYS2 install root for this workstation is `D:\software\msys64`; it is optio
 Run it with an explicit ledger path:
 
 ```powershell
-$env:TEMP\genesisd.exe `
+"$root\bin\genesisd.exe" `
   -addr 127.0.0.1:8765 `
-  -ledger $env:TEMP\genesis-events.jsonl `
+  -ledger "$root\events.jsonl" `
   -runtime-token local-dev-token
 ```
 
@@ -133,7 +135,7 @@ Operators can replace or extend roots with `GENESIS_SKILL_ROOTS` or repeated `-s
 
 ```powershell
 $env:GENESIS_SKILL_ROOTS = "$HOME\.agents\skills;$HOME\.genesis\skills"
-$env:TEMP\genesisd.exe -skill-root D:\tools\custom-skills
+"$root\bin\genesisd.exe" -skill-root D:\tools\custom-skills
 ```
 
 This does not make Feishu, email, calendar, or any other application a kernel feature. The initial kernel exposes skill metadata only; full skill-body hydration is deferred until a generic resource/context contract exists. Installed CLIs are still invoked through governed tools such as `shell_exec` under kernel permission policy.
@@ -152,13 +154,13 @@ Useful operator flags:
 For deterministic tests, select the fake provider explicitly:
 
 ```powershell
-$env:TEMP\genesisd.exe -provider fake
+"$root\bin\genesisd.exe" -provider fake
 ```
 
 The long-lived provider boundary is `provider_command`: an external executable reads one typed Genesis model request from stdin and writes one typed provider response to stdout. The command owns vendor SDKs, HTTP JSON, account flows, and provider credentials; the kernel owns only the typed request, typed response, readiness, turn loop, and ledger evidence.
 
 ```powershell
-$env:TEMP\genesisd.exe `
+"$root\bin\genesisd.exe" `
   -provider provider_command `
   -provider-command D:\tools\genesis-provider-openai.exe `
   -provider-command-arg --profile `
@@ -172,7 +174,7 @@ $env:TEMP\genesisd.exe `
 An OpenAI-compatible provider can still be selected directly without using the Genesis config resolver:
 
 ```powershell
-$env:TEMP\genesisd.exe `
+"$root\bin\genesisd.exe" `
   -provider openai-compatible `
   -provider-base-url https://provider.example.com/api `
   -provider-model example-model `
@@ -189,7 +191,7 @@ It accepts the API key only from an environment variable or stdin. It does not p
 
 ```powershell
 $env:GENESIS_PROVIDER_API_KEY = "<provider api key>"
-$env:TEMP\genesisctl.exe provider-setup `
+"$root\bin\genesisctl.exe" provider-setup `
   -config-root $HOME\.genesis\config `
   -credential-store-root $HOME\.genesis\credentials `
   -profile-id primary `

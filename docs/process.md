@@ -225,3 +225,19 @@ Runtime can produce many events, but long-term storage stays sparse. A runtime e
 - it is an input to provider context, compaction, memory recall, or observation delivery.
 
 Everything else stays in realtime transport, debug trace, or aggregate metrics. Audit is not an info log. It records authority changes, risk decisions, control-plane writes, credential use, dangerous-operation decisions, and security failures.
+
+## Test Artifact Gate
+
+Tests, smoke scripts, and manual acceptance runbooks must write generated
+artifacts under the project directory. Do not write test binaries, ledgers,
+connector state, live-smoke output, or temporary fixtures to `C:\`, user temp,
+or global tool directories. Go tests should use `testsupport.ProjectTempDir`
+for writable fixtures so artifacts land under `.test-tmp/` and are removed at
+test cleanup. Manual and live acceptance paths should use `.genesis-live/` or
+another repo-local ignored directory.
+
+Test artifact roots are operational scratch space, not durable product state.
+They must be cleaned automatically by tests where possible, and stale residual
+directories must be eligible for periodic cleanup. If a script needs to keep
+evidence for human review, it must name the repo-local evidence directory and
+the cleanup expectation explicitly.

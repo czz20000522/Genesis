@@ -40,7 +40,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_a
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 `
   -BaseUrl https://provider.example.com/api `
   -Model provider-model `
-  -WorkRoot $env:TEMP\genesis-live-acceptance `
+  -WorkRoot .\.genesis-live\acceptance `
   -Addr 127.0.0.1:8765 `
   -ApiKeyEnv GENESIS_PROVIDER_API_KEY `
   -KeepServer
@@ -53,16 +53,17 @@ Use `-SkipFailureProbe` only when another process owns the test port and the pos
 Build the binaries:
 
 ```powershell
-D:\software\Go\bin\go.exe build -o $env:TEMP\genesisctl.exe .\cmd\genesisctl
-D:\software\Go\bin\go.exe build -o $env:TEMP\genesisd.exe .\cmd\genesisd
+$root = Join-Path (Get-Location) ".genesis-live\manual"
+New-Item -ItemType Directory -Force "$root\bin" | Out-Null
+D:\software\Go\bin\go.exe build -o "$root\bin\genesisctl.exe" .\cmd\genesisctl
+D:\software\Go\bin\go.exe build -o "$root\bin\genesisd.exe" .\cmd\genesisd
 ```
 
 Write provider config and the local credential record:
 
 ```powershell
-$root = Join-Path $env:TEMP "genesis-live-manual"
 $env:GENESIS_PROVIDER_API_KEY = "<provider api key>"
-$env:TEMP\genesisctl.exe provider-setup `
+"$root\bin\genesisctl.exe" provider-setup `
   -config-root "$root\config" `
   -credential-store-root "$root\credentials" `
   -profile-id live-acceptance `
@@ -76,7 +77,7 @@ Start the kernel through Genesis-owned config:
 
 ```powershell
 $token = "local-live-acceptance-token"
-$env:TEMP\genesisd.exe `
+"$root\bin\genesisd.exe" `
   -addr 127.0.0.1:8765 `
   -ledger "$root\events.jsonl" `
   -runtime-token $token `

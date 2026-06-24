@@ -22,6 +22,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
 
 if ($Help) {
     @"
@@ -322,7 +323,7 @@ if ([string]::IsNullOrWhiteSpace($apiKeyValue)) {
 }
 
 if ($WorkRoot.Trim() -eq "") {
-    $WorkRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("genesis-live-acceptance-" + [guid]::NewGuid().ToString("N").Substring(0, 12))
+    $WorkRoot = Join-Path $ProjectRoot (Join-Path ".genesis-live" ("acceptance-" + [guid]::NewGuid().ToString("N").Substring(0, 12)))
 }
 New-DirectoryIfMissing -Path $WorkRoot
 

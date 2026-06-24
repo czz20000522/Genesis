@@ -1,4 +1,6 @@
 .genesis/
+.genesis-live/
+.test-tmp/
 .idea/
 .vscode/
 bin/

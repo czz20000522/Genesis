@@ -25,6 +25,18 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
+### KERNEL-TEST-ARTIFACT-LOCALITY-20260624 - P2 - Kernel tests still write fixtures to system temp
+
+- Status: open.
+- Area: Test Governance / Developer Operations.
+- Requirement: `docs/process.md` Test Artifact Gate.
+- Design: Exception: this is a test governance gap against the approved process rule, not a runtime feature design.
+- Gap: Application connector tests now use `testsupport.ProjectTempDir` and are guarded against new `t.TempDir()` usage, but kernel and kernel-command tests still write ledgers, workspaces, credential roots, and config roots through Go's system temp directory. On Windows this can land on `C:\` or user temp, violating the project-local artifact rule and leaving cleanup outside the repo-owned scratch area.
+- Next slice: Migrate `internal/kernel`, `cmd/genesisd`, and `cmd/genesisctl` tests to project-local test artifact helpers, then add a long-lived guard that blocks new system-temp fixture usage in kernel/application tests. Keep the guard structural; do not assert subjective logs or prose.
+- Evidence: `rg -n 't\\.TempDir\\(' -g '*_test.go'` still returns many hits under `internal/kernel`, `cmd/genesisd`, and `cmd/genesisctl` after the application-line migration.
+- Verification: Future verification must prove writable test fixtures land under project `.test-tmp/`, are cleaned on test completion or periodic retention cleanup, and no automated test writes ledgers, connector state, credential/config fixtures, or binaries to `C:\`, user temp, or global tool directories.
+- Reference alignment: Aligned with Codex-style repo-local test isolation and Reasonix-style harness-local fixture ownership. The active drift risk is treating OS temp as harmless developer scratch while the project requires local-first, repo-owned cleanup and bounded artifact retention.
+
 ### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Local managed job streaming and attach capability
 
 - Status: open.
