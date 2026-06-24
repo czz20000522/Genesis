@@ -53,3 +53,15 @@ tests, governing requirement/design, or still-active issues.
 ### APP-CONNECTOR-OUTBOX-STORE-INTEGRITY-20260624 - Preserve connector file outbox writes across processes
 
 - Retired: connector file-backed outbox mutations are serialized across processes so independent enqueue, claim, and receipt writes do not overwrite each other during the smoke phase. Evidence: commit `0bc127a91`.
+
+### APP-CONNECTOR-SOURCE-FAILURE-RAW-PAYLOAD-20260624 - Keep raw source payloads out of durable connector facts
+
+- Retired: source failure state now stores redacted diagnostics instead of raw external payload excerpts. Evidence: commit `e3dc483a4`.
+
+### APP-CONNECTOR-FILE-STORE-SERIALIZATION-20260624 - Serialize inbound and source failure file stores
+
+- Retired: inbound, source failure, and outbox file-backed smoke stores now use locked load-modify-write semantics so independent process-local writers preserve each other's records. Evidence: commit `e3dc483a4`.
+
+### APP-CONNECTOR-IMPLEMENTATION-PLAN-DRIFT-20260624 - Reframe connector plan as implemented slices plus production gaps
+
+- Retired: the connector implementation plan no longer presents retired delivery-state-machine work as an active issue and now points future work at remaining production boundaries. Evidence: commit `7906bd430`.
