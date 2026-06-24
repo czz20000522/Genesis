@@ -25,7 +25,7 @@ type SourceCommandFrameConsumer struct {
 	ExpectedSourceID   string
 	ExpectedConnector  string
 	ExpectedAdapterRef string
-	SourceStore        SourceSupervisorStore
+	SourceStore        SourceLifecycleStore
 	FailureStore       SourceFailureStore
 	IgnoreSenderIDs    []string
 	Now                func() time.Time
@@ -40,7 +40,7 @@ type SourceCommandAdapter struct {
 	Connector  string
 	AdapterRef string
 
-	SourceStore     SourceSupervisorStore
+	SourceStore     SourceLifecycleStore
 	FailureStore    SourceFailureStore
 	IgnoreSenderIDs []string
 	Now             func() time.Time
@@ -406,7 +406,8 @@ func consumeSourceEventFrame(ctx context.Context, consumer SourceCommandFrameCon
 			return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "source_verification_failed", errors.New("verified source event missing verification evidence")), "")
 		}
 		evidence := *frame.VerificationEvidence
-		if err := validateSourceVerificationEvidenceForEvent(consumer, frame, event, evidence); err != nil {
+		evidence, err := validateSourceVerificationEvidenceForEvent(consumer, frame, event, evidence)
+		if err != nil {
 			return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "source_verification_failed", err), "")
 		}
 		if consumer.SourceStore != nil {
@@ -576,29 +577,33 @@ func sourceCursorFromFrame(sourceID string, frame SourceCommandCursorFrame) (Sou
 	return normalizeSourceCursor(cursor)
 }
 
-func validateSourceVerificationEvidenceForEvent(consumer SourceCommandFrameConsumer, frame SourceCommandFrame, event ExternalEvent, evidence SourceVerificationEvidence) error {
-	evidence.SourceEventRef = strings.TrimSpace(evidence.SourceEventRef)
-	evidence.ValidationStatus = strings.TrimSpace(evidence.ValidationStatus)
-	evidence.EvidenceKind = strings.TrimSpace(evidence.EvidenceKind)
-	evidence.EvidenceRef = strings.TrimSpace(evidence.EvidenceRef)
-	evidence.AdapterRef = strings.TrimSpace(evidence.AdapterRef)
+func validateSourceVerificationEvidenceForEvent(consumer SourceCommandFrameConsumer, frame SourceCommandFrame, event ExternalEvent, evidence SourceVerificationEvidence) (SourceVerificationEvidence, error) {
+	evidence, err := normalizeSourceVerificationEvidence(evidence)
+	if err != nil {
+		return SourceVerificationEvidence{}, err
+	}
 	switch {
 	case evidence.SourceEventRef != strings.TrimSpace(event.ExternalEventID):
-		return errors.New("verification evidence event ref mismatch")
+		return SourceVerificationEvidence{}, errors.New("verification evidence event ref mismatch")
 	case evidence.ValidationStatus != SourceValidationVerified:
-		return errors.New("verification evidence status must be verified")
-	case evidence.EvidenceKind == "" || evidence.EvidenceRef == "":
-		return errors.New("verified source event requires evidence kind and ref")
+		return SourceVerificationEvidence{}, errors.New("verification evidence status must be verified")
+	}
+	expectedSourceID := strings.TrimSpace(firstNonEmpty(consumer.ExpectedSourceID, frame.SourceID))
+	if expectedSourceID != "" && evidence.SourceID != expectedSourceID {
+		return SourceVerificationEvidence{}, errors.New("verification evidence source_id mismatch")
+	}
+	if evidence.Connector != strings.TrimSpace(event.Connector) {
+		return SourceVerificationEvidence{}, errors.New("verification evidence connector mismatch")
 	}
 	expectedAdapterRef := strings.TrimSpace(consumer.ExpectedAdapterRef)
 	if expectedAdapterRef != "" && evidence.AdapterRef != expectedAdapterRef {
-		return errors.New("verification evidence adapter_ref mismatch")
+		return SourceVerificationEvidence{}, errors.New("verification evidence adapter_ref mismatch")
 	}
 	frameAdapterRef := strings.TrimSpace(frame.AdapterRef)
 	if frameAdapterRef != "" && evidence.AdapterRef != frameAdapterRef {
-		return errors.New("verification evidence frame adapter_ref mismatch")
+		return SourceVerificationEvidence{}, errors.New("verification evidence frame adapter_ref mismatch")
 	}
-	return nil
+	return evidence, nil
 }
 
 func sourceFrameValidationFailure(frame SourceCommandFrame, reason string, cause error) SourceCommandFrame {

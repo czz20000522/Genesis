@@ -91,7 +91,7 @@ func runInspect(ctx context.Context, args []string, stdout io.Writer, stderr io.
 	inboundPath := fs.String("inbound-state", envOrDefault("GENESIS_INGRESS_STATE", filepath.Join(".genesis_ingress", "state.json")), "connector inbound state file")
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
 	sourceFailurePath := fs.String("source-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_STATE", filepath.Join(".genesis_ingress", "source_failures.json")), "connector source failure state file")
-	sourceSupervisorPath := fs.String("source-supervisor-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_SUPERVISOR_STATE", filepath.Join(".genesis_ingress", "source_supervisor.json")), "connector source supervisor state file")
+	sourceLifecyclePath := fs.String("source-lifecycle-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_LIFECYCLE_STATE", filepath.Join(".genesis_ingress", "source_lifecycle.json")), "connector source lifecycle state file")
 	kernelURL := fs.String("kernel-url", os.Getenv("GENESIS_KERNEL_URL"), "optional Genesis Kernel HTTP URL for session projections")
 	runtimeToken := fs.String("runtime-token", os.Getenv("GENESIS_RUNTIME_TOKEN"), "Genesis runtime bearer token")
 	connector := fs.String("connector", "", "filter connector records by connector name")
@@ -108,7 +108,7 @@ func runInspect(ctx context.Context, args []string, stdout io.Writer, stderr io.
 		OutboxStatus:    strings.TrimSpace(*outboxStatus),
 		KernelSessionID: strings.TrimSpace(*kernelSessionID),
 	}
-	report, err := inspectConnectorState(ctx, *inboundPath, *outboxPath, *sourceFailurePath, *sourceSupervisorPath, strings.TrimRight(*kernelURL, "/"), *runtimeToken, filters)
+	report, err := inspectConnectorState(ctx, *inboundPath, *outboxPath, *sourceFailurePath, *sourceLifecyclePath, strings.TrimRight(*kernelURL, "/"), *runtimeToken, filters)
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func runResolveOutbox(ctx context.Context, args []string, stdout io.Writer, stde
 	return nil
 }
 
-func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath string, sourceFailurePath string, sourceSupervisorPath string, kernelURL string, runtimeToken string, filters InspectFilters) (InspectionReport, error) {
+func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath string, sourceFailurePath string, sourceLifecyclePath string, kernelURL string, runtimeToken string, filters InspectFilters) (InspectionReport, error) {
 	inboundStore, err := connectorruntime.NewFileInboundStore(inboundPath)
 	if err != nil {
 		return InspectionReport{}, err
@@ -185,7 +185,7 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 	if err != nil {
 		return InspectionReport{}, err
 	}
-	sourceSupervisorStore, err := connectorruntime.NewFileSourceSupervisorStore(sourceSupervisorPath)
+	sourceLifecycleStore, err := connectorruntime.NewFileSourceLifecycleStore(sourceLifecyclePath)
 	if err != nil {
 		return InspectionReport{}, err
 	}
@@ -201,15 +201,15 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 	if err != nil {
 		return InspectionReport{}, err
 	}
-	sourceRuns, err := sourceSupervisorStore.ListSourceRuns(ctx)
+	sourceRuns, err := sourceLifecycleStore.ListSourceRuns(ctx)
 	if err != nil {
 		return InspectionReport{}, err
 	}
-	sourceCursors, err := sourceSupervisorStore.ListSourceCursors(ctx)
+	sourceCursors, err := sourceLifecycleStore.ListSourceCursors(ctx)
 	if err != nil {
 		return InspectionReport{}, err
 	}
-	sourceEvidence, err := sourceSupervisorStore.ListSourceVerifications(ctx)
+	sourceEvidence, err := sourceLifecycleStore.ListSourceVerifications(ctx)
 	if err != nil {
 		return InspectionReport{}, err
 	}
@@ -221,7 +221,7 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 	sourceEvidence = filterSourceEvidence(sourceEvidence, sourceRuns)
 	sourceAttempts := map[string][]connectorruntime.SourceAttempt{}
 	for _, run := range sourceRuns {
-		attempts, err := sourceSupervisorStore.ListSourceAttempts(ctx, run.SourceID)
+		attempts, err := sourceLifecycleStore.ListSourceAttempts(ctx, run.SourceID)
 		if err != nil {
 			return InspectionReport{}, err
 		}

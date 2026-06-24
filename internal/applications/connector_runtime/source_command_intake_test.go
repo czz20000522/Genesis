@@ -12,10 +12,10 @@ import (
 	"genesis/internal/testsupport"
 )
 
-func TestSourceCommandSupervisorRetriesRuntimeFailureAndConsumesEvent(t *testing.T) {
+func TestSourceCommandIntakeRetriesRuntimeFailureAndConsumesEvent(t *testing.T) {
 	ctx := context.Background()
-	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-supervisor-retry")
-	dir := testsupport.ProjectTempDir(t, "source-command-supervisor-retry-attempts")
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-intake-retry")
+	dir := testsupport.ProjectTempDir(t, "source-command-intake-retry-attempts")
 	attemptFile := filepath.Join(dir, "attempts.txt")
 	env := append(connectorCommandEnvironment(os.Environ()),
 		"GENESIS_SOURCE_COMMAND_HELPER=fail-once-then-ready-event-stopped",
@@ -24,7 +24,7 @@ func TestSourceCommandSupervisorRetriesRuntimeFailureAndConsumesEvent(t *testing
 		"GENESIS_SOURCE_COMMAND_CONNECTOR=test_connector",
 		"GENESIS_SOURCE_COMMAND_ADAPTER_REF=test-source-adapter",
 	)
-	supervisor := SourceCommandSupervisor{
+	intake := SourceCommandIntake{
 		Adapter: SourceCommandAdapter{
 			Executable:   os.Args[0],
 			Args:         []string{"-test.run=TestSourceCommandAdapterHelper"},
@@ -50,7 +50,7 @@ func TestSourceCommandSupervisorRetriesRuntimeFailureAndConsumesEvent(t *testing
 		},
 	}
 	var handled []ExternalEvent
-	if err := supervisor.Run(ctx, func(event ExternalEvent) error {
+	if err := intake.Run(ctx, func(event ExternalEvent) error {
 		handled = append(handled, event)
 		return nil
 	}); err != nil {
@@ -75,10 +75,10 @@ func TestSourceCommandSupervisorRetriesRuntimeFailureAndConsumesEvent(t *testing
 	}
 }
 
-func TestSourceCommandSupervisorDoesNotRetryBlockedSource(t *testing.T) {
+func TestSourceCommandIntakeDoesNotRetryBlockedSource(t *testing.T) {
 	ctx := context.Background()
-	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-supervisor-blocked")
-	supervisor := SourceCommandSupervisor{
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-intake-blocked")
+	intake := SourceCommandIntake{
 		Adapter: SourceCommandAdapter{
 			Executable:   "",
 			SourceID:     "source_test_chat",
@@ -96,7 +96,7 @@ func TestSourceCommandSupervisorDoesNotRetryBlockedSource(t *testing.T) {
 			return nil
 		},
 	}
-	err := supervisor.Run(ctx, func(event ExternalEvent) error {
+	err := intake.Run(ctx, func(event ExternalEvent) error {
 		t.Fatalf("blocked source must not emit event: %+v", event)
 		return nil
 	})
@@ -112,10 +112,10 @@ func TestSourceCommandSupervisorDoesNotRetryBlockedSource(t *testing.T) {
 	}
 }
 
-func TestSourceCommandSupervisorDoesNotRetryStartFailure(t *testing.T) {
+func TestSourceCommandIntakeDoesNotRetryStartFailure(t *testing.T) {
 	ctx := context.Background()
-	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-supervisor-start-failure")
-	supervisor := SourceCommandSupervisor{
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-intake-start-failure")
+	intake := SourceCommandIntake{
 		Adapter: SourceCommandAdapter{
 			Executable:   os.Args[0],
 			WorkingDir:   filepath.Join(testsupport.ProjectTempDir(t, "source-command-start-failure"), "missing-dir"),
@@ -134,7 +134,7 @@ func TestSourceCommandSupervisorDoesNotRetryStartFailure(t *testing.T) {
 			return nil
 		},
 	}
-	err := supervisor.Run(ctx, func(event ExternalEvent) error {
+	err := intake.Run(ctx, func(event ExternalEvent) error {
 		t.Fatalf("start failure must not emit event: %+v", event)
 		return nil
 	})
@@ -150,16 +150,16 @@ func TestSourceCommandSupervisorDoesNotRetryStartFailure(t *testing.T) {
 	}
 }
 
-func TestSourceCommandSupervisorDoesNotRetryHandlerFailure(t *testing.T) {
+func TestSourceCommandIntakeDoesNotRetryHandlerFailure(t *testing.T) {
 	ctx := context.Background()
-	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-supervisor-handler-failure")
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-intake-handler-failure")
 	env := append(connectorCommandEnvironment(os.Environ()),
 		"GENESIS_SOURCE_COMMAND_HELPER=ready-event-stopped",
 		"GENESIS_SOURCE_COMMAND_SOURCE_ID=source_test_chat",
 		"GENESIS_SOURCE_COMMAND_CONNECTOR=test_connector",
 		"GENESIS_SOURCE_COMMAND_ADAPTER_REF=test-source-adapter",
 	)
-	supervisor := SourceCommandSupervisor{
+	intake := SourceCommandIntake{
 		Adapter: SourceCommandAdapter{
 			Executable:      os.Args[0],
 			Args:            []string{"-test.run=TestSourceCommandAdapterHelper"},
@@ -180,7 +180,7 @@ func TestSourceCommandSupervisorDoesNotRetryHandlerFailure(t *testing.T) {
 			return nil
 		},
 	}
-	err := supervisor.Run(ctx, func(ExternalEvent) error {
+	err := intake.Run(ctx, func(ExternalEvent) error {
 		return errors.New("kernel submission unavailable")
 	})
 	if err == nil || !strings.Contains(err.Error(), "kernel submission unavailable") {

@@ -151,14 +151,14 @@ func TestFeishuListenMissingSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	dir := testsupport.ProjectTempDir(t, "feishu-listen-missing-source-command")
-	sourceSupervisorPath := filepath.Join(dir, "source-supervisor.json")
+	sourceLifecyclePath := filepath.Join(dir, "source-lifecycle.json")
 
 	err := runWithIO(context.Background(), []string{
 		"feishu-listen",
 		"--kernel-url", server.URL,
 		"--source-id", "source_feishu_chat",
 		"--source-state", filepath.Join(dir, "source-failures.json"),
-		"--source-supervisor-state", sourceSupervisorPath,
+		"--source-lifecycle-state", sourceLifecyclePath,
 	}, strings.NewReader(""), io.Discard, io.Discard)
 	if err == nil {
 		t.Fatal("runWithIO should reject missing source command")
@@ -166,9 +166,9 @@ func TestFeishuListenMissingSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 	if submitCount != 0 {
 		t.Fatalf("submit count = %d, want 0", submitCount)
 	}
-	store, err := connectorruntime.NewFileSourceSupervisorStore(sourceSupervisorPath)
+	store, err := connectorruntime.NewFileSourceLifecycleStore(sourceLifecyclePath)
 	if err != nil {
-		t.Fatalf("NewFileSourceSupervisorStore returned error: %v", err)
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
 	}
 	runs, err := store.ListSourceRuns(context.Background())
 	if err != nil {
@@ -187,7 +187,7 @@ func TestFeishuListenInvalidSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	dir := testsupport.ProjectTempDir(t, "feishu-listen-source-blocked")
-	sourceSupervisorPath := filepath.Join(dir, "source-supervisor.json")
+	sourceLifecyclePath := filepath.Join(dir, "source-lifecycle.json")
 
 	err := runWithIO(context.Background(), []string{
 		"feishu-listen",
@@ -195,7 +195,7 @@ func TestFeishuListenInvalidSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 		"--source-id", "source_feishu_chat",
 		"--source-command", "adapter --bad",
 		"--source-state", filepath.Join(dir, "source-failures.json"),
-		"--source-supervisor-state", sourceSupervisorPath,
+		"--source-lifecycle-state", sourceLifecyclePath,
 	}, strings.NewReader(""), io.Discard, io.Discard)
 	if err == nil {
 		t.Fatal("runWithIO should reject invalid source command executable")
@@ -203,9 +203,9 @@ func TestFeishuListenInvalidSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 	if submitCount != 0 {
 		t.Fatalf("submit count = %d, want 0", submitCount)
 	}
-	store, err := connectorruntime.NewFileSourceSupervisorStore(sourceSupervisorPath)
+	store, err := connectorruntime.NewFileSourceLifecycleStore(sourceLifecyclePath)
 	if err != nil {
-		t.Fatalf("NewFileSourceSupervisorStore returned error: %v", err)
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
 	}
 	runs, err := store.ListSourceRuns(context.Background())
 	if err != nil {
@@ -246,7 +246,7 @@ func TestFeishuListenRetriesRecoverableSourceCommandFailure(t *testing.T) {
 		"--source-command-arg", attemptFile,
 		"--source-id", "source_feishu_chat",
 		"--source-state", filepath.Join(dir, "source-failures.json"),
-		"--source-supervisor-state", filepath.Join(dir, "source-supervisor.json"),
+		"--source-lifecycle-state", filepath.Join(dir, "source-lifecycle.json"),
 		"--source-attempts", "2",
 		"--source-backoff", "0s",
 	}, strings.NewReader(""), &stdout, io.Discard)

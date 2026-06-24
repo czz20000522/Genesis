@@ -79,7 +79,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	deliverFinal := fs.Bool("deliver-final", false, "enqueue and deliver kernel final_text back through the connector outbox")
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
 	sourceFailurePath := fs.String("source-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_STATE", filepath.Join(".genesis_ingress", "source_failures.json")), "connector source failure state file")
-	sourceSupervisorPath := fs.String("source-supervisor-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_SUPERVISOR_STATE", filepath.Join(".genesis_ingress", "source_supervisor.json")), "connector source supervisor state file")
+	sourceLifecyclePath := fs.String("source-lifecycle-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_LIFECYCLE_STATE", filepath.Join(".genesis_ingress", "source_lifecycle.json")), "connector source lifecycle state file")
 	var ignoreSenderIDs stringListFlag
 	fs.Var(&ignoreSenderIDs, "ignore-sender-id", "external sender id to ignore before kernel submission; repeatable")
 	var sourceCommandArgs stringListFlag
@@ -112,7 +112,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	if err != nil {
 		return err
 	}
-	sourceSupervisorStore, err := connectorruntime.NewFileSourceSupervisorStore(*sourceSupervisorPath)
+	sourceLifecycleStore, err := connectorruntime.NewFileSourceLifecycleStore(*sourceLifecyclePath)
 	if err != nil {
 		return err
 	}
@@ -123,18 +123,18 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		SourceID:        *sourceID,
 		Connector:       "feishu",
 		AdapterRef:      *sourceAdapterRef,
-		SourceStore:     sourceSupervisorStore,
+		SourceStore:     sourceLifecycleStore,
 		FailureStore:    sourceFailureStore,
 		IgnoreSenderIDs: append([]string(nil), ignoreSenderIDs...),
 	}
-	supervisor := connectorruntime.SourceCommandSupervisor{
+	intake := connectorruntime.SourceCommandIntake{
 		Adapter: adapter,
 		Retry: connectorruntime.SourceCommandRetryPolicy{
 			MaxAttempts: *sourceAttempts,
 			Backoff:     *sourceBackoff,
 		},
 	}
-	return supervisor.Run(ctx, func(event connectorruntime.ExternalEvent) error {
+	return intake.Run(ctx, func(event connectorruntime.ExternalEvent) error {
 		result, err := runtime.ProcessExternalEvent(ctx, event)
 		if encodeErr := encoder.Encode(result); encodeErr != nil {
 			return encodeErr

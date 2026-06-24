@@ -9,12 +9,12 @@ import (
 	"genesis/internal/testsupport"
 )
 
-func TestFileSourceSupervisorStorePersistsRunAttemptAndCursor(t *testing.T) {
+func TestFileSourceLifecycleStorePersistsRunAttemptAndCursor(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(testsupport.ProjectTempDir(t, "source-supervisor-store"), "source-supervisor.json")
-	store, err := NewFileSourceSupervisorStore(path)
+	path := filepath.Join(testsupport.ProjectTempDir(t, "source-lifecycle-store"), "source-lifecycle.json")
+	store, err := NewFileSourceLifecycleStore(path)
 	if err != nil {
-		t.Fatalf("NewFileSourceSupervisorStore returned error: %v", err)
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
 	}
 	now := time.Date(2026, 6, 24, 14, 0, 0, 0, time.UTC)
 	run := SourceRun{
@@ -50,9 +50,9 @@ func TestFileSourceSupervisorStorePersistsRunAttemptAndCursor(t *testing.T) {
 		t.Fatalf("SaveSourceCursor returned error: %v", err)
 	}
 
-	reopened, err := NewFileSourceSupervisorStore(path)
+	reopened, err := NewFileSourceLifecycleStore(path)
 	if err != nil {
-		t.Fatalf("reopen NewFileSourceSupervisorStore returned error: %v", err)
+		t.Fatalf("reopen NewFileSourceLifecycleStore returned error: %v", err)
 	}
 	runs, err := reopened.ListSourceRuns(ctx)
 	if err != nil {
@@ -77,15 +77,17 @@ func TestFileSourceSupervisorStorePersistsRunAttemptAndCursor(t *testing.T) {
 	}
 }
 
-func TestFileSourceSupervisorStoreRejectsModelVisibleVerifiedWithoutEvidence(t *testing.T) {
+func TestFileSourceLifecycleStoreRejectsModelVisibleVerifiedWithoutEvidence(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(testsupport.ProjectTempDir(t, "source-supervisor-validation"), "source-supervisor.json")
-	store, err := NewFileSourceSupervisorStore(path)
+	path := filepath.Join(testsupport.ProjectTempDir(t, "source-lifecycle-validation"), "source-lifecycle.json")
+	store, err := NewFileSourceLifecycleStore(path)
 	if err != nil {
-		t.Fatalf("NewFileSourceSupervisorStore returned error: %v", err)
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
 	}
 	err = store.RecordSourceVerification(ctx, SourceVerificationEvidence{
 		SourceEventRef:   "evt_without_evidence",
+		SourceID:         "source_feishu_events",
+		Connector:        "feishu",
 		ValidationStatus: SourceValidationVerified,
 		CheckedAt:        time.Date(2026, 6, 24, 14, 30, 0, 0, time.UTC),
 		AdapterRef:       "feishu-source-adapter",
@@ -95,12 +97,34 @@ func TestFileSourceSupervisorStoreRejectsModelVisibleVerifiedWithoutEvidence(t *
 	}
 }
 
-func TestFileSourceSupervisorStoreKeepsRunStartedAtAcrossStatusUpdates(t *testing.T) {
+func TestFileSourceLifecycleStoreRejectsUnapprovedVerifiedEvidenceKind(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(testsupport.ProjectTempDir(t, "source-supervisor-run-lifecycle"), "source-supervisor.json")
-	store, err := NewFileSourceSupervisorStore(path)
+	path := filepath.Join(testsupport.ProjectTempDir(t, "source-lifecycle-evidence-kind"), "source-lifecycle.json")
+	store, err := NewFileSourceLifecycleStore(path)
 	if err != nil {
-		t.Fatalf("NewFileSourceSupervisorStore returned error: %v", err)
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
+	}
+	err = store.RecordSourceVerification(ctx, SourceVerificationEvidence{
+		SourceEventRef:   "evt_bad_kind",
+		SourceID:         "source_feishu_events",
+		Connector:        "feishu",
+		ValidationStatus: SourceValidationVerified,
+		EvidenceKind:     "unknown_adapter_claim",
+		EvidenceRef:      "evidence_1",
+		CheckedAt:        time.Date(2026, 6, 24, 14, 35, 0, 0, time.UTC),
+		AdapterRef:       "feishu-source-adapter",
+	})
+	if err == nil {
+		t.Fatal("RecordSourceVerification should reject unapproved evidence kind")
+	}
+}
+
+func TestFileSourceLifecycleStoreKeepsRunStartedAtAcrossStatusUpdates(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(testsupport.ProjectTempDir(t, "source-lifecycle-run-lifecycle"), "source-lifecycle.json")
+	store, err := NewFileSourceLifecycleStore(path)
+	if err != nil {
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
 	}
 	startedAt := time.Date(2026, 6, 24, 15, 0, 0, 0, time.UTC)
 	readyAt := startedAt.Add(2 * time.Second)

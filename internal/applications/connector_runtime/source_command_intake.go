@@ -17,13 +17,13 @@ type SourceCommandRetryPolicy struct {
 	Backoff     time.Duration
 }
 
-type SourceCommandSupervisor struct {
+type SourceCommandIntake struct {
 	Adapter SourceCommandAdapter
 	Retry   SourceCommandRetryPolicy
 	Sleep   func(context.Context, time.Duration) error
 }
 
-func (s SourceCommandSupervisor) Run(ctx context.Context, handle func(ExternalEvent) error) error {
+func (s SourceCommandIntake) Run(ctx context.Context, handle func(ExternalEvent) error) error {
 	policy := normalizeSourceCommandRetryPolicy(s.Retry)
 	var lastErr error
 	for attempt := 1; attempt <= policy.MaxAttempts; attempt++ {

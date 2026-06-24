@@ -15,6 +15,10 @@ const (
 	SourceAttemptOutcomeStopped = "stopped"
 
 	SourceCursorKindExternalEventID = "external_event_id"
+
+	SourceEvidenceKindWebhookSignature               = "webhook_signature"
+	SourceEvidenceKindProviderEventSignature         = "provider_event_signature"
+	SourceEvidenceKindTrustedLocalAdapterAttestation = "trusted_local_adapter_attestation"
 )
 
 type SourceRun struct {
@@ -48,6 +52,9 @@ type SourceCursor struct {
 
 type SourceVerificationEvidence struct {
 	SourceEventRef   string    `json:"source_event_ref"`
+	SourceBatchRef   string    `json:"source_batch_ref,omitempty"`
+	SourceID         string    `json:"source_id"`
+	Connector        string    `json:"connector"`
 	ValidationStatus string    `json:"validation_status"`
 	EvidenceKind     string    `json:"evidence_kind,omitempty"`
 	EvidenceRef      string    `json:"evidence_ref,omitempty"`

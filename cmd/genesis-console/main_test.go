@@ -323,16 +323,16 @@ func TestConsoleInspectIncludesFilteredSourceFailures(t *testing.T) {
 	}
 }
 
-func TestConsoleInspectIncludesSourceSupervisorState(t *testing.T) {
+func TestConsoleInspectIncludesSourceLifecycleState(t *testing.T) {
 	ctx := context.Background()
-	dir := testsupport.ProjectTempDir(t, "genesis-console-source-supervisor")
+	dir := testsupport.ProjectTempDir(t, "genesis-console-source-lifecycle")
 	inboundPath := filepath.Join(dir, "inbound.json")
 	outboxPath := filepath.Join(dir, "outbox.json")
 	sourceFailurePath := filepath.Join(dir, "source-failures.json")
-	sourceSupervisorPath := filepath.Join(dir, "source-supervisor.json")
-	store, err := connectorruntime.NewFileSourceSupervisorStore(sourceSupervisorPath)
+	sourceLifecyclePath := filepath.Join(dir, "source-lifecycle.json")
+	store, err := connectorruntime.NewFileSourceLifecycleStore(sourceLifecyclePath)
 	if err != nil {
-		t.Fatalf("NewFileSourceSupervisorStore returned error: %v", err)
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
 	}
 	now := time.Date(2026, 6, 24, 16, 0, 0, 0, time.UTC)
 	sourceRun := connectorruntime.SourceRun{
@@ -367,8 +367,10 @@ func TestConsoleInspectIncludesSourceSupervisorState(t *testing.T) {
 	}
 	if err := store.RecordSourceVerification(ctx, connectorruntime.SourceVerificationEvidence{
 		SourceEventRef:   "evt_123",
+		SourceID:         sourceRun.SourceID,
+		Connector:        "feishu",
 		ValidationStatus: connectorruntime.SourceValidationVerified,
-		EvidenceKind:     "trusted_adapter_assertion",
+		EvidenceKind:     connectorruntime.SourceEvidenceKindTrustedLocalAdapterAttestation,
 		EvidenceRef:      "evidence_123",
 		CheckedAt:        now.Add(4 * time.Second),
 		AdapterRef:       "feishu-source-adapter",
@@ -382,7 +384,7 @@ func TestConsoleInspectIncludesSourceSupervisorState(t *testing.T) {
 		"--inbound-state", inboundPath,
 		"--outbox-state", outboxPath,
 		"--source-state", sourceFailurePath,
-		"--source-supervisor-state", sourceSupervisorPath,
+		"--source-lifecycle-state", sourceLifecyclePath,
 		"--connector", "feishu",
 	}, &stdout, io.Discard); err != nil {
 		t.Fatalf("run returned error: %v", err)

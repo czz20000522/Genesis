@@ -89,7 +89,7 @@ func TestSourceCommandFramesRejectVerifiedEventWithoutEvidence(t *testing.T) {
 func TestSourceCommandFramesRejectVerifiedEventWithUncheckedEvidence(t *testing.T) {
 	ctx := context.Background()
 	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-verified-weak-evidence")
-	frames := `{"kind":"source.event","source_id":"source_feishu_chat","connector":"feishu","adapter_ref":"feishu-source-adapter","event":{"connector":"feishu","external_event_id":"evt_verified","event_type":"message.created","thread_ref":{"connector":"feishu","kind":"chat","external_id":"oc_1"},"sender_ref":{"connector":"feishu","kind":"user","external_id":"ou_1"},"message_ref":{"connector":"feishu","kind":"message","external_id":"om_1"},"body":"hello","source_validation":"verified"},"verification_evidence":{"source_event_ref":"evt_verified","validation_status":"unchecked","adapter_ref":"feishu-source-adapter"}}` + "\n"
+	frames := `{"kind":"source.event","source_id":"source_feishu_chat","connector":"feishu","adapter_ref":"feishu-source-adapter","event":{"connector":"feishu","external_event_id":"evt_verified","event_type":"message.created","thread_ref":{"connector":"feishu","kind":"chat","external_id":"oc_1"},"sender_ref":{"connector":"feishu","kind":"user","external_id":"ou_1"},"message_ref":{"connector":"feishu","kind":"message","external_id":"om_1"},"body":"hello","source_validation":"verified"},"verification_evidence":{"source_event_ref":"evt_verified","source_id":"source_feishu_chat","connector":"feishu","validation_status":"unchecked","adapter_ref":"feishu-source-adapter"}}` + "\n"
 
 	err := ConsumeSourceCommandFrames(ctx, strings.NewReader(frames), SourceCommandFrameConsumer{
 		ExpectedSourceID:   "source_feishu_chat",
@@ -110,6 +110,64 @@ func TestSourceCommandFramesRejectVerifiedEventWithUncheckedEvidence(t *testing.
 	}
 	if len(failures) != 1 || failures[0].Reason != "source_verification_failed" {
 		t.Fatalf("failures = %+v, want weak evidence rejection", failures)
+	}
+}
+
+func TestSourceCommandFramesAcceptVerifiedEventWithBoundEvidence(t *testing.T) {
+	ctx := context.Background()
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-verified-bound-evidence")
+	frames := `{"kind":"source.event","source_id":"source_feishu_chat","connector":"feishu","adapter_ref":"feishu-source-adapter","event":{"connector":"feishu","external_event_id":"evt_verified","event_type":"message.created","thread_ref":{"connector":"feishu","kind":"chat","external_id":"oc_1"},"sender_ref":{"connector":"feishu","kind":"user","external_id":"ou_1"},"message_ref":{"connector":"feishu","kind":"message","external_id":"om_1"},"body":"hello","source_validation":"verified"},"verification_evidence":{"source_event_ref":"evt_verified","source_id":"source_feishu_chat","connector":"feishu","validation_status":"verified","evidence_kind":"trusted_local_adapter_attestation","evidence_ref":"evidence_1","adapter_ref":"feishu-source-adapter"}}` + "\n"
+
+	var handled []ExternalEvent
+	err := ConsumeSourceCommandFrames(ctx, strings.NewReader(frames), SourceCommandFrameConsumer{
+		ExpectedSourceID:   "source_feishu_chat",
+		ExpectedConnector:  "feishu",
+		ExpectedAdapterRef: "feishu-source-adapter",
+		SourceStore:        sourceStore,
+		FailureStore:       failureStore,
+	}, func(event ExternalEvent) error {
+		handled = append(handled, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ConsumeSourceCommandFrames returned error: %v", err)
+	}
+	if len(handled) != 1 || handled[0].ExternalEventID != "evt_verified" || handled[0].SourceValidation != SourceValidationVerified {
+		t.Fatalf("handled = %+v, want one verified event", handled)
+	}
+	evidence, err := sourceStore.ListSourceVerifications(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceVerifications returned error: %v", err)
+	}
+	if len(evidence) != 1 || evidence[0].SourceID != "source_feishu_chat" || evidence[0].Connector != "feishu" || evidence[0].EvidenceKind != SourceEvidenceKindTrustedLocalAdapterAttestation {
+		t.Fatalf("evidence = %+v, want bound approved source evidence", evidence)
+	}
+}
+
+func TestSourceCommandFramesRejectVerifiedEventWithUnapprovedEvidenceKind(t *testing.T) {
+	ctx := context.Background()
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-verified-bad-evidence-kind")
+	frames := `{"kind":"source.event","source_id":"source_feishu_chat","connector":"feishu","adapter_ref":"feishu-source-adapter","event":{"connector":"feishu","external_event_id":"evt_verified","event_type":"message.created","thread_ref":{"connector":"feishu","kind":"chat","external_id":"oc_1"},"sender_ref":{"connector":"feishu","kind":"user","external_id":"ou_1"},"message_ref":{"connector":"feishu","kind":"message","external_id":"om_1"},"body":"hello","source_validation":"verified"},"verification_evidence":{"source_event_ref":"evt_verified","source_id":"source_feishu_chat","connector":"feishu","validation_status":"verified","evidence_kind":"unknown_adapter_claim","evidence_ref":"evidence_1","adapter_ref":"feishu-source-adapter"}}` + "\n"
+
+	err := ConsumeSourceCommandFrames(ctx, strings.NewReader(frames), SourceCommandFrameConsumer{
+		ExpectedSourceID:   "source_feishu_chat",
+		ExpectedConnector:  "feishu",
+		ExpectedAdapterRef: "feishu-source-adapter",
+		SourceStore:        sourceStore,
+		FailureStore:       failureStore,
+	}, func(event ExternalEvent) error {
+		t.Fatalf("verified event with unapproved evidence kind must not be handled: %+v", event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ConsumeSourceCommandFrames returned error: %v", err)
+	}
+	failures, err := failureStore.ListSourceFailures(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceFailures returned error: %v", err)
+	}
+	if len(failures) != 1 || failures[0].Reason != "source_verification_failed" {
+		t.Fatalf("failures = %+v, want evidence kind rejection", failures)
 	}
 }
 
@@ -313,13 +371,15 @@ func TestSourceCommandAdapterRunsTypedSourceProcess(t *testing.T) {
 	}
 }
 
-func TestFileSourceSupervisorStoreListsVerificationEvidence(t *testing.T) {
+func TestFileSourceLifecycleStoreListsVerificationEvidence(t *testing.T) {
 	ctx := context.Background()
 	sourceStore, _ := newSourceCommandTestStores(t, "source-command-verification-list")
 	err := sourceStore.RecordSourceVerification(ctx, SourceVerificationEvidence{
 		SourceEventRef:   "evt_verified",
+		SourceID:         "source_feishu_chat",
+		Connector:        "feishu",
 		ValidationStatus: SourceValidationVerified,
-		EvidenceKind:     "trusted_adapter_assertion",
+		EvidenceKind:     SourceEvidenceKindTrustedLocalAdapterAttestation,
 		EvidenceRef:      "evidence_1",
 		AdapterRef:       "feishu-source-adapter",
 	})
@@ -428,12 +488,12 @@ func envOrFallback(name string, fallback string) string {
 	return fallback
 }
 
-func newSourceCommandTestStores(t *testing.T, name string) (*FileSourceSupervisorStore, *FileSourceFailureStore) {
+func newSourceCommandTestStores(t *testing.T, name string) (*FileSourceLifecycleStore, *FileSourceFailureStore) {
 	t.Helper()
 	dir := testsupport.ProjectTempDir(t, name)
-	sourceStore, err := NewFileSourceSupervisorStore(filepath.Join(dir, "source-supervisor.json"))
+	sourceStore, err := NewFileSourceLifecycleStore(filepath.Join(dir, "source-lifecycle.json"))
 	if err != nil {
-		t.Fatalf("NewFileSourceSupervisorStore returned error: %v", err)
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
 	}
 	failureStore, err := NewFileSourceFailureStore(filepath.Join(dir, "source-failures.json"))
 	if err != nil {

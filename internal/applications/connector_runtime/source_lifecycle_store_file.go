@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-type SourceSupervisorStore interface {
+type SourceLifecycleStore interface {
 	UpsertSourceRun(context.Context, SourceRun) error
 	ListSourceRuns(context.Context) ([]SourceRun, error)
 	RecordSourceAttempt(context.Context, SourceAttempt) error
@@ -24,7 +24,7 @@ type SourceSupervisorStore interface {
 	ListSourceVerifications(context.Context) ([]SourceVerificationEvidence, error)
 }
 
-type FileSourceSupervisorStore struct {
+type FileSourceLifecycleStore struct {
 	path          string
 	mu            sync.Mutex
 	runs          map[string]SourceRun
@@ -33,18 +33,18 @@ type FileSourceSupervisorStore struct {
 	verifications map[string]SourceVerificationEvidence
 }
 
-type fileSourceSupervisorPayload struct {
+type fileSourceLifecyclePayload struct {
 	Runs          map[string]SourceRun                  `json:"runs"`
 	Attempts      map[string][]SourceAttempt            `json:"attempts"`
 	Cursors       map[string]SourceCursor               `json:"cursors"`
 	Verifications map[string]SourceVerificationEvidence `json:"verifications,omitempty"`
 }
 
-func NewFileSourceSupervisorStore(path string) (*FileSourceSupervisorStore, error) {
+func NewFileSourceLifecycleStore(path string) (*FileSourceLifecycleStore, error) {
 	if strings.TrimSpace(path) == "" {
-		return nil, errors.New("source supervisor store path is required")
+		return nil, errors.New("source lifecycle store path is required")
 	}
-	store := &FileSourceSupervisorStore{path: path}
+	store := &FileSourceLifecycleStore{path: path}
 	store.reset()
 	if err := store.load(); err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func NewFileSourceSupervisorStore(path string) (*FileSourceSupervisorStore, erro
 	return store, nil
 }
 
-func (s *FileSourceSupervisorStore) UpsertSourceRun(ctx context.Context, run SourceRun) error {
+func (s *FileSourceLifecycleStore) UpsertSourceRun(ctx context.Context, run SourceRun) error {
 	run, err := normalizeSourceRun(run)
 	if err != nil {
 		return err
@@ -66,7 +66,7 @@ func (s *FileSourceSupervisorStore) UpsertSourceRun(ctx context.Context, run Sou
 	})
 }
 
-func (s *FileSourceSupervisorStore) ListSourceRuns(ctx context.Context) ([]SourceRun, error) {
+func (s *FileSourceLifecycleStore) ListSourceRuns(ctx context.Context) ([]SourceRun, error) {
 	var runs []SourceRun
 	err := s.withLockedState(ctx, func() error {
 		runs = make([]SourceRun, 0, len(s.runs))
@@ -84,7 +84,7 @@ func (s *FileSourceSupervisorStore) ListSourceRuns(ctx context.Context) ([]Sourc
 	return runs, err
 }
 
-func (s *FileSourceSupervisorStore) RecordSourceAttempt(ctx context.Context, attempt SourceAttempt) error {
+func (s *FileSourceLifecycleStore) RecordSourceAttempt(ctx context.Context, attempt SourceAttempt) error {
 	attempt, err := normalizeSourceAttempt(attempt)
 	if err != nil {
 		return err
@@ -98,7 +98,7 @@ func (s *FileSourceSupervisorStore) RecordSourceAttempt(ctx context.Context, att
 	})
 }
 
-func (s *FileSourceSupervisorStore) ListSourceAttempts(ctx context.Context, sourceRunID string) ([]SourceAttempt, error) {
+func (s *FileSourceLifecycleStore) ListSourceAttempts(ctx context.Context, sourceRunID string) ([]SourceAttempt, error) {
 	sourceRunID = strings.TrimSpace(sourceRunID)
 	if sourceRunID == "" {
 		return nil, errors.New("source run id is required")
@@ -114,7 +114,7 @@ func (s *FileSourceSupervisorStore) ListSourceAttempts(ctx context.Context, sour
 	return attempts, err
 }
 
-func (s *FileSourceSupervisorStore) SaveSourceCursor(ctx context.Context, cursor SourceCursor) error {
+func (s *FileSourceLifecycleStore) SaveSourceCursor(ctx context.Context, cursor SourceCursor) error {
 	cursor, err := normalizeSourceCursor(cursor)
 	if err != nil {
 		return err
@@ -125,7 +125,7 @@ func (s *FileSourceSupervisorStore) SaveSourceCursor(ctx context.Context, cursor
 	})
 }
 
-func (s *FileSourceSupervisorStore) GetSourceCursor(ctx context.Context, sourceID string, cursorKind string) (SourceCursor, bool, error) {
+func (s *FileSourceLifecycleStore) GetSourceCursor(ctx context.Context, sourceID string, cursorKind string) (SourceCursor, bool, error) {
 	sourceID = strings.TrimSpace(sourceID)
 	cursorKind = strings.TrimSpace(cursorKind)
 	if sourceID == "" || cursorKind == "" {
@@ -140,7 +140,7 @@ func (s *FileSourceSupervisorStore) GetSourceCursor(ctx context.Context, sourceI
 	return cursor, ok, err
 }
 
-func (s *FileSourceSupervisorStore) ListSourceCursors(ctx context.Context) ([]SourceCursor, error) {
+func (s *FileSourceLifecycleStore) ListSourceCursors(ctx context.Context) ([]SourceCursor, error) {
 	var cursors []SourceCursor
 	err := s.withLockedState(ctx, func() error {
 		cursors = make([]SourceCursor, 0, len(s.cursors))
@@ -158,18 +158,18 @@ func (s *FileSourceSupervisorStore) ListSourceCursors(ctx context.Context) ([]So
 	return cursors, err
 }
 
-func (s *FileSourceSupervisorStore) RecordSourceVerification(ctx context.Context, evidence SourceVerificationEvidence) error {
+func (s *FileSourceLifecycleStore) RecordSourceVerification(ctx context.Context, evidence SourceVerificationEvidence) error {
 	evidence, err := normalizeSourceVerificationEvidence(evidence)
 	if err != nil {
 		return err
 	}
 	return s.withLockedState(ctx, func() error {
-		s.verifications[evidence.SourceEventRef] = evidence
+		s.verifications[sourceVerificationKey(evidence)] = evidence
 		return s.writeLocked()
 	})
 }
 
-func (s *FileSourceSupervisorStore) ListSourceVerifications(ctx context.Context) ([]SourceVerificationEvidence, error) {
+func (s *FileSourceLifecycleStore) ListSourceVerifications(ctx context.Context) ([]SourceVerificationEvidence, error) {
 	var evidence []SourceVerificationEvidence
 	err := s.withLockedState(ctx, func() error {
 		evidence = make([]SourceVerificationEvidence, 0, len(s.verifications))
@@ -180,14 +180,14 @@ func (s *FileSourceSupervisorStore) ListSourceVerifications(ctx context.Context)
 			if !evidence[i].CheckedAt.Equal(evidence[j].CheckedAt) {
 				return evidence[i].CheckedAt.Before(evidence[j].CheckedAt)
 			}
-			return evidence[i].SourceEventRef < evidence[j].SourceEventRef
+			return sourceVerificationKey(evidence[i]) < sourceVerificationKey(evidence[j])
 		})
 		return nil
 	})
 	return evidence, err
 }
 
-func (s *FileSourceSupervisorStore) load() error {
+func (s *FileSourceLifecycleStore) load() error {
 	content, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		s.reset()
@@ -196,7 +196,7 @@ func (s *FileSourceSupervisorStore) load() error {
 	if err != nil {
 		return err
 	}
-	var payload fileSourceSupervisorPayload
+	var payload fileSourceLifecyclePayload
 	if err := json.Unmarshal(content, &payload); err != nil {
 		return err
 	}
@@ -216,14 +216,14 @@ func (s *FileSourceSupervisorStore) load() error {
 	return nil
 }
 
-func (s *FileSourceSupervisorStore) reset() {
+func (s *FileSourceLifecycleStore) reset() {
 	s.runs = make(map[string]SourceRun)
 	s.attempts = make(map[string][]SourceAttempt)
 	s.cursors = make(map[string]SourceCursor)
 	s.verifications = make(map[string]SourceVerificationEvidence)
 }
 
-func (s *FileSourceSupervisorStore) withLockedState(ctx context.Context, fn func() error) error {
+func (s *FileSourceLifecycleStore) withLockedState(ctx context.Context, fn func() error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	release, err := acquireConnectorStateFileLock(ctx, s.path+".lock")
@@ -237,11 +237,11 @@ func (s *FileSourceSupervisorStore) withLockedState(ctx context.Context, fn func
 	return fn()
 }
 
-func (s *FileSourceSupervisorStore) writeLocked() error {
+func (s *FileSourceLifecycleStore) writeLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
-	payload := fileSourceSupervisorPayload{
+	payload := fileSourceLifecyclePayload{
 		Runs:          s.runs,
 		Attempts:      s.attempts,
 		Cursors:       s.cursors,
@@ -251,7 +251,7 @@ func (s *FileSourceSupervisorStore) writeLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".connector-source-supervisor.*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".connector-source-lifecycle.*.tmp")
 	if err != nil {
 		return err
 	}
@@ -340,17 +340,28 @@ func normalizeSourceCursor(cursor SourceCursor) (SourceCursor, error) {
 
 func normalizeSourceVerificationEvidence(evidence SourceVerificationEvidence) (SourceVerificationEvidence, error) {
 	evidence.SourceEventRef = strings.TrimSpace(evidence.SourceEventRef)
+	evidence.SourceBatchRef = strings.TrimSpace(evidence.SourceBatchRef)
+	evidence.SourceID = strings.TrimSpace(evidence.SourceID)
+	evidence.Connector = strings.TrimSpace(evidence.Connector)
 	evidence.ValidationStatus = strings.TrimSpace(evidence.ValidationStatus)
 	evidence.EvidenceKind = strings.TrimSpace(evidence.EvidenceKind)
 	evidence.EvidenceRef = strings.TrimSpace(evidence.EvidenceRef)
 	evidence.AdapterRef = strings.TrimSpace(evidence.AdapterRef)
 	switch {
-	case evidence.SourceEventRef == "":
-		return SourceVerificationEvidence{}, errors.New("source verification event ref is required")
+	case evidence.SourceEventRef == "" && evidence.SourceBatchRef == "":
+		return SourceVerificationEvidence{}, errors.New("source verification event or batch ref is required")
+	case evidence.SourceID == "":
+		return SourceVerificationEvidence{}, errors.New("source verification source id is required")
+	case evidence.Connector == "":
+		return SourceVerificationEvidence{}, errors.New("source verification connector is required")
+	case evidence.AdapterRef == "":
+		return SourceVerificationEvidence{}, errors.New("source verification adapter ref is required")
 	case evidence.ValidationStatus == "":
 		return SourceVerificationEvidence{}, errors.New("source verification status is required")
 	case evidence.ValidationStatus == SourceValidationVerified && (evidence.EvidenceKind == "" || evidence.EvidenceRef == ""):
 		return SourceVerificationEvidence{}, errors.New("verified source event requires evidence kind and ref")
+	case evidence.EvidenceKind != "" && !validSourceEvidenceKind(evidence.EvidenceKind):
+		return SourceVerificationEvidence{}, errors.New("source verification evidence kind is invalid")
 	case evidence.ValidationStatus != SourceValidationVerified && evidence.ValidationStatus != SourceValidationUnchecked && evidence.ValidationStatus != SourceValidationRejected:
 		return SourceVerificationEvidence{}, errors.New("source verification status is invalid")
 	}
@@ -358,6 +369,13 @@ func normalizeSourceVerificationEvidence(evidence SourceVerificationEvidence) (S
 		evidence.CheckedAt = time.Now().UTC()
 	}
 	return evidence, nil
+}
+
+func sourceVerificationKey(evidence SourceVerificationEvidence) string {
+	if strings.TrimSpace(evidence.SourceEventRef) != "" {
+		return "event:" + strings.TrimSpace(evidence.SourceEventRef)
+	}
+	return "batch:" + strings.TrimSpace(evidence.SourceBatchRef)
 }
 
 func sourceCursorKey(sourceID string, cursorKind string) string {
@@ -376,6 +394,15 @@ func validSourceRunStatus(status string) bool {
 func validSourceAttemptOutcome(outcome string) bool {
 	switch outcome {
 	case SourceAttemptOutcomeReady, SourceAttemptOutcomeFailed, SourceAttemptOutcomeBlocked, SourceAttemptOutcomeStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+func validSourceEvidenceKind(kind string) bool {
+	switch kind {
+	case SourceEvidenceKindWebhookSignature, SourceEvidenceKindProviderEventSignature, SourceEvidenceKindTrustedLocalAdapterAttestation:
 		return true
 	default:
 		return false
