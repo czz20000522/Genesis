@@ -72,6 +72,12 @@ Done when:
 - Tests prove writable fixtures land under project-local test scratch.
 - `go test ./... -count=1`, `go build ./...`, and `git diff --check` pass.
 
+Evidence:
+
+- Completed by `85cbb091d`.
+- `internal/kernel`, `cmd/genesisd`, and `cmd/genesisctl` tests now use repo-local project temp helpers.
+- `internal/testsupport` guards those test roots against new `t.TempDir()` or `os.MkdirTemp()` fixture usage.
+
 ## Phase 2: Connector Outbound Driver Migration
 
 Issue:

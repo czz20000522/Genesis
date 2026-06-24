@@ -745,4 +745,4 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Retired
 
-No issue has been user-retired in this branch yet. Move accepted entries from `Ready For Acceptance` to this section only after user or operator acceptance, then remove the same issue from `kernel-issues.md`.
+- `KERNEL-TEST-ARTIFACT-LOCALITY-20260624`: retired because kernel, genesisd, and genesisctl tests now use repo-local `testsupport.ProjectTempDir` with a structural guard against system temp regressions; fixing commit `85cbb091d`, verified by `go test ./... -count=1`, `go build ./...`, and `git diff --check`.
