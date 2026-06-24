@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 )
 
 type toolBatchExecutionOutcome struct {
@@ -24,14 +25,18 @@ func (k *Kernel) executeToolBatches(runCtx context.Context, toolGateway ToolGate
 
 func (k *Kernel) executeToolBatchesWithRunner(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, toolCallEventIDs map[string]string, runner toolBatchRunner) (toolBatchExecutionOutcome, error) {
 	for _, batch := range planToolExecutionBatches(preparedCalls) {
-		if runner == nil {
+		batchRunner := runner
+		if batchRunner == nil && canExecuteToolBatchConcurrently(batch, preparedCalls) {
+			batchRunner = executeToolBatchConcurrently
+		}
+		if batchRunner == nil {
 			outcome, err := k.executeToolBatchSerially(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs, batch)
 			if err != nil || outcome.Completed {
 				return outcome, err
 			}
 			continue
 		}
-		results, err := runner(runCtx, toolGateway, sessionID, turnID, preparedCalls, batch)
+		results, err := batchRunner(runCtx, toolGateway, sessionID, turnID, preparedCalls, batch)
 		if err != nil {
 			return k.handleToolExecutionError(runCtx, sessionID, turnID, err)
 		}
@@ -50,6 +55,55 @@ func (k *Kernel) executeToolBatchesWithRunner(runCtx context.Context, toolGatewa
 		}
 	}
 	return toolBatchExecutionOutcome{}, nil
+}
+
+func canExecuteToolBatchConcurrently(batch ToolExecutionBatch, preparedCalls []preparedModelToolCall) bool {
+	if !batch.Parallel || len(batch.CallIndexes) <= 1 || batch.Reason != ToolEffectClassPureRead {
+		return false
+	}
+	for _, callIndex := range batch.CallIndexes {
+		if callIndex < 0 || callIndex >= len(preparedCalls) {
+			return false
+		}
+		if preparedCalls[callIndex].accessPlan.parallelClass() != ToolEffectClassPureRead {
+			return false
+		}
+	}
+	return true
+}
+
+func executeToolBatchConcurrently(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, batch ToolExecutionBatch) ([]toolCallExecutionResult, error) {
+	ctx, cancel := context.WithCancel(runCtx)
+	defer cancel()
+	results := make([]toolCallExecutionResult, len(batch.CallIndexes))
+	errCh := make(chan error, len(batch.CallIndexes))
+	var wg sync.WaitGroup
+	for resultIndex, callIndex := range batch.CallIndexes {
+		resultIndex := resultIndex
+		callIndex := callIndex
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result, err := toolGateway.Execute(ctx, sessionID, turnID, preparedCalls[callIndex])
+			if err != nil {
+				cancel()
+				errCh <- err
+				return
+			}
+			results[resultIndex] = toolCallExecutionResult{
+				CallIndex: callIndex,
+				Result:    result,
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return results, nil
 }
 
 func (k *Kernel) executeToolBatchSerially(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, toolCallEventIDs map[string]string, batch ToolExecutionBatch) (toolBatchExecutionOutcome, error) {
