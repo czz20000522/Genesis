@@ -40,6 +40,132 @@ Core conceptual commands and projections:
 
 Kernel-owned control fields stay out of model-visible schemas. Provider adapters translate kernel manifests to provider-native shapes but do not own tool permission, idempotency, execution, or ledger evidence.
 
+## UI Timeline Projection
+
+The user-facing timeline is a projection tree, not the raw event stream and not
+the provider replay context. Its job is to keep the conversation readable while
+long-running model work remains inspectable.
+
+The projection has two turn views:
+
+- live turn projection: used while a turn is running. It can default the
+  processing group to expanded so the user can see compact progress summaries
+  and grouped tool activity while work is in flight. Its elapsed label is
+  computed from live clock plus recorded start time, for example `正在处理 45s`;
+  the changing label is transport/projection state, not a durable event tick.
+- settled turn projection: used once the final assistant response starts. It
+  defaults the processing group to collapsed and streams or shows the final
+  assistant message as the primary content. Its processing label is fixed from
+  recorded timing facts, for example `已处理 1m 5s`.
+
+The conceptual shapes are:
+
+```text
+LiveTurnProjection
+  live_work_items[]
+  live_final_message?
+
+SettledTurnProjection
+  user_message
+  processing_group
+  assistant_message
+
+WorkGroupDetailProjection
+  progress_notes[]
+  tool_groups[]
+  compaction_events[]
+  checkpoint_events[]
+  user_action_requests[]
+
+OperationDetailProjection
+  command_preview
+  status
+  duration
+  visible_output
+  truncation
+  detail_ref?
+```
+
+These names describe projection responsibilities, not mandatory endpoint names
+or stored table names. A transport can serve them through `timeline` and
+protected detail/inspection routes as long as the owner and visibility rules
+stay intact.
+
+The transition is triggered by the first assistant final-message delta or final
+assistant event for the turn, not by a later cleanup pass. The shell should then
+render the processing group as a compact row such as fixed duration, tool count,
+job count, and compaction count. The user can reopen the group. That manual open
+state is shell-local UI state and must not become kernel truth.
+
+The recommended node hierarchy is:
+
+```text
+turn
+  user_message
+  processing_group
+    progress_note
+    tool_group
+      operation_detail
+    compaction_notice
+    user_action_request
+  assistant_message
+```
+
+`processing_group` is a UI projection of work already recorded in owner facts.
+It does not create a new kernel work owner and it does not replace operation,
+job, compaction, or tool facts. `tool_group` groups adjacent or causally related
+tool activity for readability. Tool failures, command syntax errors, job
+failures, stderr, and long stdout/stderr do not become ordinary chat messages
+and do not force the settled processing group open. `operation_detail` exposes
+command preview, status, duration, bounded visible output, truncation metadata,
+and a detail ref when a protected inspection surface can provide more
+information.
+
+Realtime deltas are applied by upsert, not by appending a new visible row for
+every chunk. A shell should update the node identified by the stable item or
+operation ref: reasoning/progress deltas update the progress node, command
+output deltas update the command node, and tool progress updates the tool node.
+Chunk transport remains non-canonical until an owner reduces it to a transcript
+item, tool result, job fact, checkpoint, or failure event.
+
+The main timeline, detail pane, and diagnostics panel have different jobs:
+
+- main timeline: user message, collapsed or expanded processing group, final
+  assistant response, and explicit user-action requests;
+- detail pane or drawer: selected node details, including command output,
+  diff previews, tool arguments/results, truncation metadata, and references to
+  protected inspection surfaces;
+- diagnostics: raw kernel event JSON, audit replay, context inspection,
+  provider input kinds, sandbox/authority evidence, and debug traces when
+  enabled.
+
+Approval and user-input requests are not chat messages. They are control
+surfaces tied to authority and request lifecycle. A shell may display them near
+the conversation as standalone action nodes because the run needs user input,
+but the timeline must not present them as assistant-authored content and must
+not let them mint tool results outside the owning kernel path. Approval action
+nodes should behave like Reasonix-style approval prompts: the pending action is
+visible and answerable, while the underlying command or tool failure remains a
+detail/diagnostics concern until the kernel owner records the approved or
+denied outcome.
+
+Reference alignment:
+
+- Codex-style desktop rendering shows the desired interaction: live activity is
+  visible while work is running, then the processing work collapses when the
+  final answer starts streaming.
+- Reasonix treats approval as a distinct request/control surface rather than a
+  tool result row or assistant message, which matches Genesis' authority-plane
+  boundary.
+- CodexGui is useful as a shell reference for typed thread/turn/item cards,
+  live delta aggregation through upsert, card previews plus detail panes, and
+  approval surfaces outside the chat stream.
+- CodexGui is not the Genesis projection contract. Its current flat
+  conversation item model and concentrated view-model logic are application
+  implementation choices, not kernel design. Genesis keeps projection grouping
+  in backend/kernel-owned read models so WebUI, desktop UI, CLI, and future
+  external shells do not each reinterpret raw events.
+
 ## Tool Scheduling
 
 Tool scheduling belongs to ToolGateway and the kernel runtime. Provider adapters
@@ -150,3 +276,7 @@ after commit and cannot roll back owner truth.
 - Starting database design from a global ERD is rejected because it encourages noun-based tables instead of owner-owned truth, projections, queues, and indexes.
 - Keeping JSONL and database stores as permanent dual product truth is rejected because it splits replay, migration, and corruption semantics across two owners.
 - Treating `read` versus `write` as the complete concurrency contract is rejected because state reads, process handles, external side effects, and arbitrary shell commands need kernel-owned access plans.
+- Rendering raw kernel events directly as the chat UI is rejected because long turns become unreadable and shells would duplicate projection logic.
+- Persisting UI open/closed state as kernel truth is rejected because collapse is a shell projection preference, not a system fact.
+- Treating approval prompts as assistant messages is rejected because approvals are authority-control interactions, not model-authored transcript content.
+- Rendering tool or job failures as ordinary chat rows is rejected because command-level failure is a detail/diagnostics fact unless the kernel needs an explicit user decision.

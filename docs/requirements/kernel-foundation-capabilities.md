@@ -270,6 +270,11 @@ in-flight effects.
 - Context inspection reports provider-visible input kinds, tool manifest names, skill metadata summaries, approved memory refs, provider status, and resolved permission profile without exposing full rendered prompts or raw secrets.
 - Audit inspection reports event types, operation status, provider context input kinds, usage, failure codes, and truncation metadata.
 - Ordinary UI timeline omits kernel-owned ids and control-plane internals unless the user opens a diagnostics surface.
+- Ordinary UI timeline is the chat-readable projection. It shows user messages, final assistant messages, and compact processing summaries; it does not render raw kernel events, raw tool results, raw job lifecycle events, audit facts, or context inspection facts as chat rows.
+- A turn processing group has live and terminal projection states. While the turn is running, the shell may display a changing elapsed label such as `正在处理 45s` or `正在处理 1m 5s`; this changing label is realtime/projection state and is not appended as a durable tick. After the turn settles, the projection fixes the duration label, such as `已处理 1m 5s`, from recorded start/end facts.
+- Tool and job activity is summarized under a processing group. Normal command failures, malformed command results, job failures, stderr, and long stdout/stderr do not create ordinary chat messages and do not default-expand the timeline. They remain available through detail or diagnostics projections with bounded previews and truncation metadata.
+- Approval and user-input requests are user-action projection nodes, not assistant messages and not tool failure rows. They may appear in the ordinary timeline because the run needs a user decision, but they must keep authority actions separate from transcript content.
+- Detail projections are selected-node read models. They may show tool group details, operation status, command preview, duration, bounded output, truncation, and detail refs. They remain separate from raw event JSON, audit replay, context inspection, sandbox evidence, and debug trace.
 
 ### Skill Catalog
 
@@ -330,7 +335,8 @@ Positive cases:
 - valid governed shell execution returns terminal-equivalent result evidence;
 - compatible pure-read tool calls can be planned into one parallel batch without changing provider-visible result order;
 - approved memory can be recalled in a later turn;
-- protected inspection surfaces show readiness, capability, timeline, audit, and context projections.
+- protected inspection surfaces show readiness, capability, timeline, audit, and context projections;
+- ordinary timeline can present a turn as user message, processing group, final assistant message, and optional user-action request without exposing raw events or control-plane ids.
 
 Negative cases:
 
@@ -339,6 +345,8 @@ Negative cases:
 - model-supplied control-plane fields are rejected;
 - unknown tools, unknown scheduling metadata, state reads after uncommitted prior facts, conflicting writes, and same-handle process I/O do not run in parallel;
 - `shell_exec` is not classified as pure read by command text inspection alone;
+- tool/job failures do not become ordinary chat messages and do not force the processing group open after the final assistant message starts;
+- approval-required state is projected as a user action rather than as an assistant-authored message or a generic failed tool row;
 - raw secrets do not appear in context, logs, readiness, events, or model-visible results;
 - unsafe skill metadata is excluded;
 - rejected and superseded memories do not enter recall.
@@ -355,6 +363,7 @@ Audit and visibility:
 
 - ordinary timeline, raw events, audit, and context projections remain separate;
 - bounded output includes truncation metadata;
+- live elapsed labels update without appending durable per-second facts, and terminal duration labels are fixed from recorded timing facts;
 - concurrent execution progress may be visible to UI/diagnostics, but ledger, transcript, checkpoint, and provider replay order stay deterministic;
 - readiness explains blockers without exposing secrets.
 
