@@ -107,13 +107,16 @@ func TestKernelPressureLongRunningClosedLoop(t *testing.T) {
 		t.Fatalf("UITimeline after restart returned error: %v", err)
 	}
 	var compactionNotice bool
-	for _, item := range timeline.Items {
+	if timelineAnyItem(timeline.Items, func(item UITimelineItem) bool {
 		if strings.Contains(item.Text, "pressure compacted summary") {
 			t.Fatalf("timeline leaked compaction summary: %+v", item)
 		}
-		if item.Kind == "notice" && item.Status == "completed" && item.Text != "" {
+		if item.Kind == "compaction_notice" && item.Status == "completed" && item.Text != "" {
 			compactionNotice = true
 		}
+		return false
+	}) {
+		t.Fatalf("unexpected timeline match")
 	}
 	if !compactionNotice {
 		t.Fatalf("timeline items = %+v, want completed compaction notice", timeline.Items)

@@ -64,15 +64,14 @@ func TestJobOutputSnapshotIsDurableButNotProviderObservation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UITimeline returned error: %v", err)
 	}
-	foundProgress := false
-	for _, item := range timeline.Items {
-		if item.Kind == "tool" && item.Tool == "shell_exec" && item.Status == "running" && strings.Contains(item.OutputPreview, "downloaded 43%") {
-			foundProgress = true
-			break
-		}
+	turn := requireSingleTimelineTurn(t, timeline, turnID)
+	processing := requireTimelineChild(t, turn, "processing_group")
+	if !processing.DefaultOpen || processing.JobCount != 1 {
+		t.Fatalf("processing group = %+v, want running open group with one job", processing)
 	}
-	if !foundProgress {
-		t.Fatalf("timeline items = %+v, want running shell tool progress output", timeline.Items)
+	operation := requireNestedTimelineChild(t, processing, "operation_detail")
+	if operation.Tool != "shell_exec" || operation.Status != "running" || !strings.Contains(operation.OutputPreview, "downloaded 43%") {
+		t.Fatalf("operation detail = %+v, want running shell progress output", operation)
 	}
 
 	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
@@ -495,17 +494,16 @@ func TestUITimelineFoldsDirectManagedJobEventsByJobID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UITimeline returned error: %v", err)
 	}
-	toolItems := []UITimelineItem{}
-	for _, item := range timeline.Items {
-		if item.Kind == "tool" && item.Tool == "shell_exec" {
-			toolItems = append(toolItems, item)
-		}
+	if len(timeline.Items) != 1 {
+		t.Fatalf("timeline items = %+v, want one background turn projection", timeline.Items)
 	}
-	if len(toolItems) != 1 {
-		t.Fatalf("tool timeline items = %+v, want one folded direct job item", toolItems)
+	processing := requireTimelineChild(t, timeline.Items[0], "processing_group")
+	if processing.JobCount != 1 {
+		t.Fatalf("processing group = %+v, want one folded direct job", processing)
 	}
-	if toolItems[0].Status != "completed" || !strings.Contains(toolItems[0].OutputPreview, "direct complete") {
-		t.Fatalf("folded tool item = %+v, want completed direct job output", toolItems[0])
+	operation := requireNestedTimelineChild(t, processing, "operation_detail")
+	if operation.Status != "completed" || operation.Tool != "shell_exec" || !strings.Contains(operation.OutputPreview, "direct complete") {
+		t.Fatalf("folded operation detail = %+v, want completed direct job output", operation)
 	}
 }
 

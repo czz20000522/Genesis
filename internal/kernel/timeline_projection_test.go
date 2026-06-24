@@ -1,0 +1,273 @@
+package kernel
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestUITimelineRunningTurnProjectsOpenProcessingGroup(t *testing.T) {
+	startedAt := time.Date(2026, 6, 24, 10, 0, 0, 0, time.UTC)
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:   "evt_running_submitted",
+				SessionID: "timeline-running-session",
+				TurnID:    "turn_running",
+				Type:      "turn.submitted",
+				CreatedAt: startedAt,
+				Data: EventData{InputItems: []InputItem{{
+					Type: "text",
+					Text: "run something",
+				}}},
+			},
+			StoredEvent{
+				EventID:   "evt_running_tool_call",
+				SessionID: "timeline-running-session",
+				TurnID:    "turn_running",
+				Type:      "tool.call",
+				CreatedAt: startedAt.Add(time.Second),
+				Data: EventData{ToolCall: &ToolCallProjection{
+					ToolCallEventID: "evt_running_tool_call",
+					Tool:            "shell_exec",
+					Arguments:       `{"command":"sleep"}`,
+				}},
+			},
+		),
+		clock: func() time.Time {
+			return startedAt.Add(45 * time.Second)
+		},
+	}
+
+	timeline, err := k.UITimeline("timeline-running-session")
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	turn := requireSingleTimelineTurn(t, timeline, "turn_running")
+	processing := requireTimelineChild(t, turn, "processing_group")
+	if processing.Status != "running" || !processing.DefaultOpen {
+		t.Fatalf("processing group = %+v, want running and default open", processing)
+	}
+	if processing.Text != "正在处理 45s" {
+		t.Fatalf("processing text = %q, want computed live elapsed", processing.Text)
+	}
+	if child := timelineChild(turn, "assistant_message"); child != nil {
+		t.Fatalf("assistant child = %+v, want none for running turn", *child)
+	}
+}
+
+func TestUITimelineSettledTurnCollapsesProcessingGroupWithFixedDuration(t *testing.T) {
+	startedAt := time.Date(2026, 6, 24, 10, 0, 0, 0, time.UTC)
+	toolResultContent := `{"status":"failed","executed":true,"exit_code":2,"stderr":"missing argument","stdout_truncated":false,"stderr_truncated":false}`
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:   "evt_settled_submitted",
+				SessionID: "timeline-settled-session",
+				TurnID:    "turn_settled",
+				Type:      "turn.submitted",
+				CreatedAt: startedAt,
+				Data: EventData{InputItems: []InputItem{{
+					Type: "text",
+					Text: "run bad command api_key=sk-timeline-settled",
+				}}},
+			},
+			StoredEvent{
+				EventID:   "evt_settled_tool_call",
+				SessionID: "timeline-settled-session",
+				TurnID:    "turn_settled",
+				Type:      "tool.call",
+				CreatedAt: startedAt.Add(2 * time.Second),
+				Data: EventData{ToolCall: &ToolCallProjection{
+					ToolCallEventID: "evt_settled_tool_call",
+					Tool:            "shell_exec",
+					Arguments:       `{"command":"bad --missing"}`,
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_settled_tool_result",
+				SessionID: "timeline-settled-session",
+				TurnID:    "turn_settled",
+				Type:      "tool.result",
+				CreatedAt: startedAt.Add(3 * time.Second),
+				Data: EventData{ToolResult: &ToolResultProjection{
+					ToolCallEventID: "evt_settled_tool_call",
+					Tool:            "shell_exec",
+					ForEventID:      "evt_settled_tool_call",
+					Status:          "failed",
+					Content:         toolResultContent,
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_settled_final",
+				SessionID: "timeline-settled-session",
+				TurnID:    "turn_settled",
+				Type:      "model.final",
+				CreatedAt: startedAt.Add(65 * time.Second),
+				Data: EventData{Final: &FinalMessage{
+					Text: "final answer",
+				}},
+			},
+		),
+		clock: func() time.Time {
+			return startedAt.Add(10 * time.Minute)
+		},
+	}
+
+	timeline, err := k.UITimeline("timeline-settled-session")
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	turn := requireSingleTimelineTurn(t, timeline, "turn_settled")
+	processing := requireTimelineChild(t, turn, "processing_group")
+	if processing.Status != "completed" || processing.DefaultOpen {
+		t.Fatalf("processing group = %+v, want settled and collapsed", processing)
+	}
+	if processing.Text != "已处理 1m 5s" {
+		t.Fatalf("processing text = %q, want fixed terminal duration", processing.Text)
+	}
+	if processing.ToolCount != 1 {
+		t.Fatalf("processing tool count = %d, want 1", processing.ToolCount)
+	}
+	if timelineChild(turn, "tool") != nil {
+		t.Fatalf("turn children = %+v, want no ordinary tool row", turn.Children)
+	}
+	operation := requireNestedTimelineChild(t, processing, "operation_detail")
+	if operation.Status != "failed" || operation.OutputSource != "stderr" || !strings.Contains(operation.OutputPreview, "missing argument") {
+		t.Fatalf("operation detail = %+v, want failed command stderr in detail", operation)
+	}
+	assistant := requireTimelineChild(t, turn, "assistant_message")
+	if assistant.Text != "final answer" {
+		t.Fatalf("assistant = %+v, want final answer", assistant)
+	}
+	timelineJSON, err := json.Marshal(timeline)
+	if err != nil {
+		t.Fatalf("marshal timeline: %v", err)
+	}
+	for _, forbidden := range []string{"tool.call", "tool.result", "for_event_id", "tool_call_event_id", "operation_id", "sk-timeline-settled"} {
+		if strings.Contains(string(timelineJSON), forbidden) {
+			t.Fatalf("timeline leaked %q: %s", forbidden, string(timelineJSON))
+		}
+	}
+}
+
+func TestUITimelineApprovalRequiredProjectsUserActionNode(t *testing.T) {
+	startedAt := time.Date(2026, 6, 24, 11, 0, 0, 0, time.UTC)
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:   "evt_approval_submitted",
+				SessionID: "timeline-approval-session",
+				TurnID:    "turn_approval",
+				Type:      "turn.submitted",
+				CreatedAt: startedAt,
+				Data: EventData{InputItems: []InputItem{{
+					Type: "text",
+					Text: "write a file",
+				}}},
+			},
+			StoredEvent{
+				EventID:   "evt_approval_tool_call",
+				SessionID: "timeline-approval-session",
+				TurnID:    "turn_approval",
+				Type:      "tool.call",
+				CreatedAt: startedAt.Add(time.Second),
+				Data: EventData{ToolCall: &ToolCallProjection{
+					ToolCallEventID: "evt_approval_tool_call",
+					Tool:            "shell_exec",
+					Arguments:       `{"command":"write"}`,
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_approval_tool_result",
+				SessionID: "timeline-approval-session",
+				TurnID:    "turn_approval",
+				Type:      "tool.result",
+				CreatedAt: startedAt.Add(2 * time.Second),
+				Data: EventData{ToolResult: &ToolResultProjection{
+					ToolCallEventID: "evt_approval_tool_call",
+					Tool:            "shell_exec",
+					ForEventID:      "evt_approval_tool_call",
+					Status:          "approval_required",
+					Content:         `{"status":"approval_required","executed":false,"error":{"code":"approval_required","message":"approval required"}}`,
+				}},
+			},
+		),
+		clock: func() time.Time {
+			return startedAt.Add(30 * time.Second)
+		},
+	}
+
+	timeline, err := k.UITimeline("timeline-approval-session")
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	turn := requireSingleTimelineTurn(t, timeline, "turn_approval")
+	action := requireTimelineChild(t, turn, "user_action_request")
+	if action.Status != "approval_required" || action.Tool != "shell_exec" {
+		t.Fatalf("user action = %+v, want shell approval request", action)
+	}
+	if timelineChild(turn, "assistant_message") != nil {
+		t.Fatalf("turn children = %+v, want no assistant-authored approval prompt", turn.Children)
+	}
+	if timelineChild(turn, "tool") != nil {
+		t.Fatalf("turn children = %+v, want no generic tool row for approval", turn.Children)
+	}
+}
+
+func requireSingleTimelineTurn(t *testing.T, timeline UITimelineResponse, turnID string) UITimelineItem {
+	t.Helper()
+	if timeline.Status != "ok" || len(timeline.Items) != 1 {
+		t.Fatalf("timeline = %+v, want one turn item", timeline)
+	}
+	turn := timeline.Items[0]
+	if turn.Kind != "turn" || turn.TurnID != turnID {
+		t.Fatalf("turn item = %+v, want turn %q", turn, turnID)
+	}
+	return turn
+}
+
+func requireTimelineChild(t *testing.T, item UITimelineItem, kind string) UITimelineItem {
+	t.Helper()
+	child := timelineChild(item, kind)
+	if child == nil {
+		t.Fatalf("item children = %+v, want %s child", item.Children, kind)
+	}
+	return *child
+}
+
+func requireNestedTimelineChild(t *testing.T, item UITimelineItem, kind string) UITimelineItem {
+	t.Helper()
+	for _, child := range item.Children {
+		if child.Kind == kind {
+			return child
+		}
+		if nested := timelineChild(child, kind); nested != nil {
+			return *nested
+		}
+	}
+	t.Fatalf("item children = %+v, want nested %s child", item.Children, kind)
+	return UITimelineItem{}
+}
+
+func timelineChild(item UITimelineItem, kind string) *UITimelineItem {
+	for i := range item.Children {
+		if item.Children[i].Kind == kind {
+			return &item.Children[i]
+		}
+	}
+	return nil
+}
+
+func timelineAnyItem(items []UITimelineItem, match func(UITimelineItem) bool) bool {
+	for _, item := range items {
+		if match(item) {
+			return true
+		}
+		if timelineAnyItem(item.Children, match) {
+			return true
+		}
+	}
+	return false
+}

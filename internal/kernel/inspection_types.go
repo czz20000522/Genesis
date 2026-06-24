@@ -39,18 +39,26 @@ type UITimelineResponse struct {
 }
 
 type UITimelineItem struct {
-	ItemID              string    `json:"item_id"`
-	TurnID              string    `json:"turn_id"`
-	Kind                string    `json:"kind"`
-	Status              string    `json:"status,omitempty"`
-	Text                string    `json:"text,omitempty"`
-	Tool                string    `json:"tool,omitempty"`
-	OutputPreview       string    `json:"output_preview,omitempty"`
-	OutputSource        string    `json:"output_source,omitempty"`
-	OutputTruncated     bool      `json:"output_truncated,omitempty"`
-	FullOutputAvailable bool      `json:"full_output_available,omitempty"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at,omitempty"`
+	ItemID              string           `json:"item_id"`
+	TurnID              string           `json:"turn_id"`
+	Kind                string           `json:"kind"`
+	Status              string           `json:"status,omitempty"`
+	Text                string           `json:"text,omitempty"`
+	Tool                string           `json:"tool,omitempty"`
+	OutputPreview       string           `json:"output_preview,omitempty"`
+	OutputSource        string           `json:"output_source,omitempty"`
+	OutputTruncated     bool             `json:"output_truncated,omitempty"`
+	FullOutputAvailable bool             `json:"full_output_available,omitempty"`
+	DefaultOpen         bool             `json:"default_open,omitempty"`
+	DetailRef           string           `json:"detail_ref,omitempty"`
+	DetailAvailable     bool             `json:"detail_available,omitempty"`
+	DurationMs          int64            `json:"duration_ms,omitempty"`
+	ToolCount           int              `json:"tool_count,omitempty"`
+	JobCount            int              `json:"job_count,omitempty"`
+	CompactionCount     int              `json:"compaction_count,omitempty"`
+	Children            []UITimelineItem `json:"children,omitempty"`
+	CreatedAt           time.Time        `json:"created_at"`
+	UpdatedAt           time.Time        `json:"updated_at,omitempty"`
 }
 
 type ContextInspectionResponse struct {

@@ -271,13 +271,16 @@ func TestAutoCompactionProjectsSummaryPlusRecentTail(t *testing.T) {
 		t.Fatalf("UITimeline returned error: %v", err)
 	}
 	noticeCount := 0
-	for _, item := range timeline.Items {
+	if timelineAnyItem(timeline.Items, func(item UITimelineItem) bool {
 		if strings.Contains(item.Text, "summary of compacted earlier context") {
 			t.Fatalf("timeline item leaked compaction summary: %+v", item)
 		}
-		if item.Kind == "notice" && item.Status == "completed" && item.Text != "" {
+		if item.Kind == "compaction_notice" && item.Status == "completed" && item.Text != "" {
 			noticeCount++
 		}
+		return false
+	}) {
+		t.Fatalf("unexpected timeline match")
 	}
 	if noticeCount == 0 {
 		t.Fatalf("timeline items = %+v, want completed compaction notice", timeline.Items)
@@ -1101,20 +1104,31 @@ func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UITimeline returned error: %v", err)
 	}
-	if timeline.Status != "ok" || len(timeline.Items) != 3 {
-		t.Fatalf("timeline = %+v, want three user/tool/assistant items", timeline)
+	if timeline.Status != "ok" || len(timeline.Items) != 1 {
+		t.Fatalf("timeline = %+v, want one turn item", timeline)
 	}
-	if timeline.Items[0].Kind != "user_message" || !strings.Contains(timeline.Items[0].Text, "[REDACTED]") {
-		t.Fatalf("user item = %+v, want redacted user message", timeline.Items[0])
+	turn := timeline.Items[0]
+	if turn.Kind != "turn" {
+		t.Fatalf("turn item = %+v, want turn projection", turn)
 	}
-	if timeline.Items[1].Kind != "tool" || timeline.Items[1].Tool != "shell_exec" || timeline.Items[1].Status != "permission_denied" {
-		t.Fatalf("tool item = %+v, want merged permission_denied shell tool", timeline.Items[1])
+	user := requireTimelineChild(t, turn, "user_message")
+	if !strings.Contains(user.Text, "[REDACTED]") {
+		t.Fatalf("user item = %+v, want redacted user message", user)
 	}
-	if !timeline.Items[1].FullOutputAvailable || timeline.Items[1].OutputSource != "error" || !strings.Contains(timeline.Items[1].OutputPreview, "blocked") {
-		t.Fatalf("tool output = %+v, want preview metadata", timeline.Items[1])
+	processing := requireTimelineChild(t, turn, "processing_group")
+	if processing.DefaultOpen || processing.ToolCount != 1 {
+		t.Fatalf("processing group = %+v, want settled collapsed group with one tool", processing)
 	}
-	if timeline.Items[2].Kind != "assistant_message" || timeline.Items[2].Text != "timeline final" {
-		t.Fatalf("assistant item = %+v, want final answer", timeline.Items[2])
+	operation := requireNestedTimelineChild(t, processing, "operation_detail")
+	if operation.Tool != "shell_exec" || operation.Status != "permission_denied" {
+		t.Fatalf("operation detail = %+v, want merged permission_denied shell tool", operation)
+	}
+	if !operation.FullOutputAvailable || operation.OutputSource != "error" || !strings.Contains(operation.OutputPreview, "blocked") {
+		t.Fatalf("operation output = %+v, want preview metadata", operation)
+	}
+	assistant := requireTimelineChild(t, turn, "assistant_message")
+	if assistant.Text != "timeline final" {
+		t.Fatalf("assistant item = %+v, want final answer", assistant)
 	}
 	timelineJSON, err := json.Marshal(timeline)
 	if err != nil {
