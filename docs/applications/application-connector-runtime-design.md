@@ -221,6 +221,14 @@ executables or resolved script wrappers fail closed. Command-template execution
 uses a connector command environment allowlist and persists only safe opaque
 external action refs, not raw CLI output.
 
+Operator probes may discover a direct binary installed by an external package.
+For example, the official `@larksuite/cli` npm package installs a platform
+binary under its package `bin` directory and exposes `lark-cli` through npm
+shims. `command_template` configuration should point at the direct binary, such
+as `.../node_modules/@larksuite/cli/bin/lark-cli.exe` on Windows, not at the
+PATH shim. If only a shim is available, the connector must use a
+`connector_command` adapter process or another direct binary provider.
+
 The long-lived adapter boundary is `connector_command`. The connector runtime
 starts a configured external adapter process, writes typed `ConnectorAction`
 JSON to stdin, and reads typed `ConnectorActionResult` JSON from stdout. The

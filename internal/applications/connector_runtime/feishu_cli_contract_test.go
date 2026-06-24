@@ -3,6 +3,8 @@ package connectorruntime
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -23,23 +25,25 @@ func TestFeishuCLISendMessageShortcutDryRunContract(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	executable := feishuCLIProbeExecutable()
 	driver := testFeishuCommandTemplateDriver(profile, OSCommandRunner{})
+	driver.Executable = executable
 	action := testConnectorSendAction()
 	action.TargetRef.ExternalID = chatID
 	action.Payload["body"] = "Genesis connector dry-run contract"
-	_, args, _, reason, renderErr := driver.render(action)
+	executable, args, _, reason, renderErr := driver.render(action)
 	if renderErr != nil {
 		t.Fatalf("render failed with reason %s: %v", reason, renderErr)
 	}
 	args = append(args, "--dry-run")
-	resolved, resolveErr := resolveCommandExecutable("lark-cli")
+	resolved, resolveErr := resolveCommandExecutable(executable)
 	if resolveErr != nil {
-		t.Fatalf("lark-cli lookup failed: %v", resolveErr)
+		t.Fatalf("lark-cli executable lookup failed: %v", resolveErr)
 	}
 	if unsafeResolvedCommandExecutable(resolved) {
-		t.Skipf("lark-cli resolves to script wrapper %q; command_template requires a direct binary or connector_command adapter", resolved)
+		t.Skipf("lark-cli executable resolves to script wrapper %q; command_template requires a direct binary or connector_command adapter", resolved)
 	}
-	output, err := OSCommandRunner{}.Run(ctx, "lark-cli", args...)
+	output, err := OSCommandRunner{}.Run(ctx, executable, args...)
 	if err != nil {
 		t.Fatalf("lark-cli dry-run failed: %v\n%s", err, safeCLIProbeExcerpt(output))
 	}
@@ -51,6 +55,21 @@ func TestFeishuCLISendMessageShortcutDryRunContract(t *testing.T) {
 	}
 }
 
+func TestFeishuCLIProbeExecutablePrefersExplicitExecutable(t *testing.T) {
+	got := selectFeishuCLIProbeExecutable("D:\\tools\\lark-cli.exe", "C:\\fallback\\lark-cli.exe")
+	if got != "D:\\tools\\lark-cli.exe" {
+		t.Fatalf("executable = %q, want explicit path", got)
+	}
+}
+
+func TestFeishuCLIProbeExecutableUsesOfficialWindowsPackageBinary(t *testing.T) {
+	got := officialLarkCLIExecutable("C:\\Users\\Tomczz\\AppData\\Roaming", "windows")
+	want := filepath.Join("C:\\Users\\Tomczz\\AppData\\Roaming", "npm", "node_modules", "@larksuite", "cli", "bin", "lark-cli.exe")
+	if got != want {
+		t.Fatalf("official executable = %q, want %q", got, want)
+	}
+}
+
 func TestSafeCLIProbeExcerptRedactsCredentialShapedOutput(t *testing.T) {
 	got := safeCLIProbeExcerpt([]byte("Authorization: Bearer sk-secret\nplain line"))
 	if strings.Contains(got, "Authorization") || strings.Contains(got, "sk-secret") {
@@ -59,6 +78,40 @@ func TestSafeCLIProbeExcerptRedactsCredentialShapedOutput(t *testing.T) {
 	if !strings.Contains(got, "plain line") {
 		t.Fatalf("excerpt dropped non-secret diagnostic line: %q", got)
 	}
+}
+
+func feishuCLIProbeExecutable() string {
+	explicit := strings.TrimSpace(os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"))
+	return selectFeishuCLIProbeExecutable(explicit, installedOfficialLarkCLIExecutable())
+}
+
+func selectFeishuCLIProbeExecutable(explicit string, installed string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return strings.TrimSpace(explicit)
+	}
+	if strings.TrimSpace(installed) != "" {
+		return strings.TrimSpace(installed)
+	}
+	return "lark-cli"
+}
+
+func installedOfficialLarkCLIExecutable() string {
+	candidate := officialLarkCLIExecutable(os.Getenv("APPDATA"), runtime.GOOS)
+	if candidate == "" {
+		return ""
+	}
+	info, err := os.Stat(candidate)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return candidate
+}
+
+func officialLarkCLIExecutable(appData string, goos string) string {
+	if goos != "windows" || strings.TrimSpace(appData) == "" {
+		return ""
+	}
+	return filepath.Join(appData, "npm", "node_modules", "@larksuite", "cli", "bin", "lark-cli.exe")
 }
 
 func safeCLIProbeExcerpt(output []byte) string {
