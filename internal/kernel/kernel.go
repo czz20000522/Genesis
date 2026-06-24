@@ -234,43 +234,12 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			}
 			return TurnResponse{}, err
 		}
-		for _, batch := range planToolExecutionBatches(preparedCalls) {
-			for _, callIndex := range batch.CallIndexes {
-				call := preparedCalls[callIndex]
-				result, err := toolGateway.Execute(runCtx, sessionID, turnID, call)
-				if err != nil {
-					if isTurnContextInterrupted(runCtx, err) {
-						return k.completeInterruptedTurn(sessionID, turnID)
-					}
-					code := "tool_call_rejected"
-					if errors.Is(err, ErrToolInfrastructureFailed) {
-						code = "tool_infrastructure_failed"
-					}
-					failure := TurnError{
-						Code:    code,
-						Message: err.Error(),
-					}
-					if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
-						return TurnResponse{}, appendErr
-					}
-					return TurnResponse{}, err
-				}
-				forEventID := toolCallEventIDs[result.ToolCallEventID]
-				if forEventID == "" {
-					return TurnResponse{}, fmt.Errorf("missing tool.call event for tool_call_event_id %q", result.ToolCallEventID)
-				}
-				if err := k.appendToolResultEvent(sessionID, turnID, result, forEventID); err != nil {
-					return TurnResponse{}, err
-				}
-				if result.PendingJobStart != nil {
-					if err := k.startManagedJobExecutor(*result.PendingJobStart); err != nil {
-						return TurnResponse{}, err
-					}
-				}
-				if isTurnContextInterrupted(runCtx, nil) {
-					return k.completeInterruptedTurn(sessionID, turnID)
-				}
-			}
+		outcome, err := k.executeToolBatches(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs)
+		if err != nil {
+			return TurnResponse{}, err
+		}
+		if outcome.Completed {
+			return outcome.Response, nil
 		}
 	}
 	return TurnResponse{}, errors.New("unreachable model tool loop state")
