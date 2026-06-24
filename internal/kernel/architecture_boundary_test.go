@@ -51,7 +51,7 @@ func TestArchitectureBoundarySemanticFieldsDoNotUseSecretRejector(t *testing.T) 
 }
 
 func TestArchitectureBoundaryModelVisibleToolsStayGeneric(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	manifest := k.toolGateway().ToolManifest()
 	if len(manifest) == 0 {
 		t.Fatal("model tool manifest is empty")
@@ -77,7 +77,7 @@ func TestArchitectureBoundaryModelVisibleToolsStayGeneric(t *testing.T) {
 }
 
 func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	manifest := k.toolGateway().ToolManifest()
 	if len(manifest) == 0 {
 		t.Fatal("tool registry is empty")
@@ -120,7 +120,7 @@ func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
 }
 
 func TestArchitectureBoundaryCapabilitiesProjectFromToolRegistry(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	manifest := k.toolGateway().ToolManifest()
 	if len(manifest) == 0 {
 		t.Fatal("tool manifest is empty")
@@ -138,7 +138,7 @@ func TestArchitectureBoundaryCapabilitiesProjectFromToolRegistry(t *testing.T) {
 }
 
 func TestArchitectureBoundaryAuthorityGateUsesToolSideEffectLevel(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	shell, ok := k.toolRegistry.Resolve("shell_exec")
 	if !ok {
 		t.Fatal("shell_exec is not registered")
@@ -305,7 +305,7 @@ func TestArchitectureBoundaryApprovalOnRequestBlocksWriteToolsAtAdmission(t *tes
 }
 
 func TestArchitectureBoundaryShellExecutionUsesResolvedSandboxProfile(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	req := ShellExecRequest{
 		SessionID: "sandbox-profile-selection",
 		CWD:       workspace,

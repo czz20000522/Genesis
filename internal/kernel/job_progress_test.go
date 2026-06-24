@@ -10,13 +10,13 @@ import (
 )
 
 func TestJobOutputSnapshotIsDurableButNotProviderObservation(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	sessionID := "job-output-snapshot"
 	turnID := "turn_job_output_snapshot"
 	jobID := "job_output_snapshot_001"
 	provider := &recordingTextProvider{text: "continued"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -90,7 +90,7 @@ func TestJobOutputSnapshotIsDurableButNotProviderObservation(t *testing.T) {
 }
 
 func TestManagedJobExecutorCanReportOutputSnapshot(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
 		"command":     echoCommand("progress"),
@@ -106,7 +106,7 @@ func TestManagedJobExecutorCanReportOutputSnapshot(t *testing.T) {
 		final: "progress observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		JobExecutor:  progressReportingManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
@@ -145,7 +145,7 @@ func TestManagedJobExecutorCanReportOutputSnapshot(t *testing.T) {
 }
 
 func TestManagedJobExecutorOutputSnapshotIsBounded(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
 		"command":     echoCommand("progress"),
@@ -161,7 +161,7 @@ func TestManagedJobExecutorOutputSnapshotIsBounded(t *testing.T) {
 		final: "bounded progress observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		JobExecutor:  longProgressManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
@@ -203,7 +203,7 @@ func TestManagedJobExecutorOutputSnapshotIsBounded(t *testing.T) {
 }
 
 func TestManagedJobExecutorCannotRedirectOutputSnapshotIdentity(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
 		"command":     echoCommand("progress"),
@@ -219,7 +219,7 @@ func TestManagedJobExecutorCannotRedirectOutputSnapshotIdentity(t *testing.T) {
 		final: "poison ignored",
 	}
 	k, err := New(Config{
-		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:   provider,
 		JobExecutor: redirectingProgressManagedJobExecutor{
 			targetSessionID: "victim-session",
@@ -283,7 +283,7 @@ func TestManagedJobExecutorCannotRedirectOutputSnapshotIdentity(t *testing.T) {
 }
 
 func TestLocalManagedJobExecutorEmitsSparseOutputSnapshot(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
 		"command":     echoCommand("local-progress"),
@@ -299,7 +299,7 @@ func TestLocalManagedJobExecutorEmitsSparseOutputSnapshot(t *testing.T) {
 		final: "local progress observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -449,11 +449,11 @@ func TestManagedJobOutputCaptureStopsAfterTruncatedSnapshot(t *testing.T) {
 }
 
 func TestUITimelineFoldsDirectManagedJobEventsByJobID(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	sessionID := "direct-job-timeline"
 	jobID := "direct-job-001"
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     &recordingTextProvider{text: "unused"},
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{

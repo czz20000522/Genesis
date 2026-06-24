@@ -68,14 +68,14 @@ func TestResolveOpenAICompatibleConfigFromGenesisSelectsRoleProfile(t *testing.T
 }
 
 func TestResolveProviderConfigFromGenesisSelectsCommandProviderRoute(t *testing.T) {
-	workingDir := t.TempDir()
+	workingDir := testTempDir(t)
 	root := writeModelsConfig(t, map[string]any{
 		"model_gateway": map[string]any{
 			"protocol":            "provider_command",
 			"command":             "fallback-provider",
 			"args":                []any{"fallback"},
 			"env":                 []any{"FALLBACK_ENV=1"},
-			"working_dir":         t.TempDir(),
+			"working_dir":         testTempDir(t),
 			"request_timeout_sec": 90,
 			"routes": map[string]any{
 				"command-primary": map[string]any{
@@ -255,7 +255,7 @@ func minimalModelsConfig(gatewayOverride map[string]any) map[string]any {
 
 func writeModelsConfig(t *testing.T, payload map[string]any) string {
 	t.Helper()
-	root := t.TempDir()
+	root := testTempDir(t)
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)

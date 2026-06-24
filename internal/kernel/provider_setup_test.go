@@ -11,8 +11,8 @@ import (
 )
 
 func TestSetupOpenAICompatibleProviderWritesConfigAndProtectedCredential(t *testing.T) {
-	configRoot := t.TempDir()
-	credentialRoot := t.TempDir()
+	configRoot := testTempDir(t)
+	credentialRoot := testTempDir(t)
 	apiKey := "sk-setup-secret"
 
 	result, err := SetupOpenAICompatibleProvider(OpenAICompatibleProviderSetupRequest{
@@ -109,8 +109,8 @@ func TestSetupOpenAICompatibleProviderWritesConfigAndProtectedCredential(t *test
 }
 
 func TestSetupOpenAICompatibleProviderDryRunWritesNothing(t *testing.T) {
-	configRoot := t.TempDir()
-	credentialRoot := t.TempDir()
+	configRoot := testTempDir(t)
+	credentialRoot := testTempDir(t)
 
 	result, err := SetupOpenAICompatibleProvider(OpenAICompatibleProviderSetupRequest{
 		ConfigRoot:          configRoot,
@@ -135,8 +135,8 @@ func TestSetupOpenAICompatibleProviderDryRunWritesNothing(t *testing.T) {
 }
 
 func TestCorruptSetupCredentialBlocksProviderConfig(t *testing.T) {
-	configRoot := t.TempDir()
-	credentialRoot := t.TempDir()
+	configRoot := testTempDir(t)
+	credentialRoot := testTempDir(t)
 
 	result, err := SetupOpenAICompatibleProvider(OpenAICompatibleProviderSetupRequest{
 		ConfigRoot:          configRoot,

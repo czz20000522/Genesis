@@ -22,7 +22,7 @@ import (
 )
 
 func TestSubmitTurnPersistsAndProjectsAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
@@ -67,7 +67,7 @@ func TestSubmitTurnPersistsAndProjectsAfterRestart(t *testing.T) {
 func TestSubmitTurnProviderContextIncludesSameSessionHistory(t *testing.T) {
 	provider := &capturingProvider{text: "assistant recorded alpha"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -124,7 +124,7 @@ func TestSubmitTurnProviderContextIncludesSameSessionHistory(t *testing.T) {
 }
 
 func TestSubmitTurnRejectsInvalidInput(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 
 	_, err := k.SubmitTurn(context.Background(), TurnRequest{})
 	if err == nil {
@@ -140,7 +140,7 @@ func TestSubmitTurnRejectsInvalidInput(t *testing.T) {
 }
 
 func TestSubmitTurnRecordsIngressRiskWithoutBlocking(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
@@ -166,7 +166,7 @@ func TestSubmitTurnRecordsIngressRiskWithoutBlocking(t *testing.T) {
 }
 
 func TestSubmitTurnAllowsBenignSystemDiscussion(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
 		SessionID:  "benign-ingress",
@@ -203,7 +203,7 @@ func TestModelInputItemsInjectsApprovedMemoryContextBeforeProvider(t *testing.T)
 func TestAutoCompactionProjectsSummaryPlusRecentTail(t *testing.T) {
 	provider := &compactionProvider{}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -290,7 +290,7 @@ func TestAutoCompactionProjectsSummaryPlusRecentTail(t *testing.T) {
 func TestAutoCompactionFailureIsRecordedAndRetried(t *testing.T) {
 	provider := &compactionProvider{failCompactionAttempts: 1}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -343,7 +343,7 @@ func TestAutoCompactionFailureIsRecordedAndRetried(t *testing.T) {
 func TestAutoCompactionBacksOffAfterSummarizerFailure(t *testing.T) {
 	provider := &compactionProvider{failCompactionAttempts: 1}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -399,7 +399,7 @@ func TestModelGatewayRecordsProviderBackedContextAccounting(t *testing.T) {
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -452,7 +452,7 @@ func TestModelGatewayRecordsProviderBackedContextAccounting(t *testing.T) {
 }
 
 func TestModelGatewayAccountsToolRoundBoundaries(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	toolArgs, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
 		"command": writeFileCommand("tool-accounting.txt", "tool accounting"),
@@ -471,7 +471,7 @@ func TestModelGatewayAccountsToolRoundBoundaries(t *testing.T) {
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -522,7 +522,7 @@ func TestAutoCompactionUsesProviderBackedExchangeAccountingForRecentTail(t *test
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -578,7 +578,7 @@ func TestAutoCompactionRecordsUsageEconomicsAndCacheStability(t *testing.T) {
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -632,7 +632,7 @@ func TestAutoCompactionRecordsUsageEconomicsAndCacheStability(t *testing.T) {
 func TestCompactionSourcePreservesCompletedToolCallResultPairs(t *testing.T) {
 	provider := &compactionToolPairProvider{}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -666,7 +666,7 @@ func TestCompactionSourcePreservesCompletedToolCallResultPairs(t *testing.T) {
 }
 
 func TestHTTPReadyTurnAndSession(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -727,8 +727,8 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 }
 
 func TestHTTPReadyDoesNotExposeInspectionDetails(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	unsafeReason := filepath.Join(t.TempDir(), "models.json") + " secret://provider Authorization: Bearer tokentest123456"
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	unsafeReason := filepath.Join(testTempDir(t), "models.json") + " secret://provider Authorization: Bearer tokentest123456"
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     unsafeReadinessProvider{name: "sk-secret123", reason: unsafeReason},
@@ -769,7 +769,7 @@ func TestHTTPReadyDoesNotExposeInspectionDetails(t *testing.T) {
 }
 
 func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingTurnAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	firstProvider := &countingTextProvider{text: "first answer"}
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
@@ -841,7 +841,7 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingTurnAfterRestart(t *testing.
 }
 
 func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     NewBlockedProvider("blocked-test", "no_provider"),
@@ -913,7 +913,7 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testi
 }
 
 func TestHTTPTurnSubmitIdempotencyKeyRequiresValidExplicitSession(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -943,7 +943,7 @@ func TestHTTPFinalUsageSummarySurvivesSessionReplay(t *testing.T) {
 	}))
 	defer providerServer.Close()
 
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k, err := New(Config{
 		LedgerPath: ledgerPath,
 		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
@@ -1002,7 +1002,7 @@ func TestHTTPFinalUsageSummarySurvivesSessionReplay(t *testing.T) {
 }
 
 func TestHTTPTurnEventsAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -1060,7 +1060,7 @@ func TestHTTPTurnEventsAfterRestart(t *testing.T) {
 }
 
 func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	args, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
 		"command": "echo timeline",
@@ -1076,7 +1076,7 @@ func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
 		}},
 		final: "timeline final",
 	}
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
@@ -1458,10 +1458,10 @@ func TestEvidenceRedactionCoversBareProviderKeysAndJWT(t *testing.T) {
 }
 
 func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T) {
-	root := t.TempDir()
+	root := testTempDir(t)
 	skillPath := writeSkillForTest(t, root, "lark-im", "lark-im", "Send chat messages through installed CLI", "FULL SKILL BODY MUST NOT BE PROJECTED")
 	provider := &capturingProvider{text: "context inspected"}
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
@@ -1469,7 +1469,7 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 		SkillRoots:   []string{root},
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeDefault,
-			WorkspaceRoot:  t.TempDir(),
+			WorkspaceRoot:  testTempDir(t),
 		},
 	})
 	if err != nil {
@@ -1575,7 +1575,7 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 }
 
 func TestHTTPRejectsUnknownTurnFields(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -1595,7 +1595,7 @@ func TestHTTPRejectsUnknownTurnFields(t *testing.T) {
 }
 
 func TestHTTPRejectsTrailingJSON(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -1615,7 +1615,7 @@ func TestHTTPRejectsTrailingJSON(t *testing.T) {
 }
 
 func TestHTTPRejectsOversizedTurnRequest(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -1632,7 +1632,7 @@ func TestHTTPRejectsOversizedTurnRequest(t *testing.T) {
 }
 
 func TestHTTPAcceptsRiskyUserDataAndRecordsMetadata(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -1663,7 +1663,7 @@ func TestHTTPAcceptsRiskyUserDataAndRecordsMetadata(t *testing.T) {
 }
 
 func TestHTTPBlocksInvisibleIngressMarker(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -1688,7 +1688,7 @@ func TestHTTPBlocksInvisibleIngressMarker(t *testing.T) {
 }
 
 func TestHTTPRejectsNestedControlFieldBeforeAdmission(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -1708,7 +1708,7 @@ func TestHTTPRejectsNestedControlFieldBeforeAdmission(t *testing.T) {
 }
 
 func TestHTTPProtectedRoutesRequireRuntimeToken(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -1724,7 +1724,7 @@ func TestHTTPProtectedRoutesRequireRuntimeToken(t *testing.T) {
 }
 
 func TestHTTPProtectedRoutesFailClosedWithoutConfiguredRuntimeToken(t *testing.T) {
-	k := newTestKernelWithRuntimeToken(t, filepath.Join(t.TempDir(), "events.jsonl"), "")
+	k := newTestKernelWithRuntimeToken(t, filepath.Join(testTempDir(t), "events.jsonl"), "")
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -1855,7 +1855,7 @@ func TestHTTPCorruptLedgerBlocksReadyReplayAndAppend(t *testing.T) {
 }
 
 func TestHTTPRejectsNonJSONContentType(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -1876,8 +1876,8 @@ func TestHTTPRejectsNonJSONContentType(t *testing.T) {
 }
 
 func TestExecShellPlanBlocksMutatingCommand(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	workspace := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	workspace := testTempDir(t)
 	k := newTestKernel(t, ledgerPath)
 
 	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
@@ -1900,8 +1900,8 @@ func TestExecShellPlanBlocksMutatingCommand(t *testing.T) {
 }
 
 func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	workspace := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
@@ -1959,8 +1959,8 @@ func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *test
 }
 
 func TestExecShellIdempotencyKeySurvivesRestartWithoutRepeatingEffect(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	workspace := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
@@ -2022,8 +2022,8 @@ func TestExecShellIdempotencyKeySurvivesRestartWithoutRepeatingEffect(t *testing
 }
 
 func TestExecShellStaleRunningIdempotencyKeyFailsClosedAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	workspace := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
@@ -2086,14 +2086,14 @@ func TestExecShellStaleRunningIdempotencyKeyFailsClosedAfterRestart(t *testing.T
 }
 
 func TestExecShellBlockedOperationIsIdempotent(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModePlan,
 	})
 
 	first, err := k.ExecShell(context.Background(), ShellExecRequest{
 		SessionID:      "shell-blocked-idempotent",
-		CWD:            t.TempDir(),
+		CWD:            testTempDir(t),
 		Command:        "echo first",
 		IdempotencyKey: "blocked-1",
 	})
@@ -2102,7 +2102,7 @@ func TestExecShellBlockedOperationIsIdempotent(t *testing.T) {
 	}
 	second, err := k.ExecShell(context.Background(), ShellExecRequest{
 		SessionID:      "shell-blocked-idempotent",
-		CWD:            t.TempDir(),
+		CWD:            testTempDir(t),
 		Command:        "echo second",
 		IdempotencyKey: "blocked-1",
 	})
@@ -2125,11 +2125,11 @@ func TestExecShellBlockedOperationIsIdempotent(t *testing.T) {
 }
 
 func TestExecShellRejectsInvalidIdempotencyKey(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 
 	_, err := k.ExecShell(context.Background(), ShellExecRequest{
 		SessionID:      "shell-bad-idempotency",
-		CWD:            t.TempDir(),
+		CWD:            testTempDir(t),
 		Command:        "echo hello",
 		IdempotencyKey: "bad key",
 	})
@@ -2142,8 +2142,8 @@ func TestExecShellRejectsInvalidIdempotencyKey(t *testing.T) {
 }
 
 func TestExecShellDefaultBlocksOutsideWorkspace(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	root := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	root := testTempDir(t)
 	workspace := filepath.Join(root, "workspace")
 	outside := filepath.Join(root, "outside")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -2174,8 +2174,8 @@ func TestExecShellDefaultBlocksOutsideWorkspace(t *testing.T) {
 }
 
 func TestExecShellDefaultBlocksMutatingCommandPathEscapesWorkspace(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	root := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	root := testTempDir(t)
 	workspace := filepath.Join(root, "workspace")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
@@ -2239,8 +2239,8 @@ func TestExecShellDefaultBlocksMutatingCommandPathEscapesWorkspace(t *testing.T)
 }
 
 func TestExecShellDefaultBlocksLinkedCWDOutsideWorkspace(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	root := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	root := testTempDir(t)
 	workspace := filepath.Join(root, "workspace")
 	outside := filepath.Join(root, "outside")
 	linkedCWD := filepath.Join(workspace, "linked-outside")
@@ -2273,8 +2273,8 @@ func TestExecShellDefaultBlocksLinkedCWDOutsideWorkspace(t *testing.T) {
 }
 
 func TestExecShellDefaultBlocksHardlinkAlias(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	root := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	root := testTempDir(t)
 	workspace := filepath.Join(root, "workspace")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
@@ -2331,8 +2331,8 @@ func TestExecShellDefaultBlocksHardlinkAlias(t *testing.T) {
 }
 
 func TestExecShellDefaultBlocksRawShellAndEnvironmentAccess(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	workspace := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
@@ -2361,8 +2361,8 @@ func TestExecShellDefaultBlocksRawShellAndEnvironmentAccess(t *testing.T) {
 }
 
 func TestExecShellRedactsSecretEvidenceInReturnedProjectionButPreservesLedgerTruth(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	workspace := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
@@ -2414,8 +2414,8 @@ func TestExecShellRedactsSecretEvidenceInReturnedProjectionButPreservesLedgerTru
 }
 
 func TestHTTPShellExecAndSessionProjection(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	workspace := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
@@ -2468,8 +2468,8 @@ func TestHTTPShellExecAndSessionProjection(t *testing.T) {
 }
 
 func TestHTTPShellExecLongTimeoutReturnsManagedJobReceipt(t *testing.T) {
-	workspace := t.TempDir()
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
@@ -2549,9 +2549,9 @@ func TestHTTPShellExecLongTimeoutReturnsManagedJobReceipt(t *testing.T) {
 }
 
 func TestHTTPShellExecLongTimeoutDoesNotBypassDefaultSandbox(t *testing.T) {
-	workspace := t.TempDir()
-	outside := filepath.Join(t.TempDir(), "managed-bypass.txt")
-	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+	workspace := testTempDir(t)
+	outside := filepath.Join(testTempDir(t), "managed-bypass.txt")
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
 	})
@@ -2596,8 +2596,8 @@ func TestHTTPShellExecLongTimeoutDoesNotBypassDefaultSandbox(t *testing.T) {
 }
 
 func TestHTTPShellExecManagedJobRetryRedactsTerminalOutput(t *testing.T) {
-	workspace := t.TempDir()
-	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+	workspace := testTempDir(t)
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
 	})
@@ -2651,8 +2651,8 @@ func TestHTTPShellExecManagedJobRetryRedactsTerminalOutput(t *testing.T) {
 }
 
 func TestHTTPShellExecRejectsExplicitZeroTimeout(t *testing.T) {
-	workspace := t.TempDir()
-	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+	workspace := testTempDir(t)
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
 	})
@@ -2674,8 +2674,8 @@ func TestHTTPShellExecRejectsExplicitZeroTimeout(t *testing.T) {
 }
 
 func TestHTTPShellExecIdempotencyKeyDoesNotCrossFromOperationToJob(t *testing.T) {
-	workspace := t.TempDir()
-	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+	workspace := testTempDir(t)
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
 	})
@@ -2739,8 +2739,8 @@ func TestHTTPShellExecIdempotencyKeyDoesNotCrossFromOperationToJob(t *testing.T)
 }
 
 func TestHTTPShellExecIdempotencyKeyDoesNotCrossFromJobToOperation(t *testing.T) {
-	workspace := t.TempDir()
-	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+	workspace := testTempDir(t)
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
 	})
@@ -2807,8 +2807,8 @@ func TestHTTPShellExecIdempotencyKeyDoesNotCrossFromJobToOperation(t *testing.T)
 }
 
 func TestHTTPShellExecIdempotencyKeyReturnsExistingOperation(t *testing.T) {
-	workspace := t.TempDir()
-	k := newTestKernelWithPolicy(t, filepath.Join(t.TempDir(), "events.jsonl"), ToolPolicy{
+	workspace := testTempDir(t)
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
 	})
@@ -2884,8 +2884,8 @@ func TestHTTPShellExecIdempotencyKeyReturnsExistingOperation(t *testing.T) {
 }
 
 func TestHTTPShellExecStaleRunningIdempotencyKeyReturnsFailedOperation(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	workspace := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
@@ -2942,7 +2942,7 @@ func TestHTTPShellExecStaleRunningIdempotencyKeyReturnsFailedOperation(t *testin
 }
 
 func TestHTTPRejectsUnknownShellFields(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -2962,7 +2962,7 @@ func TestHTTPRejectsUnknownShellFields(t *testing.T) {
 }
 
 func TestHTTPWorkSubmitCancelReadAndSessionProjectionAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -3047,7 +3047,7 @@ func TestHTTPWorkSubmitCancelReadAndSessionProjectionAfterRestart(t *testing.T) 
 }
 
 func TestHTTPCancelWorkIsIdempotentWithoutOverwritingEvidence(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -3108,7 +3108,7 @@ func TestHTTPCancelWorkIsIdempotentWithoutOverwritingEvidence(t *testing.T) {
 }
 
 func TestHTTPWorkSubmitIdempotencyKeyReturnsExistingWorkAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -3168,7 +3168,7 @@ func TestHTTPWorkSubmitIdempotencyKeyReturnsExistingWorkAfterRestart(t *testing.
 }
 
 func TestHTTPCreateWorkRejectsInvalidIdempotencyKey(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -3183,7 +3183,7 @@ func TestHTTPCreateWorkRejectsInvalidIdempotencyKey(t *testing.T) {
 }
 
 func TestHTTPCreateWorkRequiresSourceRef(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -3198,7 +3198,7 @@ func TestHTTPCreateWorkRequiresSourceRef(t *testing.T) {
 }
 
 func TestHTTPCreateWorkRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -3285,7 +3285,7 @@ func TestWorkReplayRejectsCompetingCancelEvidence(t *testing.T) {
 }
 
 func TestConcurrentWorkCancelWritesOnlyOneTerminalDecision(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	work, err := k.SubmitWork(WorkSubmitRequest{
 		SessionID: "work-cancel-race",
 		Title:     "race cancel",
@@ -3342,7 +3342,7 @@ func TestConcurrentWorkCancelWritesOnlyOneTerminalDecision(t *testing.T) {
 }
 
 func TestHTTPCancelWorkRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -3381,7 +3381,7 @@ func TestHTTPCancelWorkRejectsInvalidControlRefs(t *testing.T) {
 }
 
 func TestSemanticTextFieldsAllowSecretShapedContent(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -3533,7 +3533,7 @@ func TestSemanticTextFieldsAllowSecretShapedContent(t *testing.T) {
 }
 
 func TestUnapprovedMemoryCandidateIsNotRecalled(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	_, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-source",
@@ -3557,7 +3557,7 @@ func TestUnapprovedMemoryCandidateIsNotRecalled(t *testing.T) {
 }
 
 func TestCreateMemoryCandidateRequiresSourceRef(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 
 	_, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-source",
@@ -3569,7 +3569,7 @@ func TestCreateMemoryCandidateRequiresSourceRef(t *testing.T) {
 }
 
 func TestHTTPCreateMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -3609,7 +3609,7 @@ func TestHTTPCreateMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
 }
 
 func TestApprovedMemoryCandidateRecallsAcrossSessionsAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-source",
@@ -3674,7 +3674,7 @@ func TestApprovedMemoryCandidateRecallsAcrossSessionsAfterRestart(t *testing.T) 
 }
 
 func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -3739,7 +3739,7 @@ func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
 }
 
 func TestHTTPMemoryRecallReturnsApprovedOnlyAfterRestartWithoutLedgerAppend(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -3834,7 +3834,7 @@ func TestHTTPMemoryRecallReturnsApprovedOnlyAfterRestartWithoutLedgerAppend(t *t
 }
 
 func TestHTTPMemoryRecallRejectsBadInputAndAuth(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -3867,7 +3867,7 @@ func TestHTTPMemoryRecallRejectsBadInputAndAuth(t *testing.T) {
 }
 
 func TestHTTPMemoryCandidateListAndReadAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -3948,7 +3948,7 @@ func TestHTTPMemoryCandidateListAndReadAfterRestart(t *testing.T) {
 }
 
 func TestHTTPMemoryCandidateRejectAndReadAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -4062,7 +4062,7 @@ func TestHTTPMemoryCandidateRejectAndReadAfterRestart(t *testing.T) {
 }
 
 func TestHTTPRejectedMemoryCandidateCannotBeApproved(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -4108,7 +4108,7 @@ func TestHTTPRejectedMemoryCandidateCannotBeApproved(t *testing.T) {
 }
 
 func TestHTTPApprovedMemoryCandidateCannotBeRejected(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -4154,7 +4154,7 @@ func TestHTTPApprovedMemoryCandidateCannotBeRejected(t *testing.T) {
 }
 
 func TestHTTPMemoryCandidateSupersedeCreatesPendingReplacementAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -4281,7 +4281,7 @@ func TestHTTPMemoryCandidateSupersedeCreatesPendingReplacementAfterRestart(t *te
 }
 
 func TestSupersedeMemoryCandidateIsIdempotentWithoutAppendingDuplicateReplacement(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-supersede-idempotent",
 		Text:      "old candidate",
@@ -4332,7 +4332,7 @@ func TestSupersedeMemoryCandidateIsIdempotentWithoutAppendingDuplicateReplacemen
 }
 
 func TestHTTPMemoryCandidateSupersedeRejectsMissingEvidence(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -4501,7 +4501,7 @@ func TestMemoryReplayRejectsDuplicateSupersedeWithModifiedReplacement(t *testing
 }
 
 func TestHTTPSupersededMemoryCandidateCannotBeApprovedOrRejected(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -4543,7 +4543,7 @@ func TestHTTPSupersededMemoryCandidateCannotBeApprovedOrRejected(t *testing.T) {
 }
 
 func TestHTTPMemoryCandidateSupersedeRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -4575,7 +4575,7 @@ func TestHTTPMemoryCandidateSupersedeRejectsInvalidControlRefs(t *testing.T) {
 }
 
 func TestRejectMemoryCandidateIsIdempotentWithoutAppendingDuplicateEvent(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k := newTestKernel(t, ledgerPath)
 	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-duplicate-reject",
@@ -4738,7 +4738,7 @@ func TestConcurrentMemorySupersedeWritesOnlyOneTerminalDecision(t *testing.T) {
 }
 
 func TestHTTPRejectMemoryCandidateRejectsMissingEvidence(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -4753,7 +4753,7 @@ func TestHTTPRejectMemoryCandidateRejectsMissingEvidence(t *testing.T) {
 }
 
 func TestHTTPRejectMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -4803,7 +4803,7 @@ func TestHTTPRejectMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
 }
 
 func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -4822,7 +4822,7 @@ func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
 }
 
 func TestHTTPApproveMemoryCandidateRejectsMissingEvidence(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -4837,7 +4837,7 @@ func TestHTTPApproveMemoryCandidateRejectsMissingEvidence(t *testing.T) {
 }
 
 func TestHTTPApproveMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(t.TempDir(), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -4887,7 +4887,7 @@ func TestHTTPApproveMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
 }
 
 func TestHTTPReportsBlockedProvider(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     NewOpenAICompatibleProvider(OpenAICompatibleConfig{}),
@@ -5154,7 +5154,7 @@ func TestCommandProviderDoesNotInheritDaemonEnvironment(t *testing.T) {
 }
 
 func TestProviderCommandFailureRedactsStderrFromTurnAndHTTP(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	provider := NewCommandProvider(ProviderCommandConfig{
 		Command:        os.Args[0],
 		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "stderr-secret"},
@@ -5225,7 +5225,7 @@ func TestProviderCommandRequestOmitsKernelEventIdentity(t *testing.T) {
 		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
 	})
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -5265,7 +5265,7 @@ func TestCommandProviderAppliesDefaultTimeout(t *testing.T) {
 }
 
 func TestCommandProviderToolLoopThroughKernel(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	toolCommand := writeFileCommand("command-provider-tool.txt", "command-tool-value")
 	toolArgs, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
@@ -5282,7 +5282,7 @@ func TestCommandProviderToolLoopThroughKernel(t *testing.T) {
 		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
 	})
 
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
@@ -5341,7 +5341,7 @@ func TestCommandProviderToolLoopThroughKernel(t *testing.T) {
 }
 
 func TestCommandProviderMalformedArgumentsReturnRepairFeedback(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	provider := NewCommandProvider(ProviderCommandConfig{
 		Command:        os.Args[0],
 		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "malformed-tool-args"},
@@ -5351,7 +5351,7 @@ func TestCommandProviderMalformedArgumentsReturnRepairFeedback(t *testing.T) {
 	})
 
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -5411,7 +5411,7 @@ func commandProviderTestRequest() ModelRequest {
 }
 
 func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	toolCommand := writeFileCommand("tool-result.txt", "toolvalue")
 	toolArgs, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
@@ -5525,7 +5525,7 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k, err := New(Config{
 		LedgerPath: ledgerPath,
 		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
@@ -5625,7 +5625,7 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 }
 
 func TestSubmitTurnUsesToolCallEventIDWhenProviderIDMissing(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
 		"command": writeFileCommand("missing-provider-id.txt", "event-id"),
@@ -5640,7 +5640,7 @@ func TestSubmitTurnUsesToolCallEventIDWhenProviderIDMissing(t *testing.T) {
 		final: "event id tool slot observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -5749,7 +5749,7 @@ func TestOpenAICompatibleMalformedToolArgumentsReturnRepairFeedback(t *testing.T
 	defer server.Close()
 
 	k, err := New(Config{
-		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
 			BaseURL: server.URL,
 			APIKey:  "test-key",
@@ -5758,7 +5758,7 @@ func TestOpenAICompatibleMalformedToolArgumentsReturnRepairFeedback(t *testing.T
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeDefault,
-			WorkspaceRoot:  t.TempDir(),
+			WorkspaceRoot:  testTempDir(t),
 		},
 	})
 	if err != nil {
@@ -5922,7 +5922,7 @@ func submitCompletedManagedJobForTest(t *testing.T, ledgerPath string, workspace
 }
 
 func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
 			{
@@ -5934,7 +5934,7 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 		final: "repair feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -5989,9 +5989,9 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 }
 
 func TestSubmitTurnUsesKernelEventIDForUnsafeProviderToolCallID(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{{
 				ToolCallID: "bad tool call id",
@@ -6036,10 +6036,10 @@ func TestSubmitTurnUsesKernelEventIDForUnsafeProviderToolCallID(t *testing.T) {
 }
 
 func TestSubmitTurnRejectsProviderSuppliedKernelToolEventID(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	outputPath := filepath.Join(workspace, "forged-event-id.txt")
 	k, err := New(Config{
-		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{{
 				ToolCallID:      "call_provider_visible",
@@ -6081,10 +6081,10 @@ func TestSubmitTurnRejectsProviderSuppliedKernelToolEventID(t *testing.T) {
 }
 
 func TestInspectionRedactsUnsafeProviderToolCallID(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	providerCallID := `C:\secrets\sk-providersecret123`
 	k, err := New(Config{
-		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{{
 				ToolCallID: providerCallID,
@@ -6157,7 +6157,7 @@ func TestInspectionRedactsUnsafeProviderToolCallID(t *testing.T) {
 }
 
 func TestSubmitTurnFeedsNonZeroShellExitToModel(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
 		"command": failingShellCommand(),
@@ -6172,7 +6172,7 @@ func TestSubmitTurnFeedsNonZeroShellExitToModel(t *testing.T) {
 		final: "command failure observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -6216,7 +6216,7 @@ func TestSubmitTurnFeedsNonZeroShellExitToModel(t *testing.T) {
 }
 
 func TestSubmitTurnReturnsMinimalPermissionDeniedToolResult(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
 		"command": echoCommand("blocked"),
@@ -6231,7 +6231,7 @@ func TestSubmitTurnReturnsMinimalPermissionDeniedToolResult(t *testing.T) {
 		final: "permission feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -6277,7 +6277,7 @@ func TestSubmitTurnReturnsMinimalPermissionDeniedToolResult(t *testing.T) {
 }
 
 func TestSubmitTurnBlocksUnavailableSandboxProfileBeforeExecution(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	target := filepath.Join(workspace, "sandbox-profile-should-not-run.txt")
 	arguments, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
@@ -6293,7 +6293,7 @@ func TestSubmitTurnBlocksUnavailableSandboxProfileBeforeExecution(t *testing.T) 
 		final: "sandbox feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -6345,7 +6345,7 @@ func TestSubmitTurnBlocksUnavailableSandboxProfileBeforeExecution(t *testing.T) 
 func TestSubmitTurnBlocksReadOnlySandboxOverrideBeforeExecution(t *testing.T) {
 	for _, permissionMode := range []string{PermissionModeDefault, PermissionModeYolo} {
 		t.Run(permissionMode, func(t *testing.T) {
-			workspace := t.TempDir()
+			workspace := testTempDir(t)
 			target := filepath.Join(workspace, "read-only-sandbox-should-not-run.txt")
 			arguments, err := json.Marshal(map[string]string{
 				"cwd":     workspace,
@@ -6361,7 +6361,7 @@ func TestSubmitTurnBlocksReadOnlySandboxOverrideBeforeExecution(t *testing.T) {
 				final: "read-only sandbox feedback received",
 			}
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 				Provider:     provider,
 				RuntimeToken: testRuntimeToken,
 				ToolPolicy: ToolPolicy{
@@ -6405,7 +6405,7 @@ func TestSubmitTurnBlocksReadOnlySandboxOverrideBeforeExecution(t *testing.T) {
 }
 
 func TestSubmitTurnBlocksApprovalRequiredBeforeExecution(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	target := filepath.Join(workspace, "approval-should-not-run.txt")
 	arguments, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
@@ -6421,7 +6421,7 @@ func TestSubmitTurnBlocksApprovalRequiredBeforeExecution(t *testing.T) {
 		final: "approval feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -6470,7 +6470,7 @@ func TestSubmitTurnBlocksApprovalRequiredBeforeExecution(t *testing.T) {
 }
 
 func TestSubmitTurnPlanOnRequestKeepsReadOnlyDenialBeforeApproval(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	target := filepath.Join(workspace, "plan-approval-should-not-run.txt")
 	arguments, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
@@ -6486,7 +6486,7 @@ func TestSubmitTurnPlanOnRequestKeepsReadOnlyDenialBeforeApproval(t *testing.T) 
 		final: "plan denial feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -6532,7 +6532,7 @@ func TestSubmitTurnPlanOnRequestKeepsReadOnlyDenialBeforeApproval(t *testing.T) 
 func TestSubmitTurnAcceptsForegroundShellTimeoutSeconds(t *testing.T) {
 	for _, timeoutSec := range []int{1, 180} {
 		t.Run(fmt.Sprintf("timeout_%d", timeoutSec), func(t *testing.T) {
-			workspace := t.TempDir()
+			workspace := testTempDir(t)
 			arguments, err := json.Marshal(map[string]interface{}{
 				"cwd":         workspace,
 				"command":     echoCommand("foreground-timeout"),
@@ -6548,7 +6548,7 @@ func TestSubmitTurnAcceptsForegroundShellTimeoutSeconds(t *testing.T) {
 				final: "foreground timeout accepted",
 			}
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 				Provider:     provider,
 				RuntimeToken: testRuntimeToken,
 				ToolPolicy: ToolPolicy{
@@ -6588,7 +6588,7 @@ func TestSubmitTurnAcceptsForegroundShellTimeoutSeconds(t *testing.T) {
 }
 
 func TestSubmitTurnForegroundShellTimeoutRecordsTerminalOutcome(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
 		"command":     timeoutAfterOutputCommand(),
@@ -6604,7 +6604,7 @@ func TestSubmitTurnForegroundShellTimeoutRecordsTerminalOutcome(t *testing.T) {
 		final: "timeout outcome observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -6664,7 +6664,7 @@ func TestSubmitTurnForegroundShellTimeoutRecordsTerminalOutcome(t *testing.T) {
 }
 
 func TestSubmitTurnDefaultsShellTimeoutToThirtySeconds(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
 		"command": echoCommand("default-timeout"),
@@ -6679,7 +6679,7 @@ func TestSubmitTurnDefaultsShellTimeoutToThirtySeconds(t *testing.T) {
 		final: "default timeout accepted",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -6734,7 +6734,7 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellTimeoutSeconds(t *testing
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			workspace := t.TempDir()
+			workspace := testTempDir(t)
 			provider := &toolFeedbackProvider{
 				calls: []ModelToolCall{
 					{ToolCallID: "call_invalid_timeout_" + tc.name, Name: "shell_exec", Arguments: json.RawMessage(tc.arguments)},
@@ -6742,7 +6742,7 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellTimeoutSeconds(t *testing
 				final: "invalid timeout repair received",
 			}
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 				Provider:     provider,
 				RuntimeToken: testRuntimeToken,
 				ToolPolicy: ToolPolicy{
@@ -6777,7 +6777,7 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellTimeoutSeconds(t *testing
 }
 
 func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
 		"command":     longRunningShellCommand(30),
@@ -6792,7 +6792,7 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 		},
 		final: "managed job receipt observed",
 	}
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
@@ -6869,7 +6869,7 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 }
 
 func TestSubmitTurnLongShellTimeoutDefaultModeDoesNotStartManagedHostJob(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
 		"command":     echoCommand("default-long"),
@@ -6885,7 +6885,7 @@ func TestSubmitTurnLongShellTimeoutDefaultModeDoesNotStartManagedHostJob(t *test
 		final: "default managed block observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -6927,7 +6927,7 @@ func TestSubmitTurnLongShellTimeoutDefaultModeDoesNotStartManagedHostJob(t *test
 }
 
 func TestSubmitTurnDeliversCompletedJobObservationToNextProviderStep(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
 		"command":     echoCommand("queued-job"),
@@ -6943,7 +6943,7 @@ func TestSubmitTurnDeliversCompletedJobObservationToNextProviderStep(t *testing.
 		final: "job observation received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		JobExecutor:  completingManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
@@ -7016,12 +7016,12 @@ func TestSubmitTurnDeliversAllTerminalJobObservationKinds(t *testing.T) {
 		{status: "cancelled", eventType: "job.cancelled"},
 	} {
 		t.Run(tc.status, func(t *testing.T) {
-			workspace := t.TempDir()
+			workspace := testTempDir(t)
 			sessionID := "job-terminal-observation-" + tc.status
 			jobID := "job_terminal_" + tc.status
 			provider := &recordingTextProvider{text: "terminal observation delivered"}
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 				Provider:     provider,
 				RuntimeToken: testRuntimeToken,
 				ToolPolicy: ToolPolicy{
@@ -7112,7 +7112,7 @@ func TestSubmitTurnDeliversAllTerminalJobObservationKinds(t *testing.T) {
 }
 
 func TestProviderFailureDoesNotMarkJobObservationDelivered(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
 		"command":     echoCommand("queued-job"),
@@ -7125,7 +7125,7 @@ func TestProviderFailureDoesNotMarkJobObservationDelivered(t *testing.T) {
 		call: ModelToolCall{ToolCallID: "call_job_observation_failure", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		JobExecutor:  completingManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
@@ -7164,7 +7164,7 @@ func TestProviderFailureDoesNotMarkJobObservationDelivered(t *testing.T) {
 }
 
 func TestDeliveredJobObservationIsNotProjectedAgainAfterRestart(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
 		"command":     echoCommand("queued-job"),
@@ -7179,7 +7179,7 @@ func TestDeliveredJobObservationIsNotProjectedAgainAfterRestart(t *testing.T) {
 		},
 		final: "job observation received",
 	}
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
@@ -7242,8 +7242,8 @@ func TestDeliveredJobObservationIsNotProjectedAgainAfterRestart(t *testing.T) {
 }
 
 func TestSubmitTurnLiveManagedExecutorRecordsCompletedOutput(t *testing.T) {
-	workspace := t.TempDir()
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	sessionID := "job-live-completion"
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
@@ -7306,7 +7306,7 @@ func TestSubmitTurnLiveManagedExecutorRecordsCompletedOutput(t *testing.T) {
 func TestSubmitTurnProjectsGenericJobControlToolManifest(t *testing.T) {
 	provider := &toolFeedbackProvider{final: "manifest observed"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy:   ToolPolicy{PermissionMode: PermissionModePlan},
@@ -7337,8 +7337,8 @@ func TestSubmitTurnProjectsGenericJobControlToolManifest(t *testing.T) {
 }
 
 func TestSubmitTurnJobStatusReturnsCompletedJobAfterRestartWithoutOperation(t *testing.T) {
-	workspace := t.TempDir()
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	sessionID := "job-status-completed"
 	jobID := submitCompletedManagedJobForTest(t, ledgerPath, workspace, sessionID)
 	arguments, err := json.Marshal(map[string]string{"job_id": jobID})
@@ -7384,8 +7384,8 @@ func TestSubmitTurnJobStatusReturnsCompletedJobAfterRestartWithoutOperation(t *t
 }
 
 func TestSubmitTurnJobStatusRedactsTerminalOutput(t *testing.T) {
-	workspace := t.TempDir()
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	sessionID := "job-status-redaction"
 	jobID := "job_status_redaction"
 	seed, err := New(Config{
@@ -7471,8 +7471,8 @@ func TestSubmitTurnJobStatusReturnsRunningFailedAndCancelledStates(t *testing.T)
 		{status: "cancelled", eventType: "job.cancelled"},
 	} {
 		t.Run(tc.status, func(t *testing.T) {
-			workspace := t.TempDir()
-			ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+			workspace := testTempDir(t)
+			ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 			sessionID := "job-status-" + tc.status
 			jobID := "job_status_" + tc.status
 			k, err := New(Config{
@@ -7552,7 +7552,7 @@ func TestSubmitTurnJobStatusReturnsRepairFeedbackForUnknownJob(t *testing.T) {
 		final: "job status repair observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy:   ToolPolicy{PermissionMode: PermissionModePlan},
@@ -7594,7 +7594,7 @@ func TestSubmitTurnRejectsJobControlToolControlPlaneFields(t *testing.T) {
 				final: "repair observed",
 			}
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 				Provider:     provider,
 				RuntimeToken: testRuntimeToken,
 				ToolPolicy:   ToolPolicy{PermissionMode: PermissionModePlan},
@@ -7621,8 +7621,8 @@ func TestSubmitTurnRejectsJobControlToolControlPlaneFields(t *testing.T) {
 }
 
 func TestSubmitTurnJobCancelTerminalJobReturnsCurrentStateWithoutCompetingTerminalEvent(t *testing.T) {
-	workspace := t.TempDir()
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	sessionID := "job-cancel-terminal"
 	jobID := submitCompletedManagedJobForTest(t, ledgerPath, workspace, sessionID)
 	arguments, err := json.Marshal(map[string]string{"job_id": jobID, "reason": "no longer needed"})
@@ -7671,8 +7671,8 @@ func TestSubmitTurnJobCancelTerminalJobReturnsCurrentStateWithoutCompetingTermin
 }
 
 func TestSubmitTurnJobCancelLedgerOnlyRunningJobRecordsRequestWithoutForgingTerminalFact(t *testing.T) {
-	workspace := t.TempDir()
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	sessionID := "job-cancel-running"
 	jobID := "job_running_cancel"
 	cancelArgs, err := json.Marshal(map[string]string{"job_id": jobID, "reason": "user requested stop"})
@@ -7773,8 +7773,8 @@ func TestSubmitTurnJobCancelLedgerOnlyRunningJobRecordsRequestWithoutForgingTerm
 }
 
 func TestSubmitTurnJobCancelPlanModeReturnsPermissionDeniedWithoutCancelEvent(t *testing.T) {
-	workspace := t.TempDir()
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	sessionID := "job-cancel-plan-denied"
 	jobID := "job_plan_denied"
 	cancelArgs, err := json.Marshal(map[string]string{"job_id": jobID, "reason": "should be denied"})
@@ -7834,8 +7834,8 @@ func TestSubmitTurnJobCancelPlanModeReturnsPermissionDeniedWithoutCancelEvent(t 
 }
 
 func TestSubmitTurnJobCancelReachesLiveManagedExecutor(t *testing.T) {
-	workspace := t.TempDir()
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	sessionID := "job-cancel-live-executor"
 	startArgs, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
@@ -7918,9 +7918,9 @@ func TestSubmitTurnJobCancelReachesLiveManagedExecutor(t *testing.T) {
 }
 
 func TestExecShellReportsHeadTailTruncationMetadata(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeYolo,
@@ -7978,9 +7978,9 @@ func assertHeadTailOmissionMarker(t *testing.T, streamName string, text string, 
 }
 
 func TestExecShellControlledReadFailureDoesNotExposeAbsolutePath(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeDefault,
@@ -8014,7 +8014,7 @@ func TestExecShellControlledReadFailureDoesNotExposeAbsolutePath(t *testing.T) {
 }
 
 func TestSubmitTurnReportsToolInfrastructureFailureSeparately(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
 		"command": echoCommand("hello"),
@@ -8023,7 +8023,7 @@ func TestSubmitTurnReportsToolInfrastructureFailureSeparately(t *testing.T) {
 		t.Fatalf("marshal shell args: %v", err)
 	}
 	k, err := New(Config{
-		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{
 				{ToolCallID: "call_infra_failure", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
@@ -8064,7 +8064,7 @@ func TestSubmitTurnReportsToolInfrastructureFailureSeparately(t *testing.T) {
 }
 
 func TestSubmitTurnReturnsRepairFeedbackForUnsupportedModelToolCall(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
 			{
@@ -8081,7 +8081,7 @@ func TestSubmitTurnReturnsRepairFeedbackForUnsupportedModelToolCall(t *testing.T
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeDefault,
-			WorkspaceRoot:  t.TempDir(),
+			WorkspaceRoot:  testTempDir(t),
 		},
 		Clock: func() time.Time {
 			return time.Date(2026, 6, 22, 1, 2, 3, 0, time.UTC)
@@ -8130,7 +8130,7 @@ func TestSubmitTurnReturnsRepairFeedbackForUnsupportedModelToolCall(t *testing.T
 }
 
 func TestSubmitTurnReturnsRepairFeedbackForMixedModelToolBatchBeforeAnyEffect(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	toolArgs, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
 		"command": writeFileCommand("mixed-tool-effect.txt", "effect"),
@@ -8138,7 +8138,7 @@ func TestSubmitTurnReturnsRepairFeedbackForMixedModelToolBatchBeforeAnyEffect(t 
 	if err != nil {
 		t.Fatalf("marshal tool args: %v", err)
 	}
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
 			{ToolCallID: "call_write", Name: "shell_exec", Arguments: json.RawMessage(toolArgs)},
@@ -8189,7 +8189,7 @@ func TestSubmitTurnReturnsRepairFeedbackForMixedModelToolBatchBeforeAnyEffect(t 
 }
 
 func TestSubmitTurnRejectsDuplicateToolCallIDBeforeAnyEffect(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	firstArgs, err := json.Marshal(map[string]string{
 		"cwd":     workspace,
 		"command": writeFileCommand("duplicate-first.txt", "first"),
@@ -8205,7 +8205,7 @@ func TestSubmitTurnRejectsDuplicateToolCallIDBeforeAnyEffect(t *testing.T) {
 		t.Fatalf("marshal second args: %v", err)
 	}
 	k, err := New(Config{
-		LedgerPath: filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{
 				{ToolCallID: "call_duplicate", Name: "shell_exec", Arguments: json.RawMessage(firstArgs)},
@@ -8266,9 +8266,9 @@ func TestSubmitTurnReturnsRepairFeedbackForUnknownModelToolArgumentFields(t *tes
 		"provider_tool_call_id",
 	} {
 		t.Run(field, func(t *testing.T) {
-			workspace := t.TempDir()
+			workspace := testTempDir(t)
 			arguments := json.RawMessage(`{"cwd":"` + filepath.ToSlash(workspace) + `","command":"` + writeFileCommand("unknown-arg-effect.txt", "effect") + `","` + field + `":"model-supplied"}`)
-			ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+			ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 			provider := &toolFeedbackProvider{
 				calls: []ModelToolCall{
 					{
@@ -8338,7 +8338,7 @@ func TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider(t *test
 	}))
 	defer server.Close()
 
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	k, err := New(Config{
 		LedgerPath: ledgerPath,
 		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
@@ -8410,7 +8410,7 @@ func TestLiveOpenAICompatibleProviderThroughKernel(t *testing.T) {
 	}
 
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     NewOpenAICompatibleProvider(providerConfig),
 		RuntimeToken: testRuntimeToken,
 	})
@@ -8457,9 +8457,9 @@ func TestLiveOpenAICompatibleProviderToolLoopThroughKernel(t *testing.T) {
 		t.Fatalf("Genesis model config live tool-loop smoke blocked: %s", ProviderConfigReason(err))
 	}
 
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     NewOpenAICompatibleProvider(providerConfig),
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -9235,7 +9235,7 @@ func (p *compactionToolPairProvider) Complete(_ context.Context, req ModelReques
 
 func ledgerPathUnderFile(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	root := testTempDir(t)
 	filePath := filepath.Join(root, "not-a-directory")
 	if err := os.WriteFile(filePath, []byte("not a directory"), 0o644); err != nil {
 		t.Fatalf("write non-directory ledger parent: %v", err)
@@ -9245,7 +9245,7 @@ func ledgerPathUnderFile(t *testing.T) string {
 
 func corruptLedgerPath(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "events.jsonl")
+	path := filepath.Join(testTempDir(t), "events.jsonl")
 	if err := os.WriteFile(path, []byte("{bad json\n"), 0o644); err != nil {
 		t.Fatalf("write corrupt ledger: %v", err)
 	}

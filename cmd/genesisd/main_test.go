@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"genesis/internal/kernel"
+	"genesis/internal/testsupport"
 )
 
 func TestBuildProviderFromGenesisConfigCanSelectCommandProvider(t *testing.T) {
@@ -118,7 +119,7 @@ func TestDaemonProviderCommandEnvHelper(t *testing.T) {
 
 func writeDaemonModelsConfig(t *testing.T, payload map[string]any) string {
 	t.Helper()
-	root := t.TempDir()
+	root := testsupport.ProjectTempDir(t, "genesisd-models-config")
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)

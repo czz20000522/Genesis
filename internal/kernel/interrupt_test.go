@@ -15,7 +15,7 @@ import (
 )
 
 func TestInterruptSessionCancelsActiveProviderTurnWithoutCancellingBackgroundJob(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	executor := newBlockingManagedJobExecutor()
 	startProvider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
@@ -32,7 +32,7 @@ func TestInterruptSessionCancelsActiveProviderTurnWithoutCancellingBackgroundJob
 		final: "background job started",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     startProvider,
 		JobExecutor:  executor,
 		RuntimeToken: testRuntimeToken,
@@ -114,7 +114,7 @@ func TestInterruptSessionCancelsActiveProviderTurnWithoutCancellingBackgroundJob
 }
 
 func TestInterruptSessionDuringForegroundShellWritesInterruptedToolResult(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := testTempDir(t)
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
 			{
@@ -130,7 +130,7 @@ func TestInterruptSessionDuringForegroundShellWritesInterruptedToolResult(t *tes
 		final: "must not reach final provider step",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -208,7 +208,7 @@ func TestLocalManagedJobExecutorDoesNotAdvertiseForegroundAttach(t *testing.T) {
 
 func TestForegroundInterruptReasonStaysKillFallbackUntilAttachIsImplemented(t *testing.T) {
 	k, err := New(Config{
-		LedgerPath:  filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:  filepath.Join(testTempDir(t), "events.jsonl"),
 		JobExecutor: attachAdvertisingManagedJobExecutor{},
 	})
 	if err != nil {
@@ -222,7 +222,7 @@ func TestForegroundInterruptReasonStaysKillFallbackUntilAttachIsImplemented(t *t
 func TestHTTPInterruptSessionRequestsActiveTurnCancellation(t *testing.T) {
 	provider := newBlockingProvider()
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(t.TempDir(), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})

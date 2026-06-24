@@ -10,14 +10,15 @@ import (
 	"testing"
 
 	"genesis/internal/kernel"
+	"genesis/internal/testsupport"
 )
 
 func TestProviderSetupCommandDryRunDoesNotRequireAPIKey(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{
 		"provider-setup",
-		"-config-root", t.TempDir(),
-		"-credential-store-root", t.TempDir(),
+		"-config-root", testsupport.ProjectTempDir(t, "genesisctl-dry-run-config"),
+		"-credential-store-root", testsupport.ProjectTempDir(t, "genesisctl-dry-run-credentials"),
 		"-base-url", "https://provider.example.com/api",
 		"-model", "provider-model",
 		"-dry-run",
@@ -38,8 +39,8 @@ func TestProviderSetupCommandWritesCredentialWithoutPrintingSecret(t *testing.T)
 	if runtime.GOOS != "windows" {
 		t.Skip("real local credential setup uses Windows DPAPI")
 	}
-	configRoot := t.TempDir()
-	credentialRoot := t.TempDir()
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-config")
+	credentialRoot := testsupport.ProjectTempDir(t, "genesisctl-credentials")
 	secret := "sk-command-secret"
 	t.Setenv("GENESIS_PROVIDER_API_KEY", secret)
 

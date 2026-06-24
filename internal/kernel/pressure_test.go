@@ -13,9 +13,9 @@ import (
 )
 
 func TestKernelPressureLongRunningClosedLoop(t *testing.T) {
-	ledgerPath := filepath.Join(t.TempDir(), "events.jsonl")
-	workspace := t.TempDir()
-	outsideWorkspace := t.TempDir()
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	workspace := testTempDir(t)
+	outsideWorkspace := testTempDir(t)
 	provider := newKernelPressureProvider(workspace, outsideWorkspace)
 	k := newKernelPressureKernel(t, ledgerPath, workspace, provider)
 	sessionID := "kernel-pressure"
