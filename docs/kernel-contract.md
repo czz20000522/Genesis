@@ -246,6 +246,15 @@ External skill packages are user-space assets, not kernel applications. The kern
 
 Full skill-body retrieval is not part of the first default model-visible tool surface. If Genesis later needs long skill instructions, they must arrive through a generic resource/context contract or another explicitly reviewed owner path, not through package-specific retrieval tools. Skill prose remains user-space context and never grants kernel authority.
 
+Generic context hydration is the reviewed path for any long instruction or body
+content that should become model-visible after discovery. It is owned by the
+resource/context and Model Gateway paths: a source owner admits bounded content,
+the kernel records derivation facts, and the gateway renders a typed context
+fragment with hard caps. Shells, connectors, and applications must not splice
+raw skill bodies, attachment text, or caller-built prompts directly into
+provider context. Hydration does not create a new authority grant, memory truth,
+credential ref, or application-specific kernel API.
+
 Skill catalog diagnostics are inspection evidence only. The kernel may report path-free exclusion reasons such as missing root, linked path, malformed metadata, unsafe metadata, or duplicate name so an operator can repair the installation, but those diagnostics do not expose the excluded path or body and do not silently repair metadata into model context.
 
 Model-requested tool call batches are preflighted as a unit before any effect executes. If any call in the batch is unsupported or malformed, the entire batch fails closed and no call in that batch may create an operation or external effect. The kernel assigns each admitted tool slot the `tool.call` event id as `tool_call_event_id`, and that event id is the kernel identity for operation idempotency, audit, replay linkage, and `tool.result.for_event_id`. Provider-native `tool_call_id` stays the provider-visible echo id used by provider adapters for assistant tool calls and tool results; duplicate provider ids in one batch fail closed before `tool.call` events or effects. The kernel returns structured `tool_request_invalid` tool results so the model can repair the request, and the repair JSON content does not duplicate provider-native ids. Calls in the same rejected batch that were otherwise valid receive `tool_batch_not_executed` feedback instead of being executed.

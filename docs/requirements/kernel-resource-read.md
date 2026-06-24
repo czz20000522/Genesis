@@ -50,6 +50,35 @@ redaction policy, truncation metadata, and deterministic tool-result ordering.
   reads can be planned into the same parallel batch; reads of mutable owner
   state remain `state_read`.
 
+## Context Hydration Semantics
+
+Context hydration is the act of admitting a bounded resource projection into a
+future provider request. It is not the same thing as ordinary inspection or UI
+preview. The kernel owns the hydration decision because hydrated text changes
+what the model can reason over and may affect token pressure, compaction,
+replay, and audit evidence.
+
+Production context hydration must satisfy:
+
+- the hydrated content is addressed by a kernel resource ref or another
+  reviewed generic context handle, never by package path, connector id, external
+  file path, URL, or raw payload id;
+- the source owner records why the content is eligible for this session, turn,
+  or task, including grant, scope, freshness, size, and content type evidence;
+- the Model Gateway receives a typed context fragment with a hard byte/token
+  cap and derivation refs, not a caller-built raw prompt string;
+- hydrated content records provider-context derivation evidence without making
+  the full rendered prompt the canonical transcript;
+- repeated turns must be able to rebuild, compact, or omit hydrated content
+  deterministically from owner facts rather than shell-local memory.
+
+Skill packages are one possible source of hydrated context, not a special
+kernel feature. The skill catalog remains metadata-only by default. If a future
+turn needs a full `SKILL.md` body, a skill or application owner must first admit
+that body as a bounded generic resource/context handle. The model may then
+consume the handle through the generic context/resource path. It must not call a
+skill-specific kernel tool such as `read_skill` or `skill.read`.
+
 ## Non-Goals
 
 - No arbitrary filesystem reader is introduced by this requirement.
@@ -71,6 +100,10 @@ redaction policy, truncation metadata, and deterministic tool-result ordering.
 - Phase D: allow real executor-pool parallelism only for registered
   `pure_read` resource reads whose footprints are compatible and whose replay
   semantics are proven.
+- Phase E: implement generic context hydration on top of admitted resource or
+  context handles. Skill-body hydration, connector attachment hydration, and
+  application-provided long instructions must all use this generic path rather
+  than package-specific tools.
 
 ## Acceptance Criteria
 
@@ -84,6 +117,12 @@ redaction policy, truncation metadata, and deterministic tool-result ordering.
 - Model-visible tool manifest does not expose scheduling metadata, storage
   paths, hidden body refs, or credential refs.
 - Tool result output is bounded, redacted, and includes truncation metadata.
+- Full skill bodies are absent from default provider context, capabilities,
+  timeline, and context inspection unless they have been explicitly admitted as
+  bounded generic hydrated context.
+- A future hydration implementation records typed model input kinds and
+  derivation refs so compaction and replay can distinguish default skill index
+  metadata from hydrated resource content.
 
 ## Reference Alignment
 
@@ -93,6 +132,13 @@ redaction policy, truncation metadata, and deterministic tool-result ordering.
   references rather than by making every plugin protocol a kernel feature.
 - Codex tool executors default `supports_parallel_tool_calls()` to false; a
   concrete executor must declare parallel support.
+- Codex separates bounded model-visible context fragments from app-server
+  inspection APIs; skill instructions are injected through explicit turn
+  fragments when selected, not by treating skill bodies as always-on transcript.
+- Reasonix MCP resources are listed and read through resource protocol calls,
+  then wrapped as explicit context references. Genesis keeps that on-demand
+  pattern but requires kernel-owned resource/context refs instead of exposing
+  plugin or filesystem paths as authority.
 
 ## Relationship To Existing Issues
 

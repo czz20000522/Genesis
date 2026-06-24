@@ -89,6 +89,18 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Verification: Remaining verification must prove any future attach-capable executor can convert interrupted foreground shell work into kernel-owned managed-job facts while keeping host process handles hidden behind executor semantics.
 - Reference alignment: Aligned with Codex background terminal list/terminate control surfaces and Reasonix's `ProgressFunc` plus session-scoped job manager. The active drift risk is turning live progress into provider-owned context, UI-owned truth, or a strong audit log instead of a kernel-owned durable fact with separate projections.
 
+### KERNEL-CONTEXT-RESOURCE-HYDRATION-20260625 - P2 - Full skill and long-context hydration must use generic resource/context handles
+
+- Status: open.
+- Area: Model Gateway / Resource Owner / Skill Catalog.
+- Requirement: `docs/requirements/kernel-resource-read.md`.
+- Design: `docs/design/kernel-resource-read.md`.
+- Gap: Genesis currently has a path-free metadata-only skill index and a bounded `resource_read` primitive, but it does not yet have a production path for admitting full skill bodies, connector attachment text, or long application instructions into provider context as generic hydrated context. The current absence is intentional; the remaining gap is a generic resource/context owner flow that can admit bounded content, record derivation evidence, and let the Model Gateway render typed context fragments without reintroducing `skill.read` or caller-built prompt splicing.
+- Next slice: Define and implement a generic context-hydration admission path only after resource/context ownership is selected. The implementation must keep full skill bodies out of default context, capabilities, timeline, and context inspection unless a bounded generic hydrated context handle was admitted for the turn/task.
+- Evidence: `docs/requirements/kernel-resource-read.md` now defines context hydration semantics and forbids package-specific skill-body tools. `docs/design/kernel-resource-read.md` documents the current boundary: metadata-only skill index plus `resource_read`, with future hydration going through resource/context owner facts. Current tests such as `TestKernelInjectsBudgetedSkillIndexWithoutSkillBodies`, `TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext`, and `TestTurnEvidenceRecordsModelInputKindsWithoutSkillPaths` prove the default provider context excludes skill bodies and paths.
+- Verification: Future verification must prove full skill bodies are absent by default; a hydrated body appears only through a generic resource/context handle with typed model input evidence, bounded output, derivation refs, and no filesystem path or package root leakage; `skill.read`, `read_skill`, and skill-specific kernel tools remain absent from the model-visible tool manifest.
+- Reference alignment: Aligned with Codex's split between bounded model-visible context fragments and skill instruction injection when selected, while intentionally avoiding a Genesis package-specific skill-read tool. Aligned with Reasonix's explicit `@resource`/MCP resource reads as on-demand context rather than always-on prompt content. The active drift risk is treating skill packages as kernel APIs or letting shells/connectors assemble provider context directly.
+
 ### KERNEL-SANDBOX-APPROVAL-NEXT-20260623 - P2 - Stronger sandbox and approval policy beyond the minimal profile split
 
 - Status: open.

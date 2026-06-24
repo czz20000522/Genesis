@@ -298,6 +298,37 @@ Done when:
 
 - The approved path uses generic resource/context contracts and keeps skill packages as user-space assets.
 
+Reference scan:
+
+- Codex keeps model-visible context fragments explicit and bounded. Its
+  workspace guidance requires injected context fragments to have hard caps and
+  concrete fragment types, and app-server exposes skill listing/remote skill
+  preview as separate inspection surfaces. Turn-time skill instruction
+  injection is selected work, not a default full-catalog body dump.
+- Reasonix pulls MCP resources into context through explicit `@resource`
+  references and `resources/read`, and the reference plugin keeps resource list
+  and resource read as protocol calls rather than making every plugin protocol a
+  core feature.
+- Genesis alignment: keep the default skill index metadata-only; use generic
+  resource/context hydration when long instructions or bodies become model
+  visible; reject `skill.read`, caller-built prompt splicing, and always-on full
+  skill bodies.
+
+Evidence:
+
+- `docs/requirements/kernel-resource-read.md` now defines generic context
+  hydration semantics, including admission, derivation evidence, hard caps, and
+  the no skill-specific retrieval redline.
+- `docs/design/kernel-resource-read.md` now documents the future hydration
+  flow and the current boundary: metadata-only skill index plus `resource_read`,
+  with no full skill-body hydration implemented yet.
+- `docs/kernel-contract.md` now states that generic hydration is a
+  resource/context plus Model Gateway path and does not grant authority,
+  memory truth, credentials, or application APIs.
+- `docs/operations/kernel-issues.md` now tracks
+  `KERNEL-CONTEXT-RESOURCE-HYDRATION-20260625` as the remaining implementation
+  gap instead of pretending the design is implemented.
+
 ## Phase Closure
 
 Before closing the goal:

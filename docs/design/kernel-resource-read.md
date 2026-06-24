@@ -37,6 +37,51 @@ The ref is not:
 - a raw payload id;
 - a skill package path.
 
+## Generic Context Hydration
+
+Context hydration is a Model Gateway input-building path backed by resource or
+context-owner facts. It is not a tool whose name is tied to a package type.
+
+```text
+Skill / Connector / Application source
+        |
+        v
+Resource or context owner admits bounded content handle
+        |
+        v
+Model Gateway selects typed hydrated context fragment
+        |
+        v
+Provider request receives bounded text plus derivation evidence
+```
+
+The model-visible skill index stays small and path-free. It can mention that a
+skill exists and describe what it helps with. It does not imply that the full
+skill body is already present. If later context selection decides that the full
+instructions are needed, the selected body must be admitted as a generic
+resource/context handle and then rendered as a typed context fragment. The
+fragment records source refs or hashes, size/truncation facts, owner, and input
+kind evidence for context inspection.
+
+Hydration must not:
+
+- expose `SKILL.md` filesystem paths, package roots, connector payload paths, or
+  external message ids as model authority;
+- create a model-visible `skill.read` or `read_skill` tool;
+- let WebUI, CLI, Feishu listener, or another shell splice raw instruction
+  prose into provider context;
+- treat hydrated instruction prose as memory truth, credential authority, or a
+  tool permission grant;
+- store a full rendered prompt as the canonical transcript just because a
+  hydrated fragment was used.
+
+The first production implementation should therefore extend the resource/context
+owner path before extending skill discovery. A skill loader may produce an
+internal body pointer, but the public kernel surface remains a generic context
+handle. The model consumes the bounded hydrated text only after the kernel has
+selected it for the current provider request or after a generic resource read
+has returned terminal-equivalent text.
+
 ## Tool Contract
 
 Model-visible tool:
@@ -110,6 +155,16 @@ The first slice should still be strict:
 - scheduling metadata is internal and absent from the model manifest;
 - unknown refs fail closed before any body read.
 
+## Current Hydration Boundary
+
+Current Genesis implements the metadata-only skill index and the first
+`resource_read` primitive. It does not yet implement full skill-body hydration.
+That absence is intentional. The approved next implementation must first decide
+how a user-space skill or application admits a body into a generic resource or
+context owner and how the Model Gateway records the resulting hydrated fragment.
+Until that exists, full skill bodies remain outside default provider context and
+outside model-visible tools.
+
 ## Reference Alignment
 
 Reasonix exposes read-only status through trusted tool metadata and keeps MCP
@@ -125,6 +180,11 @@ uses it as a parallel candidate.
   commands can hide side effects.
 - Reintroducing `skill.read` is rejected because skills are user-space context
   packages; full hydration must use the generic resource path.
+- Treating full `SKILL.md` bodies as always-on provider context is rejected
+  because it creates unbounded prompt growth, weakens cache stability, and
+  bypasses context selection.
+- Letting applications pass caller-built prompt strings for long instructions is
+  rejected because provider context assembly is a Model Gateway owner path.
 - Letting connectors hand raw attachment paths to the model is rejected because
   external refs and local storage paths are not kernel resource refs.
 - Building a production object store in the first slice is rejected because the
