@@ -25,6 +25,18 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
+### KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624 - P2 - Tool scheduling must use effect, footprint, and handle policy
+
+- Status: open.
+- Area: Tool Runtime / Model Gateway / Work Registry.
+- Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
+- Design: `docs/design/kernel-foundation-capabilities.md`.
+- Gap: The current tool runtime preflights model tool batches and executes prepared calls conservatively in provider order. This is safe for the present narrow `shell_exec` / `job_status` / `job_cancel` surface, but the production contract now requires a kernel-owned scheduling model based on effect class, resource footprint, state dependency, and handle/lease boundary. A simple `read` versus `write` field is not enough once resource reads, job IO, connector actions, memory inspection, or additional registered tools exist.
+- Next slice: Add a pure scheduling planner that maps prepared tool calls plus trusted tool metadata into deterministic execution batches. Do not introduce a real executor pool in the first slice. The first slice should prove batch partitioning, serial fences, per-handle serialization, and stable model-visible result order without changing current shell execution behavior.
+- Evidence: Genesis currently records `shell_exec` as `side_effect_level=write` and executes prepared model tool calls serially after batch preflight. Local reference review shows Reasonix parallelizes only contiguous known read-only tools and excludes evidence-ledger readers such as `complete_step` and `todo_write`; Codex relies on handler `supports_parallel_tool_calls()` plus process/session registries, but its shell parallelism is intentionally not adopted for Genesis because arbitrary shell commands cannot be trusted as pure reads.
+- Verification: Future verification must prove compatible pure reads can be planned into one parallel batch; read/write/read does not cross the write fence; unknown tools and unknown scheduling metadata are serial; state reads wait for prior committed receipts; two writes to the same resource are serial; two `process_io` calls on the same job/process handle are serial; `process_start` admission is serial but admitted jobs may run in the background; external side effects route through connector/outbox ownership; completion race order does not change ledger, transcript, checkpoint, or provider replay order; crash/replay does not repeat admitted non-idempotent or external effects.
+- Reference alignment: Aligned with Reasonix's provider-ordered tool dispatch plus limited read-only parallel batches, and with Codex's handler-declared parallel support plus process/session conflict guards. The intentional divergence is that Genesis does not copy Codex shell parallelism: `shell_exec` remains effectful/serial unless a future hard read-only sandbox or narrower registered read tool provides a trusted access plan.
+
 ### KERNEL-TEST-ARTIFACT-LOCALITY-20260624 - P2 - Kernel tests still write fixtures to system temp
 
 - Status: open.

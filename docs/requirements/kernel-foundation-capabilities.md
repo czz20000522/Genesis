@@ -164,6 +164,77 @@ Every production store or schema proposal must answer:
 - Long output is presented with bounded head/tail text, truncation flags, original byte counts, omitted byte counts, and a visible omission marker.
 - Redaction is projection policy. It must not mutate append-only operation evidence before it is recorded.
 
+#### Tool Scheduling And Concurrency
+
+Tool concurrency is a kernel scheduling decision, not a provider decision and
+not a simple read/write shortcut. A provider may emit several tool calls in one
+step, and a provider adapter may expose native `parallel_tool_calls` or similar
+vendor flags, but those signals do not grant execution authority. `ToolGateway`
+validates schema, permission, resource refs, and tool registration first, then
+derives a kernel-owned access plan for each call before any call executes.
+
+`side_effect_level` remains useful for permission admission, but it is not a
+complete concurrency contract. Production scheduling must use richer internal
+metadata:
+
+- `effect_class`: `pure_read`, `state_read`, `workspace_write`,
+  `kernel_state_write`, `process_start`, `process_io`, or
+  `external_side_effect`;
+- `resource_footprint`: read scopes, write scopes, session/kernel state scopes,
+  job or process handles, external targets, and credential/resource grant refs;
+- `parallel_policy`: compatible locks, serial fence, per-handle serial, or
+  background-after-admission.
+
+These scheduling fields are kernel/control-plane facts. They are not
+model-visible tool arguments and the model cannot override them. Tool handlers
+may declare capabilities, but the scheduler must fail closed when metadata is
+missing, unknown, or incompatible. Unknown tools, unknown effect classes, and
+tools without a trusted access plan are serial fences.
+
+The scheduler partitions provider-ordered calls into execution batches:
+
+1. Compatible `pure_read` calls may run concurrently when their footprints do
+   not depend on prior uncommitted facts.
+2. `state_read` calls, including reads of turn receipts, evidence ledger,
+   checkpoint state, job state, or memory review state, wait until all prior
+   provider-ordered facts they may observe have been committed.
+3. `workspace_write`, `kernel_state_write`, and unknown calls are serial fences
+   in the first production-safe implementation. Future lock-set analysis may
+   allow independent writes, but only after the resource footprint and
+   idempotency contract prove that they do not conflict.
+4. `process_start` is serially admitted so the kernel can allocate job/process
+   handles, leases, idempotency, and audit evidence deterministically. After
+   admission, the managed job may run in the background under Work/Job control.
+5. `process_io` such as status, stdin, signal, wait, or cancel operations is
+   serialized per job/process handle. Two operations on the same handle must not
+   race, even if their tool schemas look read-only.
+6. `external_side_effect` calls are not ordinary parallel tool work. They must
+   route through the appropriate connector/outbox owner with idempotency,
+   delivery receipt, and reconciliation evidence.
+
+Execution may be concurrent, but durable facts and model-visible tool results
+remain deterministic. `tool.call` events are written in provider call order.
+`tool.result` events and provider-visible result rounds are projected in the
+same provider call order, even when the underlying executions finish in a
+different order. UI and diagnostics may show live concurrent progress, but they
+must not turn completion order into ledger order, transcript truth, checkpoint
+truth, or provider replay order.
+
+The current default shell tool stays conservative. `shell_exec` is an arbitrary
+process primitive and is treated as effectful/serial unless it is routed through
+a future hard read-only sandbox or replaced by a narrower registered read tool
+with a trusted access plan. A shell command that looks like `rg` or `cat` is not
+automatically a `pure_read` kernel effect, because shell syntax, scripts,
+environment variables, network access, and invoked programs can create hidden
+side effects.
+
+Crash and resume semantics are part of scheduling. Once a non-idempotent or
+external effect has been admitted, replay must return the recorded operation,
+job, outbox item, or repair evidence instead of executing it again. Rejected
+batches must still fail closed before any effect, and admitted batches must
+record enough ordering evidence to resume without duplicating completed or
+in-flight effects.
+
 ### Authority And Credential Plane
 
 - Runtime-protected routes require a configured runtime token. Readiness is blocked when protected work cannot be accepted.
@@ -233,7 +304,7 @@ Phase B: tool runtime, permission profile, shell execution, and terminal-equival
 
 - Proves: registry ownership, model-visible tool manifest, permission denial, command output evidence, and repair feedback.
 - Proves now also: configured unavailable sandbox profiles and approval-required write effects fail closed before execution with model-repairable feedback.
-- Still short of production: shell sandbox is controlled workspace rather than OS sandbox; interactive approval is not implemented; richer job progress and interrupt behavior remain governed by the shell/job requirement.
+- Still short of production: shell sandbox is controlled workspace rather than OS sandbox; interactive approval is not implemented; richer job progress, interrupt behavior, and tool scheduling/concurrency remain governed by this requirement and the shell/job requirement.
 
 Phase C: work registry, accumulation, credential plane, and protected inspection.
 
@@ -247,8 +318,8 @@ Phase D: real provider boundary, provider-backed usage accounting, multi-turn pr
 
 Phase E: hardening and production readiness.
 
-- Proves: stronger sandbox/approval where available, managed-job hardening, interrupt semantics, and broader recovery evidence.
-- Still short of production until complete: stronger authority flows, foreground attach-or-kill, and arbitrary long-running effect recovery remain constrained.
+- Proves: stronger sandbox/approval where available, managed-job hardening, interrupt semantics, deterministic tool scheduling, and broader recovery evidence.
+- Still short of production until complete: stronger authority flows, foreground attach-or-kill, arbitrary long-running effect recovery, and richer resource-footprint based parallelism remain constrained.
 
 ## Acceptance Criteria
 
@@ -257,6 +328,7 @@ Positive cases:
 - valid turn submission produces ledger events, provider result, session projection, and restart replay;
 - fake and real provider paths return structured final responses;
 - valid governed shell execution returns terminal-equivalent result evidence;
+- compatible pure-read tool calls can be planned into one parallel batch without changing provider-visible result order;
 - approved memory can be recalled in a later turn;
 - protected inspection surfaces show readiness, capability, timeline, audit, and context projections.
 
@@ -265,6 +337,8 @@ Negative cases:
 - malformed transport fields fail before provider context construction;
 - unauthorized tool effects are blocked before execution;
 - model-supplied control-plane fields are rejected;
+- unknown tools, unknown scheduling metadata, state reads after uncommitted prior facts, conflicting writes, and same-handle process I/O do not run in parallel;
+- `shell_exec` is not classified as pure read by command text inspection alone;
 - raw secrets do not appear in context, logs, readiness, events, or model-visible results;
 - unsafe skill metadata is excluded;
 - rejected and superseded memories do not enter recall.
@@ -274,12 +348,14 @@ Fail-closed and recovery:
 - provider failures are structured and do not panic the kernel;
 - idempotent turn retries do not repeat provider calls or tool effects;
 - idempotent tool retries do not repeat effects;
+- replay of an admitted non-idempotent or external effect returns recorded evidence instead of executing it again;
 - restart replay reconstructs session, work, operation, and memory projections from ledger facts.
 
 Audit and visibility:
 
 - ordinary timeline, raw events, audit, and context projections remain separate;
 - bounded output includes truncation metadata;
+- concurrent execution progress may be visible to UI/diagnostics, but ledger, transcript, checkpoint, and provider replay order stay deterministic;
 - readiness explains blockers without exposing secrets.
 
 Test evidence:
@@ -296,6 +372,7 @@ Current related active issues:
 
 - `KERNEL-SANDBOX-APPROVAL-NEXT-20260623`: implementation gap for stronger sandbox and approval beyond the current authority-profile split.
 - `KERNEL-JOB-CONTROL-INTERRUPT-20260623`: remaining interrupt, progress snapshot, idle continuation, and foreground attach-or-kill semantics. It is governed by the shell/job requirement because it extends the generic Tool Runtime and managed-job path rather than the foundation baseline itself.
+- `KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624`: future gap for deriving `ToolAccessPlan` and deterministic execution batches from tool effect, footprint, and handle policy. The first slice should be a pure planning function and behavior tests, not an executor-pool rewrite.
 
 Related ready-for-acceptance shell/job evidence:
 

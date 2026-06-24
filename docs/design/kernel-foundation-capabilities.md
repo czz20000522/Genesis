@@ -40,6 +40,34 @@ Core conceptual commands and projections:
 
 Kernel-owned control fields stay out of model-visible schemas. Provider adapters translate kernel manifests to provider-native shapes but do not own tool permission, idempotency, execution, or ledger evidence.
 
+## Tool Scheduling
+
+Tool scheduling belongs to ToolGateway and the kernel runtime. Provider adapters
+may translate native tool-call batches into Genesis tool calls, but they do not
+decide which calls can run in parallel. Tool handlers may declare trusted
+scheduling metadata, but the scheduler owns the final access plan and fails
+closed when metadata is absent or incompatible.
+
+The scheduling flow is:
+
+1. normalize provider tool calls into provider order;
+2. resolve each tool through `ToolRegistry`;
+3. validate model-visible arguments and reject hidden control-plane fields;
+4. authorize each call through the Authority Plane;
+5. derive a `ToolAccessPlan` from effect class, resource footprint, state
+   dependency, handle/lease scope, idempotency, and external target;
+6. partition calls into deterministic execution batches;
+7. execute compatible calls concurrently only when the plan allows it;
+8. append durable tool facts and project model-visible tool results in provider
+   call order.
+
+The first implementation should expose the planner as a pure function before it
+adds real executor parallelism. The planner can be tested with synthetic tool
+specs and footprints while current `shell_exec` behavior remains serial.
+`shell_exec` is not classified as a pure read by command text inspection; only a
+future hard read-only sandbox or a narrower registered read tool can provide a
+trusted pure-read access plan.
+
 ## Failure Semantics
 
 - Invalid transport or hidden control input fails before provider context construction.
@@ -121,3 +149,4 @@ after commit and cannot roll back owner truth.
 - Persisting every stream chunk as a canonical ledger event is rejected because transport detail is not system truth.
 - Starting database design from a global ERD is rejected because it encourages noun-based tables instead of owner-owned truth, projections, queues, and indexes.
 - Keeping JSONL and database stores as permanent dual product truth is rejected because it splits replay, migration, and corruption semantics across two owners.
+- Treating `read` versus `write` as the complete concurrency contract is rejected because state reads, process handles, external side effects, and arbitrary shell commands need kernel-owned access plans.
