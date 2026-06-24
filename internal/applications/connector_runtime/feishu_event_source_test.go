@@ -2,11 +2,16 @@ package connectorruntime
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"genesis/internal/testsupport"
 )
 
 func TestExternalEventFromFeishuMessageReceiveUsesStableSourceFields(t *testing.T) {
@@ -144,7 +149,7 @@ func TestFeishuEventSourceIgnoresConfiguredSenderIDs(t *testing.T) {
 		"",
 	}, "\n")
 
-	err := processFeishuEventStdout(strings.NewReader(input), io.Discard, ignoreSenderIDSet([]string{"cli_self"}), func(event ExternalEvent) error {
+	err := processFeishuEventStdout(context.Background(), strings.NewReader(input), io.Discard, ignoreSenderIDSet([]string{"cli_self"}), nil, func(event ExternalEvent) error {
 		handled = append(handled, event)
 		return nil
 	})
@@ -156,9 +161,78 @@ func TestFeishuEventSourceIgnoresConfiguredSenderIDs(t *testing.T) {
 	}
 }
 
+func TestFeishuEventSourceRecordsMalformedSourceFailureBeforeKernel(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFileSourceFailureStore(filepath.Join(testsupport.ProjectTempDir(t, "feishu-source-failures"), "source-failures.json"))
+	if err != nil {
+		t.Fatalf("NewFileSourceFailureStore returned error: %v", err)
+	}
+	input := strings.Join([]string{
+		`{"event_id":"evt_bad","chat_id":"oc_123","chat_type":"group","message_id":"om_bad","message_type":"text","content":"missing sender","timestamp":"1782269315000","type":"im.message.receive_v1"}`,
+		`{"event_id":"evt_user","chat_id":"oc_123","chat_type":"group","message_id":"om_user","sender_id":"ou_user","message_type":"text","content":"user message","timestamp":"1782269316000","type":"im.message.receive_v1"}`,
+		"",
+	}, "\n")
+
+	var handled []ExternalEvent
+	err = processFeishuEventStdout(ctx, strings.NewReader(input), io.Discard, nil, store, func(event ExternalEvent) error {
+		handled = append(handled, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("processFeishuEventStdout returned error: %v", err)
+	}
+	if len(handled) != 1 || handled[0].ExternalEventID != "evt_user" {
+		t.Fatalf("handled events = %+v, want only valid user event", handled)
+	}
+	failures, err := store.ListSourceFailures(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceFailures returned error: %v", err)
+	}
+	if len(failures) != 1 {
+		t.Fatalf("source failures = %+v, want one malformed source record", failures)
+	}
+	failure := failures[0]
+	if failure.Connector != "feishu" || failure.Reason != "malformed_source_event" || failure.SourceValidation != SourceValidationRejected {
+		t.Fatalf("failure identity = %+v", failure)
+	}
+	if !strings.Contains(failure.Detail, "missing sender_id") {
+		t.Fatalf("failure detail = %q, want missing sender evidence", failure.Detail)
+	}
+	if strings.TrimSpace(failure.RawExcerpt) == "" || !strings.Contains(failure.RawExcerpt, "evt_bad") {
+		t.Fatalf("raw excerpt = %q, want bounded source excerpt", failure.RawExcerpt)
+	}
+}
+
+func TestFeishuEventSourceFailsClosedWhenSourceFailureCannotBeRecorded(t *testing.T) {
+	var handled []ExternalEvent
+	err := processFeishuEventStdout(context.Background(), strings.NewReader(`{"event_id":"evt_bad","chat_id":"oc_123","message_id":"om_bad","content":"missing sender","timestamp":"1782269315000","type":"im.message.receive_v1"}`+"\n"), io.Discard, nil, failingSourceFailureStore{}, func(event ExternalEvent) error {
+		handled = append(handled, event)
+		return nil
+	})
+	if err == nil {
+		t.Fatal("processFeishuEventStdout should fail when source failure evidence cannot be recorded")
+	}
+	if !strings.Contains(err.Error(), "record Feishu source failure") {
+		t.Fatalf("error = %v, want source failure recording evidence", err)
+	}
+	if len(handled) != 0 {
+		t.Fatalf("handled events = %+v, want no kernel-bound events after evidence write failure", handled)
+	}
+}
+
+type failingSourceFailureStore struct{}
+
+func (failingSourceFailureStore) RecordSourceFailure(context.Context, SourceFailureRecord) error {
+	return errors.New("source store unavailable")
+}
+
+func (failingSourceFailureStore) ListSourceFailures(context.Context) ([]SourceFailureRecord, error) {
+	return nil, nil
+}
+
 func TestFeishuEventSourceOversizedStdoutReturnsScannerError(t *testing.T) {
 	oversized := strings.Repeat("x", 1024*1024+1)
-	err := processFeishuEventStdout(strings.NewReader(oversized), io.Discard, nil, func(ExternalEvent) error {
+	err := processFeishuEventStdout(context.Background(), strings.NewReader(oversized), io.Discard, nil, nil, func(ExternalEvent) error {
 		t.Fatal("oversized stdout should fail before event handling")
 		return nil
 	})

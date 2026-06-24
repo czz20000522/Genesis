@@ -115,5 +115,5 @@ func (s *FileInboundStore) writeLocked() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, s.path)
+	return replaceConnectorStateFile(tmpPath, s.path)
 }

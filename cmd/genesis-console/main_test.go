@@ -257,6 +257,62 @@ func TestConsoleInspectFiltersConnectorStatusAndSession(t *testing.T) {
 	}
 }
 
+func TestConsoleInspectIncludesFilteredSourceFailures(t *testing.T) {
+	ctx := context.Background()
+	dir := testsupport.ProjectTempDir(t, "genesis-console-source-failures")
+	inboundPath := filepath.Join(dir, "inbound.json")
+	outboxPath := filepath.Join(dir, "outbox.json")
+	sourcePath := filepath.Join(dir, "source-failures.json")
+	store, err := connectorruntime.NewFileSourceFailureStore(sourcePath)
+	if err != nil {
+		t.Fatalf("NewFileSourceFailureStore returned error: %v", err)
+	}
+	if err := store.RecordSourceFailure(ctx, connectorruntime.SourceFailureRecord{
+		RecordID:         "failure_keep",
+		Connector:        "feishu",
+		EventSource:      connectorruntime.DefaultFeishuMessageEventKey,
+		Reason:           "malformed_source_event",
+		Detail:           "missing sender",
+		RawExcerpt:       `{"event_id":"evt_bad"}`,
+		SourceValidation: connectorruntime.SourceValidationRejected,
+		CreatedAt:        time.Date(2026, 6, 24, 12, 2, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("record source failure: %v", err)
+	}
+	if err := store.RecordSourceFailure(ctx, connectorruntime.SourceFailureRecord{
+		RecordID:         "failure_drop",
+		Connector:        "email",
+		EventSource:      "mail.poll",
+		Reason:           "malformed_source_event",
+		Detail:           "drop",
+		SourceValidation: connectorruntime.SourceValidationRejected,
+		CreatedAt:        time.Date(2026, 6, 24, 12, 2, 1, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("record drop source failure: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := run(ctx, []string{
+		"inspect",
+		"--inbound-state", inboundPath,
+		"--outbox-state", outboxPath,
+		"--source-state", sourcePath,
+		"--connector", "feishu",
+	}, &stdout, io.Discard); err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	var got InspectionReport
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("decode report: %v\n%s", err, stdout.String())
+	}
+	if len(got.SourceFailures) != 1 || got.SourceFailures[0].RecordID != "failure_keep" {
+		t.Fatalf("source failures = %+v, want only feishu failure", got.SourceFailures)
+	}
+	if got.SourceFailures[0].SourceValidation != connectorruntime.SourceValidationRejected {
+		t.Fatalf("source validation = %q", got.SourceFailures[0].SourceValidation)
+	}
+}
+
 func TestConsoleRequeueOutboxMutatesOnlyConnectorState(t *testing.T) {
 	ctx := context.Background()
 	outboxPath := filepath.Join(testsupport.ProjectTempDir(t, "genesis-console-requeue"), "outbox.json")

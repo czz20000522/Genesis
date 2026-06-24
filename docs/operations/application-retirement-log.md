@@ -84,7 +84,18 @@ issues remain in `docs/operations/application-issues.md`.
 - Fix summary: Added `genesis-console inspect` filters for connector name, inbound status, outbox status, and kernel session id. Receipts are loaded only for filtered outbox items, and kernel session projections are fetched only for filtered inbound session ids.
 - Boundary evidence: Filtering is a read-only console projection over connector-owned state plus optional kernel HTTP projection reads. It does not parse kernel raw events, write kernel facts, fabricate tool results, mutate memory, or reinterpret connector delivery outcomes as kernel truth.
 - Verification: `TestConsoleInspectFiltersConnectorStatusAndSession`; `go test ./cmd/genesis-console -count=1`.
-- Residual risk: Source-failure/dead-letter inspection and recovery-required reconciliation remain active under `APP-CONNECTOR-OPERATOR-CONSOLE-20260623`.
+- Residual risk: Richer delivery dead-letter inspection and recovery-required reconciliation remain active under `APP-CONNECTOR-OPERATOR-CONSOLE-20260623`.
+
+### APP-CONNECTOR-SOURCE-FAILURE-RECORDS-20260624 - Persist malformed source failures at the connector boundary
+
+- Retired in: connector source failure implementation change set.
+- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Fix summary: Added connector-local `SourceFailureRecord`, `FileSourceFailureStore`, Feishu source parser failure recording, `genesis-ingress feishu-listen --source-state`, and `genesis-console inspect` source failure projection. Malformed Feishu source lines are rejected before `ExternalEvent`, before `/turn`, and before inbound submission records.
+- Boundary evidence: Source failures are connector application facts, not kernel facts. The record stores connector, event source, stable reason, detail, bounded raw excerpt, rejected source validation, and created time. The console reads these records as an application projection and does not parse kernel raw events or fabricate kernel session facts.
+- Reference alignment: Codex app-server rejects malformed client requests with protocol-layer JSON-RPC errors before core turn mutation; Reasonix ACP and plugin transports decode/route at the boundary and keep unroutable input outside the controller. Genesis follows the same boundary pattern by keeping malformed external channel input in connector-local state.
+- Verification: `TestFeishuEventSourceRecordsMalformedSourceFailureBeforeKernel`; `TestFeishuEventSourceFailsClosedWhenSourceFailureCannotBeRecorded`; `TestConsoleInspectIncludesFilteredSourceFailures`; `go test ./internal/applications/connector_runtime -count=1`; `go test ./cmd/genesis-console ./cmd/genesis-ingress -count=1`.
+- Residual risk: This retires only durable malformed source failure records and inspection. Verified webhook/signature source status, listener supervision, source retry/backoff, token/profile refresh, installed-adapter probes, and recovery-required reconciliation remain active issues.
 
 ### APP-CONNECTOR-FINAL-TEXT-DELIVERY-SMOKE-20260624 - Deliver ordinary kernel final text through connector outbox
 
@@ -94,7 +105,7 @@ issues remain in `docs/operations/application-issues.md`.
 - Fix summary: Added opt-in final-text delivery to `genesis-ingress feishu-listen --deliver-final`. When a connector inbound event completes a kernel turn with non-empty final text, application policy creates one `send_message` `AppCommand`, enqueues it through the connector outbox, executes it through the configured connector adapter, and records `DeliveryReceipt`. Duplicate inbound events reuse the existing request record and do not resend the reply. `--ignore-sender-id` lets live Feishu smoke ignore Genesis bot-originated events before kernel submission.
 - Boundary evidence: The kernel still has no Feishu package or reply API. Final-text delivery is connector application policy, uses `AppCommand` and `ConnectorAction`, and delivery errors stay in connector state as `delivery_error`/receipt evidence without rewriting kernel turn facts.
 - Verification: `TestProcessExternalEventDeliversFinalTextThroughConnectorOutbox`; `TestProcessExternalEventDuplicateDoesNotDeliverFinalAgain`; `TestProcessExternalEventDeliveryFailureDoesNotFailKernelSubmission`; `TestFeishuEventSourceIgnoresConfiguredSenderIDs`; `go test ./internal/applications/connector_runtime -run "Test(ProcessExternalEvent|FeishuEventSource|CommandTemplateDriver)" -count=1`; `go test ./cmd/genesis-ingress -count=1`. Live smoke on 2026-06-24 with `--profile genesis`, kernel `http://127.0.0.1:8876`, and collaboration chat `oc_42fd594ba10832c8feb86f8aaa5918a6` observed a user Feishu message, kernel final text `GENESIS_FINAL_TEXT_DELIVERY_SMOKE_20260624_115624`, outbox status `sent`, receipt status `sent`, and Feishu message id `om_x100b6c81107facacb28ab7dd200afba`.
-- Residual risk: This retires only ordinary final-text smoke delivery. Source verification, listener supervision, source retry/backoff, durable source dead-letter records, profile/token refresh, installed-adapter capability probes, rich messages, attachments, and production adapter packaging remain active or future issues.
+- Residual risk: This retires only ordinary final-text smoke delivery. Source verification, listener supervision, source retry/backoff, profile/token refresh, installed-adapter capability probes, rich messages, attachments, and production adapter packaging remain active or future issues.
 
 ### APP-CONNECTOR-OUTBOX-STORE-INTEGRITY-20260624 - Preserve connector file outbox writes across processes
 

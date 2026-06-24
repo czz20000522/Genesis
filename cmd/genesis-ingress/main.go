@@ -74,6 +74,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	eventTimeout := fs.String("event-timeout", "", "stop Feishu event source after duration such as 30s or 10m")
 	deliverFinal := fs.Bool("deliver-final", false, "enqueue and deliver kernel final_text back through the connector outbox")
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
+	sourceFailurePath := fs.String("source-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_STATE", filepath.Join(".genesis_ingress", "source_failures.json")), "connector source failure state file")
 	var ignoreSenderIDs stringListFlag
 	fs.Var(&ignoreSenderIDs, "ignore-sender-id", "external sender id to ignore before kernel submission; repeatable")
 	if err := fs.Parse(args); err != nil {
@@ -94,6 +95,10 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	if *stdinJSONL {
 		return processExternalEventJSONL(ctx, runtime, stdin, stdout, stderr)
 	}
+	sourceFailureStore, err := connectorruntime.NewFileSourceFailureStore(*sourceFailurePath)
+	if err != nil {
+		return err
+	}
 	sourceConfig := connectorruntime.FeishuEventSourceConfig{
 		Executable:      *larkCLI,
 		Profile:         *profile,
@@ -102,6 +107,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		MaxEvents:       *maxEvents,
 		Timeout:         *eventTimeout,
 		IgnoreSenderIDs: append([]string(nil), ignoreSenderIDs...),
+		FailureStore:    sourceFailureStore,
 	}
 	encoder := json.NewEncoder(stdout)
 	return connectorruntime.ConsumeFeishuEventSource(ctx, sourceConfig, stderr, func(event connectorruntime.ExternalEvent) error {

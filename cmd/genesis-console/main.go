@@ -18,6 +18,7 @@ import (
 type InspectionReport struct {
 	Inbound        []connectorruntime.InboundSubmissionRecord    `json:"inbound"`
 	Outbox         []connectorruntime.ConnectorOutboxItem        `json:"outbox"`
+	SourceFailures []connectorruntime.SourceFailureRecord        `json:"source_failures,omitempty"`
 	Receipts       map[string][]connectorruntime.DeliveryReceipt `json:"receipts"`
 	KernelSessions map[string]json.RawMessage                    `json:"kernel_sessions,omitempty"`
 	KernelErrors   map[string]string                             `json:"kernel_errors,omitempty"`
@@ -60,6 +61,7 @@ func runInspect(ctx context.Context, args []string, stdout io.Writer, stderr io.
 	fs := flag.NewFlagSet("inspect", flag.ContinueOnError)
 	inboundPath := fs.String("inbound-state", envOrDefault("GENESIS_INGRESS_STATE", filepath.Join(".genesis_ingress", "state.json")), "connector inbound state file")
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
+	sourceFailurePath := fs.String("source-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_STATE", filepath.Join(".genesis_ingress", "source_failures.json")), "connector source failure state file")
 	kernelURL := fs.String("kernel-url", os.Getenv("GENESIS_KERNEL_URL"), "optional Genesis Kernel HTTP URL for session projections")
 	runtimeToken := fs.String("runtime-token", os.Getenv("GENESIS_RUNTIME_TOKEN"), "Genesis runtime bearer token")
 	connector := fs.String("connector", "", "filter connector records by connector name")
@@ -76,7 +78,7 @@ func runInspect(ctx context.Context, args []string, stdout io.Writer, stderr io.
 		OutboxStatus:    strings.TrimSpace(*outboxStatus),
 		KernelSessionID: strings.TrimSpace(*kernelSessionID),
 	}
-	report, err := inspectConnectorState(ctx, *inboundPath, *outboxPath, strings.TrimRight(*kernelURL, "/"), *runtimeToken, filters)
+	report, err := inspectConnectorState(ctx, *inboundPath, *outboxPath, *sourceFailurePath, strings.TrimRight(*kernelURL, "/"), *runtimeToken, filters)
 	if err != nil {
 		return err
 	}
@@ -113,12 +115,16 @@ func runRequeueOutbox(ctx context.Context, args []string, stdout io.Writer, stde
 	return nil
 }
 
-func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath string, kernelURL string, runtimeToken string, filters InspectFilters) (InspectionReport, error) {
+func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath string, sourceFailurePath string, kernelURL string, runtimeToken string, filters InspectFilters) (InspectionReport, error) {
 	inboundStore, err := connectorruntime.NewFileInboundStore(inboundPath)
 	if err != nil {
 		return InspectionReport{}, err
 	}
 	outboxStore, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		return InspectionReport{}, err
+	}
+	sourceFailureStore, err := connectorruntime.NewFileSourceFailureStore(sourceFailurePath)
 	if err != nil {
 		return InspectionReport{}, err
 	}
@@ -130,8 +136,13 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 	if err != nil {
 		return InspectionReport{}, err
 	}
+	sourceFailures, err := sourceFailureStore.ListSourceFailures(ctx)
+	if err != nil {
+		return InspectionReport{}, err
+	}
 	inbound = filterInbound(inbound, filters)
 	outbox = filterOutbox(outbox, filters)
+	sourceFailures = filterSourceFailures(sourceFailures, filters)
 	receipts := make(map[string][]connectorruntime.DeliveryReceipt, len(outbox))
 	for _, item := range outbox {
 		itemReceipts, err := outboxStore.ListReceipts(ctx, item.OutboxID)
@@ -141,9 +152,10 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 		receipts[item.OutboxID] = itemReceipts
 	}
 	report := InspectionReport{
-		Inbound:  inbound,
-		Outbox:   outbox,
-		Receipts: receipts,
+		Inbound:        inbound,
+		Outbox:         outbox,
+		SourceFailures: sourceFailures,
+		Receipts:       receipts,
 	}
 	if strings.TrimSpace(kernelURL) != "" {
 		sessions, errorsBySession := fetchKernelSessionProjections(ctx, kernelURL, runtimeToken, uniqueKernelSessionIDs(inbound))
@@ -190,6 +202,20 @@ func filterOutbox(items []connectorruntime.ConnectorOutboxItem, filters InspectF
 			continue
 		}
 		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func filterSourceFailures(records []connectorruntime.SourceFailureRecord, filters InspectFilters) []connectorruntime.SourceFailureRecord {
+	if filters.Connector == "" {
+		return records
+	}
+	filtered := make([]connectorruntime.SourceFailureRecord, 0, len(records))
+	for _, record := range records {
+		if record.Connector != filters.Connector {
+			continue
+		}
+		filtered = append(filtered, record)
 	}
 	return filtered
 }

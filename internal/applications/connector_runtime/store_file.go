@@ -360,7 +360,7 @@ func (s *FileOutboxStore) writeLocked() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, s.path)
+	return replaceConnectorStateFile(tmpPath, s.path)
 }
 
 func acquireOutboxFileLock(ctx context.Context, path string) (func(), error) {

@@ -30,6 +30,7 @@ type FeishuEventSourceConfig struct {
 	MaxEvents       int
 	Timeout         string
 	IgnoreSenderIDs []string
+	FailureStore    SourceFailureStore
 }
 
 type FeishuMessageReceiveEvent struct {
@@ -143,7 +144,7 @@ func ConsumeFeishuEventSource(ctx context.Context, config FeishuEventSourceConfi
 		return err
 	}
 
-	scanErr := processFeishuEventStdout(stdoutPipe, diagnostics, ignoreSenderIDSet(config.IgnoreSenderIDs), handle)
+	scanErr := processFeishuEventStdout(ctx, stdoutPipe, diagnostics, ignoreSenderIDSet(config.IgnoreSenderIDs), config.FailureStore, handle)
 	if scanErr != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
@@ -158,7 +159,7 @@ func ConsumeFeishuEventSource(ctx context.Context, config FeishuEventSourceConfi
 	return nil
 }
 
-func processFeishuEventStdout(reader io.Reader, diagnostics io.Writer, ignoredSenderIDs map[string]struct{}, handle func(ExternalEvent) error) error {
+func processFeishuEventStdout(ctx context.Context, reader io.Reader, diagnostics io.Writer, ignoredSenderIDs map[string]struct{}, failureStore SourceFailureStore, handle func(ExternalEvent) error) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -169,6 +170,9 @@ func processFeishuEventStdout(reader io.Reader, diagnostics io.Writer, ignoredSe
 		event, err := ExternalEventFromFeishuMessageReceiveJSON([]byte(line))
 		if err != nil {
 			fmt.Fprintf(diagnostics, "Feishu source event rejected: %v\n", err)
+			if err := recordFeishuSourceFailure(ctx, failureStore, line, err); err != nil {
+				return err
+			}
 			continue
 		}
 		if _, ignored := ignoredSenderIDs[event.SenderRef.ExternalID]; ignored {
@@ -179,6 +183,33 @@ func processFeishuEventStdout(reader io.Reader, diagnostics io.Writer, ignoredSe
 		}
 	}
 	return scanner.Err()
+}
+
+func recordFeishuSourceFailure(ctx context.Context, store SourceFailureStore, rawLine string, cause error) error {
+	if store == nil {
+		return nil
+	}
+	record := SourceFailureRecord{
+		Connector:        "feishu",
+		EventSource:      DefaultFeishuMessageEventKey,
+		Reason:           "malformed_source_event",
+		Detail:           cause.Error(),
+		RawExcerpt:       boundedSourceExcerpt(rawLine),
+		SourceValidation: SourceValidationRejected,
+	}
+	if err := store.RecordSourceFailure(ctx, record); err != nil {
+		return fmt.Errorf("record Feishu source failure: %w", err)
+	}
+	return nil
+}
+
+func boundedSourceExcerpt(value string) string {
+	const limit = 2048
+	value = strings.TrimSpace(value)
+	if len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "\n[truncated]"
 }
 
 func ignoreSenderIDSet(values []string) map[string]struct{} {
