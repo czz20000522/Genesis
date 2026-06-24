@@ -44,6 +44,16 @@ func TestArchitectureConnectorActionDoesNotExposeDeliveryLeaseControlPlane(t *te
 	}
 }
 
+func TestArchitectureIngressDoesNotInstallFeishuCommandTemplateDriver(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "..", "cmd", "genesis-ingress", "main.go"))
+	if err != nil {
+		t.Fatalf("read genesis-ingress main.go: %v", err)
+	}
+	if strings.Contains(string(content), "NewFeishuSendMessageCommandTemplateDriver") || strings.Contains(string(content), "CommandTemplateDriver") {
+		t.Fatal("genesis-ingress must use connector_command for Feishu final delivery, not the transitional command_template driver")
+	}
+}
+
 func structBlock(text string, name string) string {
 	start := strings.Index(text, "type "+name+" struct {")
 	if start < 0 {

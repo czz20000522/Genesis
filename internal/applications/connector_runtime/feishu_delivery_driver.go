@@ -1,5 +1,8 @@
 package connectorruntime
 
+// NewFeishuSendMessageCommandTemplateDriver is retained only for explicit local
+// smoke checks of the lark-cli shortcut. Production Feishu delivery must use
+// ConnectorCommandAdapter with an external Feishu connector adapter process.
 func NewFeishuSendMessageCommandTemplateDriver(profile string, executable string, runner CommandRunner) CommandTemplateDriver {
 	return CommandTemplateDriver{
 		Executable: SelectFeishuCLIExecutable(executable, InstalledOfficialLarkCLIExecutable()),

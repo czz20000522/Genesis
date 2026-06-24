@@ -13,6 +13,7 @@ func TestApplicationTestsUseProjectLocalArtifacts(t *testing.T) {
 	root := testsupport.ProjectRoot(t)
 	for _, relRoot := range []string{
 		filepath.Join("cmd", "genesis-console"),
+		filepath.Join("cmd", "genesis-feishu-connector-adapter"),
 		filepath.Join("cmd", "genesis-ingress"),
 		filepath.Join("internal", "applications", "connector_runtime"),
 	} {

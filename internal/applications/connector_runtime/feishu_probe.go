@@ -10,10 +10,11 @@ const (
 )
 
 type FeishuAdapterProbeConfig struct {
-	Executable        string
-	Profile           string
-	SourceCommand     string
-	SourceCommandArgs []string
+	SourceCommand              string
+	SourceCommandArgs          []string
+	FinalDeliveryCommand       string
+	FinalDeliveryCommandArgs   []string
+	FinalDeliveryBlockedReason string
 }
 
 type FeishuAdapterProbeReport struct {
@@ -58,33 +59,18 @@ func probeFeishuEventSource(config FeishuAdapterProbeConfig) ProbeSurfaceReport 
 }
 
 func probeFeishuFinalDelivery(config FeishuAdapterProbeConfig) ProbeSurfaceReport {
-	driver := NewFeishuSendMessageCommandTemplateDriver(config.Profile, config.Executable, nil)
-	executable, args, _, reason, err := driver.render(ConnectorAction{
-		OutboxID:       "outbox_probe",
-		Connector:      "feishu",
-		ActionKind:     "send_message",
-		TargetRef:      ExternalThreadRef{Connector: "feishu", Kind: "chat", ExternalID: "oc_probe"},
-		Payload:        map[string]string{"body": "probe"},
-		IdempotencyKey: "probe_idempotency_key",
-		Attempt:        1,
-	})
-	if err != nil {
-		if strings.TrimSpace(reason) == "" {
-			reason = err.Error()
-		}
-		return ProbeSurfaceReport{Status: ProbeStatusFailed, Reason: safeProbeReason(reason)}
+	if strings.TrimSpace(config.FinalDeliveryBlockedReason) != "" {
+		return ProbeSurfaceReport{Status: ProbeStatusFailed, Reason: safeProbeReason(config.FinalDeliveryBlockedReason)}
 	}
-	resolved, err := resolveCommandExecutable(executable)
+	adapter := ConnectorCommandAdapter{Executable: config.FinalDeliveryCommand}
+	resolved, err := adapter.resolveExecutable()
 	if err != nil {
 		return ProbeSurfaceReport{Status: ProbeStatusFailed, Reason: safeProbeReason(err.Error())}
-	}
-	if unsafeResolvedCommandExecutable(resolved) {
-		return ProbeSurfaceReport{Status: ProbeStatusFailed, Reason: "unsafe_command_executable"}
 	}
 	return ProbeSurfaceReport{
 		Status:     ProbeStatusOK,
 		Executable: resolved,
-		Args:       append([]string(nil), args...),
+		Args:       append([]string(nil), config.FinalDeliveryCommandArgs...),
 	}
 }
 

@@ -143,6 +143,60 @@ func TestFeishuListenDeliverFinalRequiresExplicitProfileBeforeKernelCall(t *test
 	}
 }
 
+func TestFeishuListenDeliverFinalUsesConnectorCommandAdapter(t *testing.T) {
+	var submitCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/turn" {
+			t.Fatalf("path = %q, want /turn", r.URL.Path)
+		}
+		submitCount++
+		_ = json.NewEncoder(w).Encode(connectorruntime.TurnSubmitResponse{
+			SessionID: "session-1",
+			TurnID:    "turn-1",
+			Final:     connectorruntime.FinalAnswer{Text: "listener final"},
+		})
+	}))
+	t.Cleanup(server.Close)
+	dir := testsupport.ProjectTempDir(t, "feishu-listen-deliver-final-connector-command")
+	capturePath := filepath.Join(dir, "captured-action.json")
+
+	var input bytes.Buffer
+	if err := json.NewEncoder(&input).Encode(testFeishuExternalEvent("msg-1")); err != nil {
+		t.Fatalf("encode event: %v", err)
+	}
+	err := runWithIO(context.Background(), []string{
+		"feishu-listen",
+		"--kernel-url", server.URL,
+		"--runtime-token", "token",
+		"--state", filepath.Join(dir, "state.json"),
+		"--outbox-state", filepath.Join(dir, "outbox.json"),
+		"--stdin-jsonl",
+		"--deliver-final",
+		"--profile", "genesis",
+		"--delivery-command", os.Args[0],
+		"--delivery-command-arg", "-test.run=TestFeishuDeliveryCommandHelper",
+		"--delivery-command-arg", "--",
+		"--delivery-command-arg", "--capture=" + capturePath,
+	}, &input, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("runWithIO returned error: %v", err)
+	}
+	if submitCount != 1 {
+		t.Fatalf("submit count = %d, want 1", submitCount)
+	}
+	var captured connectorruntime.ConnectorAction
+	content, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("read captured connector action: %v", err)
+	}
+	if err := json.Unmarshal(content, &captured); err != nil {
+		t.Fatalf("decode captured connector action: %v", err)
+	}
+	if captured.Connector != "feishu" || captured.ActionKind != "send_message" || captured.Payload["body"] != "listener final" {
+		t.Fatalf("captured action = %+v, want typed Feishu send_message action", captured)
+	}
+}
+
 func TestFeishuListenMissingSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 	var submitCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -266,7 +320,8 @@ func TestFeishuProbeReportsInstalledAdapterReadiness(t *testing.T) {
 	if err := runWithIO(context.Background(), []string{
 		"feishu-probe",
 		"--profile", "genesis",
-		"--lark-cli", os.Args[0],
+		"--delivery-command", os.Args[0],
+		"--delivery-command-arg", "-test.run=TestFeishuDeliveryCommandHelper",
 		"--source-command", os.Args[0],
 		"--source-command-arg", "-test.run=TestHelper",
 	}, strings.NewReader(""), &stdout, io.Discard); err != nil {
@@ -282,8 +337,12 @@ func TestFeishuProbeReportsInstalledAdapterReadiness(t *testing.T) {
 	if strings.Contains(strings.Join(got.EventSource.Args, " "), "event consume") {
 		t.Fatalf("event source args must describe source adapter args, not lark-cli event syntax: %#v", got.EventSource.Args)
 	}
-	if !strings.Contains(strings.Join(got.FinalDelivery.Args, " "), "+messages-send") {
-		t.Fatalf("final delivery args = %#v", got.FinalDelivery.Args)
+	finalArgs := strings.Join(got.FinalDelivery.Args, " ")
+	if strings.Contains(finalArgs, "+messages-send") {
+		t.Fatalf("final delivery args must describe connector adapter args, not lark-cli message syntax: %#v", got.FinalDelivery.Args)
+	}
+	if !strings.Contains(finalArgs, "--profile genesis") {
+		t.Fatalf("final delivery args = %#v, want connector adapter profile binding", got.FinalDelivery.Args)
 	}
 }
 
@@ -359,6 +418,40 @@ func TestFeishuListenSourceCommandHelper(t *testing.T) {
 		t.Fatalf("unknown helper mode %q", mode)
 	}
 	os.Exit(0)
+}
+
+func TestFeishuDeliveryCommandHelper(t *testing.T) {
+	capturePath := feishuDeliveryHelperCapturePath()
+	if capturePath == "" {
+		return
+	}
+	var action connectorruntime.ConnectorAction
+	if err := json.NewDecoder(os.Stdin).Decode(&action); err != nil {
+		t.Fatalf("decode connector action: %v", err)
+	}
+	content, err := json.Marshal(action)
+	if err != nil {
+		t.Fatalf("marshal connector action: %v", err)
+	}
+	if err := os.WriteFile(capturePath, content, 0o644); err != nil {
+		t.Fatalf("write connector action: %v", err)
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(connectorruntime.ConnectorActionResult{
+		Status:            connectorruntime.DeliveryStatusSent,
+		ExternalActionRef: "om_delivery_helper",
+	}); err != nil {
+		t.Fatalf("encode connector action result: %v", err)
+	}
+	os.Exit(0)
+}
+
+func feishuDeliveryHelperCapturePath() string {
+	for _, arg := range os.Args {
+		if path, ok := strings.CutPrefix(arg, "--capture="); ok {
+			return path
+		}
+	}
+	return ""
 }
 
 func sourceCommandHelperArgs() (string, string) {

@@ -68,9 +68,10 @@ func runOnce(ctx context.Context, args []string, defaultChannel string, printFin
 func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 	fs := flag.NewFlagSet("feishu-listen", flag.ContinueOnError)
 	flags := registerCommonFlags(fs, "feishu")
-	profile := fs.String("profile", "", "explicit lark-cli profile used only when --deliver-final uses the built-in Feishu delivery driver")
+	profile := fs.String("profile", "", "explicit lark-cli profile passed to the Feishu connector adapter")
 	stdinJSONL := fs.Bool("stdin-jsonl", false, "read ExternalEvent NDJSON from stdin")
-	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable for built-in Feishu final delivery")
+	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable passed to the Feishu connector adapter")
+	deliveryCommand := fs.String("delivery-command", envOrDefault("GENESIS_FEISHU_CONNECTOR_COMMAND", "genesis-feishu-connector-adapter"), "direct Feishu connector adapter executable for final delivery")
 	sourceCommand := fs.String("source-command", "", "direct source adapter executable that emits source_command NDJSON frames")
 	sourceID := fs.String("source-id", "feishu.im.message.receive", "stable connector source id; do not include profile or credential material")
 	sourceAdapterRef := fs.String("source-adapter-ref", "feishu-source-adapter", "connector-local source adapter reference")
@@ -84,6 +85,8 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	fs.Var(&ignoreSenderIDs, "ignore-sender-id", "external sender id to ignore before kernel submission; repeatable")
 	var sourceCommandArgs stringListFlag
 	fs.Var(&sourceCommandArgs, "source-command-arg", "argument passed to the source adapter executable; repeatable")
+	var deliveryCommandArgs stringListFlag
+	fs.Var(&deliveryCommandArgs, "delivery-command-arg", "argument passed to the Feishu connector adapter executable before generated profile flags; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -101,7 +104,8 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		if strings.TrimSpace(*profile) == "" {
 			return fmt.Errorf("feishu-listen --deliver-final requires explicit --profile")
 		}
-		if err := configureFeishuFinalDelivery(runtime, *outboxPath, *profile, *larkCLI); err != nil {
+		finalDeliveryArgs := feishuConnectorCommandArgs(append([]string(nil), deliveryCommandArgs...), *profile, *larkCLI)
+		if err := configureFeishuFinalDelivery(runtime, *outboxPath, *deliveryCommand, finalDeliveryArgs); err != nil {
 			return err
 		}
 	}
@@ -146,18 +150,29 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 func runFeishuProbe(_ context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("feishu-probe", flag.ContinueOnError)
 	profile := fs.String("profile", "", "explicit lark-cli profile used by the Feishu connector probe")
-	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable for Feishu connector probe")
+	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable passed to the Feishu connector adapter")
+	deliveryCommand := fs.String("delivery-command", envOrDefault("GENESIS_FEISHU_CONNECTOR_COMMAND", "genesis-feishu-connector-adapter"), "direct Feishu connector adapter executable to validate")
 	sourceCommand := fs.String("source-command", "", "direct source adapter executable to validate")
 	var sourceCommandArgs stringListFlag
 	fs.Var(&sourceCommandArgs, "source-command-arg", "argument passed to the source adapter executable; repeatable")
+	var deliveryCommandArgs stringListFlag
+	fs.Var(&deliveryCommandArgs, "delivery-command-arg", "argument passed to the Feishu connector adapter executable before generated profile flags; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	finalDeliveryBlockedReason := ""
+	finalDeliveryArgs := []string(nil)
+	if strings.TrimSpace(*profile) == "" {
+		finalDeliveryBlockedReason = "missing_profile"
+	} else {
+		finalDeliveryArgs = feishuConnectorCommandArgs(append([]string(nil), deliveryCommandArgs...), *profile, *larkCLI)
+	}
 	report := connectorruntime.ProbeFeishuAdapter(connectorruntime.FeishuAdapterProbeConfig{
-		Executable:        *larkCLI,
-		Profile:           *profile,
-		SourceCommand:     *sourceCommand,
-		SourceCommandArgs: append([]string(nil), sourceCommandArgs...),
+		SourceCommand:              *sourceCommand,
+		SourceCommandArgs:          append([]string(nil), sourceCommandArgs...),
+		FinalDeliveryCommand:       *deliveryCommand,
+		FinalDeliveryCommandArgs:   finalDeliveryArgs,
+		FinalDeliveryBlockedReason: finalDeliveryBlockedReason,
 	})
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
@@ -170,16 +185,28 @@ func runFeishuProbe(_ context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
-func configureFeishuFinalDelivery(runtime *connectorruntime.Runtime, outboxPath string, profile string, executable string) error {
+func configureFeishuFinalDelivery(runtime *connectorruntime.Runtime, outboxPath string, executable string, args []string) error {
 	store, err := connectorruntime.NewFileOutboxStore(outboxPath)
 	if err != nil {
 		return err
 	}
 	runtime.Store = store
 	runtime.Adapters = map[string]connectorruntime.ConnectorAdapter{
-		"feishu": connectorruntime.NewFeishuSendMessageCommandTemplateDriver(profile, executable, nil),
+		"feishu": connectorruntime.ConnectorCommandAdapter{
+			Executable: executable,
+			Args:       append([]string(nil), args...),
+		},
 	}
 	return nil
+}
+
+func feishuConnectorCommandArgs(prefix []string, profile string, larkCLI string) []string {
+	args := append([]string(nil), prefix...)
+	args = append(args, "--profile", strings.TrimSpace(profile))
+	if strings.TrimSpace(larkCLI) != "" {
+		args = append(args, "--lark-cli", strings.TrimSpace(larkCLI))
+	}
+	return args
 }
 
 func processExternalEventJSONL(ctx context.Context, runtime *connectorruntime.Runtime, reader io.Reader, stdout io.Writer, stderr io.Writer) error {

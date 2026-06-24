@@ -101,6 +101,16 @@ Done when:
 - Default production path is connector-command based.
 - Any remaining command-template path has an explicit retirement target and opt-in smoke scope.
 
+Reference scan:
+
+- Codex `shell-escalation` keeps Unix escalation protocol ownership inside the protocol layer and gives callers a narrow `ShellCommandExecutor`; callers keep process/sandbox capture without rewriting the escalation protocol.
+- Reasonix `internal/plugin` keeps external tool servers behind configured stdio/HTTP transports and JSON-RPC, with the harness seeing registered tools rather than hardcoded vendor commands.
+- Genesis alignment: `ConnectorAction` stays the stable semantic contract; the Feishu adapter process owns `lark-cli im +messages-send` and vendor output parsing. `genesis-ingress` may configure a connector adapter executable, but it must not render Feishu message-send argv itself.
+
+Evidence:
+
+- In progress: Feishu final delivery now configures `ConnectorCommandAdapter`, and a new user-space `genesis-feishu-connector-adapter` owns the lark-cli send-message syntax.
+
 ## Phase 3: Connector Credential/Profile Readiness
 
 Issue:
