@@ -154,6 +154,97 @@ func TestUITimelineSettledTurnCollapsesProcessingGroupWithFixedDuration(t *testi
 	}
 }
 
+func TestUITimelineJobTerminalDoesNotSettleTurnBeforeAssistantFinal(t *testing.T) {
+	startedAt := time.Date(2026, 6, 24, 10, 30, 0, 0, time.UTC)
+	sessionID := "timeline-job-terminal-session"
+	turnID := "turn_job_terminal"
+	job := JobProjection{
+		JobID:           "job_download",
+		SessionID:       sessionID,
+		TurnID:          turnID,
+		Tool:            "shell_exec",
+		Status:          "running",
+		Receipt:         "managed job accepted",
+		StartedAt:       startedAt.Add(2 * time.Second),
+		ToolCallEventID: "evt_job_tool_call",
+	}
+	completed := job
+	completed.Status = "completed"
+	completed.Stdout = "download complete"
+	completed.CompletedAt = startedAt.Add(8 * time.Second)
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:   "evt_job_submitted",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "turn.submitted",
+				CreatedAt: startedAt,
+				Data: EventData{InputItems: []InputItem{{
+					Type: "text",
+					Text: "download something",
+				}}},
+			},
+			StoredEvent{
+				EventID:   "evt_job_tool_call",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "tool.call",
+				CreatedAt: startedAt.Add(time.Second),
+				Data: EventData{ToolCall: &ToolCallProjection{
+					ToolCallEventID: "evt_job_tool_call",
+					Tool:            "shell_exec",
+					Arguments:       `{"command":"download"}`,
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_job_started",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				JobID:     "job_download",
+				Type:      "job.started",
+				CreatedAt: startedAt.Add(2 * time.Second),
+				Data:      EventData{Job: &job},
+			},
+			StoredEvent{
+				EventID:   "evt_job_completed",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				JobID:     "job_download",
+				Type:      "job.completed",
+				CreatedAt: startedAt.Add(8 * time.Second),
+				Data:      EventData{Job: &completed},
+			},
+		),
+		clock: func() time.Time {
+			return startedAt.Add(45 * time.Second)
+		},
+	}
+
+	timeline, err := k.UITimeline(sessionID)
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	turn := requireSingleTimelineTurn(t, timeline, turnID)
+	if turn.Status != "running" {
+		t.Fatalf("turn status = %q, want running without assistant final", turn.Status)
+	}
+	processing := requireTimelineChild(t, turn, "processing_group")
+	if processing.Status != "running" || !processing.DefaultOpen {
+		t.Fatalf("processing group = %+v, want running and default open after job terminal", processing)
+	}
+	if processing.Text != "正在处理 45s" {
+		t.Fatalf("processing text = %q, want live elapsed instead of fixed job duration", processing.Text)
+	}
+	operation := requireNestedTimelineChild(t, processing, "operation_detail")
+	if operation.Status != "completed" || !strings.Contains(operation.OutputPreview, "download complete") {
+		t.Fatalf("operation detail = %+v, want completed job detail under running turn", operation)
+	}
+	if timelineChild(turn, "assistant_message") != nil {
+		t.Fatalf("turn children = %+v, want no assistant message before final", turn.Children)
+	}
+}
+
 func TestUITimelineApprovalRequiredProjectsUserActionNode(t *testing.T) {
 	startedAt := time.Date(2026, 6, 24, 11, 0, 0, 0, time.UTC)
 	k := &Kernel{
@@ -329,6 +420,83 @@ func TestUITimelineDetailProjectionReturnsSelectedNodeWithoutDiagnostics(t *test
 	}
 	if httpDetail.Item.Kind != "operation_detail" || httpDetail.Item.Status != "failed" {
 		t.Fatalf("http detail = %+v, want operation detail", httpDetail)
+	}
+}
+
+func TestUITimelineResourceReadResultUsesTextPreview(t *testing.T) {
+	startedAt := time.Date(2026, 6, 24, 12, 30, 0, 0, time.UTC)
+	sessionID := "timeline-resource-read-session"
+	turnID := "turn_resource_read"
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:   "evt_resource_submitted",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "turn.submitted",
+				CreatedAt: startedAt,
+				Data: EventData{InputItems: []InputItem{{
+					Type: "text",
+					Text: "read resource",
+				}}},
+			},
+			StoredEvent{
+				EventID:   "evt_resource_tool_call",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "tool.call",
+				CreatedAt: startedAt.Add(time.Second),
+				Data: EventData{ToolCall: &ToolCallProjection{
+					ToolCallEventID: "evt_resource_tool_call",
+					Tool:            "resource_read",
+					Arguments:       `{"resource_ref":"res_alpha"}`,
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_resource_tool_result",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "tool.result",
+				CreatedAt: startedAt.Add(2 * time.Second),
+				Data: EventData{ToolResult: &ToolResultProjection{
+					ToolCallEventID: "evt_resource_tool_call",
+					Tool:            "resource_read",
+					ForEventID:      "evt_resource_tool_call",
+					Status:          "completed",
+					Content:         `{"status":"completed","executed":true,"resource_ref":"res_alpha","mime_type":"text/plain","text":"resource body api_key=sk-resource-secret","truncated":true}`,
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_resource_final",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "model.final",
+				CreatedAt: startedAt.Add(3 * time.Second),
+				Data: EventData{Final: &FinalMessage{
+					Text: "read complete",
+				}},
+			},
+		),
+		clock: func() time.Time {
+			return startedAt.Add(time.Minute)
+		},
+	}
+
+	timeline, err := k.UITimeline(sessionID)
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	turn := requireSingleTimelineTurn(t, timeline, turnID)
+	processing := requireTimelineChild(t, turn, "processing_group")
+	operation := requireNestedTimelineChild(t, processing, "operation_detail")
+	if operation.Tool != "resource_read" || operation.OutputSource != "text" {
+		t.Fatalf("operation detail = %+v, want resource text preview", operation)
+	}
+	if !strings.Contains(operation.OutputPreview, "resource body") || strings.Contains(operation.OutputPreview, "sk-resource-secret") {
+		t.Fatalf("resource preview = %q, want redacted text content", operation.OutputPreview)
+	}
+	if !operation.OutputTruncated || !operation.FullOutputAvailable {
+		t.Fatalf("operation detail = %+v, want truncation and full-output signal", operation)
 	}
 }
 

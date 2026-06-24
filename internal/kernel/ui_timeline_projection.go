@@ -280,11 +280,6 @@ func (b *timelineTurnBuilder) applyJob(eventType string, job JobProjection, crea
 	detail.OutputTruncated = group.OutputTruncated
 	detail.FullOutputAvailable = group.FullOutputAvailable
 	detail.UpdatedAt = createdAt
-	if eventType == "job.completed" || eventType == "job.failed" || eventType == "job.cancelled" {
-		if b.terminalAt.IsZero() {
-			b.markTerminal(job.Status, createdAt)
-		}
-	}
 }
 
 func (b *timelineTurnBuilder) toolGroupForJob(job JobProjection, createdAt time.Time) *UITimelineItem {

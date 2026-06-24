@@ -47,7 +47,7 @@ func TestProcessExternalEventSubmitsOpaqueKernelTurn(t *testing.T) {
 		"External application event",
 		"connector: feishu",
 		"event_type: message.created",
-		"source_validation: verified",
+		"source_validation: unchecked",
 		"thread_kind: chat",
 		"sender_display: Tom",
 		"text:\nhello",
@@ -79,6 +79,51 @@ func TestProcessExternalEventSubmitsOpaqueKernelTurn(t *testing.T) {
 	}
 	if result.OutboxItem != nil || result.DeliveryReceipt != nil || result.DeliveryError != "" {
 		t.Fatalf("inbound-only runtime should not produce outbound delivery evidence: %+v", result)
+	}
+}
+
+func TestProcessExternalEventDowngradesDirectVerifiedClaim(t *testing.T) {
+	store := newTestInboundStore(t)
+	client := &fakeTurnClient{
+		response: TurnSubmitResponse{SessionID: "kernel-session", TurnID: "turn-1"},
+	}
+	runtime := testInboundRuntime(store, client)
+	event := testExternalEvent("om_direct_verified_claim")
+	event.SourceValidation = SourceValidationVerified
+
+	if _, err := runtime.ProcessExternalEvent(context.Background(), event); err != nil {
+		t.Fatalf("ProcessExternalEvent returned error: %v", err)
+	}
+	if client.calls != 1 {
+		t.Fatalf("kernel calls = %d, want 1", client.calls)
+	}
+	input := client.requests[0].InputItems[0].Text
+	if strings.Contains(input, "source_validation: verified") {
+		t.Fatalf("direct external event self-claimed verified in kernel input:\n%s", input)
+	}
+	if !strings.Contains(input, "source_validation: unchecked") {
+		t.Fatalf("kernel input = %q, want unchecked source validation", input)
+	}
+}
+
+func TestProcessSourceCommandEventPreservesVerifiedAfterBoundaryValidation(t *testing.T) {
+	store := newTestInboundStore(t)
+	client := &fakeTurnClient{
+		response: TurnSubmitResponse{SessionID: "kernel-session", TurnID: "turn-1"},
+	}
+	runtime := testInboundRuntime(store, client)
+	event := testExternalEvent("om_source_verified")
+	event.SourceValidation = SourceValidationVerified
+
+	if _, err := runtime.ProcessSourceCommandEvent(context.Background(), event); err != nil {
+		t.Fatalf("ProcessSourceCommandEvent returned error: %v", err)
+	}
+	if client.calls != 1 {
+		t.Fatalf("kernel calls = %d, want 1", client.calls)
+	}
+	input := client.requests[0].InputItems[0].Text
+	if !strings.Contains(input, "source_validation: verified") {
+		t.Fatalf("source command event did not preserve verified validation:\n%s", input)
 	}
 }
 
@@ -264,7 +309,7 @@ func TestInvalidExternalEventRejectedBeforeKernelCall(t *testing.T) {
 		ThreadRef:        ExternalThreadRef{Connector: "feishu", Kind: "chat", ExternalID: "oc_raw_chat"},
 		SenderRef:        ExternalRef{Connector: "feishu", Kind: "user", ExternalID: "ou_raw_user"},
 		MessageRef:       ExternalRef{Connector: "feishu", Kind: "message", ExternalID: "om_raw_message"},
-		SourceValidation: SourceValidationVerified,
+		SourceValidation: SourceValidationUnchecked,
 	})
 	if err == nil {
 		t.Fatal("ProcessExternalEvent should reject missing body")
@@ -422,7 +467,7 @@ func testExternalEvent(eventID string) ExternalEvent {
 		MessageRef:       ExternalRef{Connector: "feishu", Kind: "message", ExternalID: eventID},
 		Body:             "hello",
 		ReceivedAt:       time.Date(2026, 6, 23, 9, 0, 0, 0, time.UTC),
-		SourceValidation: SourceValidationVerified,
+		SourceValidation: SourceValidationUnchecked,
 		Metadata: map[string]string{
 			"api_key": "sk-event-secret",
 		},

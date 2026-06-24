@@ -135,7 +135,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		},
 	}
 	return intake.Run(ctx, func(event connectorruntime.ExternalEvent) error {
-		result, err := runtime.ProcessExternalEvent(ctx, event)
+		result, err := runtime.ProcessSourceCommandEvent(ctx, event)
 		if encodeErr := encoder.Encode(result); encodeErr != nil {
 			return encodeErr
 		}

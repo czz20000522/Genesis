@@ -111,8 +111,10 @@ type toolPreview struct {
 func toolResultPreview(content string) toolPreview {
 	var payload struct {
 		Status          string `json:"status"`
+		Text            string `json:"text"`
 		Stdout          string `json:"stdout"`
 		Stderr          string `json:"stderr"`
+		Truncated       bool   `json:"truncated"`
 		StdoutTruncated bool   `json:"stdout_truncated"`
 		StderrTruncated bool   `json:"stderr_truncated"`
 		Error           struct {
@@ -125,7 +127,7 @@ func toolResultPreview(content string) toolPreview {
 		preview.Source = "content"
 		return preview
 	}
-	preview.Truncated = payload.StdoutTruncated || payload.StderrTruncated
+	preview.Truncated = payload.Truncated || payload.StdoutTruncated || payload.StderrTruncated
 	switch {
 	case strings.TrimSpace(payload.Stdout) != "":
 		preview.Text = boundedTimelinePreview(payload.Stdout)
@@ -133,6 +135,9 @@ func toolResultPreview(content string) toolPreview {
 	case strings.TrimSpace(payload.Stderr) != "":
 		preview.Text = boundedTimelinePreview(payload.Stderr)
 		preview.Source = "stderr"
+	case strings.TrimSpace(payload.Text) != "":
+		preview.Text = boundedTimelinePreview(payload.Text)
+		preview.Source = "text"
 	case strings.TrimSpace(payload.Error.Message) != "":
 		preview.Text = boundedTimelinePreview(payload.Error.Message)
 		preview.Source = "error"

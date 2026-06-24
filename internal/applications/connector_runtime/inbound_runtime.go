@@ -36,6 +36,17 @@ func (DefaultApplicationSessionMapper) Map(event ExternalEvent) (ApplicationSess
 }
 
 func (r *Runtime) ProcessExternalEvent(ctx context.Context, event ExternalEvent) (ProcessResult, error) {
+	event = uncheckedDirectExternalEvent(event)
+	return r.processExternalEvent(ctx, event)
+}
+
+// ProcessSourceCommandEvent is only for events emitted by SourceCommandIntake
+// after source frame and verification evidence validation.
+func (r *Runtime) ProcessSourceCommandEvent(ctx context.Context, event ExternalEvent) (ProcessResult, error) {
+	return r.processExternalEvent(ctx, event)
+}
+
+func (r *Runtime) processExternalEvent(ctx context.Context, event ExternalEvent) (ProcessResult, error) {
 	if err := event.Validate(); err != nil {
 		return ProcessResult{}, err
 	}
@@ -114,6 +125,11 @@ func (r *Runtime) ProcessExternalEvent(ctx context.Context, event ExternalEvent)
 	result := ProcessResult{Record: record, FinalText: resp.Final.Text}
 	r.deliverFinalText(ctx, requestContext, record, &result)
 	return result, nil
+}
+
+func uncheckedDirectExternalEvent(event ExternalEvent) ExternalEvent {
+	event.SourceValidation = SourceValidationUnchecked
+	return event
 }
 
 func (r *Runtime) deliverFinalText(ctx context.Context, requestContext RequestContext, record InboundSubmissionRecord, result *ProcessResult) {
