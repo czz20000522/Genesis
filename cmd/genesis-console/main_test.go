@@ -407,6 +407,129 @@ func TestConsoleInspectIncludesSourceLifecycleState(t *testing.T) {
 	}
 }
 
+func TestConsoleSourceLifecycleControlsMutateOnlyConnectorState(t *testing.T) {
+	ctx := context.Background()
+	dir := testsupport.ProjectTempDir(t, "genesis-console-source-controls")
+	inboundPath := filepath.Join(dir, "inbound.json")
+	outboxPath := filepath.Join(dir, "outbox.json")
+	sourceFailurePath := filepath.Join(dir, "source-failures.json")
+	sourceLifecyclePath := filepath.Join(dir, "source-lifecycle.json")
+	store, err := connectorruntime.NewFileSourceLifecycleStore(sourceLifecyclePath)
+	if err != nil {
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
+	}
+	startedAt := time.Date(2026, 6, 24, 17, 0, 0, 0, time.UTC)
+	if err := store.UpsertSourceRun(ctx, connectorruntime.SourceRun{
+		SourceID:          "source_feishu_events",
+		Connector:         "feishu",
+		AdapterRef:        "feishu-source-adapter",
+		Status:            connectorruntime.SourceRunStatusBlocked,
+		StartedAt:         startedAt,
+		BlockedReasonCode: connectorruntime.SourceReadinessReasonMissingProfile,
+		BlockedReason:     "profile missing",
+		UpdatedAt:         startedAt,
+	}); err != nil {
+		t.Fatalf("UpsertSourceRun returned error: %v", err)
+	}
+	if err := store.SaveSourceCursor(ctx, connectorruntime.SourceCursor{
+		SourceID:    "source_feishu_events",
+		CursorKind:  connectorruntime.SourceCursorKindExternalEventID,
+		CursorValue: "evt_latest",
+		UpdatedAt:   startedAt,
+	}); err != nil {
+		t.Fatalf("SaveSourceCursor returned error: %v", err)
+	}
+
+	var clearStdout bytes.Buffer
+	if err := run(ctx, []string{
+		"source-clear-blocked",
+		"--source-lifecycle-state", sourceLifecyclePath,
+		"--source-id", "source_feishu_events",
+		"--reason", "operator_profile_fixed",
+	}, &clearStdout, io.Discard); err != nil {
+		t.Fatalf("source-clear-blocked returned error: %v", err)
+	}
+	var clearResult SourceLifecycleControlResult
+	if err := json.Unmarshal(clearStdout.Bytes(), &clearResult); err != nil {
+		t.Fatalf("decode clear result: %v\n%s", err, clearStdout.String())
+	}
+	if clearResult.Run == nil || clearResult.Run.Status != connectorruntime.SourceRunStatusStopped || clearResult.OperatorAction.Action != connectorruntime.SourceOperatorActionClearBlocked {
+		t.Fatalf("clear result = %+v", clearResult)
+	}
+
+	var restartStdout bytes.Buffer
+	if err := run(ctx, []string{
+		"source-request-restart",
+		"--source-lifecycle-state", sourceLifecyclePath,
+		"--source-id", "source_feishu_events",
+		"--reason", "operator_requested_restart",
+	}, &restartStdout, io.Discard); err != nil {
+		t.Fatalf("source-request-restart returned error: %v", err)
+	}
+	var restartResult SourceLifecycleControlResult
+	if err := json.Unmarshal(restartStdout.Bytes(), &restartResult); err != nil {
+		t.Fatalf("decode restart result: %v\n%s", err, restartStdout.String())
+	}
+	if restartResult.OperatorAction.Action != connectorruntime.SourceOperatorActionRequestRestart {
+		t.Fatalf("restart result = %+v", restartResult)
+	}
+
+	if err := run(ctx, []string{
+		"source-reset-cursor",
+		"--source-lifecycle-state", sourceLifecyclePath,
+		"--source-id", "source_feishu_events",
+		"--cursor-value", "evt_replay_from",
+		"--reason", "operator_replay_cursor",
+	}, io.Discard, io.Discard); err == nil {
+		t.Fatal("source-reset-cursor should reject missing duplicate-risk confirmation")
+	}
+
+	var resetStdout bytes.Buffer
+	if err := run(ctx, []string{
+		"source-reset-cursor",
+		"--source-lifecycle-state", sourceLifecyclePath,
+		"--source-id", "source_feishu_events",
+		"--cursor-value", "evt_replay_from",
+		"--reason", "operator_replay_cursor",
+		"--accept-duplicate-risk",
+	}, &resetStdout, io.Discard); err != nil {
+		t.Fatalf("source-reset-cursor returned error: %v", err)
+	}
+	var resetResult SourceLifecycleControlResult
+	if err := json.Unmarshal(resetStdout.Bytes(), &resetResult); err != nil {
+		t.Fatalf("decode reset result: %v\n%s", err, resetStdout.String())
+	}
+	if resetResult.Cursor == nil || resetResult.Cursor.CursorValue != "evt_replay_from" || resetResult.OperatorAction.Action != connectorruntime.SourceOperatorActionResetCursor {
+		t.Fatalf("reset result = %+v", resetResult)
+	}
+
+	var inspectStdout bytes.Buffer
+	if err := run(ctx, []string{
+		"inspect",
+		"--inbound-state", inboundPath,
+		"--outbox-state", outboxPath,
+		"--source-state", sourceFailurePath,
+		"--source-lifecycle-state", sourceLifecyclePath,
+		"--connector", "feishu",
+	}, &inspectStdout, io.Discard); err != nil {
+		t.Fatalf("inspect returned error: %v", err)
+	}
+	var report InspectionReport
+	if err := json.Unmarshal(inspectStdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode inspect report: %v\n%s", err, inspectStdout.String())
+	}
+	actions := report.SourceActions["source_feishu_events"]
+	if len(actions) != 3 {
+		t.Fatalf("source operator action count = %d, want 3: %+v", len(actions), actions)
+	}
+	if len(report.SourceRuns) != 1 || report.SourceRuns[0].Status != connectorruntime.SourceRunStatusStopped {
+		t.Fatalf("source runs = %+v, want stopped source after clear", report.SourceRuns)
+	}
+	if len(report.SourceCursors) != 1 || report.SourceCursors[0].CursorValue != "evt_replay_from" {
+		t.Fatalf("source cursors = %+v, want reset cursor", report.SourceCursors)
+	}
+}
+
 func TestConsoleRequeueOutboxMutatesOnlyConnectorState(t *testing.T) {
 	ctx := context.Background()
 	outboxPath := filepath.Join(testsupport.ProjectTempDir(t, "genesis-console-requeue"), "outbox.json")

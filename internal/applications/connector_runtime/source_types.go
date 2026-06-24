@@ -27,6 +27,10 @@ const (
 	SourceEvidenceKindWebhookSignature               = "webhook_signature"
 	SourceEvidenceKindProviderEventSignature         = "provider_event_signature"
 	SourceEvidenceKindTrustedLocalAdapterAttestation = "trusted_local_adapter_attestation"
+
+	SourceOperatorActionClearBlocked   = "clear_blocked"
+	SourceOperatorActionRequestRestart = "request_restart"
+	SourceOperatorActionResetCursor    = "reset_cursor"
 )
 
 type SourceRun struct {
@@ -69,4 +73,17 @@ type SourceVerificationEvidence struct {
 	EvidenceRef      string    `json:"evidence_ref,omitempty"`
 	CheckedAt        time.Time `json:"checked_at"`
 	AdapterRef       string    `json:"adapter_ref,omitempty"`
+}
+
+type SourceOperatorActionRecord struct {
+	ActionID              string    `json:"action_id"`
+	SourceID              string    `json:"source_id"`
+	Action                string    `json:"action"`
+	Reason                string    `json:"reason,omitempty"`
+	PreviousStatus        string    `json:"previous_status,omitempty"`
+	NewStatus             string    `json:"new_status,omitempty"`
+	CursorKind            string    `json:"cursor_kind,omitempty"`
+	CursorValue           string    `json:"cursor_value,omitempty"`
+	AcceptedDuplicateRisk bool      `json:"accepted_duplicate_risk,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
 }

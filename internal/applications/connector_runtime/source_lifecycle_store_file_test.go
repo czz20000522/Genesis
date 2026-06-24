@@ -181,3 +181,82 @@ func TestFileSourceLifecycleStoreRejectsInvalidReadinessReasonCode(t *testing.T)
 		t.Fatal("UpsertSourceRun should reject unknown readiness reason code")
 	}
 }
+
+func TestFileSourceLifecycleStoreRecordsOperatorControls(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(testsupport.ProjectTempDir(t, "source-lifecycle-operator-controls"), "source-lifecycle.json")
+	store, err := NewFileSourceLifecycleStore(path)
+	if err != nil {
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
+	}
+	startedAt := time.Date(2026, 6, 24, 16, 0, 0, 0, time.UTC)
+	if err := store.UpsertSourceRun(ctx, SourceRun{
+		SourceID:          "source_feishu_events",
+		Connector:         "feishu",
+		AdapterRef:        "feishu-source-adapter",
+		Status:            SourceRunStatusBlocked,
+		StartedAt:         startedAt,
+		BlockedReasonCode: SourceReadinessReasonMissingProfile,
+		BlockedReason:     "profile missing",
+		UpdatedAt:         startedAt,
+	}); err != nil {
+		t.Fatalf("UpsertSourceRun returned error: %v", err)
+	}
+
+	clearedAt := startedAt.Add(time.Minute)
+	run, action, err := store.ClearBlockedSourceRun(ctx, "source_feishu_events", "operator_profile_fixed", clearedAt)
+	if err != nil {
+		t.Fatalf("ClearBlockedSourceRun returned error: %v", err)
+	}
+	if run.Status != SourceRunStatusStopped || run.BlockedReasonCode != "" || run.BlockedReason != "" {
+		t.Fatalf("cleared run = %+v, want stopped with blocked reason cleared", run)
+	}
+	if action.Action != SourceOperatorActionClearBlocked || action.PreviousStatus != SourceRunStatusBlocked || action.NewStatus != SourceRunStatusStopped {
+		t.Fatalf("clear action = %+v", action)
+	}
+
+	restartAt := startedAt.Add(2 * time.Minute)
+	restartAction, err := store.RequestSourceRestart(ctx, "source_feishu_events", "operator_requested_restart", restartAt)
+	if err != nil {
+		t.Fatalf("RequestSourceRestart returned error: %v", err)
+	}
+	if restartAction.Action != SourceOperatorActionRequestRestart || restartAction.PreviousStatus != SourceRunStatusStopped || restartAction.NewStatus != SourceRunStatusStopped {
+		t.Fatalf("restart action = %+v, want recorded intent without run status mutation", restartAction)
+	}
+	runs, err := store.ListSourceRuns(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceRuns returned error: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Status != SourceRunStatusStopped {
+		t.Fatalf("runs = %+v, want restart request to leave source stopped", runs)
+	}
+
+	if _, _, err := store.ResetSourceCursor(ctx, "source_feishu_events", SourceCursorKindExternalEventID, "evt_replay_from", "operator_replay_cursor", false, startedAt.Add(3*time.Minute)); err == nil {
+		t.Fatal("ResetSourceCursor should require accepted duplicate-processing risk")
+	}
+	cursor, cursorAction, err := store.ResetSourceCursor(ctx, "source_feishu_events", SourceCursorKindExternalEventID, "evt_replay_from", "operator_replay_cursor", true, startedAt.Add(4*time.Minute))
+	if err != nil {
+		t.Fatalf("ResetSourceCursor returned error: %v", err)
+	}
+	if cursor.CursorValue != "evt_replay_from" {
+		t.Fatalf("cursor = %+v, want reset cursor value", cursor)
+	}
+	if cursorAction.Action != SourceOperatorActionResetCursor || !cursorAction.AcceptedDuplicateRisk {
+		t.Fatalf("cursor action = %+v", cursorAction)
+	}
+
+	reopened, err := NewFileSourceLifecycleStore(path)
+	if err != nil {
+		t.Fatalf("reopen NewFileSourceLifecycleStore returned error: %v", err)
+	}
+	actions, err := reopened.ListSourceOperatorActions(ctx, "source_feishu_events")
+	if err != nil {
+		t.Fatalf("ListSourceOperatorActions returned error: %v", err)
+	}
+	if len(actions) != 3 {
+		t.Fatalf("operator action count = %d, want 3: %+v", len(actions), actions)
+	}
+	if actions[0].Action != SourceOperatorActionClearBlocked || actions[1].Action != SourceOperatorActionRequestRestart || actions[2].Action != SourceOperatorActionResetCursor {
+		t.Fatalf("actions = %+v, want clear, restart, reset order", actions)
+	}
+}

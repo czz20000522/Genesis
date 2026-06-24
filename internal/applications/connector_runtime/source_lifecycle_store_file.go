@@ -25,19 +25,21 @@ type SourceLifecycleStore interface {
 }
 
 type FileSourceLifecycleStore struct {
-	path          string
-	mu            sync.Mutex
-	runs          map[string]SourceRun
-	attempts      map[string][]SourceAttempt
-	cursors       map[string]SourceCursor
-	verifications map[string]SourceVerificationEvidence
+	path            string
+	mu              sync.Mutex
+	runs            map[string]SourceRun
+	attempts        map[string][]SourceAttempt
+	cursors         map[string]SourceCursor
+	verifications   map[string]SourceVerificationEvidence
+	operatorActions map[string][]SourceOperatorActionRecord
 }
 
 type fileSourceLifecyclePayload struct {
-	Runs          map[string]SourceRun                  `json:"runs"`
-	Attempts      map[string][]SourceAttempt            `json:"attempts"`
-	Cursors       map[string]SourceCursor               `json:"cursors"`
-	Verifications map[string]SourceVerificationEvidence `json:"verifications,omitempty"`
+	Runs            map[string]SourceRun                    `json:"runs"`
+	Attempts        map[string][]SourceAttempt              `json:"attempts"`
+	Cursors         map[string]SourceCursor                 `json:"cursors"`
+	Verifications   map[string]SourceVerificationEvidence   `json:"verifications,omitempty"`
+	OperatorActions map[string][]SourceOperatorActionRecord `json:"operator_actions,omitempty"`
 }
 
 func NewFileSourceLifecycleStore(path string) (*FileSourceLifecycleStore, error) {
@@ -213,6 +215,9 @@ func (s *FileSourceLifecycleStore) load() error {
 	if payload.Verifications != nil {
 		s.verifications = payload.Verifications
 	}
+	if payload.OperatorActions != nil {
+		s.operatorActions = payload.OperatorActions
+	}
 	return nil
 }
 
@@ -221,6 +226,7 @@ func (s *FileSourceLifecycleStore) reset() {
 	s.attempts = make(map[string][]SourceAttempt)
 	s.cursors = make(map[string]SourceCursor)
 	s.verifications = make(map[string]SourceVerificationEvidence)
+	s.operatorActions = make(map[string][]SourceOperatorActionRecord)
 }
 
 func (s *FileSourceLifecycleStore) withLockedState(ctx context.Context, fn func() error) error {
@@ -242,10 +248,11 @@ func (s *FileSourceLifecycleStore) writeLocked() error {
 		return err
 	}
 	payload := fileSourceLifecyclePayload{
-		Runs:          s.runs,
-		Attempts:      s.attempts,
-		Cursors:       s.cursors,
-		Verifications: s.verifications,
+		Runs:            s.runs,
+		Attempts:        s.attempts,
+		Cursors:         s.cursors,
+		Verifications:   s.verifications,
+		OperatorActions: s.operatorActions,
 	}
 	content, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

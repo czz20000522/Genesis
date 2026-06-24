@@ -17,17 +17,18 @@ import (
 )
 
 type InspectionReport struct {
-	Inbound        []connectorruntime.InboundSubmissionRecord    `json:"inbound"`
-	Outbox         []connectorruntime.ConnectorOutboxItem        `json:"outbox"`
-	OutboxSummary  []OutboxInspectionSummary                     `json:"outbox_summary"`
-	SourceFailures []connectorruntime.SourceFailureRecord        `json:"source_failures,omitempty"`
-	SourceRuns     []connectorruntime.SourceRun                  `json:"source_runs,omitempty"`
-	SourceAttempts map[string][]connectorruntime.SourceAttempt   `json:"source_attempts,omitempty"`
-	SourceCursors  []connectorruntime.SourceCursor               `json:"source_cursors,omitempty"`
-	SourceEvidence []connectorruntime.SourceVerificationEvidence `json:"source_verification_evidence,omitempty"`
-	Receipts       map[string][]connectorruntime.DeliveryReceipt `json:"receipts"`
-	KernelSessions map[string]json.RawMessage                    `json:"kernel_sessions,omitempty"`
-	KernelErrors   map[string]string                             `json:"kernel_errors,omitempty"`
+	Inbound        []connectorruntime.InboundSubmissionRecord               `json:"inbound"`
+	Outbox         []connectorruntime.ConnectorOutboxItem                   `json:"outbox"`
+	OutboxSummary  []OutboxInspectionSummary                                `json:"outbox_summary"`
+	SourceFailures []connectorruntime.SourceFailureRecord                   `json:"source_failures,omitempty"`
+	SourceRuns     []connectorruntime.SourceRun                             `json:"source_runs,omitempty"`
+	SourceAttempts map[string][]connectorruntime.SourceAttempt              `json:"source_attempts,omitempty"`
+	SourceCursors  []connectorruntime.SourceCursor                          `json:"source_cursors,omitempty"`
+	SourceEvidence []connectorruntime.SourceVerificationEvidence            `json:"source_verification_evidence,omitempty"`
+	SourceActions  map[string][]connectorruntime.SourceOperatorActionRecord `json:"source_operator_actions,omitempty"`
+	Receipts       map[string][]connectorruntime.DeliveryReceipt            `json:"receipts"`
+	KernelSessions map[string]json.RawMessage                               `json:"kernel_sessions,omitempty"`
+	KernelErrors   map[string]string                                        `json:"kernel_errors,omitempty"`
 }
 
 const (
@@ -63,6 +64,12 @@ type RecoveryResult struct {
 	Receipt connectorruntime.DeliveryReceipt     `json:"receipt"`
 }
 
+type SourceLifecycleControlResult struct {
+	Run            *connectorruntime.SourceRun                 `json:"run,omitempty"`
+	Cursor         *connectorruntime.SourceCursor              `json:"cursor,omitempty"`
+	OperatorAction connectorruntime.SourceOperatorActionRecord `json:"operator_action"`
+}
+
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -81,6 +88,12 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return runRequeueOutbox(ctx, args[1:], stdout, stderr)
 	case "resolve-outbox":
 		return runResolveOutbox(ctx, args[1:], stdout, stderr)
+	case "source-clear-blocked":
+		return runSourceClearBlocked(ctx, args[1:], stdout, stderr)
+	case "source-request-restart":
+		return runSourceRequestRestart(ctx, args[1:], stdout, stderr)
+	case "source-reset-cursor":
+		return runSourceResetCursor(ctx, args[1:], stdout, stderr)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -172,6 +185,72 @@ func runResolveOutbox(ctx context.Context, args []string, stdout io.Writer, stde
 	return nil
 }
 
+func runSourceClearBlocked(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
+	fs := flag.NewFlagSet("source-clear-blocked", flag.ContinueOnError)
+	sourceLifecyclePath := fs.String("source-lifecycle-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_LIFECYCLE_STATE", filepath.Join(".genesis_ingress", "source_lifecycle.json")), "connector source lifecycle state file")
+	sourceID := fs.String("source-id", "", "connector source id to clear from blocked state")
+	reason := fs.String("reason", "operator_cleared_blocked", "safe connector-local source recovery reason")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	store, err := connectorruntime.NewFileSourceLifecycleStore(*sourceLifecyclePath)
+	if err != nil {
+		return err
+	}
+	run, action, err := store.ClearBlockedSourceRun(ctx, strings.TrimSpace(*sourceID), strings.TrimSpace(*reason), time.Now())
+	if err != nil {
+		return err
+	}
+	return encodeSourceLifecycleControlResult(stdout, SourceLifecycleControlResult{Run: &run, OperatorAction: action})
+}
+
+func runSourceRequestRestart(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
+	fs := flag.NewFlagSet("source-request-restart", flag.ContinueOnError)
+	sourceLifecyclePath := fs.String("source-lifecycle-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_LIFECYCLE_STATE", filepath.Join(".genesis_ingress", "source_lifecycle.json")), "connector source lifecycle state file")
+	sourceID := fs.String("source-id", "", "connector source id to request restart for")
+	reason := fs.String("reason", "operator_requested_restart", "safe connector-local source restart reason")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	store, err := connectorruntime.NewFileSourceLifecycleStore(*sourceLifecyclePath)
+	if err != nil {
+		return err
+	}
+	action, err := store.RequestSourceRestart(ctx, strings.TrimSpace(*sourceID), strings.TrimSpace(*reason), time.Now())
+	if err != nil {
+		return err
+	}
+	return encodeSourceLifecycleControlResult(stdout, SourceLifecycleControlResult{OperatorAction: action})
+}
+
+func runSourceResetCursor(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
+	fs := flag.NewFlagSet("source-reset-cursor", flag.ContinueOnError)
+	sourceLifecyclePath := fs.String("source-lifecycle-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_LIFECYCLE_STATE", filepath.Join(".genesis_ingress", "source_lifecycle.json")), "connector source lifecycle state file")
+	sourceID := fs.String("source-id", "", "connector source id whose cursor should be reset")
+	cursorKind := fs.String("cursor-kind", connectorruntime.SourceCursorKindExternalEventID, "connector-owned cursor kind")
+	cursorValue := fs.String("cursor-value", "", "connector-owned cursor value to write")
+	reason := fs.String("reason", "operator_reset_cursor", "safe connector-local source cursor reset reason")
+	acceptDuplicateRisk := fs.Bool("accept-duplicate-risk", false, "confirm that resetting this cursor can replay already accepted events")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	store, err := connectorruntime.NewFileSourceLifecycleStore(*sourceLifecyclePath)
+	if err != nil {
+		return err
+	}
+	cursor, action, err := store.ResetSourceCursor(ctx, strings.TrimSpace(*sourceID), strings.TrimSpace(*cursorKind), strings.TrimSpace(*cursorValue), strings.TrimSpace(*reason), *acceptDuplicateRisk, time.Now())
+	if err != nil {
+		return err
+	}
+	return encodeSourceLifecycleControlResult(stdout, SourceLifecycleControlResult{Cursor: &cursor, OperatorAction: action})
+}
+
+func encodeSourceLifecycleControlResult(stdout io.Writer, result SourceLifecycleControlResult) error {
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(result)
+}
+
 func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath string, sourceFailurePath string, sourceLifecyclePath string, kernelURL string, runtimeToken string, filters InspectFilters) (InspectionReport, error) {
 	inboundStore, err := connectorruntime.NewFileInboundStore(inboundPath)
 	if err != nil {
@@ -220,6 +299,7 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 	sourceCursors = filterSourceCursors(sourceCursors, sourceRuns)
 	sourceEvidence = filterSourceEvidence(sourceEvidence, sourceRuns)
 	sourceAttempts := map[string][]connectorruntime.SourceAttempt{}
+	sourceActions := map[string][]connectorruntime.SourceOperatorActionRecord{}
 	for _, run := range sourceRuns {
 		attempts, err := sourceLifecycleStore.ListSourceAttempts(ctx, run.SourceID)
 		if err != nil {
@@ -227,6 +307,13 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 		}
 		if len(attempts) != 0 {
 			sourceAttempts[run.SourceID] = attempts
+		}
+		actions, err := sourceLifecycleStore.ListSourceOperatorActions(ctx, run.SourceID)
+		if err != nil {
+			return InspectionReport{}, err
+		}
+		if len(actions) != 0 {
+			sourceActions[run.SourceID] = actions
 		}
 	}
 	receipts := make(map[string][]connectorruntime.DeliveryReceipt, len(outbox))
@@ -246,6 +333,7 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 		SourceAttempts: sourceAttempts,
 		SourceCursors:  sourceCursors,
 		SourceEvidence: sourceEvidence,
+		SourceActions:  sourceActions,
 		Receipts:       receipts,
 	}
 	if strings.TrimSpace(kernelURL) != "" {
