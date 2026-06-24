@@ -3,6 +3,7 @@ package connectorruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -371,6 +372,52 @@ func TestSourceCommandAdapterRunsTypedSourceProcess(t *testing.T) {
 	}
 }
 
+func TestSourceCommandAdapterReadinessBlockDoesNotStartProcess(t *testing.T) {
+	ctx := context.Background()
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-readiness-block")
+	startedPath := filepath.Join(testsupport.ProjectTempDir(t, "source-command-readiness-side-effect"), "started.txt")
+	env := append(connectorCommandEnvironment(os.Environ()),
+		"GENESIS_SOURCE_COMMAND_HELPER=record-start",
+		"GENESIS_SOURCE_COMMAND_STARTED_FILE="+startedPath,
+	)
+	adapter := SourceCommandAdapter{
+		Executable:                os.Args[0],
+		Args:                      []string{"-test.run=TestSourceCommandAdapterHelper"},
+		Env:                       env,
+		SourceID:                  "source_feishu_chat",
+		Connector:                 "feishu",
+		AdapterRef:                "feishu-source-adapter",
+		SourceStore:               sourceStore,
+		FailureStore:              failureStore,
+		ReadinessBlockReasonCode:  SourceReadinessReasonProfileExpired,
+		ReadinessBlockDescription: "profile expired before source start",
+	}
+	err := adapter.Consume(ctx, func(event ExternalEvent) error {
+		t.Fatalf("blocked source command must not emit event: %+v", event)
+		return nil
+	})
+	if !errors.Is(err, ErrSourceCommandBlocked) {
+		t.Fatalf("Consume error = %v, want source command blocked", err)
+	}
+	if _, err := os.Stat(startedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("source process side effect exists or stat failed: %v", err)
+	}
+	runs, err := sourceStore.ListSourceRuns(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceRuns returned error: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Status != SourceRunStatusBlocked || runs[0].BlockedReasonCode != SourceReadinessReasonProfileExpired {
+		t.Fatalf("runs = %+v, want profile_expired blocked run", runs)
+	}
+	attempts, err := sourceStore.ListSourceAttempts(ctx, "source_feishu_chat")
+	if err != nil {
+		t.Fatalf("ListSourceAttempts returned error: %v", err)
+	}
+	if len(attempts) != 1 || attempts[0].Outcome != SourceAttemptOutcomeBlocked {
+		t.Fatalf("attempts = %+v, want blocked attempt", attempts)
+	}
+}
+
 func TestFileSourceLifecycleStoreListsVerificationEvidence(t *testing.T) {
 	ctx := context.Background()
 	sourceStore, _ := newSourceCommandTestStores(t, "source-command-verification-list")
@@ -423,6 +470,15 @@ func TestSourceCommandAdapterHelper(t *testing.T) {
 		if attempt == 1 {
 			fmt.Fprintln(os.Stderr, "transient source runtime failure")
 			os.Exit(42)
+		}
+		emitReadyEventStoppedFrames(t)
+	case "record-start":
+		startedPath := os.Getenv("GENESIS_SOURCE_COMMAND_STARTED_FILE")
+		if startedPath == "" {
+			t.Fatal("GENESIS_SOURCE_COMMAND_STARTED_FILE is required")
+		}
+		if err := os.WriteFile(startedPath, []byte("started"), 0o600); err != nil {
+			t.Fatalf("write started file: %v", err)
 		}
 		emitReadyEventStoppedFrames(t)
 	default:

@@ -135,6 +135,28 @@ Done when:
 - Missing/expired/denied/refresh-required cases are classified before external source or delivery effects.
 - Connector state records readiness without writing kernel facts.
 
+Reference scan:
+
+- Reasonix plugin startup keeps missing plugin commands and startup failures in
+  the plugin/control boundary instead of retrying them as ordinary model work.
+  Genesis alignment: blocked source readiness is connector-local lifecycle
+  state, not a kernel turn failure and not a provider-context fact.
+- Codex app/connector surfaces keep external app accessibility and approval
+  posture outside core turn truth. Genesis alignment: Feishu profile posture is
+  an ingress/probe input and source lifecycle/outbox gate, not a model-visible
+  credential and not a kernel owner.
+
+Evidence:
+
+- Source commands now accept connector-local readiness blocks before process
+  start and record `SourceRunStatusBlocked` plus a blocked `SourceAttempt`.
+- `genesis-ingress feishu-listen` and `genesis-ingress feishu-probe` classify
+  `missing_profile`, `profile_expired`, `permission_denied`, and
+  `refresh_required` before source start or final delivery.
+- The source adapter receives the explicit Genesis profile and stable source id
+  through source-adapter arguments; runtime still does not know Feishu event
+  consume argv.
+
 ## Phase 4: Reconciliation Probe Requirement And Design
 
 Issue:

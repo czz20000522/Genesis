@@ -40,10 +40,12 @@ type SourceCommandAdapter struct {
 	Connector  string
 	AdapterRef string
 
-	SourceStore     SourceLifecycleStore
-	FailureStore    SourceFailureStore
-	IgnoreSenderIDs []string
-	Now             func() time.Time
+	SourceStore               SourceLifecycleStore
+	FailureStore              SourceFailureStore
+	IgnoreSenderIDs           []string
+	ReadinessBlockReasonCode  string
+	ReadinessBlockDescription string
+	Now                       func() time.Time
 }
 
 type SourceCommandFrame struct {
@@ -89,6 +91,18 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 	startedAt := sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now})
 	if err := a.recordRun(ctx, SourceRunStatusStarting, "", "", startedAt, time.Time{}); err != nil {
 		return err
+	}
+	if reasonCode, description, blocked, err := a.readinessBlock(); err != nil {
+		return sourceCommandBlockedError(err)
+	} else if blocked {
+		endedAt := sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now})
+		if recordErr := a.recordRun(ctx, SourceRunStatusBlocked, reasonCode, description, startedAt, time.Time{}); recordErr != nil {
+			return recordErr
+		}
+		if recordErr := a.recordAttempt(ctx, startedAt, endedAt, SourceAttemptOutcomeBlocked, ""); recordErr != nil {
+			return recordErr
+		}
+		return sourceCommandBlockedError(errors.New(description))
 	}
 	executable, err := a.resolveExecutable()
 	if err != nil {
@@ -292,6 +306,21 @@ func (a SourceCommandAdapter) environment() ([]string, error) {
 		return nil, err
 	}
 	return append([]string(nil), env...), nil
+}
+
+func (a SourceCommandAdapter) readinessBlock() (string, string, bool, error) {
+	reasonCode := strings.TrimSpace(a.ReadinessBlockReasonCode)
+	if reasonCode == "" {
+		return "", "", false, nil
+	}
+	if !validSourceReadinessReasonCode(reasonCode) {
+		return "", "", false, errors.New("source command readiness block reason code is invalid")
+	}
+	description := strings.TrimSpace(a.ReadinessBlockDescription)
+	if description == "" {
+		description = reasonCode
+	}
+	return reasonCode, safeSourceFailureDiagnostic(description), true, nil
 }
 
 func (a SourceCommandAdapter) recordRun(ctx context.Context, status string, blockedReasonCode string, blockedReason string, startedAt time.Time, boundaryAt time.Time) error {

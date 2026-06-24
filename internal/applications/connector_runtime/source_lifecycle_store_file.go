@@ -419,6 +419,10 @@ func validSourceEvidenceKind(kind string) bool {
 	}
 }
 
+func ValidSourceReadinessReasonCode(code string) bool {
+	return validSourceReadinessReasonCode(code)
+}
+
 func validSourceReadinessReasonCode(code string) bool {
 	switch code {
 	case SourceReadinessReasonMissingProfile,

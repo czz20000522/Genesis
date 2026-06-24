@@ -12,6 +12,7 @@ const (
 type FeishuAdapterProbeConfig struct {
 	SourceCommand              string
 	SourceCommandArgs          []string
+	SourceBlockedReason        string
 	FinalDeliveryCommand       string
 	FinalDeliveryCommandArgs   []string
 	FinalDeliveryBlockedReason string
@@ -46,6 +47,9 @@ func probeFeishuEventSource(config FeishuAdapterProbeConfig) ProbeSurfaceReport 
 	command := strings.TrimSpace(config.SourceCommand)
 	if command == "" {
 		return ProbeSurfaceReport{Status: ProbeStatusFailed, Reason: "source_command_missing"}
+	}
+	if strings.TrimSpace(config.SourceBlockedReason) != "" {
+		return ProbeSurfaceReport{Status: ProbeStatusFailed, Reason: safeProbeReason(config.SourceBlockedReason)}
 	}
 	executable, err := (SourceCommandAdapter{Executable: command}).resolveExecutable()
 	if err != nil {
