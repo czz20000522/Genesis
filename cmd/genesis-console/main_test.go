@@ -252,6 +252,16 @@ func TestConsoleInspectFiltersConnectorStatusAndSession(t *testing.T) {
 	if len(got.Receipts) != 1 || len(got.Receipts[keepItem.OutboxID]) != 1 {
 		t.Fatalf("filtered receipts = %+v", got.Receipts)
 	}
+	if len(got.OutboxSummary) != 1 {
+		t.Fatalf("outbox summary = %+v", got.OutboxSummary)
+	}
+	summary := got.OutboxSummary[0]
+	if summary.OutboxID != keepItem.OutboxID || summary.ReceiptCount != 1 {
+		t.Fatalf("outbox summary identity = %+v", summary)
+	}
+	if summary.LastReceiptStatus != connectorruntime.DeliveryStatusDeadLettered || summary.RecommendedAction != OperatorActionReviewDeadLetter {
+		t.Fatalf("outbox summary recovery fields = %+v", summary)
+	}
 	if len(requestedSessions) != 1 || requestedSessions[0] != "kernel_keep" {
 		t.Fatalf("requested sessions = %+v, want kernel_keep only", requestedSessions)
 	}

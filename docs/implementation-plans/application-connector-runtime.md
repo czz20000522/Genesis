@@ -139,9 +139,10 @@ Phase B must add tests for:
 - Delivery retry scheduling, dead-letter, and partial-success recovery remain an
   active issue.
 - Rich messages, attachments, and resource intake remain future work.
-- Operator console now has read-only inspection and an explicit connector-local
-  `requeue-outbox` command for dead-lettered connector items. Rich filtered
-  views and connector-specific reconciliation remain future work.
+- Operator console now has read-only inspection, outbox delivery summaries with
+  last-receipt diagnostics, and an explicit connector-local `requeue-outbox`
+  command for dead-lettered connector items. Connector-specific reconciliation
+  probes remain future work.
 - Operator console now has an explicit connector-local `resolve-outbox` command
   for recovery-required partial/ambiguous outcomes. It records a terminal
   operator receipt as `sent` or `dead_lettered`, preserves receipt history,

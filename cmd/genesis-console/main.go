@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"genesis/internal/applications/connector_runtime"
 )
@@ -18,10 +19,32 @@ import (
 type InspectionReport struct {
 	Inbound        []connectorruntime.InboundSubmissionRecord    `json:"inbound"`
 	Outbox         []connectorruntime.ConnectorOutboxItem        `json:"outbox"`
+	OutboxSummary  []OutboxInspectionSummary                     `json:"outbox_summary"`
 	SourceFailures []connectorruntime.SourceFailureRecord        `json:"source_failures,omitempty"`
 	Receipts       map[string][]connectorruntime.DeliveryReceipt `json:"receipts"`
 	KernelSessions map[string]json.RawMessage                    `json:"kernel_sessions,omitempty"`
 	KernelErrors   map[string]string                             `json:"kernel_errors,omitempty"`
+}
+
+const (
+	OperatorActionNone                      = "none"
+	OperatorActionDeliver                   = "deliver"
+	OperatorActionAwaitRetry                = "await_retry"
+	OperatorActionReviewDeadLetter          = "review_dead_letter"
+	OperatorActionReconcileRecoveryRequired = "reconcile_recovery_required"
+)
+
+type OutboxInspectionSummary struct {
+	OutboxID          string `json:"outbox_id"`
+	Connector         string `json:"connector"`
+	Status            string `json:"status"`
+	AttemptCount      int    `json:"attempt_count"`
+	ReceiptCount      int    `json:"receipt_count"`
+	LastReceiptID     string `json:"last_receipt_id,omitempty"`
+	LastReceiptStatus string `json:"last_receipt_status,omitempty"`
+	LastReason        string `json:"last_reason,omitempty"`
+	ExternalActionRef string `json:"external_action_ref,omitempty"`
+	RecommendedAction string `json:"recommended_action"`
 }
 
 type InspectFilters struct {
@@ -183,6 +206,7 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 	report := InspectionReport{
 		Inbound:        inbound,
 		Outbox:         outbox,
+		OutboxSummary:  summarizeOutbox(outbox, receipts),
 		SourceFailures: sourceFailures,
 		Receipts:       receipts,
 	}
@@ -196,6 +220,51 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 		}
 	}
 	return report, nil
+}
+
+func summarizeOutbox(items []connectorruntime.ConnectorOutboxItem, receipts map[string][]connectorruntime.DeliveryReceipt) []OutboxInspectionSummary {
+	summaries := make([]OutboxInspectionSummary, 0, len(items))
+	for _, item := range items {
+		itemReceipts := receipts[item.OutboxID]
+		summary := OutboxInspectionSummary{
+			OutboxID:          item.OutboxID,
+			Connector:         item.Connector,
+			Status:            item.Status,
+			AttemptCount:      item.AttemptCount,
+			ReceiptCount:      len(itemReceipts),
+			LastReceiptID:     item.LastReceiptID,
+			RecommendedAction: recommendedOperatorAction(item),
+		}
+		if len(itemReceipts) != 0 {
+			lastReceipt := itemReceipts[len(itemReceipts)-1]
+			summary.LastReceiptID = lastReceipt.ReceiptID
+			summary.LastReceiptStatus = lastReceipt.Status
+			summary.LastReason = lastReceipt.Reason
+			summary.ExternalActionRef = lastReceipt.ExternalActionRef
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries
+}
+
+func recommendedOperatorAction(item connectorruntime.ConnectorOutboxItem) string {
+	switch item.Status {
+	case connectorruntime.OutboxStatusSent:
+		return OperatorActionNone
+	case connectorruntime.OutboxStatusQueued:
+		return OperatorActionDeliver
+	case connectorruntime.OutboxStatusRetrying:
+		if item.NextAttemptAt.IsZero() || !item.NextAttemptAt.After(time.Now()) {
+			return OperatorActionDeliver
+		}
+		return OperatorActionAwaitRetry
+	case connectorruntime.OutboxStatusDeadLetter:
+		return OperatorActionReviewDeadLetter
+	case connectorruntime.OutboxStatusRecoveryRequired:
+		return OperatorActionReconcileRecoveryRequired
+	default:
+		return OperatorActionReviewDeadLetter
+	}
 }
 
 func filterInbound(records []connectorruntime.InboundSubmissionRecord, filters InspectFilters) []connectorruntime.InboundSubmissionRecord {
