@@ -87,12 +87,13 @@ For every non-trivial capability:
 1. Write or update the requirement first.
 2. Write or update the design once the requirement is accepted.
 3. Run a reference scan against Codex and Reasonix before implementation planning or code.
-4. Write or update the implementation plan before code changes.
-5. Create or update issues only as gaps against the approved requirement or design.
-6. Implement the smallest phase that can produce evidence.
-7. Run the implementation closing gate.
-8. Verify the phase and record the evidence.
-9. Move accepted issues out of the active issue ledger and into compact retirement evidence.
+4. Translate the reference scan into reference-inspired behavioral and negative tests for the slice.
+5. Write or update the implementation plan before code changes.
+6. Create or update issues only as gaps against the approved requirement or design.
+7. Implement the smallest phase that can produce evidence.
+8. Run the implementation closing gate.
+9. Verify the phase and record the evidence.
+10. Move accepted issues out of the active issue ledger and into compact retirement evidence.
 
 Obvious bugs and test gaps may skip a new requirement or design document when the current approved requirement/design already covers the expected behavior. The issue must state that it is using the bug/test-gap exception.
 
@@ -141,6 +142,40 @@ separate database philosophy document for the same rules; storage admission,
 transaction boundaries, rebuildability, retention, and JSONL/file-store
 retirement belong with the kernel foundation persistence requirement and its
 design.
+
+## Reference-Inspired Regression Gate
+
+Every new production capability must add a focused set of behavior tests derived
+from the local Codex/Reasonix reference scan. The goal is not to copy reference
+test counts, names, or product-specific workflows. The goal is to translate the
+control-plane risks those projects test into Genesis's own owner, event,
+permission, recovery, and projection contracts.
+
+The implementation plan must name the reference-inspired test shape before code
+starts. At minimum, choose the relevant cases from this checklist:
+
+- happy-path behavior that proves the owner contract is executable;
+- invalid model or adapter input that fails before side effects;
+- model-supplied control fields or hidden authority handles that are rejected;
+- permission, sandbox, credential, or approval denial without execution;
+- persistence, replay, idempotency, resume, or duplicate-delivery behavior;
+- separation between provider context, UI projection, audit/replay, and raw
+  debug detail;
+- bounded output, truncation, redaction, and malformed payload handling;
+- concurrency, ordering, lease, or handle serialization when the capability can
+  run in parallel or outlive a turn;
+- failure, retry, cancellation, or recovery behavior when the capability crosses
+  a process, network, store, or connector boundary.
+
+If a reference project has no comparable behavior, the slice still needs
+requirement-derived negative tests for the same risk surfaces. "No reference
+found" only changes the citation, not the testing obligation.
+
+Tests should prove behavior, not prose. Do not add permanent tests that only
+assert exact wording, document phrasing, UI style, file length, or reference
+project parity. If a reference-inspired case cannot be automated yet, record the
+reason in the active issue or implementation plan and add the smallest executable
+guard that prevents the same class of drift.
 
 ## Issue Class Convergence Gate
 
