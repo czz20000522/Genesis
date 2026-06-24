@@ -11,23 +11,24 @@ import (
 )
 
 type Kernel struct {
-	ledger          Ledger
-	provider        Provider
-	jobExecutor     ManagedJobExecutor
-	runtimeToken    string
-	toolPolicy      ToolPolicy
-	contextPolicy   ContextPolicy
-	toolRegistry    *ToolRegistry
-	skillCatalog    []SkillDescriptor
-	skillExclusions []SkillCatalogExclusionProjection
-	clock           func() time.Time
-	turnMu          sync.Mutex
-	activeTurnMu    sync.Mutex
-	activeTurns     map[string]*activeTurn
-	operationMu     sync.Mutex
-	jobMu           sync.Mutex
-	memoryReviewMu  sync.Mutex
-	workMu          sync.Mutex
+	ledger           Ledger
+	provider         Provider
+	jobExecutor      ManagedJobExecutor
+	runtimeToken     string
+	toolPolicy       ToolPolicy
+	contextPolicy    ContextPolicy
+	toolRegistry     *ToolRegistry
+	resourceRegistry *resourceRegistry
+	skillCatalog     []SkillDescriptor
+	skillExclusions  []SkillCatalogExclusionProjection
+	clock            func() time.Time
+	turnMu           sync.Mutex
+	activeTurnMu     sync.Mutex
+	activeTurns      map[string]*activeTurn
+	operationMu      sync.Mutex
+	jobMu            sync.Mutex
+	memoryReviewMu   sync.Mutex
+	workMu           sync.Mutex
 }
 
 type activeTurn struct {
@@ -57,19 +58,24 @@ func New(config Config) (*Kernel, error) {
 	if err != nil {
 		return nil, err
 	}
+	resourceRegistry, err := newResourceRegistry(config.Resources)
+	if err != nil {
+		return nil, err
+	}
 	skillCatalog := loadSkillCatalogWithDiagnostics(config.SkillRoots)
 	return &Kernel{
-		ledger:          NewJSONLLedger(config.LedgerPath),
-		provider:        provider,
-		jobExecutor:     jobExecutor,
-		runtimeToken:    strings.TrimSpace(config.RuntimeToken),
-		toolPolicy:      normalizedToolPolicy(config.ToolPolicy),
-		contextPolicy:   normalizedContextPolicy(config.ContextPolicy),
-		toolRegistry:    toolRegistry,
-		skillCatalog:    skillCatalog.Items,
-		skillExclusions: skillCatalog.Exclusions,
-		clock:           clock,
-		activeTurns:     map[string]*activeTurn{},
+		ledger:           NewJSONLLedger(config.LedgerPath),
+		provider:         provider,
+		jobExecutor:      jobExecutor,
+		runtimeToken:     strings.TrimSpace(config.RuntimeToken),
+		toolPolicy:       normalizedToolPolicy(config.ToolPolicy),
+		contextPolicy:    normalizedContextPolicy(config.ContextPolicy),
+		toolRegistry:     toolRegistry,
+		resourceRegistry: resourceRegistry,
+		skillCatalog:     skillCatalog.Items,
+		skillExclusions:  skillCatalog.Exclusions,
+		clock:            clock,
+		activeTurns:      map[string]*activeTurn{},
 	}, nil
 }
 

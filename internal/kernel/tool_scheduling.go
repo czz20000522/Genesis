@@ -47,6 +47,14 @@ func jobControlToolSchedulingSpec() ToolSchedulingSpec {
 	}
 }
 
+func resourceReadToolSchedulingSpec() ToolSchedulingSpec {
+	return ToolSchedulingSpec{
+		EffectClass:       ToolEffectClassPureRead,
+		ParallelPolicy:    ToolParallelPolicyCompatibleLocks,
+		ResourceFootprint: ToolResourceFootprint{ReadScopes: []string{"resource"}},
+	}
+}
+
 func shellExecToolAccessPlan(toolName string, cwd string, timeoutSec int) ToolAccessPlan {
 	spec := shellExecToolSchedulingSpec()
 	if timeoutSec > maxForegroundShellTimeoutSec {
@@ -58,6 +66,18 @@ func shellExecToolAccessPlan(toolName string, cwd string, timeoutSec int) ToolAc
 		scope = "workspace"
 	}
 	spec.ResourceFootprint.WriteScopes = []string{scope}
+	return ToolAccessPlan{
+		ToolName:          strings.TrimSpace(toolName),
+		EffectClass:       spec.EffectClass,
+		ParallelPolicy:    spec.ParallelPolicy,
+		ResourceFootprint: spec.ResourceFootprint,
+		Trusted:           true,
+	}
+}
+
+func resourceReadToolAccessPlan(toolName string, resourceRef string) ToolAccessPlan {
+	spec := resourceReadToolSchedulingSpec()
+	spec.ResourceFootprint.ReadScopes = []string{"resource:" + strings.TrimSpace(resourceRef)}
 	return ToolAccessPlan{
 		ToolName:          strings.TrimSpace(toolName),
 		EffectClass:       spec.EffectClass,

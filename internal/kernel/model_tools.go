@@ -21,6 +21,12 @@ type shellExecToolArguments struct {
 	TimeoutSec *int   `json:"timeout_sec,omitempty"`
 }
 
+type resourceReadToolArguments struct {
+	ResourceRef string `json:"resource_ref"`
+	OffsetBytes *int   `json:"offset_bytes,omitempty"`
+	LimitBytes  *int   `json:"limit_bytes,omitempty"`
+}
+
 type jobStatusToolArguments struct {
 	JobID string `json:"job_id"`
 }
@@ -201,6 +207,46 @@ func (k *Kernel) shellInvokeModelToolResult(ctx context.Context, sessionID strin
 		return ModelToolResult{}, fmt.Errorf("%w: shell_exec produced no operation or job", ErrToolInfrastructureFailed)
 	}
 	return toolResult, nil
+}
+
+func (k *Kernel) prepareResourceReadToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args resourceReadToolArguments
+	if err := decodeStrictModelToolArguments("resource_read", arguments, &args); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+	}
+	req, code, err := normalizeResourceReadRequest(args.ResourceRef, args.OffsetBytes, args.LimitBytes)
+	if err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, code, fmt.Sprintf("invalid resource_read request: %v", err)), nil
+	}
+	if _, ok := k.resourceRegistry.lookup(req.resourceRef); !ok {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "unknown_resource_ref", fmt.Sprintf("unknown resource ref %q", req.resourceRef)), nil
+	}
+	return preparedModelToolCall{
+		eventID:        eventID,
+		providerCallID: providerCallID,
+		name:           name,
+		accessPlan:     resourceReadToolAccessPlan(name, req.resourceRef),
+		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			return k.resourceReadModelToolResult(eventID, providerCallID, name, req)
+		},
+	}, nil
+}
+
+func (k *Kernel) resourceReadModelToolResult(eventID string, providerCallID string, name string, req resourceReadRequest) (ModelToolResult, error) {
+	result, err := k.resourceRegistry.read(req)
+	if err != nil {
+		return ModelToolResult{}, fmt.Errorf("%w: resource_read failed: %v", ErrToolInfrastructureFailed, err)
+	}
+	content, err := json.Marshal(result)
+	if err != nil {
+		return ModelToolResult{}, err
+	}
+	return ModelToolResult{
+		ToolCallID:      strings.TrimSpace(providerCallID),
+		ToolCallEventID: strings.TrimSpace(eventID),
+		Name:            strings.TrimSpace(name),
+		Content:         string(content),
+	}, nil
 }
 
 func (k *Kernel) prepareJobStatusToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {

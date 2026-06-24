@@ -157,10 +157,22 @@ func TestPrepareBatchAssignsDefaultToolAccessPlans(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal cancel args: %v", err)
 	}
+	resourceArgs, err := json.Marshal(map[string]interface{}{
+		"resource_ref": "res_schedule",
+	})
+	if err != nil {
+		t.Fatalf("marshal resource args: %v", err)
+	}
+	k = newTestKernelWithResources(t, filepath.Join(dir, "resource-events.jsonl"), []ResourceDescriptor{{
+		Ref:      "res_schedule",
+		MimeType: "text/plain",
+		Text:     "schedule",
+	}})
 	prepared, err := k.toolGateway().PrepareBatch([]ModelToolCall{
 		{ToolCallID: "call_shell", ToolCallEventID: "evt_tool_shell", Name: "shell_exec", Arguments: shellArgs},
 		{ToolCallID: "call_status", ToolCallEventID: "evt_tool_status", Name: "job_status", Arguments: statusArgs},
 		{ToolCallID: "call_cancel", ToolCallEventID: "evt_tool_cancel", Name: "job_cancel", Arguments: cancelArgs},
+		{ToolCallID: "call_resource", ToolCallEventID: "evt_tool_resource", Name: "resource_read", Arguments: resourceArgs},
 	})
 	if err != nil {
 		t.Fatalf("PrepareBatch returned error: %v", err)
@@ -171,8 +183,11 @@ func TestPrepareBatchAssignsDefaultToolAccessPlans(t *testing.T) {
 	if prepared[1].accessPlan.EffectClass != ToolEffectClassProcessIO || prepared[1].accessPlan.ResourceFootprint.Handles[0] != "job:job_schedule" {
 		t.Fatalf("job_status access plan = %+v", prepared[1].accessPlan)
 	}
+	if prepared[3].accessPlan.EffectClass != ToolEffectClassPureRead || prepared[3].accessPlan.parallelClass() != ToolEffectClassPureRead {
+		t.Fatalf("resource_read access plan = %+v, want trusted pure-read plan", prepared[3].accessPlan)
+	}
 	batches := planToolExecutionBatches(prepared)
-	assertToolBatchShape(t, batches, [][]int{{0}, {1}, {2}}, []bool{false, false, false})
+	assertToolBatchShape(t, batches, [][]int{{0}, {1}, {2}, {3}}, []bool{false, false, false, false})
 }
 
 func TestToolSchedulingMetadataStaysOutOfModelVisibleManifest(t *testing.T) {
@@ -188,15 +203,19 @@ func TestToolSchedulingMetadataStaysOutOfModelVisibleManifest(t *testing.T) {
 	}
 }
 
-func TestDefaultKernelToolsHaveNoExecutorPoolPureReadCandidatesYet(t *testing.T) {
+func TestDefaultKernelPureReadCandidateIsResourceReadOnly(t *testing.T) {
+	pureReadTools := []string{}
 	for _, tool := range defaultKernelTools() {
 		spec := tool.Spec.Scheduling
 		if tool.Spec.Name == "shell_exec" && spec.EffectClass == ToolEffectClassPureRead {
 			t.Fatalf("shell_exec scheduling = %+v, must not become pure-read by command text", spec)
 		}
-		if tool.Spec.Name != "shell_exec" && spec.EffectClass == ToolEffectClassPureRead && spec.ParallelPolicy == ToolParallelPolicyCompatibleLocks {
-			t.Fatalf("default tool %q is an executor-pool pure-read candidate before resource/read tool design is approved", tool.Spec.Name)
+		if spec.EffectClass == ToolEffectClassPureRead && spec.ParallelPolicy == ToolParallelPolicyCompatibleLocks {
+			pureReadTools = append(pureReadTools, tool.Spec.Name)
 		}
+	}
+	if strings.Join(pureReadTools, ",") != "resource_read" {
+		t.Fatalf("default pure-read candidates = %v, want only resource_read", pureReadTools)
 	}
 }
 

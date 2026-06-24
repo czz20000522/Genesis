@@ -22,6 +22,7 @@ type registeredTool struct {
 
 type toolInvocationContext interface {
 	prepareShellExecToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	prepareResourceReadToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobStatusToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobCancelToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 }
@@ -86,6 +87,39 @@ func defaultKernelTools() []registeredTool {
 			},
 			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 				return ctx.prepareShellExecToolCall(eventID, providerCallID, name, arguments)
+			},
+		},
+		{
+			Spec: ToolSpec{
+				Name:        "resource_read",
+				Description: "Read bounded text from a kernel-owned immutable resource reference.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"resource_ref": map[string]interface{}{
+							"type":        "string",
+							"description": "Kernel-issued resource reference to read.",
+						},
+						"offset_bytes": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     0,
+							"description": "Optional byte offset. Omit to start at zero.",
+						},
+						"limit_bytes": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     1,
+							"description": "Optional byte limit. Omit for the kernel default.",
+						},
+					},
+					"required":             []string{"resource_ref"},
+					"additionalProperties": false,
+				},
+				SideEffectLevel: ToolSideEffectRead,
+				ExecutionKind:   ToolExecutionKindKernelControl,
+				Scheduling:      resourceReadToolSchedulingSpec(),
+			},
+			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+				return ctx.prepareResourceReadToolCall(eventID, providerCallID, name, arguments)
 			},
 		},
 		{

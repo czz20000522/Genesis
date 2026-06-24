@@ -10,6 +10,7 @@ type Config struct {
 	ToolPolicy    ToolPolicy
 	ContextPolicy ContextPolicy
 	SkillRoots    []string
+	Resources     []ResourceDescriptor
 	Clock         func() time.Time
 }
 

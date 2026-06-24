@@ -592,6 +592,8 @@ func TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles(t *testing.T) {
 		"CapabilitiesResponse":                "config_types.go",
 		"ProviderStatus":                      "config_types.go",
 		"ReadyCheck":                          "config_types.go",
+		"ResourceDescriptor":                  "resource_types.go",
+		"ModelResourceReadResult":             "resource_types.go",
 		"TurnRequest":                         "turn_types.go",
 		"InputItem":                           "turn_types.go",
 		"TurnResponse":                        "turn_types.go",
