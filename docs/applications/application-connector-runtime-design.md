@@ -130,6 +130,21 @@ LLM does not own:
 - `application_session_id`
 - `kernel_session_id`
 
+`SourceFailureRecord`:
+
+- `record_id`
+- `connector`
+- `event_source`
+- `reason`
+- `detail`
+- `diagnostic_excerpt`
+- `source_validation`
+- `created_at`
+
+The diagnostic excerpt is a bounded, redacted operator hint. It is not a raw
+external payload, not a webhook archive, not a credential trace, and not a
+debug bundle.
+
 `AppCommand`:
 
 - `command_id`
@@ -268,6 +283,12 @@ adapter process cannot write kernel events, tool results, checkpoints, jobs,
 memory records, or delivery receipts directly; it can only return a result for
 the connector runtime to validate and persist.
 
+Raw inbound webhook payloads and malformed source lines follow the same rule.
+The durable `SourceFailureRecord` stores a safe diagnostic summary and optional
+debug reference only after a separate debug trace owner exists. Until then,
+source failures must avoid retaining the raw line, message body, headers,
+tokens, credentials, attachment content, or full vendor event object.
+
 External identities are origin facts. They can participate in mapping and
 policy, but they do not automatically grant kernel authority.
 
@@ -279,6 +300,11 @@ semantics.
 
 Invalid external event: connector rejects or dead-letters before application or
 kernel side effects.
+
+Malformed source payload: connector records a durable `SourceFailureRecord`
+with reason, validation status, and safe diagnostic summary. Raw external
+payloads remain outside durable connector truth unless an explicit debug trace
+surface with TTL, quota, redaction, and operator-only access is approved.
 
 Duplicate inbound event: connector/application returns the existing request
 record and does not resubmit the kernel turn.
@@ -295,6 +321,18 @@ Partial external success: connector records partial receipt and a recovery
 state. Application policy may decide a follow-up command, but the connector does
 not silently pretend success.
 
+Ambiguous external outcome: connector records recovery-required state. Generic
+operator resolution is allowed only as an explicit manual override. Production
+automatic resolution must first run a connector-specific reconciliation probe
+that queries the external system without resending the action and returns
+connector-local evidence for the terminal decision.
+
+Listener runtime failure: connector may retry a bounded smoke source locally,
+recording connector-local source runtime failures. Production supervision,
+credential/profile refresh, source verification, and driver migration require a
+separate listener/supervisor design; they must not accrete inside the Feishu
+smoke source function.
+
 ## Observability
 
 Application connector state is separate from kernel event truth:
@@ -302,6 +340,7 @@ Application connector state is separate from kernel event truth:
 - inbound events;
 - request contexts;
 - session mappings;
+- source failure records;
 - outbox items;
 - connector action attempts;
 - delivery receipts;
@@ -310,6 +349,12 @@ Application connector state is separate from kernel event truth:
 
 Kernel projections remain the source of truth for turn, tool, job, memory,
 provider context, audit, and recovery.
+
+Connector file-backed smoke state is durable enough to be shared by listener,
+console, and worker commands. Load-modify-write operations must therefore be
+serialized across processes with a connector-local file lock and atomic replace.
+Future production stores may replace the JSON file implementation, but they
+must preserve the same single-owner mutation semantics.
 
 ## Reference Scan
 

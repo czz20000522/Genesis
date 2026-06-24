@@ -86,6 +86,15 @@ activity. It records external protocol, event id, event type, external thread
 reference, external sender reference, message/resource references, text/body
 content, received time, and validation status.
 
+`SourceFailureRecord` is the connector-owned durable fact for an external source
+event that cannot become an `ExternalEvent`, `RequestContext`, or kernel turn.
+It records connector, source, reason, validation status, and a safe diagnostic
+summary. It must not persist raw external webhook payloads, full CLI output,
+headers, credentials, tokens, message bodies, attachment bytes, or vendor debug
+payloads. If raw source material is needed for troubleshooting, it belongs in a
+separate debug trace owner with explicit enablement, TTL, quota, redaction, and
+operator-only access.
+
 `ExternalThreadRef` is an application-owned reference to an external thread,
 chat, mailbox, webhook source, or console conversation. It is stable enough for
 mapping and outbox delivery, but it is not a kernel authority id.
@@ -139,6 +148,13 @@ failed, retrying, duplicate suppressed, partially completed, or dead-lettered.
 External errors are translated into connector receipt reasons instead of being
 treated as kernel errors.
 
+Connector-local file stores used for smoke runs are still durable state for the
+duration of the run. Any file-backed inbound, source failure, outbox, or receipt
+store must serialize load-modify-write cycles across processes and use atomic
+replacement. A store that cannot provide cross-process consistency must be
+documented as single-process debug-only and must not be used by listener,
+console, or worker commands concurrently.
+
 Detailed retry scheduling, lease, dead-letter, and partial-success recovery
 semantics are governed by
 `docs/applications/connector-delivery-state-machine-requirement.md`.
@@ -167,6 +183,10 @@ semantics are governed by
   process environment, or persist raw command output as a receipt field.
   Connector drivers must use explicit identity binding, environment allowlists,
   and safe opaque external action refs.
+- No connector durable state may store raw external webhook payloads, raw
+  external API bodies, raw CLI/stdout/stderr, credentials, headers, tokens,
+  attachment bytes, or unbounded message bodies as ordinary facts. These are
+  debug trace material only under explicit debug retention policy.
 - No `command_template` as the final adapter contract for production connectors.
   Production connectors should move to `connector_command` or another
   typed-process boundary with the same ownership rules.
@@ -214,6 +234,11 @@ are backed by connector-owned idempotency, receipt, and recovery semantics.
   request context.
 - Connector action execution records delivery receipt, retry state, and failure
   reason in connector state only.
+- Malformed or rejected external source events create connector-local source
+  failure diagnostics without persisting raw external payloads in canonical
+  connector state.
+- File-backed connector smoke stores preserve independent writes across
+  concurrently running listener, console, and worker processes.
 - Feishu is the first adapter, not a top-level architecture.
 - Console and Feishu use the same connector runtime primitives.
 - Connector code does not import kernel internals, build provider context, write

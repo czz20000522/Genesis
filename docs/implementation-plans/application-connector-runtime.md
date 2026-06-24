@@ -2,7 +2,7 @@
 
 - **Requirement:** `docs/applications/application-connector-runtime-requirement.md`
 - **Design:** `docs/applications/application-connector-runtime-design.md`
-- **Status:** active
+- **Status:** implemented smoke slices with active production gaps
 
 ## Reference Scan Summary
 
@@ -95,9 +95,9 @@ Phase B also updates the generic protocol boundary owner documentation so the
 same rule applies to Model Gateway, future WebUI/CLI/desktop shells, resource
 intake, and credential-backed integrations.
 
-## Tests
+## Implemented Test Coverage
 
-Phase B must add tests for:
+Current automated coverage includes:
 
 - external event normalization does not expose raw external ids as public system ids;
 - inbound duplicate does not submit duplicate kernel turn;
@@ -109,6 +109,10 @@ Phase B must add tests for:
 - failed connector action records `DeliveryReceipt` without changing kernel facts;
 - connector package does not import `internal/kernel`;
 - connector package does not expose external credentials to model-visible fields.
+- malformed source events create connector-local source failure diagnostics
+  without persisting raw external payloads;
+- file-backed connector stores preserve independent writes across process-local
+  store instances.
 
 ## Red Lines
 
@@ -138,8 +142,10 @@ Phase B must add tests for:
   protects bounded cross-process smoke writes, but a future production store,
   database, append-only journal, or single owner process may replace it instead
   of preserving the current JSON file format.
-- Delivery retry scheduling, dead-letter, and partial-success recovery remain an
-  active issue.
+- Delivery retry scheduling, dead-letter, partial-success recovery, leases, and
+  operator recovery commands are implemented as connector-local state machine
+  slices. Remaining recovery work is connector-specific reconciliation evidence
+  before production automatic terminal resolution.
 - Rich messages, attachments, and resource intake remain future work.
 - Operator console now has read-only inspection, outbox delivery summaries with
   last-receipt diagnostics, and an explicit connector-local `requeue-outbox`
@@ -151,9 +157,9 @@ Phase B must add tests for:
   clears connector-local lease/schedule fields, and does not execute adapters
   or call kernel.
 
-## Closing Gate
+## Continuing Gate
 
-Before committing Phase B:
+Before committing another connector slice:
 
 1. Re-open requirement, design, this plan, BDD feature, and application issues.
 2. Verify implementation against every protocol-boundary rule.
