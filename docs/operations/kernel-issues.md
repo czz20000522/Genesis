@@ -25,18 +25,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-UI-LIVE-TIMELINE-PROJECTION-20260624 - P1 - UI timeline must separate chat, processing groups, details, and diagnostics
-
-- Status: open.
-- Area: Readiness / Inspection / UI Timeline Projection.
-- Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
-- Design: `docs/design/kernel-foundation-capabilities.md`.
-- Gap: Current `UITimelineResponse` / `UITimelineItem` is a flat list that directly emits user messages, per-tool rows, job rows, notices, compaction notices, and turn failures. It does not model a turn as user message + processing group + final assistant message; it does not distinguish live mutable elapsed labels from terminal fixed duration summaries; it does not keep tool/job failures out of the ordinary chat timeline; it has no standalone user-action node for approval/user-input requests; and it has no selected-node detail projection boundary. This makes WebUI/Desktop likely to render raw event-like rows or duplicate projection logic.
-- Next slice: Extend the timeline projection contract and DTOs around `turn`, `processing_group`, `tool_group`, `operation_detail`, `assistant_message`, and `user_action_request` without creating a second truth source. First behavior tests should prove live turns default the processing group open, settled turns default it collapsed, tool/job failures stay in detail/diagnostics, approval-required state becomes a user action node, and ordinary timeline items omit raw event ids, operation ids, audit fields, and diagnostics payloads.
-- Evidence: `internal/kernel/projections.go` currently appends `Kind: "tool"` for `tool.call`, `tool.result`, and job events, and appends `Kind: "notice"` for `turn.failed`, compaction, and interruption. `internal/kernel/inspection_types.go` defines a flat `UITimelineItem` with no children, detail ref, node role, live/settled collapse state, duration summary, or user-action node. The design now defines the intended projection audience split, but implementation has not caught up.
-- Verification: Future verification must prove `GET /sessions/{id}/timeline` returns a stable chat-readable projection with user message, processing group, final assistant message, and optional user-action nodes; running elapsed labels are computed projection state rather than durable ticks; final duration is fixed; raw event JSON, audit replay, context inspection, operation ids, provider-call ids, and full command output remain out of ordinary timeline items; details are reachable only through selected-node detail/diagnostics projection.
-- Reference alignment: Aligned with Codex-style runtime rendering where live work is visible while running and collapses after the final answer starts, and with Reasonix approval prompts where permission approval is a standalone control request rather than an assistant message or generic failed tool row. The active drift risk is letting WebUI/Desktop rebuild chat timelines from raw events.
-
 ### KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624 - P2 - Tool scheduling must use effect, footprint, and handle policy
 
 - Status: open.

@@ -14,6 +14,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-UI-LIVE-TIMELINE-PROJECTION-20260624 - P1 - UI timeline projection
+
+- Status: ready_for_acceptance.
+- Conclusion: Timeline projection now uses kernel-owned turn trees with live/settled processing groups, user-action approval nodes, selected-node detail projection, and no ordinary chat rows for raw tool/job events.
+- Fix commits: `a18d44196`, `d4383a53e`.
+- Verification: `go test ./internal/kernel -count=1`.
+- Reference alignment: Keeps Codex-style live work collapse and Reasonix-style standalone approval prompts without letting shells rebuild chat timelines from raw events.
+
 ### KERNEL-JOB-CONTROL-INTERRUPT-20260623 - P2 - Turn interruption and foreground shell interrupt semantics
 
 - Status: ready_for_acceptance.
