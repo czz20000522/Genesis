@@ -200,6 +200,25 @@ func TestDefaultKernelToolsHaveNoRealParallelExecutionCandidatesYet(t *testing.T
 	}
 }
 
+func TestNonIdempotentEffectClassesDoNotEnterParallelClass(t *testing.T) {
+	for _, effectClass := range []string{
+		ToolEffectClassWorkspaceWrite,
+		ToolEffectClassKernelStateWrite,
+		ToolEffectClassProcessStart,
+		ToolEffectClassExternalSideEffect,
+	} {
+		plan := ToolAccessPlan{
+			ToolName:       "future_effectful_tool",
+			EffectClass:    effectClass,
+			ParallelPolicy: ToolParallelPolicyCompatibleLocks,
+			Trusted:        true,
+		}
+		if got := plan.parallelClass(); got != "" {
+			t.Fatalf("%s parallel class = %q, want serial until replay/idempotency contract is proven", effectClass, got)
+		}
+	}
+}
+
 func scheduledTestCall(name string, plan ToolAccessPlan) preparedModelToolCall {
 	return preparedModelToolCall{name: name, accessPlan: plan}
 }
