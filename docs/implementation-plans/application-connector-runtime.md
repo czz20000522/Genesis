@@ -12,6 +12,9 @@ Inspected local references:
 - `D:\software\JetBrains\python_workspace\codex-main\codex-rs\app-server\src\bespoke_event_handling.rs`
 - `D:\software\JetBrains\python_workspace\reasonix\internal\acp\service.go`
 - `D:\software\JetBrains\python_workspace\reasonix\internal\serve\wire.go`
+- `D:\software\JetBrains\python_workspace\codex-main\codex-rs\message-history\src\lib.rs`
+- `D:\software\JetBrains\python_workspace\codex-main\codex-rs\app-server-daemon\README.md`
+- `D:\software\JetBrains\python_workspace\reasonix\internal\serve\serve.go`
 
 Learned boundary:
 
@@ -20,6 +23,11 @@ Learned boundary:
 - protocol adapters project or translate, but do not become fact owners;
 - Genesis needs one additional owner compared with those references:
   connector outbox/receipt for production external delivery.
+- cross-process mutation needs a serialization boundary around the full state
+  change, not only an in-process mutex: Codex history uses advisory locking for
+  concurrent writers, Codex daemon lifecycle serializes mutating commands per
+  home directory, and Reasonix holds a write lock across controller rebuild so
+  concurrent readers never observe a half-swapped state.
 
 ## Phase A Current Slice
 
@@ -54,6 +62,9 @@ The outbound slice:
 - defines `ExternalThreadRef`, `AppCommand`, `ConnectorOutboxItem`,
   `ConnectorAction`, and `DeliveryReceipt`;
 - adds a file-backed outbox store with idempotency and receipt records;
+- serializes file-backed outbox load-modify-write operations with a
+  connector-local lock file so separate console/worker processes do not lose
+  independent items, receipts, or delivery claims during smoke use;
 - adds console connector action executor for local diagnostics;
 - adds Feishu connector action executor behind a runner interface;
 - keeps actual Feishu SDK/CLI production listener hardening as a later issue.
@@ -110,6 +121,10 @@ Phase B must add tests for:
   records, backoff supervision, installed-adapter health probes, and production
   source retry remain open.
 - Real credential store integration for connector adapters remains future work.
+- The file-backed outbox store is still local connector infrastructure. It now
+  protects bounded cross-process smoke writes, but a future production store,
+  database, append-only journal, or single owner process may replace it instead
+  of preserving the current JSON file format.
 - Delivery retry scheduling, dead-letter, and partial-success recovery remain an
   active issue.
 - Rich messages, attachments, and resource intake remain future work.
