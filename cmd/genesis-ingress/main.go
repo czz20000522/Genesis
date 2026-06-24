@@ -67,20 +67,40 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	flags := registerCommonFlags(fs, "feishu")
 	profile := fs.String("profile", "", "explicit lark-cli profile used by the Feishu event source")
 	stdinJSONL := fs.Bool("stdin-jsonl", false, "read ExternalEvent NDJSON from stdin")
+	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable for Feishu event source")
+	eventKey := fs.String("event-key", connectorruntime.DefaultFeishuMessageEventKey, "Feishu event key to consume")
+	eventIdentity := fs.String("as", "bot", "Feishu event source identity: bot, user, or auto")
+	maxEvents := fs.Int("max-events", 0, "stop Feishu event source after N events; 0 means unlimited")
+	eventTimeout := fs.String("event-timeout", "", "stop Feishu event source after duration such as 30s or 10m")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if strings.TrimSpace(*profile) == "" {
 		return fmt.Errorf("feishu-listen requires explicit --profile")
 	}
-	if !*stdinJSONL {
-		return fmt.Errorf("feishu-listen currently requires --stdin-jsonl")
-	}
 	_, runtime, err := buildRuntime(flags, stdin)
 	if err != nil {
 		return err
 	}
-	return processExternalEventJSONL(ctx, runtime, stdin, stdout, stderr)
+	if *stdinJSONL {
+		return processExternalEventJSONL(ctx, runtime, stdin, stdout, stderr)
+	}
+	sourceConfig := connectorruntime.FeishuEventSourceConfig{
+		Executable: *larkCLI,
+		Profile:    *profile,
+		EventKey:   *eventKey,
+		Identity:   *eventIdentity,
+		MaxEvents:  *maxEvents,
+		Timeout:    *eventTimeout,
+	}
+	encoder := json.NewEncoder(stdout)
+	return connectorruntime.ConsumeFeishuEventSource(ctx, sourceConfig, stderr, func(event connectorruntime.ExternalEvent) error {
+		result, err := runtime.ProcessExternalEvent(ctx, event)
+		if encodeErr := encoder.Encode(result); encodeErr != nil {
+			return encodeErr
+		}
+		return err
+	})
 }
 
 func processExternalEventJSONL(ctx context.Context, runtime *connectorruntime.Runtime, reader io.Reader, stdout io.Writer, stderr io.Writer) error {

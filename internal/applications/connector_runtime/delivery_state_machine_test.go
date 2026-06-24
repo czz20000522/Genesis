@@ -393,6 +393,96 @@ func TestPartialSuccessRequiresRecoveryAndBlocksBlindRetry(t *testing.T) {
 	}
 }
 
+func TestOperatorRequeueDeadLetteredItemPreservesReceiptHistory(t *testing.T) {
+	store := newTestOutboxStore(t)
+	adapter := &fakeAdapter{
+		result: ConnectorActionResult{
+			Status: DeliveryStatusFailed,
+			Reason: "invalid_target",
+		},
+	}
+	runtime := testRuntime(store, map[string]ConnectorAdapter{"feishu": adapter})
+	item, _, err := runtime.EnqueueCommand(context.Background(), testSendMessageCommand())
+	if err != nil {
+		t.Fatalf("EnqueueCommand returned error: %v", err)
+	}
+	if _, err := runtime.ExecuteOutboxItem(context.Background(), item.OutboxID); err != nil {
+		t.Fatalf("ExecuteOutboxItem returned error: %v", err)
+	}
+	updated, err := store.GetOutboxItem(context.Background(), item.OutboxID)
+	if err != nil {
+		t.Fatalf("GetOutboxItem returned error: %v", err)
+	}
+	if updated.Status != OutboxStatusDeadLetter {
+		t.Fatalf("updated status = %q, want dead_lettered", updated.Status)
+	}
+
+	requeued, receipt, err := runtime.RequeueOutboxItem(context.Background(), item.OutboxID, "operator_requeued")
+	if err != nil {
+		t.Fatalf("RequeueOutboxItem returned error: %v", err)
+	}
+	if requeued.Status != OutboxStatusQueued || !requeued.NextAttemptAt.IsZero() || requeued.LeaseID != "" {
+		t.Fatalf("requeued item = %+v, want queued with cleared scheduling/lease", requeued)
+	}
+	if receipt.Status != DeliveryStatusRetrying || receipt.Reason != "operator_requeued" || receipt.Attempt != 1 {
+		t.Fatalf("operator receipt = %+v", receipt)
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("operator requeue should not execute adapter, calls = %d", adapter.calls)
+	}
+	receipts, err := store.ListReceipts(context.Background(), item.OutboxID)
+	if err != nil {
+		t.Fatalf("ListReceipts returned error: %v", err)
+	}
+	if len(receipts) != 2 || receipts[0].Status != DeliveryStatusDeadLettered || receipts[1].Status != DeliveryStatusRetrying {
+		t.Fatalf("receipts = %+v, want original dead_lettered plus operator recovery receipt", receipts)
+	}
+}
+
+func TestOperatorRequeueRejectsQueuedRecoveryRequiredAndUnsafeReason(t *testing.T) {
+	store := newTestOutboxStore(t)
+	runtime := testRuntime(store, nil)
+	item, _, err := runtime.EnqueueCommand(context.Background(), testSendMessageCommand())
+	if err != nil {
+		t.Fatalf("EnqueueCommand returned error: %v", err)
+	}
+	if _, _, err := runtime.RequeueOutboxItem(context.Background(), item.OutboxID, "operator_requeued"); err == nil {
+		t.Fatal("queued outbox item should not be operator-requeued")
+	}
+
+	item.Status = OutboxStatusRecoveryRequired
+	if err := store.RecordDelivery(context.Background(), item, DeliveryReceipt{
+		ReceiptID:  "receipt_partial",
+		OutboxID:   item.OutboxID,
+		Connector:  item.Connector,
+		Status:     DeliveryStatusPartialSuccess,
+		Reason:     "receipt_persist_unknown",
+		Attempt:    1,
+		RecordedAt: time.Date(2026, 6, 23, 18, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("RecordDelivery returned error: %v", err)
+	}
+	if _, _, err := runtime.RequeueOutboxItem(context.Background(), item.OutboxID, "operator_requeued"); err == nil {
+		t.Fatal("recovery_required outbox item should require reconciliation, not requeue")
+	}
+
+	item.Status = OutboxStatusDeadLetter
+	if err := store.RecordDelivery(context.Background(), item, DeliveryReceipt{
+		ReceiptID:  "receipt_deadletter",
+		OutboxID:   item.OutboxID,
+		Connector:  item.Connector,
+		Status:     DeliveryStatusDeadLettered,
+		Reason:     "invalid_target",
+		Attempt:    1,
+		RecordedAt: time.Date(2026, 6, 23, 18, 1, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("RecordDelivery dead-letter returned error: %v", err)
+	}
+	if _, _, err := runtime.RequeueOutboxItem(context.Background(), item.OutboxID, "Authorization: Bearer sk-secret"); err == nil {
+		t.Fatal("operator requeue should reject credential-shaped reason")
+	}
+}
+
 type leaseObservingAdapter struct {
 	store               *FileOutboxStore
 	now                 time.Time

@@ -118,3 +118,71 @@ func TestConsoleInspectReadsConnectorStateAndKernelProjection(t *testing.T) {
 		t.Fatalf("kernel session projection missing: %+v", got.KernelSessions)
 	}
 }
+
+func TestConsoleRequeueOutboxMutatesOnlyConnectorState(t *testing.T) {
+	ctx := context.Background()
+	outboxPath := filepath.Join(t.TempDir(), "outbox.json")
+	outboxStore, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		t.Fatalf("NewFileOutboxStore returned error: %v", err)
+	}
+	item, _, err := outboxStore.EnqueueCommand(ctx, connectorruntime.AppCommand{
+		CommandID: "cmd_1",
+		Kind:      "send_message",
+		TargetRef: connectorruntime.ExternalThreadRef{
+			Connector:  "feishu",
+			Kind:       "chat",
+			ExternalID: "oc_123",
+		},
+		Body:      "reply",
+		DedupeKey: "reply_1",
+	}, time.Date(2026, 6, 24, 12, 0, 2, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("EnqueueCommand returned error: %v", err)
+	}
+	item.Status = connectorruntime.OutboxStatusDeadLetter
+	if err := outboxStore.RecordDelivery(ctx, item, connectorruntime.DeliveryReceipt{
+		ReceiptID:  "receipt_1",
+		OutboxID:   item.OutboxID,
+		Connector:  "feishu",
+		Status:     connectorruntime.DeliveryStatusDeadLettered,
+		Reason:     "invalid_target",
+		Attempt:    1,
+		RecordedAt: time.Date(2026, 6, 24, 12, 0, 3, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("RecordDelivery returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := run(ctx, []string{
+		"requeue-outbox",
+		"--outbox-state", outboxPath,
+		"--outbox-id", item.OutboxID,
+		"--reason", "operator_requeued",
+	}, &stdout, io.Discard); err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	var got RecoveryResult
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("decode recovery result: %v\n%s", err, stdout.String())
+	}
+	if got.Item.Status != connectorruntime.OutboxStatusQueued {
+		t.Fatalf("item status = %q, want queued", got.Item.Status)
+	}
+	if got.Receipt.Status != connectorruntime.DeliveryStatusRetrying || got.Receipt.Reason != "operator_requeued" {
+		t.Fatalf("receipt = %+v", got.Receipt)
+	}
+
+	reloaded, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		t.Fatalf("reload outbox store: %v", err)
+	}
+	receipts, err := reloaded.ListReceipts(ctx, item.OutboxID)
+	if err != nil {
+		t.Fatalf("ListReceipts returned error: %v", err)
+	}
+	if len(receipts) != 2 {
+		t.Fatalf("receipt history count = %d, want 2", len(receipts))
+	}
+}

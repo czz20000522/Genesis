@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -17,6 +19,7 @@ type OutboxStore interface {
 	ClaimNextOutboxItem(context.Context, time.Time, string, time.Duration) (ConnectorOutboxItem, bool, error)
 	ClaimOutboxItem(context.Context, string, time.Time, string, time.Duration) (ConnectorOutboxItem, bool, error)
 	RecordDelivery(context.Context, ConnectorOutboxItem, DeliveryReceipt) error
+	RequeueOutboxItem(context.Context, string, string, time.Time) (ConnectorOutboxItem, DeliveryReceipt, error)
 	ListOutbox(context.Context) ([]ConnectorOutboxItem, error)
 	ListReceipts(context.Context, string) ([]DeliveryReceipt, error)
 }
@@ -172,6 +175,53 @@ func (s *FileOutboxStore) RecordDelivery(_ context.Context, item ConnectorOutbox
 	s.items[item.OutboxID] = item
 	s.receipts[item.OutboxID] = append(s.receipts[item.OutboxID], receipt)
 	return s.writeLocked()
+}
+
+func (s *FileOutboxStore) RequeueOutboxItem(_ context.Context, outboxID string, reason string, now time.Time) (ConnectorOutboxItem, DeliveryReceipt, error) {
+	if outboxID == "" {
+		return ConnectorOutboxItem{}, DeliveryReceipt{}, errors.New("outbox id is required")
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "operator_requeued"
+	}
+	if !safeConnectorCommandReason(reason) {
+		return ConnectorOutboxItem{}, DeliveryReceipt{}, errors.New("operator recovery reason is unsafe")
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.items[outboxID]
+	if !ok {
+		return ConnectorOutboxItem{}, DeliveryReceipt{}, errors.New("outbox item not found")
+	}
+	if item.Status != OutboxStatusDeadLetter {
+		return ConnectorOutboxItem{}, DeliveryReceipt{}, errors.New("outbox item is not dead-lettered")
+	}
+	item.Status = OutboxStatusQueued
+	item.NextAttemptAt = time.Time{}
+	item.LeaseID = ""
+	item.LeaseOwner = ""
+	item.LeaseExpiresAt = time.Time{}
+	item.UpdatedAt = now
+	receipt := DeliveryReceipt{
+		ReceiptID:  stableOpaqueID("receipt", item.OutboxID, DeliveryStatusRetrying, reason, fmt.Sprint(item.AttemptCount), now.Format(time.RFC3339Nano)),
+		OutboxID:   item.OutboxID,
+		Connector:  item.Connector,
+		Status:     DeliveryStatusRetrying,
+		Reason:     reason,
+		Attempt:    item.AttemptCount,
+		RecordedAt: now,
+	}
+	item.LastReceiptID = receipt.ReceiptID
+	s.items[item.OutboxID] = item
+	s.receipts[item.OutboxID] = append(s.receipts[item.OutboxID], receipt)
+	if err := s.writeLocked(); err != nil {
+		return ConnectorOutboxItem{}, DeliveryReceipt{}, err
+	}
+	return item, receipt, nil
 }
 
 func deliveryEligible(item ConnectorOutboxItem, now time.Time) bool {

@@ -23,6 +23,11 @@ type InspectionReport struct {
 	KernelErrors   map[string]string                             `json:"kernel_errors,omitempty"`
 }
 
+type RecoveryResult struct {
+	Item    connectorruntime.ConnectorOutboxItem `json:"item"`
+	Receipt connectorruntime.DeliveryReceipt     `json:"receipt"`
+}
+
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -37,6 +42,8 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	switch args[0] {
 	case "inspect":
 		return runInspect(ctx, args[1:], stdout, stderr)
+	case "requeue-outbox":
+		return runRequeueOutbox(ctx, args[1:], stdout, stderr)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -59,6 +66,31 @@ func runInspect(ctx context.Context, args []string, stdout io.Writer, stderr io.
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(report); err != nil {
+		return err
+	}
+	return nil
+}
+
+func runRequeueOutbox(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
+	fs := flag.NewFlagSet("requeue-outbox", flag.ContinueOnError)
+	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
+	outboxID := fs.String("outbox-id", "", "connector outbox id to requeue")
+	reason := fs.String("reason", "operator_requeued", "safe connector-local recovery reason")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	outboxStore, err := connectorruntime.NewFileOutboxStore(*outboxPath)
+	if err != nil {
+		return err
+	}
+	runtime := connectorruntime.Runtime{Store: outboxStore}
+	item, receipt, err := runtime.RequeueOutboxItem(ctx, strings.TrimSpace(*outboxID), strings.TrimSpace(*reason))
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(RecoveryResult{Item: item, Receipt: receipt}); err != nil {
 		return err
 	}
 	return nil

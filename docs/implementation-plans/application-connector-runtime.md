@@ -85,12 +85,22 @@ Phase B must add tests for:
 
 ## Still Short Of Production After Phase B
 
-- Real Feishu listener/poller and signature verification remain Phase C.
+- Real Feishu listener/poller and signature verification remain Phase C. The
+  first Feishu event-source driver now wraps `lark-cli event consume
+  im.message.receive_v1` and maps its flattened NDJSON into `ExternalEvent`,
+  but it is still a bounded smoke driver: it does not yet make source
+  validation verified, and the hardcoded event command shape must move behind
+  connector driver configuration or an external adapter process before
+  production. Webhook signature verification, durable source dead-letter
+  records, backoff supervision, and live mobile smoke are still open.
 - Real credential store integration for connector adapters remains future work.
 - Delivery retry scheduling, dead-letter, and partial-success recovery remain an
   active issue.
 - Rich messages, attachments, and resource intake remain future work.
-- Operator console remains future work.
+- Operator console now has read-only inspection and an explicit connector-local
+  `requeue-outbox` command for dead-lettered connector items. Rich filtered
+  views, connector-specific reconciliation, and safe handling of
+  recovery-required partial/ambiguous outcomes remain future work.
 
 ## Closing Gate
 

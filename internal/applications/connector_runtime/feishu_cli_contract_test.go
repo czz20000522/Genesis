@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -45,25 +44,25 @@ func TestFeishuCLISendMessageShortcutDryRunContract(t *testing.T) {
 	}
 	output, err := OSCommandRunner{}.Run(ctx, executable, args...)
 	if err != nil {
-		t.Fatalf("lark-cli dry-run failed: %v\n%s", err, safeCLIProbeExcerpt(output))
+		t.Fatalf("lark-cli dry-run failed: %v\n%s", err, SafeCLIProbeExcerpt(output))
 	}
 	text := string(output)
 	for _, want := range []string{"/open-apis/im/v1/messages", `"receive_id_type": "chat_id"`, `"msg_type": "text"`} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("dry-run output missing %q:\n%s", want, safeCLIProbeExcerpt(output))
+			t.Fatalf("dry-run output missing %q:\n%s", want, SafeCLIProbeExcerpt(output))
 		}
 	}
 }
 
 func TestFeishuCLIProbeExecutablePrefersExplicitExecutable(t *testing.T) {
-	got := selectFeishuCLIProbeExecutable("D:\\tools\\lark-cli.exe", "C:\\fallback\\lark-cli.exe")
+	got := SelectFeishuCLIExecutable("D:\\tools\\lark-cli.exe", "C:\\fallback\\lark-cli.exe")
 	if got != "D:\\tools\\lark-cli.exe" {
 		t.Fatalf("executable = %q, want explicit path", got)
 	}
 }
 
 func TestFeishuCLIProbeExecutableUsesOfficialWindowsPackageBinary(t *testing.T) {
-	got := officialLarkCLIExecutable("C:\\Users\\Tomczz\\AppData\\Roaming", "windows")
+	got := OfficialLarkCLIExecutable("C:\\Users\\Tomczz\\AppData\\Roaming", "windows")
 	want := filepath.Join("C:\\Users\\Tomczz\\AppData\\Roaming", "npm", "node_modules", "@larksuite", "cli", "bin", "lark-cli.exe")
 	if got != want {
 		t.Fatalf("official executable = %q, want %q", got, want)
@@ -71,7 +70,7 @@ func TestFeishuCLIProbeExecutableUsesOfficialWindowsPackageBinary(t *testing.T) 
 }
 
 func TestSafeCLIProbeExcerptRedactsCredentialShapedOutput(t *testing.T) {
-	got := safeCLIProbeExcerpt([]byte("Authorization: Bearer sk-secret\nplain line"))
+	got := SafeCLIProbeExcerpt([]byte("Authorization: Bearer sk-secret\nplain line"))
 	if strings.Contains(got, "Authorization") || strings.Contains(got, "sk-secret") {
 		t.Fatalf("excerpt leaked credential-shaped output: %q", got)
 	}
@@ -82,54 +81,5 @@ func TestSafeCLIProbeExcerptRedactsCredentialShapedOutput(t *testing.T) {
 
 func feishuCLIProbeExecutable() string {
 	explicit := strings.TrimSpace(os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"))
-	return selectFeishuCLIProbeExecutable(explicit, installedOfficialLarkCLIExecutable())
-}
-
-func selectFeishuCLIProbeExecutable(explicit string, installed string) string {
-	if strings.TrimSpace(explicit) != "" {
-		return strings.TrimSpace(explicit)
-	}
-	if strings.TrimSpace(installed) != "" {
-		return strings.TrimSpace(installed)
-	}
-	return "lark-cli"
-}
-
-func installedOfficialLarkCLIExecutable() string {
-	candidate := officialLarkCLIExecutable(os.Getenv("APPDATA"), runtime.GOOS)
-	if candidate == "" {
-		return ""
-	}
-	info, err := os.Stat(candidate)
-	if err != nil || info.IsDir() {
-		return ""
-	}
-	return candidate
-}
-
-func officialLarkCLIExecutable(appData string, goos string) string {
-	if goos != "windows" || strings.TrimSpace(appData) == "" {
-		return ""
-	}
-	return filepath.Join(appData, "npm", "node_modules", "@larksuite", "cli", "bin", "lark-cli.exe")
-}
-
-func safeCLIProbeExcerpt(output []byte) string {
-	const limit = 1024
-	truncated := false
-	if len(output) > limit {
-		output = output[:limit]
-		truncated = true
-	}
-	lines := strings.Split(string(output), "\n")
-	for i, line := range lines {
-		if isCredentialShapedExternalValue(line) {
-			lines[i] = "[redacted credential-shaped CLI output]"
-		}
-	}
-	text := strings.Join(lines, "\n")
-	if truncated {
-		text += "\n[truncated]"
-	}
-	return text
+	return SelectFeishuCLIExecutable(explicit, InstalledOfficialLarkCLIExecutable())
 }
