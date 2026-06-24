@@ -163,6 +163,17 @@ func (r *Runtime) RequeueOutboxItem(ctx context.Context, outboxID string, reason
 	return r.Store.RequeueOutboxItem(ctx, outboxID, reason, now)
 }
 
+func (r *Runtime) ResolveRecoveryRequiredOutboxItem(ctx context.Context, outboxID string, outcome string, reason string, externalActionRef string) (ConnectorOutboxItem, DeliveryReceipt, error) {
+	if r.Store == nil {
+		return ConnectorOutboxItem{}, DeliveryReceipt{}, errors.New("connector runtime missing outbox store")
+	}
+	now := time.Now()
+	if r.Now != nil {
+		now = r.Now()
+	}
+	return r.Store.ResolveRecoveryRequiredOutboxItem(ctx, outboxID, outcome, reason, externalActionRef, now)
+}
+
 func (r *Runtime) executeLeasedOutboxItem(ctx context.Context, item ConnectorOutboxItem, now time.Time) (DeliveryReceipt, error) {
 	adapter := r.Adapters[item.Connector]
 	if adapter == nil {

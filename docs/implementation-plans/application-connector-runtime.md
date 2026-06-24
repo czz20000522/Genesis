@@ -15,6 +15,10 @@ Inspected local references:
 - `D:\software\JetBrains\python_workspace\codex-main\codex-rs\message-history\src\lib.rs`
 - `D:\software\JetBrains\python_workspace\codex-main\codex-rs\app-server-daemon\README.md`
 - `D:\software\JetBrains\python_workspace\reasonix\internal\serve\serve.go`
+- `D:\software\JetBrains\python_workspace\codex-main\codex-rs\app-server\src\request_processors\thread_lifecycle.rs`
+- `D:\software\JetBrains\python_workspace\codex-main\codex-rs\app-server\src\request_processors\thread_processor.rs`
+- `D:\software\JetBrains\python_workspace\reasonix\internal\serve\wire.go`
+- `D:\software\JetBrains\python_workspace\reasonix\internal\acp\service.go`
 
 Learned boundary:
 
@@ -28,6 +32,12 @@ Learned boundary:
   concurrent writers, Codex daemon lifecycle serializes mutating commands per
   home directory, and Reasonix holds a write lock across controller rebuild so
   concurrent readers never observe a half-swapped state.
+- operator/control commands should delegate to the owner that owns the state
+  transition. Codex composes resume responses from thread/core state and sends
+  requests through listener commands instead of fabricating thread truth in the
+  request shell. Reasonix projects controller events through `serve/wire.go` and
+  routes `session/cancel` through session/controller state instead of editing
+  transcript facts in the ACP transport.
 
 ## Phase A Current Slice
 
@@ -130,8 +140,12 @@ Phase B must add tests for:
 - Rich messages, attachments, and resource intake remain future work.
 - Operator console now has read-only inspection and an explicit connector-local
   `requeue-outbox` command for dead-lettered connector items. Rich filtered
-  views, connector-specific reconciliation, and safe handling of
-  recovery-required partial/ambiguous outcomes remain future work.
+  views and connector-specific reconciliation remain future work.
+- Operator console now has an explicit connector-local `resolve-outbox` command
+  for recovery-required partial/ambiguous outcomes. It records a terminal
+  operator receipt as `sent` or `dead_lettered`, preserves receipt history,
+  clears connector-local lease/schedule fields, and does not execute adapters
+  or call kernel.
 
 ## Closing Gate
 

@@ -25,6 +25,7 @@ type OutboxStore interface {
 	ClaimOutboxItem(context.Context, string, time.Time, string, time.Duration) (ConnectorOutboxItem, bool, error)
 	RecordDelivery(context.Context, ConnectorOutboxItem, DeliveryReceipt) error
 	RequeueOutboxItem(context.Context, string, string, time.Time) (ConnectorOutboxItem, DeliveryReceipt, error)
+	ResolveRecoveryRequiredOutboxItem(context.Context, string, string, string, string, time.Time) (ConnectorOutboxItem, DeliveryReceipt, error)
 	ListOutbox(context.Context) ([]ConnectorOutboxItem, error)
 	ListReceipts(context.Context, string) ([]DeliveryReceipt, error)
 }
@@ -239,6 +240,68 @@ func (s *FileOutboxStore) RequeueOutboxItem(ctx context.Context, outboxID string
 			Reason:     reason,
 			Attempt:    item.AttemptCount,
 			RecordedAt: now,
+		}
+		item.LastReceiptID = receipt.ReceiptID
+		s.items[item.OutboxID] = item
+		s.receipts[item.OutboxID] = append(s.receipts[item.OutboxID], receipt)
+		return s.writeLocked()
+	})
+	return item, receipt, err
+}
+
+func (s *FileOutboxStore) ResolveRecoveryRequiredOutboxItem(ctx context.Context, outboxID string, outcome string, reason string, externalActionRef string, now time.Time) (ConnectorOutboxItem, DeliveryReceipt, error) {
+	if outboxID == "" {
+		return ConnectorOutboxItem{}, DeliveryReceipt{}, errors.New("outbox id is required")
+	}
+	outcome = strings.TrimSpace(outcome)
+	if outcome != DeliveryStatusSent && outcome != DeliveryStatusDeadLettered {
+		return ConnectorOutboxItem{}, DeliveryReceipt{}, errors.New("operator recovery outcome must be sent or dead_lettered")
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "operator_resolved_" + outcome
+	}
+	if !safeConnectorCommandReason(reason) {
+		return ConnectorOutboxItem{}, DeliveryReceipt{}, errors.New("operator recovery reason is unsafe")
+	}
+	externalActionRef = strings.TrimSpace(externalActionRef)
+	if externalActionRef != "" && !safeExternalActionRef(externalActionRef) {
+		return ConnectorOutboxItem{}, DeliveryReceipt{}, errors.New("operator recovery external action ref is unsafe")
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	var item ConnectorOutboxItem
+	var receipt DeliveryReceipt
+	err := s.withLockedState(ctx, func() error {
+		var ok bool
+		item, ok = s.items[outboxID]
+		if !ok {
+			return errors.New("outbox item not found")
+		}
+		if item.Status != OutboxStatusRecoveryRequired {
+			return errors.New("outbox item is not recovery-required")
+		}
+		item.NextAttemptAt = time.Time{}
+		item.LeaseID = ""
+		item.LeaseOwner = ""
+		item.LeaseExpiresAt = time.Time{}
+		item.UpdatedAt = now
+		switch outcome {
+		case DeliveryStatusSent:
+			item.Status = OutboxStatusSent
+		case DeliveryStatusDeadLettered:
+			item.Status = OutboxStatusDeadLetter
+		}
+		receipt = DeliveryReceipt{
+			ReceiptID:         stableOpaqueID("receipt", item.OutboxID, outcome, externalActionRef, reason, fmt.Sprint(item.AttemptCount), now.Format(time.RFC3339Nano)),
+			OutboxID:          item.OutboxID,
+			Connector:         item.Connector,
+			ExternalActionRef: externalActionRef,
+			Status:            outcome,
+			Reason:            reason,
+			Attempt:           item.AttemptCount,
+			RecordedAt:        now,
 		}
 		item.LastReceiptID = receipt.ReceiptID
 		s.items[item.OutboxID] = item

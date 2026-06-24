@@ -380,3 +380,75 @@ func TestConsoleRequeueOutboxMutatesOnlyConnectorState(t *testing.T) {
 		t.Fatalf("receipt history count = %d, want 2", len(receipts))
 	}
 }
+
+func TestConsoleResolveOutboxMutatesOnlyConnectorState(t *testing.T) {
+	ctx := context.Background()
+	outboxPath := filepath.Join(testsupport.ProjectTempDir(t, "genesis-console-resolve"), "outbox.json")
+	outboxStore, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		t.Fatalf("NewFileOutboxStore returned error: %v", err)
+	}
+	item, _, err := outboxStore.EnqueueCommand(ctx, connectorruntime.AppCommand{
+		CommandID: "cmd_1",
+		Kind:      "send_message",
+		TargetRef: connectorruntime.ExternalThreadRef{
+			Connector:  "feishu",
+			Kind:       "chat",
+			ExternalID: "oc_123",
+		},
+		Body:      "reply",
+		DedupeKey: "reply_1",
+	}, time.Date(2026, 6, 24, 12, 10, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("EnqueueCommand returned error: %v", err)
+	}
+	item.Status = connectorruntime.OutboxStatusRecoveryRequired
+	item.AttemptCount = 1
+	if err := outboxStore.RecordDelivery(ctx, item, connectorruntime.DeliveryReceipt{
+		ReceiptID:         "receipt_1",
+		OutboxID:          item.OutboxID,
+		Connector:         "feishu",
+		Status:            connectorruntime.DeliveryStatusAmbiguous,
+		Reason:            "external_result_unknown",
+		ExternalActionRef: "om_partial",
+		Attempt:           1,
+		RecordedAt:        time.Date(2026, 6, 24, 0, 10, 1, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("RecordDelivery returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := run(ctx, []string{
+		"resolve-outbox",
+		"--outbox-state", outboxPath,
+		"--outbox-id", item.OutboxID,
+		"--outcome", connectorruntime.DeliveryStatusSent,
+		"--reason", "operator_confirmed_sent",
+		"--external-action-ref", "om_confirmed",
+	}, &stdout, io.Discard); err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	var got RecoveryResult
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("decode recovery result: %v\n%s", err, stdout.String())
+	}
+	if got.Item.Status != connectorruntime.OutboxStatusSent {
+		t.Fatalf("item status = %q, want sent", got.Item.Status)
+	}
+	if got.Receipt.Status != connectorruntime.DeliveryStatusSent || got.Receipt.ExternalActionRef != "om_confirmed" {
+		t.Fatalf("receipt = %+v", got.Receipt)
+	}
+
+	reloaded, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		t.Fatalf("reload outbox store: %v", err)
+	}
+	receipts, err := reloaded.ListReceipts(ctx, item.OutboxID)
+	if err != nil {
+		t.Fatalf("ListReceipts returned error: %v", err)
+	}
+	if len(receipts) != 2 || receipts[0].Status != connectorruntime.DeliveryStatusAmbiguous || receipts[1].Status != connectorruntime.DeliveryStatusSent {
+		t.Fatalf("receipt history = %+v", receipts)
+	}
+}

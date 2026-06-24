@@ -52,6 +52,8 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return runInspect(ctx, args[1:], stdout, stderr)
 	case "requeue-outbox":
 		return runRequeueOutbox(ctx, args[1:], stdout, stderr)
+	case "resolve-outbox":
+		return runResolveOutbox(ctx, args[1:], stdout, stderr)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -104,6 +106,33 @@ func runRequeueOutbox(ctx context.Context, args []string, stdout io.Writer, stde
 	}
 	runtime := connectorruntime.Runtime{Store: outboxStore}
 	item, receipt, err := runtime.RequeueOutboxItem(ctx, strings.TrimSpace(*outboxID), strings.TrimSpace(*reason))
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(RecoveryResult{Item: item, Receipt: receipt}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func runResolveOutbox(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
+	fs := flag.NewFlagSet("resolve-outbox", flag.ContinueOnError)
+	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
+	outboxID := fs.String("outbox-id", "", "connector recovery-required outbox id to resolve")
+	outcome := fs.String("outcome", "", "operator reconciliation outcome: sent or dead_lettered")
+	reason := fs.String("reason", "", "safe connector-local reconciliation reason")
+	externalActionRef := fs.String("external-action-ref", "", "optional safe external action reference observed during reconciliation")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	outboxStore, err := connectorruntime.NewFileOutboxStore(*outboxPath)
+	if err != nil {
+		return err
+	}
+	runtime := connectorruntime.Runtime{Store: outboxStore}
+	item, receipt, err := runtime.ResolveRecoveryRequiredOutboxItem(ctx, strings.TrimSpace(*outboxID), strings.TrimSpace(*outcome), strings.TrimSpace(*reason), strings.TrimSpace(*externalActionRef))
 	if err != nil {
 		return err
 	}

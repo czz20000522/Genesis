@@ -483,6 +483,81 @@ func TestOperatorRequeueRejectsQueuedRecoveryRequiredAndUnsafeReason(t *testing.
 	}
 }
 
+func TestOperatorResolveRecoveryRequiredItemPreservesReceiptHistory(t *testing.T) {
+	store := newTestOutboxStore(t)
+	adapter := &fakeAdapter{
+		result: ConnectorActionResult{
+			Status:            DeliveryStatusPartialSuccess,
+			Reason:            "receipt_persist_unknown",
+			ExternalActionRef: "om_partial",
+		},
+	}
+	runtime := testRuntime(store, map[string]ConnectorAdapter{"feishu": adapter})
+	item, _, err := runtime.EnqueueCommand(context.Background(), testSendMessageCommand())
+	if err != nil {
+		t.Fatalf("EnqueueCommand returned error: %v", err)
+	}
+	if _, err := runtime.ExecuteOutboxItem(context.Background(), item.OutboxID); err != nil {
+		t.Fatalf("ExecuteOutboxItem returned error: %v", err)
+	}
+
+	resolved, receipt, err := runtime.ResolveRecoveryRequiredOutboxItem(context.Background(), item.OutboxID, DeliveryStatusSent, "operator_confirmed_sent", "om_confirmed")
+	if err != nil {
+		t.Fatalf("ResolveRecoveryRequiredOutboxItem returned error: %v", err)
+	}
+	if resolved.Status != OutboxStatusSent || resolved.LeaseID != "" || !resolved.NextAttemptAt.IsZero() {
+		t.Fatalf("resolved item = %+v, want sent with cleared lease/schedule", resolved)
+	}
+	if receipt.Status != DeliveryStatusSent || receipt.Reason != "operator_confirmed_sent" || receipt.ExternalActionRef != "om_confirmed" || receipt.Attempt != 1 {
+		t.Fatalf("operator receipt = %+v", receipt)
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("operator resolve should not execute adapter again, calls = %d", adapter.calls)
+	}
+	receipts, err := store.ListReceipts(context.Background(), item.OutboxID)
+	if err != nil {
+		t.Fatalf("ListReceipts returned error: %v", err)
+	}
+	if len(receipts) != 2 || receipts[0].Status != DeliveryStatusPartialSuccess || receipts[1].Status != DeliveryStatusSent {
+		t.Fatalf("receipts = %+v, want partial_success plus operator sent", receipts)
+	}
+}
+
+func TestOperatorResolveRecoveryRequiredRejectsInvalidStateOutcomeAndUnsafeFields(t *testing.T) {
+	store := newTestOutboxStore(t)
+	runtime := testRuntime(store, nil)
+	item, _, err := runtime.EnqueueCommand(context.Background(), testSendMessageCommand())
+	if err != nil {
+		t.Fatalf("EnqueueCommand returned error: %v", err)
+	}
+	if _, _, err := runtime.ResolveRecoveryRequiredOutboxItem(context.Background(), item.OutboxID, DeliveryStatusSent, "operator_confirmed_sent", ""); err == nil {
+		t.Fatal("queued outbox item should not be resolved as recovery-required")
+	}
+
+	item.Status = OutboxStatusRecoveryRequired
+	if err := store.RecordDelivery(context.Background(), item, DeliveryReceipt{
+		ReceiptID:         "receipt_ambiguous",
+		OutboxID:          item.OutboxID,
+		Connector:         item.Connector,
+		Status:            DeliveryStatusAmbiguous,
+		Reason:            "external_result_unknown",
+		ExternalActionRef: "om_partial",
+		Attempt:           1,
+		RecordedAt:        time.Date(2026, 6, 23, 18, 30, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("RecordDelivery returned error: %v", err)
+	}
+	if _, _, err := runtime.ResolveRecoveryRequiredOutboxItem(context.Background(), item.OutboxID, "retrying", "operator_retry", ""); err == nil {
+		t.Fatal("operator resolve should reject non-terminal recovery outcome")
+	}
+	if _, _, err := runtime.ResolveRecoveryRequiredOutboxItem(context.Background(), item.OutboxID, DeliveryStatusSent, "Authorization: Bearer sk-secret", ""); err == nil {
+		t.Fatal("operator resolve should reject unsafe reason")
+	}
+	if _, _, err := runtime.ResolveRecoveryRequiredOutboxItem(context.Background(), item.OutboxID, DeliveryStatusSent, "operator_confirmed_sent", "Authorization: Bearer sk-secret"); err == nil {
+		t.Fatal("operator resolve should reject unsafe external action ref")
+	}
+}
+
 type leaseObservingAdapter struct {
 	store               *FileOutboxStore
 	now                 time.Time
