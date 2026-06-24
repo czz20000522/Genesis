@@ -60,7 +60,10 @@ they are used to pressure-test the kernel or define adapter behavior. Applicatio
 requirements live under `docs/applications/` and follow the same flow, but they
 must not be recorded as kernel capabilities. Application gaps belong in
 `docs/operations/application-issues.md` unless they expose a missing generic
-kernel primitive.
+kernel primitive. Each application phase must name the kernel primitive or owner
+capability it is pressure-testing, such as `turn.submit`, projection, connector
+outbox, resource intake, credential authority, sandbox, job control, or memory
+review.
 
 Design documents live as long as the owner boundary lives. They may record rejected alternatives, but they should not carry phase checklists, issue status, or patch evidence.
 
@@ -211,7 +214,12 @@ permission semantics, long-running task ownership, production storage, resource
 governance, credential authority, or streaming transport semantics, stop adding
 application-local patches and return to the corresponding kernel or owner line
 to strengthen the primitive. After the primitive exists, retire the temporary
-application workaround instead of layering compatibility around it.
+application workaround instead of layering compatibility around it. If an
+application phase starts to fake provider context, kernel events, tool results,
+memory truth, credential authority, permission decisions, job facts, or delivery
+receipts that belong to another owner, that is not an application implementation
+detail; it is the stop condition for returning to the owning kernel or
+foundation line.
 
 ## Persistence And Audit Gate
 

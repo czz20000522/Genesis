@@ -20,6 +20,19 @@ is strengthened. Temporary app-side scaffolding should be retired as those
 primitives mature; do not preserve early smoke infrastructure as permanent
 architecture.
 
+Every application phase must say which kernel primitive or owner capability it
+is pressure-testing. Examples include turn submission, session mapping,
+projection reads, connector outbox delivery, resource intake, credential
+authority, job control, sandbox policy, memory review, or audit replay. If the
+phase cannot name the owner under pressure, it is probably just adding an app
+feature and should not proceed until the boundary is clarified.
+
+Application code must not fake missing kernel or owner facts to keep a demo
+moving. If the next step requires forged provider context, fabricated kernel
+events, invented tool results, app-owned memory truth, connector-owned
+permission decisions, or ad hoc credential authority, stop the application slice
+and open or update the owning kernel/foundation issue instead.
+
 ## Protocol Boundary Rule
 
 Any surface that crosses out of the Genesis canonical world must pass through a
