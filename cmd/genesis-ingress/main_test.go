@@ -99,7 +99,7 @@ func TestFeishuListenConsumesNDJSONEventsAndDedupes(t *testing.T) {
 		"--kernel-url", server.URL,
 		"--runtime-token", "token",
 		"--state", filepath.Join(testsupport.ProjectTempDir(t, "feishu-listen"), "state.json"),
-		"--profile", "codex",
+		"--profile", "genesis",
 		"--stdin-jsonl",
 	}, &input, &stdout, io.Discard)
 	if err != nil {
@@ -401,6 +401,6 @@ func testFeishuExternalEvent(eventID string) connectorruntime.ExternalEvent {
 			ExternalID: eventID,
 		},
 		Body:             "hello from feishu stream",
-		SourceValidation: connectorruntime.SourceValidationVerified,
+		SourceValidation: connectorruntime.SourceValidationUnchecked,
 	}
 }

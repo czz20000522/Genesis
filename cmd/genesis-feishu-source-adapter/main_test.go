@@ -70,6 +70,16 @@ func TestFeishuEventCommandOwnsLarkCLIEventSyntax(t *testing.T) {
 	}
 }
 
+func TestFeishuEventCommandRequiresExplicitProfile(t *testing.T) {
+	_, _, err := feishuEventCommand("lark-cli", "", defaultFeishuMessageEventKey, "bot", 1, "30s")
+	if err == nil {
+		t.Fatal("feishuEventCommand should reject missing explicit profile")
+	}
+	if !strings.Contains(err.Error(), "explicit --profile") {
+		t.Fatalf("error = %v, want explicit profile readiness failure", err)
+	}
+}
+
 func decodeSourceFrames(t *testing.T, text string) []connectorruntime.SourceCommandFrame {
 	t.Helper()
 	decoder := json.NewDecoder(strings.NewReader(text))
