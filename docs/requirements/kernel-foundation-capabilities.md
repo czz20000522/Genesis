@@ -78,6 +78,60 @@ Genesis separates runtime output into five layers:
 
 A runtime event can enter long-term facts only when it is user-visible or model-visible, required for replay/recovery/idempotency/checkpointing, changes kernel-owned state, records a permission or risk decision, records failure or abnormal termination, or feeds provider context, compaction, memory recall, or observation delivery. Otherwise it stays in realtime transport, debug trace, or aggregate metrics.
 
+Database storage follows the same owner boundary. A database is not an owner; it
+is a persistence backend selected by an owner. Each table must name its owner and
+class before it exists: canonical truth, read model/projection, audit, metrics,
+debug trace, queue, or index. One PostgreSQL or SQLite instance may hold tables
+for several owners, but table semantics and write authority must not be mixed.
+
+Canonical owner tables hold recovery, permission, lifecycle, state transition,
+idempotency, and audit truth. Read-model tables exist for UI lists, search,
+filtering, and previews; they must remain rebuildable from canonical owner facts
+and resource/object refs. A fast UI query does not make the projection table the
+truth source.
+
+Database rows store facts about content, not large content bodies. User uploads,
+sandbox artifacts, checkpoint snapshots, long transcript segments, export
+packages, raw provider payloads, raw external webhook payloads, and debug bundles
+belong in a resource/object/file owner. The database stores refs, owner, hash,
+size, mime type, sensitivity, lifecycle, storage ref, grants, and timestamps.
+
+Table grain must follow access and lifecycle, not object names. High-frequency
+queries, permission checks, lifecycle checks, and idempotency checks use explicit
+columns and constraints. Low-frequency, shape-unstable details that are read only
+with a parent object prefer JSON payloads or payload refs. A one-to-one child
+table is suspect unless it has an independent lifecycle, permission boundary,
+query frequency, or hot/cold storage value. State history should not become one
+table per state unless the history is canonical state transition evidence rather
+than debug or projection detail.
+
+Production tables that cross a user, tenant, workspace, project, or owner-scope
+boundary must carry the isolation field in their keys and constraints. Service
+code remembering to add `WHERE user_id = ...` is not an isolation design. A
+future PostgreSQL RLS policy may strengthen isolation, but schema constraints
+must still express the boundary.
+
+JSONL and file stores are lab seams unless a requirement declares them as the
+production owner store. When an owner moves from JSONL or a file-backed lab store
+to a production database, the old product write path must be retired in the same
+slice or in a named cleanup slice. Long-term DB/file dual-write truth is not
+allowed.
+
+Every production store or schema proposal must answer:
+
+- owner and owner public API;
+- table class;
+- reason the data needs a database instead of object/file storage or a rebuilt projection;
+- rebuildability and rebuild owner;
+- content boundary between explicit columns, JSON/payload refs, and object refs;
+- transaction boundary and crash recovery order;
+- idempotency keys, unique constraints, and legal state transitions;
+- user, tenant, workspace, project, or owner-scope isolation constraints;
+- retention, deletion, TTL, archive, and compaction rules;
+- required indexes, with speculative indexes rejected until a query exists;
+- migration and retirement plan for any JSONL or file lab store being replaced;
+- negative tests proving raw provider payloads, stdout chunks, token deltas, raw webhooks, large bodies, credentials, and debug floods do not enter canonical tables.
+
 ### Interface Kernel
 
 - `turn.submit` accepts user or application intent through a typed transport schema.

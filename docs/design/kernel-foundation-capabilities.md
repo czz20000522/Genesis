@@ -86,6 +86,31 @@ Observability is split by audience:
 
 Provider raw requests are not transcript. Production storage keeps derivation evidence such as included event refs, input kinds, manifest or skill refs, compaction refs, gateway profile id, and normalized usage. Full prompt or provider payload capture belongs only in debug trace, and even then stays bounded and redacted.
 
+Store design starts with owner stores, not a global ERD. Session, resource,
+kernel/runtime, job, audit, and projection owners each write the smallest
+persistence proposal that satisfies the requirement's store gate. A proposal may
+share one database instance with other owners, but it must still name the owning
+API and table class for each table.
+
+Initial owner-store proposals should use these entry points:
+
+- session owner: session identity, transcript envelopes, request receipts, and timeline indexes;
+- resource owner: resource refs, metadata, lifecycle, grants, body refs, storage refs, and derived preview refs;
+- kernel/runtime owner: durable fact indexes, checkpoint refs, terminal outcomes, and context summary refs;
+- job owner: job records, status transitions, observation queue, output summary refs, and cancel/wait facts;
+- audit owner: risk, control, credential, break-glass, and governance records;
+- projection owner: rebuildable UI, read, search, and preview tables.
+
+Store proposals must write transaction boundaries before they name tables. The
+first accepted user message and session creation must share a transaction.
+Request receipt and idempotency key binding must share a transaction. Resource
+metadata and body storage need an explicit consistency strategy, including how
+the owner repairs an object written without committed metadata or metadata that
+points to a missing object. Kernel durable fact append and checkpoint pointer
+updates must define ordering and restart replay. Outbox writes that follow owner
+state changes must share the owner transaction; external side-effect workers run
+after commit and cannot roll back owner truth.
+
 ## Rejected Alternatives
 
 - Application-owned provider context assembly is rejected because it creates multiple truth owners.
@@ -94,3 +119,5 @@ Provider raw requests are not transcript. Production storage keeps derivation ev
 - Version-numbered runtime route prefixes are rejected because they become stale compatibility surfaces.
 - Treating audit as a general info log is rejected because it makes authority evidence noisy and unbounded.
 - Persisting every stream chunk as a canonical ledger event is rejected because transport detail is not system truth.
+- Starting database design from a global ERD is rejected because it encourages noun-based tables instead of owner-owned truth, projections, queues, and indexes.
+- Keeping JSONL and database stores as permanent dual product truth is rejected because it splits replay, migration, and corruption semantics across two owners.

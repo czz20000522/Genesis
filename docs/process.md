@@ -131,6 +131,40 @@ flow and state semantics, stop before coding and deepen the reference scan.
 
 If neither project has a comparable implementation, record that explicitly and explain which Genesis requirement/design owns the decision instead. Do not use "no reference found" as permission to skip requirement, design, failure semantics, permissions, recovery, or observability.
 
+Any implementation slice that creates a durable store, table, index, queue, or
+database-backed projection must first complete the persistence and store proposal
+gate in `docs/requirements/kernel-foundation-capabilities.md`. Do not create a
+separate database philosophy document for the same rules; storage admission,
+transaction boundaries, rebuildability, retention, and JSONL/file-store
+retirement belong with the kernel foundation persistence requirement and its
+design.
+
+## Issue Class Convergence Gate
+
+Every non-trivial issue found during review, implementation, live testing, or
+user acceptance must be reduced from one defect to one reusable guard. The
+reviewer or implementer must record four things before treating the issue as
+closed:
+
+1. Name the problem class. Examples: protocol drift, owner confusion, projection
+   treated as truth, model-owned control field, database-as-content-bucket,
+   transport event persisted as fact, or lab store kept as product truth.
+2. List the recurrence surfaces. Identify which shell, adapter, provider
+   boundary, tool gateway, store, projection, UI, connector, or operator command
+   can repeat the same class of mistake.
+3. Convert the issue into enforcement. Choose the smallest durable guard:
+   governing requirement/design text, proposal template, active issue shape,
+   contract test, architecture test, negative fixture, lint/static scan, or
+   acceptance smoke. A chat note alone is not enforcement.
+4. Add it to periodic review. The next governance review must be able to ask
+   whether the class reappeared, whether the guard still runs, and whether
+   duplicated wording can be folded back into the governing requirement/design.
+
+Do not scatter the same rule across several documents. If a new problem class
+belongs to an existing requirement, update that requirement or its design and
+link issues to it. Add a new document only when no existing owner document can
+hold the rule without mixing ownership.
+
 ## Implementation Closing Gate
 
 Every implementation slice must close with a requirement-by-requirement drift check before commit. The fixed order is:
