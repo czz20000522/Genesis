@@ -20,17 +20,6 @@ Genesis Kernel. Kernel primitive gaps belong in
 
 ## Active Issues
 
-### APP-CONNECTOR-COMMAND-BOUNDARY-20260624 - P1 - Implement connector_command as the long-lived adapter boundary
-
-- Status: open.
-- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
-- Design: `docs/applications/application-connector-runtime-design.md`.
-- Gap: The connector runtime has a transitional `command_template` driver, but it does not yet implement the `connector_command` process boundary. External adapter process startup, typed action/result JSON transport, adapter capability probing, result validation, explicit environment allowlist, timeout handling, and redacted debug trace handling remain unimplemented.
-- Next slice: Add a `connector_command` runner owned by Application Connector Runtime. It should send typed `ConnectorAction` JSON to a configured external adapter process, accept typed `ConnectorActionResult` JSON, validate allowed statuses and fields, redact stderr/debug material, and write only normalized `DeliveryReceipt` records. Feishu should move its `lark-cli` details into an external adapter process or remain explicitly marked as transitional if still using `command_template`.
-- Evidence: `docs/applications/application-connector-runtime-design.md` now defines `connector_command` as the long-lived adapter boundary and marks `command_template` as transitional.
-- Verification: A fake `connector_command` adapter can deliver a `send_message` action and produce a `DeliveryReceipt`; malformed adapter JSON fails closed without changing kernel facts; adapter stderr is redacted before diagnostics; raw command/stdout/stderr are not persisted as receipt truth; changing Feishu CLI argv requires changing only the external adapter or transitional driver config, not connector runtime code.
-- Reference alignment: Mirrors the kernel `provider_command` boundary pattern while keeping connector delivery in the user-space application connector owner.
-
 ### APP-CONNECTOR-FEISHU-LISTENER-20260623 - P2 - Feishu inbound listener and adapter retry hardening
 
 - Status: open.

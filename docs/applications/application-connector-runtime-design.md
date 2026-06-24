@@ -235,7 +235,12 @@ JSON to stdin, and reads typed `ConnectorActionResult` JSON from stdout. The
 external adapter owns SDK, HTTP, CLI, vendor response parsing, and vendor error
 normalization. The connector runtime owns the configured binary, timeout,
 environment allowlist, action/result validation, outbox state transitions, and
-`DeliveryReceipt` persistence.
+`DeliveryReceipt` persistence. Stdout is the typed result channel. Stderr,
+raw stdout, command lines, SDK payloads, and vendor HTTP responses are
+diagnostic material only and must not become receipt truth. Malformed JSON,
+unsupported delivery statuses, unsafe external action refs, unsafe reason
+strings, missing direct executables, timeouts, and failed adapter processes
+fail closed as connector-local delivery failures.
 
 `command_template` is only a transitional driver for early CLI-backed smoke
 tests. It may stay as a local operator convenience, but production connectors

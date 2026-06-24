@@ -180,8 +180,10 @@ app-local dedupe, and `turn.submit` through the kernel HTTP surface.
 Phase B adds the minimal connector outbox contract: `AppCommand`,
 `ConnectorOutbox`, `ConnectorAction`, and `DeliveryReceipt`, with console and
 Feishu delivery exercised through connector driver configuration and fake or
-local runners in tests. No rich cards, attachments, or production listener
-hardening.
+local runners in tests. It also provides the minimal `connector_command`
+process runner so long-lived adapters can sit behind typed action/result JSON
+instead of hardcoded connector runtime argv. No rich cards, attachments, or
+production listener hardening.
 
 Phase C adds a Feishu inbound connector listener/poller, connector-local
 validation/retry/token handling, and an explicit installed-adapter capability
