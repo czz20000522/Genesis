@@ -56,6 +56,62 @@ func TestPlanToolExecutionBatchesSerializesUnknownAndStateReads(t *testing.T) {
 	}
 }
 
+func TestPlanToolExecutionBatchesSerializesUntrustedSchedulingMetadata(t *testing.T) {
+	calls := []preparedModelToolCall{
+		scheduledTestCall("untrusted_read", ToolAccessPlan{
+			ToolName:       "untrusted_read",
+			EffectClass:    ToolEffectClassPureRead,
+			ParallelPolicy: ToolParallelPolicyCompatibleLocks,
+			Trusted:        false,
+		}),
+		scheduledTestCall("trusted_read", pureReadAccessPlan("trusted_read")),
+	}
+	batches := planToolExecutionBatches(calls)
+	assertToolBatchShape(t, batches, [][]int{{0}, {1}}, []bool{false, false})
+	if batches[0].Reason != "missing_or_untrusted_tool_access_plan" {
+		t.Fatalf("untrusted batch reason = %q", batches[0].Reason)
+	}
+}
+
+func TestPlanToolExecutionBatchesSerializesKernelStateWrites(t *testing.T) {
+	calls := []preparedModelToolCall{
+		scheduledTestCall("read_before", pureReadAccessPlan("read_before")),
+		scheduledTestCall("memory_approve", ToolAccessPlan{
+			ToolName:       "memory_approve",
+			EffectClass:    ToolEffectClassKernelStateWrite,
+			ParallelPolicy: ToolParallelPolicySerialFence,
+			Trusted:        true,
+		}),
+		scheduledTestCall("read_after", pureReadAccessPlan("read_after")),
+	}
+	batches := planToolExecutionBatches(calls)
+	assertToolBatchShape(t, batches, [][]int{{0}, {1}, {2}}, []bool{false, false, false})
+	if batches[1].Reason != "write_effect_serial_fence" {
+		t.Fatalf("kernel state write reason = %q", batches[1].Reason)
+	}
+}
+
+func TestPlanToolExecutionBatchesSerializesExternalSideEffectsThroughOwner(t *testing.T) {
+	calls := []preparedModelToolCall{
+		scheduledTestCall("read_before", pureReadAccessPlan("read_before")),
+		scheduledTestCall("send_message", ToolAccessPlan{
+			ToolName:       "send_message",
+			EffectClass:    ToolEffectClassExternalSideEffect,
+			ParallelPolicy: ToolParallelPolicySerialFence,
+			Trusted:        true,
+			ResourceFootprint: ToolResourceFootprint{
+				ExternalTargets: []string{"connector:feishu:chat:oc_123"},
+			},
+		}),
+		scheduledTestCall("read_after", pureReadAccessPlan("read_after")),
+	}
+	batches := planToolExecutionBatches(calls)
+	assertToolBatchShape(t, batches, [][]int{{0}, {1}, {2}}, []bool{false, false, false})
+	if batches[1].Reason != "external_side_effect_routes_through_owner" {
+		t.Fatalf("external side effect reason = %q", batches[1].Reason)
+	}
+}
+
 func TestPlanToolExecutionBatchesSerializesSameHandleProcessIO(t *testing.T) {
 	calls := []preparedModelToolCall{
 		scheduledTestCall("job_status_a", jobControlToolAccessPlan("job_status", "job_a")),
