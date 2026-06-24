@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"genesis/internal/applications/connector_runtime"
 )
@@ -74,6 +75,8 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	eventIdentity := fs.String("as", "bot", "Feishu event source identity: bot, user, or auto")
 	maxEvents := fs.Int("max-events", 0, "stop Feishu event source after N events; 0 means unlimited")
 	eventTimeout := fs.String("event-timeout", "", "stop Feishu event source after duration such as 30s or 10m")
+	sourceAttempts := fs.Int("source-attempts", 1, "maximum Feishu event source attempts after recoverable runtime failures")
+	sourceBackoff := fs.String("source-backoff", "1s", "backoff between Feishu event source retry attempts")
 	deliverFinal := fs.Bool("deliver-final", false, "enqueue and deliver kernel final_text back through the connector outbox")
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
 	sourceFailurePath := fs.String("source-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_STATE", filepath.Join(".genesis_ingress", "source_failures.json")), "connector source failure state file")
@@ -84,6 +87,16 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	}
 	if strings.TrimSpace(*profile) == "" {
 		return fmt.Errorf("feishu-listen requires explicit --profile")
+	}
+	if *sourceAttempts < 1 {
+		return fmt.Errorf("feishu-listen --source-attempts must be at least 1")
+	}
+	parsedSourceBackoff, err := time.ParseDuration(strings.TrimSpace(*sourceBackoff))
+	if err != nil {
+		return fmt.Errorf("parse --source-backoff: %w", err)
+	}
+	if parsedSourceBackoff < 0 {
+		return fmt.Errorf("feishu-listen --source-backoff must be non-negative")
 	}
 	_, runtime, err := buildRuntime(flags, stdin)
 	if err != nil {
@@ -112,7 +125,10 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		FailureStore:    sourceFailureStore,
 	}
 	encoder := json.NewEncoder(stdout)
-	return connectorruntime.ConsumeFeishuEventSource(ctx, sourceConfig, stderr, func(event connectorruntime.ExternalEvent) error {
+	return connectorruntime.ConsumeFeishuEventSourceWithRetry(ctx, sourceConfig, connectorruntime.FeishuEventSourceRetryPolicy{
+		MaxAttempts: *sourceAttempts,
+		Backoff:     parsedSourceBackoff,
+	}, stderr, func(event connectorruntime.ExternalEvent) error {
 		result, err := runtime.ProcessExternalEvent(ctx, event)
 		if encodeErr := encoder.Encode(result); encodeErr != nil {
 			return encodeErr

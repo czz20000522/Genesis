@@ -130,7 +130,9 @@ Phase B must add tests for:
   production. `genesis-ingress feishu-probe` now gives operators a no-side-effect
   installed-adapter readiness report for the event source and ordinary final
   delivery surfaces. Webhook signature verification, durable source dead-letter
-  records, backoff supervision, and production source retry remain open.
+  records, and production source supervision remain open. The explicit
+  `--source-attempts` / `--source-backoff` wrapper is a smoke-grade retry slice,
+  not the final process supervisor.
 - Real credential store integration for connector adapters remains future work.
 - The file-backed outbox store is still local connector infrastructure. It now
   protects bounded cross-process smoke writes, but a future production store,

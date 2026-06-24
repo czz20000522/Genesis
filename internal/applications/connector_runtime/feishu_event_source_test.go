@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -275,5 +276,73 @@ func TestFeishuEventSourceOversizedStdoutReturnsScannerError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("oversized source stdout should return scanner error")
+	}
+}
+
+func TestFeishuEventSourceRetryRecordsRuntimeFailuresAndEventuallySucceeds(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFileSourceFailureStore(filepath.Join(testsupport.ProjectTempDir(t, "feishu-source-retry"), "source-failures.json"))
+	if err != nil {
+		t.Fatalf("NewFileSourceFailureStore returned error: %v", err)
+	}
+	config := FeishuEventSourceConfig{
+		Executable:   os.Args[0],
+		Profile:      "genesis",
+		FailureStore: store,
+	}
+	attempts := 0
+	var diagnostics bytes.Buffer
+	err = consumeFeishuEventSourceWithRetry(ctx, config, FeishuEventSourceRetryPolicy{MaxAttempts: 3}, &diagnostics, func() error {
+		attempts++
+		if attempts < 3 {
+			return fmt.Errorf("temporary source failure %d", attempts)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("consumeFeishuEventSourceWithRetry returned error: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+	failures, err := store.ListSourceFailures(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceFailures returned error: %v", err)
+	}
+	if len(failures) != 2 {
+		t.Fatalf("source failures = %+v, want two retry records", failures)
+	}
+	for _, failure := range failures {
+		if failure.Reason != "source_runtime_error" || failure.SourceValidation != SourceValidationUnchecked {
+			t.Fatalf("failure = %+v", failure)
+		}
+	}
+	if !strings.Contains(diagnostics.String(), "retrying") {
+		t.Fatalf("diagnostics = %q, want retry evidence", diagnostics.String())
+	}
+}
+
+func TestFeishuEventSourceRetryRejectsInvalidCommandBeforeRuntimeRetry(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFileSourceFailureStore(filepath.Join(testsupport.ProjectTempDir(t, "feishu-source-retry-invalid"), "source-failures.json"))
+	if err != nil {
+		t.Fatalf("NewFileSourceFailureStore returned error: %v", err)
+	}
+	err = ConsumeFeishuEventSourceWithRetry(ctx, FeishuEventSourceConfig{
+		Executable:   os.Args[0],
+		FailureStore: store,
+	}, FeishuEventSourceRetryPolicy{MaxAttempts: 3}, io.Discard, func(ExternalEvent) error {
+		t.Fatal("invalid command should fail before source execution")
+		return nil
+	})
+	if err == nil {
+		t.Fatal("ConsumeFeishuEventSourceWithRetry should reject missing profile")
+	}
+	failures, err := store.ListSourceFailures(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceFailures returned error: %v", err)
+	}
+	if len(failures) != 0 {
+		t.Fatalf("invalid command should not create runtime source failures: %+v", failures)
 	}
 }

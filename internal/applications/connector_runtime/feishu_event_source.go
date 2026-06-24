@@ -33,6 +33,11 @@ type FeishuEventSourceConfig struct {
 	FailureStore    SourceFailureStore
 }
 
+type FeishuEventSourceRetryPolicy struct {
+	MaxAttempts int
+	Backoff     time.Duration
+}
+
 type FeishuMessageReceiveEvent struct {
 	ChatID      string `json:"chat_id"`
 	ChatType    string `json:"chat_type"`
@@ -159,6 +164,76 @@ func ConsumeFeishuEventSource(ctx context.Context, config FeishuEventSourceConfi
 	return nil
 }
 
+func ConsumeFeishuEventSourceWithRetry(ctx context.Context, config FeishuEventSourceConfig, retry FeishuEventSourceRetryPolicy, diagnostics io.Writer, handle func(ExternalEvent) error) error {
+	if handle == nil {
+		return errors.New("Feishu event source handler is required")
+	}
+	if _, _, err := config.Command(); err != nil {
+		return err
+	}
+	return consumeFeishuEventSourceWithRetry(ctx, config, normalizeFeishuEventSourceRetryPolicy(retry), diagnostics, func() error {
+		return ConsumeFeishuEventSource(ctx, config, diagnostics, handle)
+	})
+}
+
+func consumeFeishuEventSourceWithRetry(ctx context.Context, config FeishuEventSourceConfig, retry FeishuEventSourceRetryPolicy, diagnostics io.Writer, consume func() error) error {
+	if consume == nil {
+		return errors.New("Feishu event source consume function is required")
+	}
+	retry = normalizeFeishuEventSourceRetryPolicy(retry)
+	var lastErr error
+	for attempt := 1; attempt <= retry.MaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := consume()
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		lastErr = err
+		if recordErr := recordFeishuSourceRuntimeFailure(ctx, config.FailureStore, config, attempt, err); recordErr != nil {
+			return recordErr
+		}
+		if attempt == retry.MaxAttempts {
+			break
+		}
+		if diagnostics != nil {
+			fmt.Fprintf(diagnostics, "Feishu event source attempt %d failed: %s; retrying\n", attempt, SafeCLIProbeExcerpt([]byte(err.Error())))
+		}
+		if err := sleepFeishuEventSourceBackoff(ctx, retry.Backoff); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("Feishu event source failed after %d attempt(s): %w", retry.MaxAttempts, lastErr)
+}
+
+func normalizeFeishuEventSourceRetryPolicy(retry FeishuEventSourceRetryPolicy) FeishuEventSourceRetryPolicy {
+	if retry.MaxAttempts <= 0 {
+		retry.MaxAttempts = 1
+	}
+	if retry.Backoff < 0 {
+		retry.Backoff = 0
+	}
+	return retry
+}
+
+func sleepFeishuEventSourceBackoff(ctx context.Context, backoff time.Duration) error {
+	if backoff <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(backoff)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 func processFeishuEventStdout(ctx context.Context, reader io.Reader, diagnostics io.Writer, ignoredSenderIDs map[string]struct{}, failureStore SourceFailureStore, handle func(ExternalEvent) error) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -183,6 +258,28 @@ func processFeishuEventStdout(ctx context.Context, reader io.Reader, diagnostics
 		}
 	}
 	return scanner.Err()
+}
+
+func recordFeishuSourceRuntimeFailure(ctx context.Context, store SourceFailureStore, config FeishuEventSourceConfig, attempt int, cause error) error {
+	if store == nil {
+		return nil
+	}
+	eventKey := strings.TrimSpace(config.EventKey)
+	if eventKey == "" {
+		eventKey = DefaultFeishuMessageEventKey
+	}
+	detail := fmt.Sprintf("attempt %d: %s", attempt, SafeCLIProbeExcerpt([]byte(cause.Error())))
+	record := SourceFailureRecord{
+		Connector:        "feishu",
+		EventSource:      eventKey,
+		Reason:           "source_runtime_error",
+		Detail:           detail,
+		SourceValidation: SourceValidationUnchecked,
+	}
+	if err := store.RecordSourceFailure(ctx, record); err != nil {
+		return fmt.Errorf("record Feishu source runtime failure: %w", err)
+	}
+	return nil
 }
 
 func recordFeishuSourceFailure(ctx context.Context, store SourceFailureStore, rawLine string, cause error) error {

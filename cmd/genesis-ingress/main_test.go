@@ -140,6 +140,31 @@ func TestFeishuListenRequiresExplicitProfileBeforeKernelCall(t *testing.T) {
 	}
 }
 
+func TestFeishuListenRejectsInvalidSourceRetryBeforeKernelCall(t *testing.T) {
+	var submitCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		submitCount++
+		t.Fatalf("kernel should not be called when source retry config is invalid; got %s %s", r.Method, r.URL.Path)
+	}))
+	t.Cleanup(server.Close)
+
+	err := runWithIO(context.Background(), []string{
+		"feishu-listen",
+		"--profile", "genesis",
+		"--source-attempts", "0",
+		"--kernel-url", server.URL,
+	}, strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("runWithIO should reject invalid source attempts")
+	}
+	if !strings.Contains(err.Error(), "source-attempts") {
+		t.Fatalf("error = %v, want source-attempts rejection", err)
+	}
+	if submitCount != 0 {
+		t.Fatalf("submit count = %d, want 0", submitCount)
+	}
+}
+
 func TestFeishuProbeReportsInstalledAdapterReadiness(t *testing.T) {
 	var stdout bytes.Buffer
 	if err := runWithIO(context.Background(), []string{
