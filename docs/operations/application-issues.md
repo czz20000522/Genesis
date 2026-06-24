@@ -31,6 +31,9 @@ Genesis Kernel. Kernel primitive gaps belong in
 - Status: open.
 - Requirement: `docs/applications/application-connector-runtime-requirement.md`.
 - Design: `docs/applications/application-connector-runtime-design.md`.
+- Kernel/owner pressure: connector-owned outbox/action/receipt execution
+  boundary and external adapter process hygiene without kernel ownership of
+  Feishu or raw CLI protocol details.
 - 标题: Connector external command output must be bounded before parsing.
 - 问题: Application Connector Runtime already records normalized connector actions, results, and delivery receipts instead of persisting raw external commands, but the in-process external CLI runner still captures command output with `CombinedOutput()` before the adapter parses or truncates it. That leaves Feishu/lark-cli and future connector drivers able to return arbitrarily large stdout/stderr into process memory before `firstStringAtJSONPath`, `firstSafeExternalActionRef`, or `SafeCLIProbeExcerpt` can trim the visible projection.
 - 建议: Replace the shared connector `OSCommandRunner` capture path with a bounded runner that mirrors the existing `ConnectorCommandAdapter` capped stdout/stderr behavior. The runner should cap captured output before returning bytes, expose a truncation flag or stable failure reason, redact credential-shaped diagnostics for operator-visible failure summaries, and preserve direct-argv execution without shell strings. Add tests for oversized successful stdout, oversized stderr on command failure, and oversized output returned through both `CommandTemplateDriver` and `cmd/genesis-feishu-connector-adapter`.
