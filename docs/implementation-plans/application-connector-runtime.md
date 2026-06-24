@@ -128,21 +128,28 @@ Current automated coverage includes:
 - Real Feishu listener/poller hardening and signature verification remain
   Phase C and are governed by
   `docs/applications/connector-source-supervisor-requirement.md` and
-  `docs/applications/connector-source-supervisor-design.md`. The first Feishu
-  event-source driver now wraps `lark-cli event
-  consume im.message.receive_v1` and maps its flattened NDJSON into
-  `ExternalEvent`, and the connector-local source supervisor store now records
-  `SourceRun`, `SourceAttempt`, `SourceCursor`, and blocked readiness state. It
-  is still a bounded smoke driver: it does not yet make source validation
-  verified, and the hardcoded event command shape must move behind connector
-  driver configuration or an external adapter process before production.
+  `docs/applications/connector-source-supervisor-design.md`. Source intake now
+  uses the `source_command` typed streaming boundary: connector runtime starts a
+  source adapter process, consumes source frames, and records `SourceRun`,
+  `SourceAttempt`, `SourceCursor`, `SourceFailureRecord`, and
+  `SourceVerificationEvidence` state. The Feishu source adapter command owns
+  `lark-cli event consume` and raw Feishu payload parsing, then emits typed
+  source frames. This is still a bounded smoke-grade source path: it does not
+  yet make source validation verified and does not provide a production process
+  supervisor, webhook signature verification, or credential/profile refresh.
+  Runtime source code must not know Feishu event consume argv, identity flags,
+  event keys, or raw source payload envelopes.
   `genesis-ingress feishu-probe` now gives operators a no-side-effect
   installed-adapter readiness report for the event source and ordinary final
   delivery surfaces. Webhook signature verification, durable source dead-letter
   records, credential/profile refresh integration, and production source
-  supervision remain open. The explicit
-  `--source-attempts` / `--source-backoff` wrapper is a smoke-grade retry slice,
-  not the final process supervisor.
+  supervision remain open.
+- `source_command` is not `connector_command` and is not an argv template. It
+  is a long-running source process stream with `source.ready`, `source.event`,
+  `source.cursor`, `source.failed`, and `source.stopped` frames. Cursors persist
+  only after durable event acceptance, malformed frames become redacted source
+  failures, and `source_validation=verified` requires inspectable verification
+  evidence.
 - Real credential store integration for connector adapters remains future work.
 - The file-backed outbox store is still local connector infrastructure. It now
   protects bounded cross-process smoke writes, but a future production store,

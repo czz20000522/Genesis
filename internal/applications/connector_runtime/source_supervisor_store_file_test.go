@@ -20,7 +20,7 @@ func TestFileSourceSupervisorStorePersistsRunAttemptAndCursor(t *testing.T) {
 	run := SourceRun{
 		SourceID:    "source_feishu_events",
 		Connector:   "feishu",
-		AdapterRef:  "lark-cli:event.consume",
+		AdapterRef:  "feishu-source-adapter",
 		Status:      SourceRunStatusStarting,
 		StartedAt:   now,
 		LastReadyAt: now,
@@ -88,7 +88,7 @@ func TestFileSourceSupervisorStoreRejectsModelVisibleVerifiedWithoutEvidence(t *
 		SourceEventRef:   "evt_without_evidence",
 		ValidationStatus: SourceValidationVerified,
 		CheckedAt:        time.Date(2026, 6, 24, 14, 30, 0, 0, time.UTC),
-		AdapterRef:       "lark-cli:event.consume",
+		AdapterRef:       "feishu-source-adapter",
 	})
 	if err == nil {
 		t.Fatal("RecordSourceVerification should reject verified status without evidence kind and ref")
@@ -107,7 +107,7 @@ func TestFileSourceSupervisorStoreKeepsRunStartedAtAcrossStatusUpdates(t *testin
 	run := SourceRun{
 		SourceID:   "source_feishu_events",
 		Connector:  "feishu",
-		AdapterRef: "lark-cli:event.consume",
+		AdapterRef: "feishu-source-adapter",
 		Status:     SourceRunStatusStarting,
 		StartedAt:  startedAt,
 		UpdatedAt:  startedAt,

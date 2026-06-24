@@ -24,6 +24,7 @@ type InspectionReport struct {
 	SourceRuns     []connectorruntime.SourceRun                  `json:"source_runs,omitempty"`
 	SourceAttempts map[string][]connectorruntime.SourceAttempt   `json:"source_attempts,omitempty"`
 	SourceCursors  []connectorruntime.SourceCursor               `json:"source_cursors,omitempty"`
+	SourceEvidence []connectorruntime.SourceVerificationEvidence `json:"source_verification_evidence,omitempty"`
 	Receipts       map[string][]connectorruntime.DeliveryReceipt `json:"receipts"`
 	KernelSessions map[string]json.RawMessage                    `json:"kernel_sessions,omitempty"`
 	KernelErrors   map[string]string                             `json:"kernel_errors,omitempty"`
@@ -208,11 +209,16 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 	if err != nil {
 		return InspectionReport{}, err
 	}
+	sourceEvidence, err := sourceSupervisorStore.ListSourceVerifications(ctx)
+	if err != nil {
+		return InspectionReport{}, err
+	}
 	inbound = filterInbound(inbound, filters)
 	outbox = filterOutbox(outbox, filters)
 	sourceFailures = filterSourceFailures(sourceFailures, filters)
 	sourceRuns = filterSourceRuns(sourceRuns, filters)
 	sourceCursors = filterSourceCursors(sourceCursors, sourceRuns)
+	sourceEvidence = filterSourceEvidence(sourceEvidence, sourceRuns)
 	sourceAttempts := map[string][]connectorruntime.SourceAttempt{}
 	for _, run := range sourceRuns {
 		attempts, err := sourceSupervisorStore.ListSourceAttempts(ctx, run.SourceID)
@@ -239,6 +245,7 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 		SourceRuns:     sourceRuns,
 		SourceAttempts: sourceAttempts,
 		SourceCursors:  sourceCursors,
+		SourceEvidence: sourceEvidence,
 		Receipts:       receipts,
 	}
 	if strings.TrimSpace(kernelURL) != "" {
@@ -374,6 +381,23 @@ func filterSourceCursors(cursors []connectorruntime.SourceCursor, runs []connect
 	for _, cursor := range cursors {
 		if _, ok := allowed[cursor.SourceID]; ok {
 			filtered = append(filtered, cursor)
+		}
+	}
+	return filtered
+}
+
+func filterSourceEvidence(evidence []connectorruntime.SourceVerificationEvidence, runs []connectorruntime.SourceRun) []connectorruntime.SourceVerificationEvidence {
+	if len(runs) == 0 {
+		return nil
+	}
+	allowed := make(map[string]struct{}, len(runs))
+	for _, run := range runs {
+		allowed[run.AdapterRef] = struct{}{}
+	}
+	filtered := make([]connectorruntime.SourceVerificationEvidence, 0, len(evidence))
+	for _, item := range evidence {
+		if _, ok := allowed[item.AdapterRef]; ok {
+			filtered = append(filtered, item)
 		}
 	}
 	return filtered

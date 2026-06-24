@@ -10,10 +10,10 @@ const (
 )
 
 type FeishuAdapterProbeConfig struct {
-	Executable string
-	Profile    string
-	EventKey   string
-	Identity   string
+	Executable        string
+	Profile           string
+	SourceCommand     string
+	SourceCommandArgs []string
 }
 
 type FeishuAdapterProbeReport struct {
@@ -42,21 +42,18 @@ func ProbeFeishuAdapter(config FeishuAdapterProbeConfig) FeishuAdapterProbeRepor
 }
 
 func probeFeishuEventSource(config FeishuAdapterProbeConfig) ProbeSurfaceReport {
-	executable, args, err := (FeishuEventSourceConfig{
-		Executable: config.Executable,
-		Profile:    config.Profile,
-		EventKey:   config.EventKey,
-		Identity:   config.Identity,
-		MaxEvents:  1,
-		Timeout:    "1s",
-	}).Command()
+	command := strings.TrimSpace(config.SourceCommand)
+	if command == "" {
+		return ProbeSurfaceReport{Status: ProbeStatusFailed, Reason: "source_command_missing"}
+	}
+	executable, err := (SourceCommandAdapter{Executable: command}).resolveExecutable()
 	if err != nil {
 		return ProbeSurfaceReport{Status: ProbeStatusFailed, Reason: safeProbeReason(err.Error())}
 	}
 	return ProbeSurfaceReport{
 		Status:     ProbeStatusOK,
 		Executable: executable,
-		Args:       append([]string(nil), args...),
+		Args:       append([]string(nil), config.SourceCommandArgs...),
 	}
 }
 

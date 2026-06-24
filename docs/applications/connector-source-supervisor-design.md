@@ -14,6 +14,7 @@ External Source
         |
         v
 Source Adapter
+        | source_command NDJSON frames
         |
         v
 Source Supervisor
@@ -37,6 +38,12 @@ Genesis Kernel
 The supervisor owns source lifecycle and event authenticity evidence. It does
 not own application policy, session mapping, outbox delivery, or kernel facts.
 
+The source adapter owns external protocol translation. For Feishu, that means
+the adapter can know how to call `lark-cli`, an SDK, HTTP API, or webhook
+server. The connector runtime cannot know those command lines, protocol keys,
+payload envelopes, or credential mechanics. Its only inbound source interface is
+the typed `source_command` stream.
+
 ## Owner Responsibilities
 
 Source Supervisor owns:
@@ -47,6 +54,19 @@ Source Supervisor owns:
 - source cursor persistence and resume markers;
 - event validation classification: `verified`, `unchecked`, or `rejected`;
 - source failure records with bounded, redacted diagnostics.
+- validation of `source_command` frame shape before any `ExternalEvent` is
+  emitted.
+
+Source Adapter owns:
+
+- external source protocol details such as webhook body, CLI argv, SDK request,
+  HTTP response, platform event key, or identity flag;
+- protocol-specific parsing into source frames;
+- protocol-local readiness assertion frames;
+- protocol-local verification evidence assertion frames when it has evidence.
+
+The source adapter does not write connector stores, kernel ledger facts, memory
+facts, tool results, checkpoints, or outbox receipts.
 
 Application Connector Runtime owns:
 
@@ -108,6 +128,10 @@ Cursor values are connector-owned progress markers. They are not kernel truth,
 not public ids, and not model-visible. A cursor may be derived from offset,
 watermark, external message id, or adapter-specific checkpoint, but the
 connector must not expose the raw external cursor as a Genesis authority value.
+Cursor persistence is at-least-once. A cursor is persisted only after the event
+or batch it refers to has been durably accepted into connector-owned processing.
+If a cursor frame names an event the runtime did not accept, the runtime records
+a source failure and leaves cursor state unchanged.
 
 `SourceVerificationEvidence`:
 
@@ -123,6 +147,74 @@ adapter_ref
 `verified` requires explainable evidence. `unchecked` is the default when a
 source is operational but no authenticity evidence exists. `rejected` means the
 event was not accepted into connector request processing.
+
+Verification evidence must be inspectable before a real source can emit
+`source_validation=verified`. A write-only evidence path is not sufficient for
+production verification because operators and tests must be able to audit why a
+source event became trusted.
+
+## Source Command Boundary
+
+`source_command` is a long-running source adapter protocol. It is intentionally
+separate from outbound `connector_command`.
+
+```text
+Application Connector Runtime
+  -> starts SourceAdapter process
+  -> reads source_command NDJSON frames
+  -> validates frame shape and source identity
+  -> writes SourceRun / SourceAttempt / SourceCursor / SourceFailure /
+     SourceVerificationEvidence
+  -> emits ExternalEvent
+
+Feishu Source Adapter
+  -> owns lark-cli / SDK / HTTP / webhook details
+  -> emits source.ready / source.event / source.cursor / source.failed /
+     source.stopped frames
+```
+
+Frame kinds:
+
+```text
+source.ready:
+  source_id
+  connector
+  adapter_ref
+
+source.event:
+  source_id
+  event
+  verification_evidence?   # required when event.source_validation=verified
+  cursor?                  # candidate cursor, saved only after event accept
+
+source.cursor:
+  source_id
+  cursor
+  after_event_id           # must refer to an accepted source event
+
+source.failed:
+  source_id
+  connector
+  event_source
+  reason
+  detail
+  payload_hash?
+  payload_size_bytes?
+
+source.stopped:
+  source_id
+  reason?
+```
+
+Unknown frame kind, malformed JSON, unknown fields, unsafe diagnostic content,
+missing required fields, a verified event without evidence, or a cursor that
+does not follow an accepted event fails closed. The runtime records a redacted
+`SourceFailureRecord` and does not emit an `ExternalEvent`.
+
+`source_id` is stable source identity. Profile, account, credential, token, or
+adapter process configuration is binding/readiness state, not part of the
+stable source id unless changing it truly means the external message source is a
+different historical stream.
 
 `SourceFailureRecord`:
 
@@ -202,9 +294,9 @@ They are related but not the same owner responsibility.
 - Kernel receives only the final application request and does not know source
   cursor details.
 
-Cursor advancement must be conservative. If an event cannot be parsed or
-validated, the supervisor records a source failure before deciding whether the
-cursor can advance. The exact cursor strategy is adapter-specific, but the
+Cursor advancement must be conservative. If an event cannot be parsed,
+validated, or durably accepted, the supervisor records a source failure and does
+not advance the cursor. The exact cursor strategy is adapter-specific, but the
 durable fact must stay connector-local.
 
 ## Credential And Profile Readiness
@@ -285,6 +377,15 @@ authenticity evidence must be normalized before entering the core runtime.
 - Keeping a `while true lark-cli` loop as the production supervisor. Rejected
   because it lacks source run, attempt, cursor, readiness, and failure
   semantics.
+- Moving `lark-cli event consume ...` into an argv or string-template
+  configuration. Rejected because it preserves protocol drift, argument
+  escaping, output-shape, and credential handling problems inside Genesis
+  runtime configuration. Feishu command syntax belongs to a Feishu source
+  adapter implementation behind typed frames.
+- Reusing outbound `connector_command` for inbound source streams. Rejected
+  because outbound actions are bounded request/result calls, while inbound
+  sources are long-running lifecycle, event, cursor, verification, and failure
+  streams.
 - Persisting raw malformed payloads as source facts. Rejected because durable
   facts must be sparse, redacted, and bounded; raw payload belongs only in
   restricted debug/resource storage when explicitly enabled.

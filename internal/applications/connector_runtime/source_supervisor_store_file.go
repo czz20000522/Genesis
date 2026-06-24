@@ -21,6 +21,7 @@ type SourceSupervisorStore interface {
 	GetSourceCursor(context.Context, string, string) (SourceCursor, bool, error)
 	ListSourceCursors(context.Context) ([]SourceCursor, error)
 	RecordSourceVerification(context.Context, SourceVerificationEvidence) error
+	ListSourceVerifications(context.Context) ([]SourceVerificationEvidence, error)
 }
 
 type FileSourceSupervisorStore struct {
@@ -166,6 +167,24 @@ func (s *FileSourceSupervisorStore) RecordSourceVerification(ctx context.Context
 		s.verifications[evidence.SourceEventRef] = evidence
 		return s.writeLocked()
 	})
+}
+
+func (s *FileSourceSupervisorStore) ListSourceVerifications(ctx context.Context) ([]SourceVerificationEvidence, error) {
+	var evidence []SourceVerificationEvidence
+	err := s.withLockedState(ctx, func() error {
+		evidence = make([]SourceVerificationEvidence, 0, len(s.verifications))
+		for _, item := range s.verifications {
+			evidence = append(evidence, item)
+		}
+		sort.Slice(evidence, func(i, j int) bool {
+			if !evidence[i].CheckedAt.Equal(evidence[j].CheckedAt) {
+				return evidence[i].CheckedAt.Before(evidence[j].CheckedAt)
+			}
+			return evidence[i].SourceEventRef < evidence[j].SourceEventRef
+		})
+		return nil
+	})
+	return evidence, err
 }
 
 func (s *FileSourceSupervisorStore) load() error {

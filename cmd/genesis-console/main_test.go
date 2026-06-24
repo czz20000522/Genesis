@@ -280,7 +280,7 @@ func TestConsoleInspectIncludesFilteredSourceFailures(t *testing.T) {
 	if err := store.RecordSourceFailure(ctx, connectorruntime.SourceFailureRecord{
 		RecordID:          "failure_keep",
 		Connector:         "feishu",
-		EventSource:       connectorruntime.DefaultFeishuMessageEventKey,
+		EventSource:       "feishu.message.receive",
 		Reason:            "malformed_source_event",
 		Detail:            "missing sender",
 		DiagnosticExcerpt: "missing sender; source_bytes=42",
@@ -338,7 +338,7 @@ func TestConsoleInspectIncludesSourceSupervisorState(t *testing.T) {
 	sourceRun := connectorruntime.SourceRun{
 		SourceID:    "source_feishu_events",
 		Connector:   "feishu",
-		AdapterRef:  "lark-cli:event.consume",
+		AdapterRef:  "feishu-source-adapter",
 		Status:      connectorruntime.SourceRunStatusReady,
 		StartedAt:   now,
 		LastReadyAt: now.Add(time.Second),
@@ -365,6 +365,16 @@ func TestConsoleInspectIncludesSourceSupervisorState(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveSourceCursor returned error: %v", err)
 	}
+	if err := store.RecordSourceVerification(ctx, connectorruntime.SourceVerificationEvidence{
+		SourceEventRef:   "evt_123",
+		ValidationStatus: connectorruntime.SourceValidationVerified,
+		EvidenceKind:     "trusted_adapter_assertion",
+		EvidenceRef:      "evidence_123",
+		CheckedAt:        now.Add(4 * time.Second),
+		AdapterRef:       "feishu-source-adapter",
+	}); err != nil {
+		t.Fatalf("RecordSourceVerification returned error: %v", err)
+	}
 
 	var stdout bytes.Buffer
 	if err := run(ctx, []string{
@@ -389,6 +399,9 @@ func TestConsoleInspectIncludesSourceSupervisorState(t *testing.T) {
 	}
 	if len(got.SourceCursors) != 1 || got.SourceCursors[0].CursorValue != "evt_123" {
 		t.Fatalf("source cursors = %+v, want connector-local cursor", got.SourceCursors)
+	}
+	if len(got.SourceEvidence) != 1 || got.SourceEvidence[0].EvidenceRef != "evidence_123" {
+		t.Fatalf("source verification evidence = %+v, want inspectable source evidence", got.SourceEvidence)
 	}
 }
 

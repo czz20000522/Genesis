@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"genesis/internal/applications/connector_runtime"
 )
@@ -68,42 +67,31 @@ func runOnce(ctx context.Context, args []string, defaultChannel string, printFin
 func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 	fs := flag.NewFlagSet("feishu-listen", flag.ContinueOnError)
 	flags := registerCommonFlags(fs, "feishu")
-	profile := fs.String("profile", "", "explicit lark-cli profile used by the Feishu event source")
+	profile := fs.String("profile", "", "explicit lark-cli profile used only when --deliver-final uses the built-in Feishu delivery driver")
 	stdinJSONL := fs.Bool("stdin-jsonl", false, "read ExternalEvent NDJSON from stdin")
-	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable for Feishu event source")
-	eventKey := fs.String("event-key", connectorruntime.DefaultFeishuMessageEventKey, "Feishu event key to consume")
-	eventIdentity := fs.String("as", "bot", "Feishu event source identity: bot, user, or auto")
-	maxEvents := fs.Int("max-events", 0, "stop Feishu event source after N events; 0 means unlimited")
-	eventTimeout := fs.String("event-timeout", "", "stop Feishu event source after duration such as 30s or 10m")
-	sourceAttempts := fs.Int("source-attempts", 1, "maximum Feishu event source attempts after recoverable runtime failures")
-	sourceBackoff := fs.String("source-backoff", "1s", "backoff between Feishu event source retry attempts")
+	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable for built-in Feishu final delivery")
+	sourceCommand := fs.String("source-command", "", "direct source adapter executable that emits source_command NDJSON frames")
+	sourceID := fs.String("source-id", "feishu.im.message.receive", "stable connector source id; do not include profile or credential material")
+	sourceAdapterRef := fs.String("source-adapter-ref", "feishu-source-adapter", "connector-local source adapter reference")
 	deliverFinal := fs.Bool("deliver-final", false, "enqueue and deliver kernel final_text back through the connector outbox")
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
 	sourceFailurePath := fs.String("source-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_STATE", filepath.Join(".genesis_ingress", "source_failures.json")), "connector source failure state file")
 	sourceSupervisorPath := fs.String("source-supervisor-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_SUPERVISOR_STATE", filepath.Join(".genesis_ingress", "source_supervisor.json")), "connector source supervisor state file")
 	var ignoreSenderIDs stringListFlag
 	fs.Var(&ignoreSenderIDs, "ignore-sender-id", "external sender id to ignore before kernel submission; repeatable")
+	var sourceCommandArgs stringListFlag
+	fs.Var(&sourceCommandArgs, "source-command-arg", "argument passed to the source adapter executable; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
-	}
-	if strings.TrimSpace(*profile) == "" {
-		return fmt.Errorf("feishu-listen requires explicit --profile")
-	}
-	if *sourceAttempts < 1 {
-		return fmt.Errorf("feishu-listen --source-attempts must be at least 1")
-	}
-	parsedSourceBackoff, err := time.ParseDuration(strings.TrimSpace(*sourceBackoff))
-	if err != nil {
-		return fmt.Errorf("parse --source-backoff: %w", err)
-	}
-	if parsedSourceBackoff < 0 {
-		return fmt.Errorf("feishu-listen --source-backoff must be non-negative")
 	}
 	_, runtime, err := buildRuntime(flags, stdin)
 	if err != nil {
 		return err
 	}
 	if *deliverFinal {
+		if strings.TrimSpace(*profile) == "" {
+			return fmt.Errorf("feishu-listen --deliver-final requires explicit --profile")
+		}
 		if err := configureFeishuFinalDelivery(runtime, *outboxPath, *profile, *larkCLI); err != nil {
 			return err
 		}
@@ -119,22 +107,18 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	if err != nil {
 		return err
 	}
-	sourceConfig := connectorruntime.FeishuEventSourceConfig{
-		Executable:      *larkCLI,
-		Profile:         *profile,
-		EventKey:        *eventKey,
-		Identity:        *eventIdentity,
-		MaxEvents:       *maxEvents,
-		Timeout:         *eventTimeout,
-		IgnoreSenderIDs: append([]string(nil), ignoreSenderIDs...),
-		FailureStore:    sourceFailureStore,
-		SourceStore:     sourceSupervisorStore,
-	}
 	encoder := json.NewEncoder(stdout)
-	return connectorruntime.ConsumeFeishuEventSourceWithRetry(ctx, sourceConfig, connectorruntime.FeishuEventSourceRetryPolicy{
-		MaxAttempts: *sourceAttempts,
-		Backoff:     parsedSourceBackoff,
-	}, stderr, func(event connectorruntime.ExternalEvent) error {
+	adapter := connectorruntime.SourceCommandAdapter{
+		Executable:      *sourceCommand,
+		Args:            append([]string(nil), sourceCommandArgs...),
+		SourceID:        *sourceID,
+		Connector:       "feishu",
+		AdapterRef:      *sourceAdapterRef,
+		SourceStore:     sourceSupervisorStore,
+		FailureStore:    sourceFailureStore,
+		IgnoreSenderIDs: append([]string(nil), ignoreSenderIDs...),
+	}
+	return adapter.Consume(ctx, func(event connectorruntime.ExternalEvent) error {
 		result, err := runtime.ProcessExternalEvent(ctx, event)
 		if encodeErr := encoder.Encode(result); encodeErr != nil {
 			return encodeErr
@@ -147,16 +131,17 @@ func runFeishuProbe(_ context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("feishu-probe", flag.ContinueOnError)
 	profile := fs.String("profile", "", "explicit lark-cli profile used by the Feishu connector probe")
 	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable for Feishu connector probe")
-	eventKey := fs.String("event-key", connectorruntime.DefaultFeishuMessageEventKey, "Feishu event key to validate")
-	eventIdentity := fs.String("as", "bot", "Feishu event source identity: bot, user, or auto")
+	sourceCommand := fs.String("source-command", "", "direct source adapter executable to validate")
+	var sourceCommandArgs stringListFlag
+	fs.Var(&sourceCommandArgs, "source-command-arg", "argument passed to the source adapter executable; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	report := connectorruntime.ProbeFeishuAdapter(connectorruntime.FeishuAdapterProbeConfig{
-		Executable: *larkCLI,
-		Profile:    *profile,
-		EventKey:   *eventKey,
-		Identity:   *eventIdentity,
+		Executable:        *larkCLI,
+		Profile:           *profile,
+		SourceCommand:     *sourceCommand,
+		SourceCommandArgs: append([]string(nil), sourceCommandArgs...),
 	})
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")

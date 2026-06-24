@@ -63,10 +63,12 @@ Operators inspect source runs, source attempts, readiness, blocked reasons,
 source failures, cursor state, and validation status before trusting an inbound
 connector flow.
 
-Source adapters translate one external source protocol into connector source
-records. They may use a webhook server, polling loop, event stream, external
-adapter process, SDK, or command template, but they do not own application
-policy or kernel submission.
+Source adapters translate one external source protocol into typed source
+frames. They may internally use a webhook server, polling loop, event stream,
+external SDK, HTTP API, or CLI, but those protocol details stay inside the
+adapter implementation. The connector runtime consumes the `source_command`
+stream contract; it does not own Feishu, WeChat, email, webhook, or CLI command
+syntax.
 
 The Source Supervisor owns source lifecycle, retry, readiness, event validation
 classification, source failure records, and source cursor persistence.
@@ -124,6 +126,32 @@ other source progress marker. It is not kernel truth, not model-visible, and not
 an application identity. It exists only to resume source intake without
 duplicating external events.
 
+Cursor semantics are at-least-once plus connector dedupe. A source adapter may
+emit cursor candidates, but the runtime may persist a cursor only after the
+corresponding source event has been durably accepted into connector-owned
+processing. A cursor frame that refers to an event the runtime did not accept is
+a source failure, not progress.
+
+`source_id` identifies the stable external message source. It must not include
+short-lived credential or profile material when that material can refresh
+without changing the source's historical identity. Profile, account, tenant,
+and token posture belong to adapter binding and readiness evidence.
+
+`source_command` is the long-running inbound adapter boundary. It is separate
+from outbound `connector_command` because the interaction shape is different:
+
+```text
+source_command:     long-running process -> source.ready / source.event /
+                    source.cursor / source.failed / source.stopped frames
+connector_command:  ConnectorAction request -> ConnectorActionResult
+```
+
+The source command process emits newline-delimited JSON frames. The runtime
+validates frame shape, records source lifecycle facts, records verification
+evidence, records bounded failures, and emits normalized `ExternalEvent` values.
+The adapter cannot write connector stores, kernel ledger facts, memory facts,
+tool results, checkpoints, or outbox receipts.
+
 `SourceFailureRecord` is the durable source failure fact. It may store reason
 code, redacted summary, hash, payload size, source run reference, source attempt
 reference, and optional debug or resource reference. It must not store raw
@@ -173,9 +201,16 @@ projection in connector-local storage. A smoke Feishu source can remain
 
 ### Phase C: Source Adapter Boundary
 
-Move hardcoded source command shape behind connector driver configuration or a
-`connector_command` external adapter process. Runtime code owns typed source
-records, not Feishu CLI argv or raw SDK payloads.
+Replace hardcoded source command shape with the `source_command` typed streaming
+boundary. Runtime code starts a source adapter process, validates typed frames,
+records `SourceRun`, `SourceAttempt`, `SourceCursor`, `SourceFailureRecord`, and
+`SourceVerificationEvidence`, and emits normalized `ExternalEvent` values. It
+does not know `lark-cli event consume`, Feishu event keys, identity flags, SDK
+payloads, webhook body shapes, or other external source protocol details.
+
+The first Feishu source adapter may internally use `lark-cli`, SDK, HTTP, or
+webhook details, but those details are adapter-owned and observable to the
+runtime only through source frames.
 
 ### Phase D: Event Verification
 
@@ -198,8 +233,12 @@ state only and cannot fabricate kernel facts.
 - A malformed or rejected source payload writes a redacted `SourceFailureRecord`
   with reason code, hash, size, source run reference, and optional debug/resource
   reference, but no raw payload in durable facts.
+- A malformed source frame writes a redacted `SourceFailureRecord` and does not
+  emit an `ExternalEvent`.
 - Source cursor progress can resume intake without duplicating external events,
   while remaining connector-local and model-invisible.
+- Source cursor progress advances only after the referenced event has been
+  durably accepted by connector-owned processing.
 - Missing, expired, or revoked profile/credential state blocks or degrades the
   source before kernel submission.
 - The supervisor emits `ExternalEvent` values but does not create request
@@ -207,3 +246,8 @@ state only and cannot fabricate kernel facts.
   context.
 - External source identity and source validation status do not grant kernel
   permission, sandbox, credential, memory, or tool authority.
+- Runtime source code contains no Feishu-specific event consume argv, identity
+  flag, event key, or source protocol parser; those live only in Feishu source
+  adapter code.
+- `SourceVerificationEvidence` is inspectable before any source is allowed to
+  produce `source_validation=verified` events.

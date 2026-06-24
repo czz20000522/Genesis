@@ -52,7 +52,7 @@ func TestFileSourceFailureStoreRedactsCredentialShapedDiagnostics(t *testing.T) 
 	}
 	if err := store.RecordSourceFailure(ctx, SourceFailureRecord{
 		Connector:         "feishu",
-		EventSource:       DefaultFeishuMessageEventKey,
+		EventSource:       "feishu.message.receive",
 		Reason:            "source_runtime_error",
 		Detail:            "Authorization: Bearer sk-secret",
 		DiagnosticExcerpt: "token=sk-secret",
@@ -81,7 +81,7 @@ func TestFileSourceFailureStoreRedactsStructuredRawDiagnostics(t *testing.T) {
 	}
 	if err := store.RecordSourceFailure(ctx, SourceFailureRecord{
 		Connector:         "feishu",
-		EventSource:       DefaultFeishuMessageEventKey,
+		EventSource:       "feishu.message.receive",
 		Reason:            "malformed_source_event",
 		Detail:            `{"event_id":"evt_secret","content":"private body"}`,
 		DiagnosticExcerpt: `{"chat_id":"oc_secret","text":"private body"}`,
@@ -105,7 +105,7 @@ func testSourceFailureRecord(id string, detail string) SourceFailureRecord {
 	return SourceFailureRecord{
 		RecordID:          "source_failure_" + id,
 		Connector:         "feishu",
-		EventSource:       DefaultFeishuMessageEventKey,
+		EventSource:       "feishu.message.receive",
 		Reason:            "malformed_source_event",
 		Detail:            detail,
 		DiagnosticExcerpt: detail + "; source_bytes=12",

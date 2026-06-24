@@ -82,14 +82,22 @@ or model-owned external credential. CLI-backed adapters should translate
 process; connector runtime code should not become a permanent collection of
 hardcoded external CLI commands.
 
-The long-lived adapter process boundary is `connector_command`. The connector
-runtime sends typed `ConnectorAction` JSON to a configured external adapter
-process and accepts typed `ConnectorActionResult` JSON back. The runtime then
-validates the result and writes `DeliveryReceipt`. `command_template` is only a
-transitional CLI driver for early connector smoke tests; it is not the stable
-Genesis protocol. Genesis stores normalized action, result, and receipt facts,
-not external command lines, raw stdout, raw stderr, SDK payloads, or vendor
-HTTP responses.
+The long-lived outbound adapter process boundary is `connector_command`. The
+connector runtime sends typed `ConnectorAction` JSON to a configured external
+adapter process and accepts typed `ConnectorActionResult` JSON back. The runtime
+then validates the result and writes `DeliveryReceipt`. `command_template` is
+only a transitional CLI driver for early connector smoke tests; it is not the
+stable Genesis protocol.
+
+The long-running inbound source adapter process boundary is `source_command`.
+It is not the same protocol as `connector_command`: source adapters emit typed
+`source.ready`, `source.event`, `source.cursor`, `source.failed`, and
+`source.stopped` NDJSON frames. The connector runtime validates frames and
+writes source lifecycle, failure, cursor, and verification facts. Feishu,
+WeChat, email, webhook, SDK, HTTP, or CLI details stay in source adapter code,
+not in connector runtime. Genesis stores normalized source, action, result, and
+receipt facts, not external command lines, raw stdout, raw stderr, SDK payloads,
+or vendor HTTP responses.
 
 Application issues belong in `docs/operations/application-issues.md`. Kernel
 issues remain in `docs/operations/kernel-issues.md`.

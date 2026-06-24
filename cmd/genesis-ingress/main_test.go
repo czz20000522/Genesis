@@ -112,11 +112,11 @@ func TestFeishuListenConsumesNDJSONEventsAndDedupes(t *testing.T) {
 	}
 }
 
-func TestFeishuListenRequiresExplicitProfileBeforeKernelCall(t *testing.T) {
+func TestFeishuListenDeliverFinalRequiresExplicitProfileBeforeKernelCall(t *testing.T) {
 	var submitCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		submitCount++
-		t.Fatalf("kernel should not be called when profile is missing; got %s %s", r.Method, r.URL.Path)
+		t.Fatalf("kernel should not be called when final delivery profile is missing; got %s %s", r.Method, r.URL.Path)
 	}))
 	t.Cleanup(server.Close)
 
@@ -131,37 +131,49 @@ func TestFeishuListenRequiresExplicitProfileBeforeKernelCall(t *testing.T) {
 		"--runtime-token", "token",
 		"--state", filepath.Join(testsupport.ProjectTempDir(t, "feishu-listen-missing-profile"), "state.json"),
 		"--stdin-jsonl",
+		"--deliver-final",
 	}, &input, io.Discard, io.Discard)
 	if err == nil {
-		t.Fatal("runWithIO should reject missing explicit profile")
+		t.Fatal("runWithIO should reject missing explicit profile for final delivery")
 	}
 	if submitCount != 0 {
 		t.Fatalf("submit count = %d, want 0", submitCount)
 	}
 }
 
-func TestFeishuListenRejectsInvalidSourceRetryBeforeKernelCall(t *testing.T) {
+func TestFeishuListenMissingSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 	var submitCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		submitCount++
-		t.Fatalf("kernel should not be called when source retry config is invalid; got %s %s", r.Method, r.URL.Path)
+		t.Fatalf("kernel should not be called when source command is missing; got %s %s", r.Method, r.URL.Path)
 	}))
 	t.Cleanup(server.Close)
+	dir := testsupport.ProjectTempDir(t, "feishu-listen-missing-source-command")
+	sourceSupervisorPath := filepath.Join(dir, "source-supervisor.json")
 
 	err := runWithIO(context.Background(), []string{
 		"feishu-listen",
-		"--profile", "genesis",
-		"--source-attempts", "0",
 		"--kernel-url", server.URL,
+		"--source-id", "source_feishu_chat",
+		"--source-state", filepath.Join(dir, "source-failures.json"),
+		"--source-supervisor-state", sourceSupervisorPath,
 	}, strings.NewReader(""), io.Discard, io.Discard)
 	if err == nil {
-		t.Fatal("runWithIO should reject invalid source attempts")
-	}
-	if !strings.Contains(err.Error(), "source-attempts") {
-		t.Fatalf("error = %v, want source-attempts rejection", err)
+		t.Fatal("runWithIO should reject missing source command")
 	}
 	if submitCount != 0 {
 		t.Fatalf("submit count = %d, want 0", submitCount)
+	}
+	store, err := connectorruntime.NewFileSourceSupervisorStore(sourceSupervisorPath)
+	if err != nil {
+		t.Fatalf("NewFileSourceSupervisorStore returned error: %v", err)
+	}
+	runs, err := store.ListSourceRuns(context.Background())
+	if err != nil {
+		t.Fatalf("ListSourceRuns returned error: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Status != connectorruntime.SourceRunStatusBlocked || !strings.Contains(runs[0].BlockedReason, "source command executable") {
+		t.Fatalf("source runs = %+v, want blocked missing source command readiness record", runs)
 	}
 }
 
@@ -177,15 +189,14 @@ func TestFeishuListenInvalidSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 
 	err := runWithIO(context.Background(), []string{
 		"feishu-listen",
-		"--profile", "genesis",
-		"--event-key", "im.chat.updated_v1",
-		"--lark-cli", os.Args[0],
 		"--kernel-url", server.URL,
+		"--source-id", "source_feishu_chat",
+		"--source-command", "adapter --bad",
 		"--source-state", filepath.Join(dir, "source-failures.json"),
 		"--source-supervisor-state", sourceSupervisorPath,
 	}, strings.NewReader(""), io.Discard, io.Discard)
 	if err == nil {
-		t.Fatal("runWithIO should reject unsupported source event key")
+		t.Fatal("runWithIO should reject invalid source command executable")
 	}
 	if submitCount != 0 {
 		t.Fatalf("submit count = %d, want 0", submitCount)
@@ -198,8 +209,8 @@ func TestFeishuListenInvalidSourceCommandRecordsBlockedSourceRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSourceRuns returned error: %v", err)
 	}
-	if len(runs) != 1 || runs[0].Status != connectorruntime.SourceRunStatusBlocked || !strings.Contains(runs[0].BlockedReason, "unsupported Feishu event key") {
-		t.Fatalf("source runs = %+v, want blocked unsupported event key readiness record", runs)
+	if len(runs) != 1 || runs[0].Status != connectorruntime.SourceRunStatusBlocked || !strings.Contains(runs[0].BlockedReason, "direct executable") {
+		t.Fatalf("source runs = %+v, want blocked invalid source command readiness record", runs)
 	}
 }
 
@@ -209,6 +220,8 @@ func TestFeishuProbeReportsInstalledAdapterReadiness(t *testing.T) {
 		"feishu-probe",
 		"--profile", "genesis",
 		"--lark-cli", os.Args[0],
+		"--source-command", os.Args[0],
+		"--source-command-arg", "-test.run=TestHelper",
 	}, strings.NewReader(""), &stdout, io.Discard); err != nil {
 		t.Fatalf("runWithIO returned error: %v\n%s", err, stdout.String())
 	}
@@ -219,8 +232,8 @@ func TestFeishuProbeReportsInstalledAdapterReadiness(t *testing.T) {
 	if !got.Ready || got.EventSource.Status != connectorruntime.ProbeStatusOK || got.FinalDelivery.Status != connectorruntime.ProbeStatusOK {
 		t.Fatalf("probe report = %+v", got)
 	}
-	if !strings.Contains(strings.Join(got.EventSource.Args, " "), "event consume") {
-		t.Fatalf("event source args = %#v", got.EventSource.Args)
+	if strings.Contains(strings.Join(got.EventSource.Args, " "), "event consume") {
+		t.Fatalf("event source args must describe source adapter args, not lark-cli event syntax: %#v", got.EventSource.Args)
 	}
 	if !strings.Contains(strings.Join(got.FinalDelivery.Args, " "), "+messages-send") {
 		t.Fatalf("final delivery args = %#v", got.FinalDelivery.Args)
