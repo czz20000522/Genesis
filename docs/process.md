@@ -67,9 +67,9 @@ review.
 
 Design documents live as long as the owner boundary lives. They may record rejected alternatives, but they should not carry phase checklists, issue status, or patch evidence.
 
-Implementation plans are short-lived. They can contain phase checklists and temporary red lines while work is active. When a phase closes, keep only the summary needed to explain the delivered slice and the remaining production gap; move verification evidence to the retirement log.
+Implementation plans are short-lived. They can contain phase checklists and temporary red lines while work is active. When a phase closes, keep only the summary needed to explain the delivered slice and the remaining production gap; move only the compact retirement evidence needed to find the fixing commit.
 
-Issues are gap records. Completed issues leave the active issue ledger. Retirement entries keep fixing commits, verification, residual risk, and acceptance condition; they should cite the requirement and design instead of restating them.
+Issues are gap records. Completed issues leave the active issue ledger. Retirement entries stay compact: one sentence stating the retirement conclusion plus fixing commit evidence. Detailed fix summaries, verification transcripts, boundary proofs, and residual production gaps belong in the fixing commit, tests, requirements/designs, or still-active issues rather than in an ever-growing retirement log.
 
 Architecture, feature, directory, and document reviews are one periodic governance activity. They do not need to run for every implementation slice, but a scheduled or requested governance pass must check all four together:
 
@@ -92,7 +92,7 @@ For every non-trivial capability:
 6. Implement the smallest phase that can produce evidence.
 7. Run the implementation closing gate.
 8. Verify the phase and record the evidence.
-9. Move accepted issues out of the active issue ledger and into retirement evidence.
+9. Move accepted issues out of the active issue ledger and into compact retirement evidence.
 
 Obvious bugs and test gaps may skip a new requirement or design document when the current approved requirement/design already covers the expected behavior. The issue must state that it is using the bug/test-gap exception.
 
@@ -176,7 +176,7 @@ Every implementation slice must close with a requirement-by-requirement drift ch
 2. Check each production semantic, non-goal, red line, failure behavior, permission rule, recovery rule, projection rule, and phased "still short of production" claim against the actual code, tests, and docs touched by the slice.
 3. If a drift is small and inside the slice scope, fix it before committing.
 4. If a drift is real but outside the slice scope, add or update an active issue that cites the approved requirement/design, records the evidence, and states the next slice.
-5. If an old issue, implementation-plan note, or retirement entry now describes an obsolete temporary behavior as active, rewrite it to the current positive contract or mark it superseded in the retirement log.
+5. If an old issue, implementation-plan note, or retirement entry now describes an obsolete temporary behavior as active, rewrite it to the current positive contract or mark it superseded with a one-sentence retirement conclusion and fixing commit evidence.
 6. Only then run verification and commit.
 
 This gate is mandatory even when the code compiles and tests pass. Tests prove selected behavior; the closing gate checks whether the implementation, documentation, and issue ledger still describe the same architecture.
@@ -200,6 +200,8 @@ Every active issue must cite an approved requirement and design unless it is an 
 If no approved requirement or design exists, the next step is to write that document instead of implementing code.
 
 Implementation drift found during the closing gate must either be fixed before commit or recorded here as an active issue. Do not leave known drift only in chat, implementation-plan notes, or a local grep result.
+
+Retired issues should not accumulate implementation narrative. Keep the active issue detailed enough to drive the fix; once retired, replace it with a compact conclusion and commit evidence. If later readers need the full implementation context, they should use the cited commit, tests, and governing requirement/design instead of a duplicated retirement essay.
 
 ## Boundary Guard
 

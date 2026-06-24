@@ -6,9 +6,10 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 - `ready_for_acceptance` means the code and verification evidence are ready for user or operator acceptance, but the issue is not fully retired yet.
 - `retired` means the user or operator accepted the evidence. A retired issue must be absent from `kernel-issues.md`.
-- Every entry must include the issue id, title, fixing commits, verification evidence, residual risk, and retirement reason or retirement condition.
+- Every retired entry should be compact: one sentence with the retirement conclusion plus fixing commit evidence. Detailed fix summaries, full verification transcripts, residual production gaps, and boundary proofs belong in the cited commit, tests, requirements/designs, or still-active issues.
+- `ready_for_acceptance` entries may temporarily keep the focused evidence needed for acceptance. Compress them when they move to `Retired`.
 - Every `KERNEL-BOUNDARY-*` entry and every architecture-type `KERNEL-*` entry must retain either `Reference alignment` or `Rejected drift risk` when moved from the active ledger.
-- Entries summarize evidence. They should cite governing requirements and designs instead of copying the full production contract, raw debug output, stream chunks, or ordinary info logs.
+- Entries summarize evidence. They should cite governing requirements and designs only when needed to locate the source of truth; do not copy the full production contract, raw debug output, stream chunks, ordinary info logs, or issue history.
 - If an entry is reopened, move it back to `kernel-issues.md` and mark this log entry as reopened with the reason.
 
 ## Ready For Acceptance

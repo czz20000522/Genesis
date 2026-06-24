@@ -11,7 +11,9 @@ Genesis Kernel. Kernel primitive gaps belong in
 - Do not record kernel work here. If a gap requires a new kernel primitive,
   create or update the relevant kernel requirement/design/issue.
 - Completed issues leave this ledger and move to application retirement evidence
-  when such a log is needed.
+  when such a log is needed. Retirement evidence is compact: one sentence with
+  the retirement conclusion plus fixing commit evidence, not a repeated fix
+  summary or verification transcript.
 - Temporary or narrow implementation slices must name their retirement target.
   Once the approved primitive exists, retire the temporary package, tests, docs,
   and command references instead of preserving a second truth surface.
