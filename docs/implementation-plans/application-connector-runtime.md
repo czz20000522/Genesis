@@ -127,9 +127,10 @@ Phase B must add tests for:
   `ExternalEvent`, but it is still a bounded smoke driver: it does not yet make
   source validation verified, and the hardcoded event command shape must move
   behind connector driver configuration or an external adapter process before
-  production. Webhook signature verification, durable source dead-letter
-  records, backoff supervision, installed-adapter health probes, and production
-  source retry remain open.
+  production. `genesis-ingress feishu-probe` now gives operators a no-side-effect
+  installed-adapter readiness report for the event source and ordinary final
+  delivery surfaces. Webhook signature verification, durable source dead-letter
+  records, backoff supervision, and production source retry remain open.
 - Real credential store integration for connector adapters remains future work.
 - The file-backed outbox store is still local connector infrastructure. It now
   protects bounded cross-process smoke writes, but a future production store,

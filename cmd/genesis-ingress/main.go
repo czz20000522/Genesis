@@ -27,7 +27,7 @@ func run(ctx context.Context, args []string) error {
 
 func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: genesis-ingress <console-once|feishu-once|feishu-listen> [flags]")
+		return fmt.Errorf("usage: genesis-ingress <console-once|feishu-once|feishu-listen|feishu-probe> [flags]")
 	}
 	switch args[0] {
 	case "console-once":
@@ -36,6 +36,8 @@ func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout io.Wr
 		return runOnce(ctx, args[1:], "feishu", false, stdin, stdout)
 	case "feishu-listen":
 		return runFeishuListen(ctx, args[1:], stdin, stdout, stderr)
+	case "feishu-probe":
+		return runFeishuProbe(ctx, args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -117,6 +119,32 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		}
 		return err
 	})
+}
+
+func runFeishuProbe(_ context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("feishu-probe", flag.ContinueOnError)
+	profile := fs.String("profile", "", "explicit lark-cli profile used by the Feishu connector probe")
+	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable for Feishu connector probe")
+	eventKey := fs.String("event-key", connectorruntime.DefaultFeishuMessageEventKey, "Feishu event key to validate")
+	eventIdentity := fs.String("as", "bot", "Feishu event source identity: bot, user, or auto")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	report := connectorruntime.ProbeFeishuAdapter(connectorruntime.FeishuAdapterProbeConfig{
+		Executable: *larkCLI,
+		Profile:    *profile,
+		EventKey:   *eventKey,
+		Identity:   *eventIdentity,
+	})
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(report); err != nil {
+		return err
+	}
+	if !report.Ready {
+		return fmt.Errorf("Feishu connector probe failed")
+	}
+	return nil
 }
 
 func configureFeishuFinalDelivery(runtime *connectorruntime.Runtime, outboxPath string, profile string, executable string) error {

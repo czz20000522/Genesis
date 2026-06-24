@@ -123,6 +123,43 @@ func TestFeishuEventSourceCommandRejectsMissingProfile(t *testing.T) {
 	}
 }
 
+func TestProbeFeishuAdapterReportsEventSourceAndDeliveryReadiness(t *testing.T) {
+	report := ProbeFeishuAdapter(FeishuAdapterProbeConfig{
+		Executable: os.Args[0],
+		Profile:    "genesis",
+	})
+	if !report.Ready {
+		t.Fatalf("probe should be ready: %+v", report)
+	}
+	if report.EventSource.Status != ProbeStatusOK || report.FinalDelivery.Status != ProbeStatusOK {
+		t.Fatalf("probe surfaces = %+v", report)
+	}
+	if strings.TrimSpace(report.EventSource.Executable) == "" || strings.TrimSpace(report.FinalDelivery.Executable) == "" {
+		t.Fatalf("probe executables missing: %+v", report)
+	}
+	if !strings.Contains(strings.Join(report.EventSource.Args, " "), "event consume "+DefaultFeishuMessageEventKey) {
+		t.Fatalf("event source args = %#v", report.EventSource.Args)
+	}
+	if !strings.Contains(strings.Join(report.FinalDelivery.Args, " "), "im +messages-send") {
+		t.Fatalf("final delivery args = %#v", report.FinalDelivery.Args)
+	}
+}
+
+func TestProbeFeishuAdapterReportsMissingProfileWithoutExecuting(t *testing.T) {
+	report := ProbeFeishuAdapter(FeishuAdapterProbeConfig{
+		Executable: os.Args[0],
+	})
+	if report.Ready {
+		t.Fatalf("probe should not be ready without profile: %+v", report)
+	}
+	if report.EventSource.Status != ProbeStatusFailed || report.FinalDelivery.Status != ProbeStatusFailed {
+		t.Fatalf("probe surfaces = %+v", report)
+	}
+	if report.EventSource.Executable != "" || report.FinalDelivery.Executable != "" {
+		t.Fatalf("failed probe should not expose executable claims: %+v", report)
+	}
+}
+
 func TestFeishuEventSourceDiagnosticsRedactsCredentialShapedStderr(t *testing.T) {
 	var diagnostics bytes.Buffer
 	ready := make(chan struct{})

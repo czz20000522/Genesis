@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,6 +137,48 @@ func TestFeishuListenRequiresExplicitProfileBeforeKernelCall(t *testing.T) {
 	}
 	if submitCount != 0 {
 		t.Fatalf("submit count = %d, want 0", submitCount)
+	}
+}
+
+func TestFeishuProbeReportsInstalledAdapterReadiness(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runWithIO(context.Background(), []string{
+		"feishu-probe",
+		"--profile", "genesis",
+		"--lark-cli", os.Args[0],
+	}, strings.NewReader(""), &stdout, io.Discard); err != nil {
+		t.Fatalf("runWithIO returned error: %v\n%s", err, stdout.String())
+	}
+	var got connectorruntime.FeishuAdapterProbeReport
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("decode probe report: %v\n%s", err, stdout.String())
+	}
+	if !got.Ready || got.EventSource.Status != connectorruntime.ProbeStatusOK || got.FinalDelivery.Status != connectorruntime.ProbeStatusOK {
+		t.Fatalf("probe report = %+v", got)
+	}
+	if !strings.Contains(strings.Join(got.EventSource.Args, " "), "event consume") {
+		t.Fatalf("event source args = %#v", got.EventSource.Args)
+	}
+	if !strings.Contains(strings.Join(got.FinalDelivery.Args, " "), "+messages-send") {
+		t.Fatalf("final delivery args = %#v", got.FinalDelivery.Args)
+	}
+}
+
+func TestFeishuProbeRejectsMissingProfileWithoutKernelCall(t *testing.T) {
+	var stdout bytes.Buffer
+	err := runWithIO(context.Background(), []string{
+		"feishu-probe",
+		"--lark-cli", os.Args[0],
+	}, strings.NewReader(""), &stdout, io.Discard)
+	if err == nil {
+		t.Fatal("runWithIO should reject missing profile")
+	}
+	var got connectorruntime.FeishuAdapterProbeReport
+	if decodeErr := json.Unmarshal(stdout.Bytes(), &got); decodeErr != nil {
+		t.Fatalf("decode probe report: %v\n%s", decodeErr, stdout.String())
+	}
+	if got.Ready || got.EventSource.Status != connectorruntime.ProbeStatusFailed || got.FinalDelivery.Status != connectorruntime.ProbeStatusFailed {
+		t.Fatalf("probe report = %+v", got)
 	}
 }
 
