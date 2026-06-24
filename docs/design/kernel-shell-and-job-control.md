@@ -85,6 +85,58 @@ The job handle is a kernel-issued job event id, not a model-created id.
 
 Foreground shell interruption is capability-gated. If the active executor cannot attach foreground shell work into a managed job, the kernel cancels the foreground process and returns an interrupted tool result with `interrupt_reason=foreground_attach_unavailable_killed`. That fallback records the absence of attach support without exposing process ids, signals, or host process handles to the model or transport callers.
 
+## Foreground Attach Design
+
+Foreground attach is a future executor seam. The kernel must not infer attach
+support from the operating system or from a process id. It asks the active
+executor whether foreground attach is supported for the already-admitted
+operation.
+
+Current flow:
+
+```text
+foreground shell running
+  -> user/session interrupt
+  -> executor attach capability = false
+  -> kill foreground process
+  -> write interrupted operation/tool result
+  -> no managed job facts are forged
+```
+
+Future attach-capable flow:
+
+```text
+foreground shell running
+  -> user/session interrupt
+  -> executor attach capability = true
+  -> executor detaches foreground wait path
+  -> kernel allocates managed job handle and binds ownership
+  -> tool.result returns managed-job receipt
+  -> executor reports later job.output and terminal job facts
+```
+
+Attach result validation belongs to the kernel. The executor can report that it
+has attached a process stream, but it cannot choose job id, session id, turn id,
+tool id, checkpoint refs, permission mode, sandbox profile, or audit refs.
+
+Attach failure is neither command stderr nor terminal command failure. It is an
+executor/control failure that must produce structured interruption evidence.
+If the failure leaves process ownership uncertain, the kernel must prefer a
+blocked or interrupted state with operator-visible diagnostics over pretending a
+managed job exists.
+
+Reference alignment:
+
+- Codex has background terminal/session controls where long work can continue
+  and later be terminated or observed, but process ids stay test/support details
+  rather than model authority.
+- Reasonix wires a session-scoped job manager so background jobs can outlive a
+  turn and be cancelled by controller lifecycle. It treats background work as a
+  runtime-managed resource, not as prompt text.
+- Genesis keeps the current local executor explicit: it does not advertise
+  foreground attach, so the kill fallback remains the only truthful behavior
+  until an attach-capable executor is introduced.
+
 ## Permission And Authority
 
 Timeout and command arguments do not select permission mode, sandbox profile, workspace root, approval policy, or credential authority.

@@ -261,6 +261,28 @@ Done when:
 - The current kill fallback remains truthful.
 - Future attach-capable executor expectations are explicit and testable.
 
+Reference scan:
+
+- Codex has background terminal/session control behavior where long work can be
+  observed or terminated later, while process identity stays a runtime/test
+  concern rather than model authority.
+- Reasonix wires a session-scoped job manager so background jobs can outlive a
+  turn and be closed by controller lifecycle.
+- Genesis alignment: foreground attach is an executor capability. The current
+  local executor does not advertise it, so the truthful kill fallback remains
+  until a concrete attach-capable executor exists.
+
+Evidence:
+
+- `docs/requirements/kernel-shell-and-job-control.md` now defines the
+  attach-capable executor contract and no-forged-job rule.
+- `docs/design/kernel-shell-and-job-control.md` now documents current kill
+  fallback, future attach flow, and reference alignment.
+- Existing contracts continue to cover current behavior:
+  `TestInterruptSessionDuringForegroundShellWritesInterruptedToolResult`,
+  `TestLocalManagedJobExecutorDoesNotAdvertiseForegroundAttach`, and
+  `TestForegroundInterruptReasonStaysKillFallbackUntilAttachIsImplemented`.
+
 ## Phase 7: Generic Skill Hydration / Context Resource Requirement
 
 Target:

@@ -135,6 +135,35 @@ Checkpoints are control-plane state. The model does not fabricate checkpoint ref
 5. Explicit job cancellation is a separate control path. It may be invoked by a user control command or a model-visible job-control tool after permission validation.
 6. Job cancellation writes cancellation request and terminal cancellation evidence. It is not represented as an ordinary nonzero command exit.
 
+### Attach-Capable Executor Contract
+
+Foreground attach is an executor capability, not a kernel assumption. The
+kernel may convert interrupted foreground shell work into a managed job only
+when the active executor explicitly advertises attach support and returns a
+kernel-validated attachment result for the running process.
+
+An attach-capable executor must satisfy:
+
+- it can detach the foreground wait path without killing the process;
+- it can transfer lifecycle observation to the managed job owner;
+- it reports bounded output state without replaying unbounded live chunks;
+- it lets the kernel allocate and bind the managed job handle;
+- it does not expose host process id, signal, process handle, terminal handle,
+  or platform-specific control token to model-visible tools or HTTP callers;
+- it can report attach failure distinctly from command failure.
+
+If attach succeeds, the kernel writes managed-job facts and returns a receipt
+tool result for the interrupted tool call. If attach fails or is unsupported,
+the current truthful fallback remains: kill the foreground process and write an
+interrupted tool result with `foreground_attach_unavailable_killed` or another
+executor-reported attach failure reason. The kernel must not forge
+`job.started`, `job.attached`, or running-job projections for a process it did
+not successfully take ownership of.
+
+Replay must not duplicate the process effect. Once a foreground command has
+started, restart or retry can only return recorded operation/job/interruption
+facts; it must not re-run the command to recreate a missing attach fact.
+
 ### Job Control
 
 Required eventual generic controls:
