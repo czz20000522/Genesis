@@ -22,6 +22,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Verification: `go test ./internal/kernel -run "Test.*Skill" -count=1`; `go test ./internal/kernel -count=1`; `go test ./... -count=1`; `go build ./...`; `git diff --check`.
 - Reference alignment: Aligned with Reasonix bounded skill-root scanning and Codex model-visible skill-context budgeting while keeping Genesis skill bodies outside default provider context.
 
+### KERNEL-PROVIDER-REASONING-REPLAY-GUARD-20260625 - P2 - Provider reasoning non-replay guard
+
+- Status: ready_for_acceptance.
+- Conclusion: OpenAI-compatible `reasoning_content` is now guarded as response-only data; visible assistant content and usage survive, while hidden reasoning is absent from stored events, provider context, provider-command payloads, OpenAI-compatible replay, session/context/audit/UI projections, and same-session history.
+- Fix commit: current Lore commit.
+- Verification: `go test ./internal/kernel -run "TestOpenAICompatible.*Reasoning|Test.*ProviderContext.*Reasoning|TestObservabilityProjectionsSeparateRawAuditAndProviderContext" -count=1`; `go test ./internal/kernel -count=1`; `go test ./... -count=1`; `go build ./...`; `git diff --check`.
+- Reference alignment: Aligned with Reasonix's explicit DeepSeek/OpenAI `reasoning_content` non-replay guard and Codex's separation between model-visible context, reasoning events, and raw protocol inspection.
+
 ### KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624 - P1 - Generic resource_read primitive
 
 - Status: ready_for_acceptance.
