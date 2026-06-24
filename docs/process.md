@@ -204,6 +204,15 @@ Requirements and designs must stay inside the kernel boundary. Feishu, email, ca
 
 Temporary implementation can be limited, fake, or local to a phase. The requirement cannot be weakened to match that temporary shape. Each phase records the delta between current proof and production target.
 
+Application work is a pressure test for the kernel, not a separate place to
+patch around missing kernel foundations. Continue an application line until it
+exposes a real generic gap. When the next application slice needs stronger
+permission semantics, long-running task ownership, production storage, resource
+governance, credential authority, or streaming transport semantics, stop adding
+application-local patches and return to the corresponding kernel or owner line
+to strengthen the primitive. After the primitive exists, retire the temporary
+application workaround instead of layering compatibility around it.
+
 ## Persistence And Audit Gate
 
 Runtime can produce many events, but long-term storage stays sparse. A runtime event may enter the durable fact layer only when it satisfies at least one condition:

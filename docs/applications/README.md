@@ -10,6 +10,16 @@ current gaps. The boundary is different: application requirements must not
 create kernel capabilities unless they reduce the need to an approved generic
 kernel primitive.
 
+Application work deliberately pressures the kernel. A connector or application
+may keep a temporary smoke path only while it is proving a boundary. Once that
+path needs permission authority, long-running task ownership, production-grade
+storage, resource lifecycle, credential resolution, or streaming semantics, the
+application issue must stop and point back to the kernel or owning foundation
+requirement. The application layer then resumes only after the missing primitive
+is strengthened. Temporary app-side scaffolding should be retired as those
+primitives mature; do not preserve early smoke infrastructure as permanent
+architecture.
+
 ## Protocol Boundary Rule
 
 Any surface that crosses out of the Genesis canonical world must pass through a
