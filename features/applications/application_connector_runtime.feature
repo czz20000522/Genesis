@@ -29,6 +29,15 @@ Feature: Application connector runtime
     Then the connector should record a delivery receipt with retry state
     And the kernel turn facts should remain unchanged
 
+  Scenario: Kernel final text can become an ordinary connector reply
+    Given a Feishu inbound external event creates a kernel turn
+    And the kernel returns final text for that turn
+    When application policy enables ordinary final-text delivery
+    Then the connector runtime should enqueue one send-message outbox item
+    And it should execute that item through the connector adapter
+    And it should record a delivery receipt
+    And delivery failure should not rewrite the kernel turn facts
+
   Scenario: Retry scheduled delivery waits until the next attempt time
     Given a connector outbox item failed with a retryable rate limit result
     And the connector recorded a next attempt time in the future

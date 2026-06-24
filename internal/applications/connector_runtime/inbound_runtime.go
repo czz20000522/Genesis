@@ -111,5 +111,45 @@ func (r *Runtime) ProcessExternalEvent(ctx context.Context, event ExternalEvent)
 	if err := r.InboundStore.Complete(ctx, record); err != nil {
 		return ProcessResult{Record: record}, err
 	}
-	return ProcessResult{Record: record, FinalText: resp.Final.Text}, nil
+	result := ProcessResult{Record: record, FinalText: resp.Final.Text}
+	r.deliverFinalText(ctx, requestContext, record, &result)
+	return result, nil
+}
+
+func (r *Runtime) deliverFinalText(ctx context.Context, requestContext RequestContext, record InboundSubmissionRecord, result *ProcessResult) {
+	if result == nil || r.Store == nil || strings.TrimSpace(result.FinalText) == "" {
+		return
+	}
+	command := AppCommand{
+		CommandID: stableOpaqueID("cmd", requestContext.RequestID, record.TurnID, "final_reply"),
+		Kind:      "send_message",
+		TargetRef: ExternalThreadRef{
+			Connector:  requestContext.ThreadRef.Connector,
+			Kind:       requestContext.ThreadRef.Kind,
+			ExternalID: requestContext.ThreadRef.ExternalID,
+			Display:    requestContext.ThreadRef.Display,
+		},
+		Body:      result.FinalText,
+		DedupeKey: stableOpaqueID("reply", requestContext.RequestID, record.TurnID),
+		CreatedAt: record.UpdatedAt,
+		Metadata: map[string]string{
+			"source_request_id": requestContext.RequestID,
+			"kernel_turn_id":    record.TurnID,
+		},
+	}
+	item, duplicate, err := r.EnqueueCommand(ctx, command)
+	if err != nil {
+		result.DeliveryError = err.Error()
+		return
+	}
+	result.OutboxItem = &item
+	result.OutboxDuplicate = duplicate
+	if duplicate {
+		return
+	}
+	receipt, err := r.ExecuteOutboxItem(ctx, item.OutboxID)
+	result.DeliveryReceipt = &receipt
+	if err != nil {
+		result.DeliveryError = err.Error()
+	}
 }

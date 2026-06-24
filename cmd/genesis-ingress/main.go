@@ -72,6 +72,10 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	eventIdentity := fs.String("as", "bot", "Feishu event source identity: bot, user, or auto")
 	maxEvents := fs.Int("max-events", 0, "stop Feishu event source after N events; 0 means unlimited")
 	eventTimeout := fs.String("event-timeout", "", "stop Feishu event source after duration such as 30s or 10m")
+	deliverFinal := fs.Bool("deliver-final", false, "enqueue and deliver kernel final_text back through the connector outbox")
+	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
+	var ignoreSenderIDs stringListFlag
+	fs.Var(&ignoreSenderIDs, "ignore-sender-id", "external sender id to ignore before kernel submission; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -82,16 +86,22 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	if err != nil {
 		return err
 	}
+	if *deliverFinal {
+		if err := configureFeishuFinalDelivery(runtime, *outboxPath, *profile, *larkCLI); err != nil {
+			return err
+		}
+	}
 	if *stdinJSONL {
 		return processExternalEventJSONL(ctx, runtime, stdin, stdout, stderr)
 	}
 	sourceConfig := connectorruntime.FeishuEventSourceConfig{
-		Executable: *larkCLI,
-		Profile:    *profile,
-		EventKey:   *eventKey,
-		Identity:   *eventIdentity,
-		MaxEvents:  *maxEvents,
-		Timeout:    *eventTimeout,
+		Executable:      *larkCLI,
+		Profile:         *profile,
+		EventKey:        *eventKey,
+		Identity:        *eventIdentity,
+		MaxEvents:       *maxEvents,
+		Timeout:         *eventTimeout,
+		IgnoreSenderIDs: append([]string(nil), ignoreSenderIDs...),
 	}
 	encoder := json.NewEncoder(stdout)
 	return connectorruntime.ConsumeFeishuEventSource(ctx, sourceConfig, stderr, func(event connectorruntime.ExternalEvent) error {
@@ -101,6 +111,18 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		}
 		return err
 	})
+}
+
+func configureFeishuFinalDelivery(runtime *connectorruntime.Runtime, outboxPath string, profile string, executable string) error {
+	store, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		return err
+	}
+	runtime.Store = store
+	runtime.Adapters = map[string]connectorruntime.ConnectorAdapter{
+		"feishu": connectorruntime.NewFeishuSendMessageCommandTemplateDriver(profile, executable, nil),
+	}
+	return nil
 }
 
 func processExternalEventJSONL(ctx context.Context, runtime *connectorruntime.Runtime, reader io.Reader, stdout io.Writer, stderr io.Writer) error {
@@ -222,4 +244,18 @@ func threadKind(connector string) string {
 		return "chat"
 	}
 	return "conversation"
+}
+
+type stringListFlag []string
+
+func (f *stringListFlag) String() string {
+	return strings.Join(*f, ",")
+}
+
+func (f *stringListFlag) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		*f = append(*f, value)
+	}
+	return nil
 }

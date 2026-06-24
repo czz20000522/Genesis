@@ -194,6 +194,16 @@ Connector never assembles provider context and never writes kernel facts.
 External delivery failure is connector failure, not kernel turn failure. Kernel
 facts remain unchanged.
 
+For the first mobile smoke loop, application policy may treat the kernel
+`final_text` as an ordinary reply candidate for the same inbound request
+context. That policy creates a `send_message` command targeted at the
+connector-owned thread ref and deduped by request id plus kernel turn id. This
+is intentionally narrower than a rich external action API: it proves the
+inbound -> kernel -> outbox -> delivery loop without giving the kernel Feishu
+semantics and without letting the LLM or provider context own external delivery.
+Duplicate inbound events reuse the existing request record and must not enqueue
+or send another reply.
+
 ## Credential And Authority
 
 External credentials are connector-owned. They are resolved by connector

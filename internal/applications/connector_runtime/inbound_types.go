@@ -99,7 +99,11 @@ type InboundSubmissionRecord struct {
 }
 
 type ProcessResult struct {
-	Record    InboundSubmissionRecord `json:"record"`
-	Duplicate bool                    `json:"duplicate"`
-	FinalText string                  `json:"final_text,omitempty"`
+	Record          InboundSubmissionRecord `json:"record"`
+	Duplicate       bool                    `json:"duplicate"`
+	FinalText       string                  `json:"final_text,omitempty"`
+	OutboxItem      *ConnectorOutboxItem    `json:"outbox_item,omitempty"`
+	OutboxDuplicate bool                    `json:"outbox_duplicate,omitempty"`
+	DeliveryReceipt *DeliveryReceipt        `json:"delivery_receipt,omitempty"`
+	DeliveryError   string                  `json:"delivery_error,omitempty"`
 }

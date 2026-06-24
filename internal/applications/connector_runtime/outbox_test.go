@@ -228,12 +228,14 @@ func testSendMessageCommand() AppCommand {
 }
 
 type fakeAdapter struct {
-	result ConnectorActionResult
-	err    error
-	calls  int
+	result  ConnectorActionResult
+	err     error
+	calls   int
+	actions []ConnectorAction
 }
 
-func (f *fakeAdapter) Execute(_ context.Context, _ ConnectorAction) (ConnectorActionResult, error) {
+func (f *fakeAdapter) Execute(_ context.Context, action ConnectorAction) (ConnectorActionResult, error) {
 	f.calls++
+	f.actions = append(f.actions, action)
 	return f.result, f.err
 }

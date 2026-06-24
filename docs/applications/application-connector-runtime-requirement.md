@@ -186,10 +186,13 @@ instead of hardcoded connector runtime argv. No rich cards, attachments, or
 production listener hardening.
 
 Phase C adds a Feishu inbound connector listener/poller, connector-local
-validation/retry/token handling, and an explicit installed-adapter capability
-probe sufficient for mobile smoke testing. If Feishu delivery still uses
-`command_template`, the phase must keep it documented as a transitional driver
-and must not treat the rendered CLI argv as a Genesis contract.
+validation/retry/token handling, an ordinary final-text reply policy for mobile
+smoke testing, and an explicit installed-adapter capability probe. The ordinary
+reply policy may turn a kernel final text into one connector-owned
+`send_message` outbox item; it must remain application policy, not a kernel
+reply API. If Feishu delivery still uses `command_template`, the phase must keep
+it documented as a transitional driver and must not treat the rendered CLI argv
+as a Genesis contract.
 
 Phase D adds operator console inspection for connector state plus kernel
 projections without letting the console reinterpret raw kernel events as its own
@@ -206,6 +209,9 @@ are backed by connector-owned idempotency, receipt, and recovery semantics.
 - Duplicate inbound external events do not execute duplicate kernel turns.
 - Kernel typed result or application command can enqueue a connector outbox
   item without the connector writing kernel facts.
+- When ordinary final-text delivery is enabled, one completed kernel turn can
+  enqueue and execute at most one connector reply action for the corresponding
+  request context.
 - Connector action execution records delivery receipt, retry state, and failure
   reason in connector state only.
 - Feishu is the first adapter, not a top-level architecture.

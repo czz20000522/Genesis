@@ -23,12 +23,13 @@ const (
 )
 
 type FeishuEventSourceConfig struct {
-	Executable string
-	Profile    string
-	EventKey   string
-	Identity   string
-	MaxEvents  int
-	Timeout    string
+	Executable      string
+	Profile         string
+	EventKey        string
+	Identity        string
+	MaxEvents       int
+	Timeout         string
+	IgnoreSenderIDs []string
 }
 
 type FeishuMessageReceiveEvent struct {
@@ -142,7 +143,7 @@ func ConsumeFeishuEventSource(ctx context.Context, config FeishuEventSourceConfi
 		return err
 	}
 
-	scanErr := processFeishuEventStdout(stdoutPipe, diagnostics, handle)
+	scanErr := processFeishuEventStdout(stdoutPipe, diagnostics, ignoreSenderIDSet(config.IgnoreSenderIDs), handle)
 	if scanErr != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
@@ -157,7 +158,7 @@ func ConsumeFeishuEventSource(ctx context.Context, config FeishuEventSourceConfi
 	return nil
 }
 
-func processFeishuEventStdout(reader io.Reader, diagnostics io.Writer, handle func(ExternalEvent) error) error {
+func processFeishuEventStdout(reader io.Reader, diagnostics io.Writer, ignoredSenderIDs map[string]struct{}, handle func(ExternalEvent) error) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -170,11 +171,25 @@ func processFeishuEventStdout(reader io.Reader, diagnostics io.Writer, handle fu
 			fmt.Fprintf(diagnostics, "Feishu source event rejected: %v\n", err)
 			continue
 		}
+		if _, ignored := ignoredSenderIDs[event.SenderRef.ExternalID]; ignored {
+			continue
+		}
 		if err := handle(event); err != nil {
 			fmt.Fprintf(diagnostics, "Feishu source event processing failed: %v\n", err)
 		}
 	}
 	return scanner.Err()
+}
+
+func ignoreSenderIDSet(values []string) map[string]struct{} {
+	ignored := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			ignored[value] = struct{}{}
+		}
+	}
+	return ignored
 }
 
 func (c FeishuEventSourceConfig) Command() (string, []string, error) {

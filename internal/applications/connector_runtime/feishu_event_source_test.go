@@ -136,9 +136,29 @@ func TestFeishuEventSourceDiagnosticsRedactsCredentialShapedStderr(t *testing.T)
 	}
 }
 
+func TestFeishuEventSourceIgnoresConfiguredSenderIDs(t *testing.T) {
+	var handled []ExternalEvent
+	input := strings.Join([]string{
+		`{"event_id":"evt_self","chat_id":"oc_123","chat_type":"group","message_id":"om_self","sender_id":"cli_self","message_type":"text","content":"self reply","timestamp":"1782269315000","type":"im.message.receive_v1"}`,
+		`{"event_id":"evt_user","chat_id":"oc_123","chat_type":"group","message_id":"om_user","sender_id":"ou_user","message_type":"text","content":"user message","timestamp":"1782269316000","type":"im.message.receive_v1"}`,
+		"",
+	}, "\n")
+
+	err := processFeishuEventStdout(strings.NewReader(input), io.Discard, ignoreSenderIDSet([]string{"cli_self"}), func(event ExternalEvent) error {
+		handled = append(handled, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("processFeishuEventStdout returned error: %v", err)
+	}
+	if len(handled) != 1 || handled[0].ExternalEventID != "evt_user" {
+		t.Fatalf("handled events = %+v, want only user event", handled)
+	}
+}
+
 func TestFeishuEventSourceOversizedStdoutReturnsScannerError(t *testing.T) {
 	oversized := strings.Repeat("x", 1024*1024+1)
-	err := processFeishuEventStdout(strings.NewReader(oversized), io.Discard, func(ExternalEvent) error {
+	err := processFeishuEventStdout(strings.NewReader(oversized), io.Discard, nil, func(ExternalEvent) error {
 		t.Fatal("oversized stdout should fail before event handling")
 		return nil
 	})

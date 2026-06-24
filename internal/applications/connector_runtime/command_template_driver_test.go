@@ -21,7 +21,7 @@ func TestCommandTemplateDriverRendersConfiguredArgvWithoutCredentialPayload(t *t
 	if result.Status != DeliveryStatusSent {
 		t.Fatalf("result = %+v", result)
 	}
-	wantArgs := []string{"--profile", "codex", "im", "+messages-send", "--chat-id", "oc_123", "--text", "hello"}
+	wantArgs := []string{"--profile", "codex", "im", "+messages-send", "--as", "bot", "--chat-id", "oc_123", "--text", "hello", "--idempotency-key", "idem_1"}
 	if strings.Join(runner.args, "\x00") != strings.Join(wantArgs, "\x00") {
 		t.Fatalf("args = %#v, want %#v", runner.args, wantArgs)
 	}
@@ -307,22 +307,7 @@ func TestUnsafeResolvedCommandExecutableRejectsScriptWrappers(t *testing.T) {
 }
 
 func testFeishuCommandTemplateDriver(profile string, runner CommandRunner) CommandTemplateDriver {
-	return CommandTemplateDriver{
-		Executable: "lark-cli",
-		Profile:    profile,
-		Runner:     runner,
-		Actions: map[string]CommandTemplateAction{
-			"send_message": {
-				Argv: []string{
-					"--profile", "${profile}",
-					"im", "+messages-send",
-					"--chat-id", "${target.external_id}",
-					"--text", "${payload.body}",
-				},
-				ExternalActionRefJSONPaths: []string{"data.message_id", "message_id"},
-			},
-		},
-	}
+	return NewFeishuSendMessageCommandTemplateDriver(profile, "lark-cli", runner)
 }
 
 func testConnectorSendAction() ConnectorAction {

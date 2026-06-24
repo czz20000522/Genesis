@@ -2,6 +2,7 @@ package connectorruntime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,6 +74,154 @@ func TestProcessExternalEventSubmitsOpaqueKernelTurn(t *testing.T) {
 	}
 	if result.FinalText != "kernel final is local diagnostic only" {
 		t.Fatalf("transient final text = %q", result.FinalText)
+	}
+	if result.OutboxItem != nil || result.DeliveryReceipt != nil || result.DeliveryError != "" {
+		t.Fatalf("inbound-only runtime should not produce outbound delivery evidence: %+v", result)
+	}
+}
+
+func TestProcessExternalEventDeliversFinalTextThroughConnectorOutbox(t *testing.T) {
+	inboundStore := newTestInboundStore(t)
+	outboxStore := newTestOutboxStore(t)
+	adapter := &fakeAdapter{
+		result: ConnectorActionResult{Status: DeliveryStatusSent, ExternalActionRef: "om_123"},
+	}
+	client := &fakeTurnClient{
+		response: TurnSubmitResponse{
+			SessionID: "kernel-session",
+			TurnID:    "turn-1",
+			Final:     FinalAnswer{Text: "reply from kernel"},
+		},
+	}
+	runtime := testInboundRuntime(inboundStore, client)
+	runtime.Store = outboxStore
+	runtime.Adapters = map[string]ConnectorAdapter{"feishu": adapter}
+
+	result, err := runtime.ProcessExternalEvent(context.Background(), testExternalEvent("om_reply_source"))
+	if err != nil {
+		t.Fatalf("ProcessExternalEvent returned error: %v", err)
+	}
+	if result.Record.Status != SubmissionStatusSubmitted {
+		t.Fatalf("submission status = %q, want submitted", result.Record.Status)
+	}
+	if result.OutboxItem == nil {
+		t.Fatalf("expected connector outbox item in result: %+v", result)
+	}
+	if result.OutboxItem.Connector != "feishu" || result.OutboxItem.ActionKind != "send_message" {
+		t.Fatalf("outbox item = %+v", result.OutboxItem)
+	}
+	if result.OutboxItem.Payload["body"] != "reply from kernel" {
+		t.Fatalf("outbox payload = %+v", result.OutboxItem.Payload)
+	}
+	if result.DeliveryReceipt == nil || result.DeliveryReceipt.Status != DeliveryStatusSent {
+		t.Fatalf("delivery receipt = %+v", result.DeliveryReceipt)
+	}
+	if result.DeliveryError != "" {
+		t.Fatalf("delivery error = %q", result.DeliveryError)
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("adapter calls = %d, want 1", adapter.calls)
+	}
+	if len(adapter.actions) != 1 {
+		t.Fatalf("adapter actions = %+v", adapter.actions)
+	}
+	action := adapter.actions[0]
+	if action.TargetRef.ExternalID != "oc_raw_chat" {
+		t.Fatalf("action target = %+v, want original connector-owned external chat id", action.TargetRef)
+	}
+	if action.Payload["body"] != "reply from kernel" {
+		t.Fatalf("action payload = %+v", action.Payload)
+	}
+	items, err := outboxStore.ListOutbox(context.Background())
+	if err != nil {
+		t.Fatalf("ListOutbox returned error: %v", err)
+	}
+	if len(items) != 1 || items[0].Status != OutboxStatusSent {
+		t.Fatalf("outbox items = %+v, want one sent item", items)
+	}
+	receipts, err := outboxStore.ListReceipts(context.Background(), items[0].OutboxID)
+	if err != nil {
+		t.Fatalf("ListReceipts returned error: %v", err)
+	}
+	if len(receipts) != 1 || receipts[0].ExternalActionRef != "om_123" {
+		t.Fatalf("receipts = %+v", receipts)
+	}
+}
+
+func TestProcessExternalEventDuplicateDoesNotDeliverFinalAgain(t *testing.T) {
+	inboundStore := newTestInboundStore(t)
+	outboxStore := newTestOutboxStore(t)
+	adapter := &fakeAdapter{
+		result: ConnectorActionResult{Status: DeliveryStatusSent, ExternalActionRef: "om_123"},
+	}
+	client := &fakeTurnClient{
+		response: TurnSubmitResponse{SessionID: "kernel-session", TurnID: "turn-1", Final: FinalAnswer{Text: "reply once"}},
+	}
+	runtime := testInboundRuntime(inboundStore, client)
+	runtime.Store = outboxStore
+	runtime.Adapters = map[string]ConnectorAdapter{"feishu": adapter}
+
+	if _, err := runtime.ProcessExternalEvent(context.Background(), testExternalEvent("om_duplicate_delivery")); err != nil {
+		t.Fatalf("first ProcessExternalEvent returned error: %v", err)
+	}
+	result, err := runtime.ProcessExternalEvent(context.Background(), testExternalEvent("om_duplicate_delivery"))
+	if err != nil {
+		t.Fatalf("duplicate ProcessExternalEvent returned error: %v", err)
+	}
+	if !result.Duplicate {
+		t.Fatal("duplicate external event should be marked duplicate")
+	}
+	if result.OutboxItem != nil || result.DeliveryReceipt != nil {
+		t.Fatalf("duplicate inbound event should not deliver again: %+v", result)
+	}
+	if client.calls != 1 {
+		t.Fatalf("kernel calls = %d, want 1", client.calls)
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("adapter calls = %d, want 1", adapter.calls)
+	}
+	items, err := outboxStore.ListOutbox(context.Background())
+	if err != nil {
+		t.Fatalf("ListOutbox returned error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("outbox item count = %d, want 1", len(items))
+	}
+}
+
+func TestProcessExternalEventDeliveryFailureDoesNotFailKernelSubmission(t *testing.T) {
+	inboundStore := newTestInboundStore(t)
+	outboxStore := newTestOutboxStore(t)
+	adapter := &fakeAdapter{
+		result: ConnectorActionResult{Status: DeliveryStatusRetrying, Reason: "rate_limited"},
+		err:    errors.New("rate limit"),
+	}
+	client := &fakeTurnClient{
+		response: TurnSubmitResponse{SessionID: "kernel-session", TurnID: "turn-1", Final: FinalAnswer{Text: "reply later"}},
+	}
+	runtime := testInboundRuntime(inboundStore, client)
+	runtime.Store = outboxStore
+	runtime.Adapters = map[string]ConnectorAdapter{"feishu": adapter}
+
+	result, err := runtime.ProcessExternalEvent(context.Background(), testExternalEvent("om_delivery_retry"))
+	if err != nil {
+		t.Fatalf("connector delivery failure must not fail inbound kernel submission: %v", err)
+	}
+	if result.Record.Status != SubmissionStatusSubmitted || result.Record.KernelError != "" {
+		t.Fatalf("inbound record = %+v, want submitted without kernel error", result.Record)
+	}
+	if result.DeliveryReceipt == nil || result.DeliveryReceipt.Status != DeliveryStatusRetrying {
+		t.Fatalf("delivery receipt = %+v, want retrying", result.DeliveryReceipt)
+	}
+	if result.DeliveryError == "" {
+		t.Fatalf("expected connector-local delivery error in result: %+v", result)
+	}
+	updated, err := outboxStore.GetOutboxItem(context.Background(), result.OutboxItem.OutboxID)
+	if err != nil {
+		t.Fatalf("GetOutboxItem returned error: %v", err)
+	}
+	if updated.Status != OutboxStatusRetrying {
+		t.Fatalf("outbox status = %q, want retrying", updated.Status)
 	}
 }
 

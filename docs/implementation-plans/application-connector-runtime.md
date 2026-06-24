@@ -58,6 +58,18 @@ The outbound slice:
 - adds Feishu connector action executor behind a runner interface;
 - keeps actual Feishu SDK/CLI production listener hardening as a later issue.
 
+The Phase C smoke loop:
+
+- adds an opt-in `genesis-ingress feishu-listen --deliver-final` path;
+- treats kernel `final_text` as one ordinary `send_message` app command for
+  the same connector request context;
+- dedupes replies by request id plus kernel turn id;
+- executes delivery through the connector outbox/adapter path and records a
+  `DeliveryReceipt`;
+- supports `--ignore-sender-id` so bot-originated Feishu events do not trigger
+  a reply loop during live smoke;
+- keeps final-text delivery as application policy, not kernel reply semantics.
+
 Phase B also updates the generic protocol boundary owner documentation so the
 same rule applies to Model Gateway, future WebUI/CLI/desktop shells, resource
 intake, and credential-backed integrations.
@@ -69,6 +81,9 @@ Phase B must add tests for:
 - external event normalization does not expose raw external ids as public system ids;
 - inbound duplicate does not submit duplicate kernel turn;
 - app command creates one outbox item with a connector idempotency key;
+- final text delivery enqueues and executes one connector reply action when
+  enabled;
+- duplicate inbound events do not deliver the same final text twice;
 - duplicate app command does not enqueue duplicate connector action;
 - failed connector action records `DeliveryReceipt` without changing kernel facts;
 - connector package does not import `internal/kernel`;
@@ -85,14 +100,15 @@ Phase B must add tests for:
 
 ## Still Short Of Production After Phase B
 
-- Real Feishu listener/poller and signature verification remain Phase C. The
-  first Feishu event-source driver now wraps `lark-cli event consume
-  im.message.receive_v1` and maps its flattened NDJSON into `ExternalEvent`,
-  but it is still a bounded smoke driver: it does not yet make source
-  validation verified, and the hardcoded event command shape must move behind
-  connector driver configuration or an external adapter process before
+- Real Feishu listener/poller hardening and signature verification remain
+  Phase C. The first Feishu event-source driver now wraps `lark-cli event
+  consume im.message.receive_v1` and maps its flattened NDJSON into
+  `ExternalEvent`, but it is still a bounded smoke driver: it does not yet make
+  source validation verified, and the hardcoded event command shape must move
+  behind connector driver configuration or an external adapter process before
   production. Webhook signature verification, durable source dead-letter
-  records, backoff supervision, and live mobile smoke are still open.
+  records, backoff supervision, installed-adapter health probes, and production
+  source retry remain open.
 - Real credential store integration for connector adapters remains future work.
 - Delivery retry scheduling, dead-letter, and partial-success recovery remain an
   active issue.
