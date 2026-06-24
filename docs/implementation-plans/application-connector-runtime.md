@@ -126,7 +126,10 @@ Current automated coverage includes:
 ## Still Short Of Production After Phase B
 
 - Real Feishu listener/poller hardening and signature verification remain
-  Phase C. The first Feishu event-source driver now wraps `lark-cli event
+  Phase C and are governed by
+  `docs/applications/connector-source-supervisor-requirement.md` and
+  `docs/applications/connector-source-supervisor-design.md`. The first Feishu
+  event-source driver now wraps `lark-cli event
   consume im.message.receive_v1` and maps its flattened NDJSON into
   `ExternalEvent`, but it is still a bounded smoke driver: it does not yet make
   source validation verified, and the hardcoded event command shape must move

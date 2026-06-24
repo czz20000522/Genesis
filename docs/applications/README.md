@@ -99,6 +99,12 @@ issues remain in `docs/operations/kernel-issues.md`.
 - `application-connector-runtime-requirement.md`: the broad connector boundary
   contract for external events, request context, application commands, outbox,
   actions, and receipts.
+- `connector-source-supervisor-requirement.md`: the production source lifecycle
+  and event authenticity contract for external listener, poller, webhook, and
+  console sources.
+- `connector-source-supervisor-design.md`: the owner split, data shapes,
+  lifecycle, cursor, verification, and failure semantics for source
+  supervision.
 - `connector-delivery-state-machine-requirement.md`: the production delivery
   state machine for connector outbox retry, leases, dead-letter,
   partial-success recovery, and receipts.
