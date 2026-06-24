@@ -34,6 +34,12 @@ func isSessionTimelinePath(path string) bool {
 	return len(parts) == 3 && parts[0] == "sessions" && strings.TrimSpace(parts[1]) != "" && parts[2] == "timeline"
 }
 
+func isSessionTimelineDetailPath(path string) bool {
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	return len(parts) == 5 && parts[0] == "sessions" && strings.TrimSpace(parts[1]) != "" && parts[2] == "timeline" && parts[3] == "details" && strings.TrimSpace(parts[4]) != ""
+}
+
 func sessionTimelineID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
@@ -41,6 +47,15 @@ func sessionTimelineID(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(parts[1])
+}
+
+func sessionTimelineDetailParams(path string) (string, string) {
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 5 || parts[0] != "sessions" || parts[2] != "timeline" || parts[3] != "details" {
+		return "", ""
+	}
+	return strings.TrimSpace(parts[1]), strings.TrimSpace(parts[4])
 }
 
 func handleGetSessionTimeline(w http.ResponseWriter, r *http.Request, k *Kernel) {
@@ -59,6 +74,31 @@ func handleGetSessionTimeline(w http.ResponseWriter, r *http.Request, k *Kernel)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, projection)
+}
+
+func handleGetSessionTimelineDetail(w http.ResponseWriter, r *http.Request, k *Kernel) {
+	sessionID, detailRef := sessionTimelineDetailParams(r.URL.Path)
+	if sessionID == "" || detailRef == "" {
+		writeError(w, http.StatusNotFound, "not_found", "session timeline detail route not found")
+		return
+	}
+	projection, err := k.UITimelineDetail(sessionID, detailRef)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
+	if errors.Is(err, ErrSessionNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "session not found")
+		return
+	}
+	if errors.Is(err, ErrTimelineDetailNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "timeline detail not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, projection)

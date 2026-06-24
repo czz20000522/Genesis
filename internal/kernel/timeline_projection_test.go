@@ -2,6 +2,8 @@ package kernel
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -213,6 +215,120 @@ func TestUITimelineApprovalRequiredProjectsUserActionNode(t *testing.T) {
 	}
 	if timelineChild(turn, "tool") != nil {
 		t.Fatalf("turn children = %+v, want no generic tool row for approval", turn.Children)
+	}
+}
+
+func TestUITimelineDetailProjectionReturnsSelectedNodeWithoutDiagnostics(t *testing.T) {
+	startedAt := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	sessionID := "timeline-detail-session"
+	turnID := "turn_detail"
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:   "evt_detail_submitted",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "turn.submitted",
+				CreatedAt: startedAt,
+				Data: EventData{InputItems: []InputItem{{
+					Type: "text",
+					Text: "show detail",
+				}}},
+			},
+			StoredEvent{
+				EventID:   "evt_detail_tool_call",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "tool.call",
+				CreatedAt: startedAt.Add(time.Second),
+				Data: EventData{ToolCall: &ToolCallProjection{
+					ToolCallEventID:    "evt_detail_tool_call",
+					ProviderToolCallID: "call_detail_provider",
+					Tool:               "shell_exec",
+					Arguments:          `{"command":"echo api_key=sk-detail-secret"}`,
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_detail_tool_result",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "tool.result",
+				CreatedAt: startedAt.Add(2 * time.Second),
+				Data: EventData{ToolResult: &ToolResultProjection{
+					ToolCallEventID:    "evt_detail_tool_call",
+					ProviderToolCallID: "call_detail_provider",
+					Tool:               "shell_exec",
+					ForEventID:         "evt_detail_tool_call",
+					Status:             "failed",
+					Content:            `{"status":"failed","executed":true,"exit_code":2,"stderr":"api_key=sk-detail-secret\nmissing argument","stderr_truncated":true}`,
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_detail_final",
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Type:      "model.final",
+				CreatedAt: startedAt.Add(5 * time.Second),
+				Data: EventData{Final: &FinalMessage{
+					Text: "done",
+				}},
+			},
+		),
+		runtimeToken: testRuntimeToken,
+		clock: func() time.Time {
+			return startedAt.Add(time.Minute)
+		},
+	}
+
+	timeline, err := k.UITimeline(sessionID)
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	turn := requireSingleTimelineTurn(t, timeline, turnID)
+	processing := requireTimelineChild(t, turn, "processing_group")
+	operation := requireNestedTimelineChild(t, processing, "operation_detail")
+
+	processingDetail, err := k.UITimelineDetail(sessionID, processing.DetailRef)
+	if err != nil {
+		t.Fatalf("UITimelineDetail processing returned error: %v", err)
+	}
+	if processingDetail.Item.Kind != "processing_group" || processingDetail.Item.ToolCount != 1 {
+		t.Fatalf("processing detail = %+v, want selected processing group", processingDetail)
+	}
+
+	operationDetail, err := k.UITimelineDetail(sessionID, operation.ItemID)
+	if err != nil {
+		t.Fatalf("UITimelineDetail operation returned error: %v", err)
+	}
+	if operationDetail.Item.Kind != "operation_detail" || operationDetail.Item.Status != "failed" || operationDetail.Item.OutputSource != "stderr" {
+		t.Fatalf("operation detail = %+v, want failed stderr operation", operationDetail)
+	}
+	detailJSON, err := json.Marshal(operationDetail)
+	if err != nil {
+		t.Fatalf("marshal detail: %v", err)
+	}
+	for _, forbidden := range []string{"tool.call", "tool.result", "for_event_id", "tool_call_event_id", "provider_tool_call_id", "operation_id", "sk-detail-secret"} {
+		if strings.Contains(string(detailJSON), forbidden) {
+			t.Fatalf("detail leaked %q: %s", forbidden, string(detailJSON))
+		}
+	}
+
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+	resp, err := getWithAuth(server.URL + "/sessions/" + sessionID + "/timeline/details/" + operation.ItemID)
+	if err != nil {
+		t.Fatalf("GET timeline detail failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("timeline detail status = %d, want 200", resp.StatusCode)
+	}
+	var httpDetail UITimelineDetailResponse
+	if err := json.NewDecoder(resp.Body).Decode(&httpDetail); err != nil {
+		t.Fatalf("decode timeline detail: %v", err)
+	}
+	if httpDetail.Item.Kind != "operation_detail" || httpDetail.Item.Status != "failed" {
+		t.Fatalf("http detail = %+v, want operation detail", httpDetail)
 	}
 }
 

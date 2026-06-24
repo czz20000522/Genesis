@@ -93,6 +93,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleGetSessionTimeline(w, r, k)
+		case r.Method == http.MethodGet && isSessionTimelineDetailPath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) {
+				return
+			}
+			handleGetSessionTimelineDetail(w, r, k)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/sessions/"):
 			if !authorizeRuntimeRequest(w, r, k) {
 				return

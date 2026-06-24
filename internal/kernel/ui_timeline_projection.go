@@ -1,10 +1,13 @@
 package kernel
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+var ErrTimelineDetailNotFound = errors.New("timeline detail not found")
 
 func (k *Kernel) UITimeline(sessionID string) (UITimelineResponse, error) {
 	session, err := k.Session(sessionID)
@@ -77,6 +80,39 @@ func (k *Kernel) UITimeline(sessionID string) (UITimelineResponse, error) {
 		Status:    "ok",
 		Items:     items,
 	}, nil
+}
+
+func (k *Kernel) UITimelineDetail(sessionID string, detailRef string) (UITimelineDetailResponse, error) {
+	detailRef = strings.TrimSpace(detailRef)
+	if detailRef == "" {
+		return UITimelineDetailResponse{}, errors.New("timeline detail ref is required")
+	}
+	timeline, err := k.UITimeline(sessionID)
+	if err != nil {
+		return UITimelineDetailResponse{}, err
+	}
+	item, ok := findUITimelineDetailItem(timeline.Items, detailRef)
+	if !ok {
+		return UITimelineDetailResponse{}, ErrTimelineDetailNotFound
+	}
+	return UITimelineDetailResponse{
+		SessionID: timeline.SessionID,
+		Status:    "ok",
+		DetailRef: detailRef,
+		Item:      item,
+	}, nil
+}
+
+func findUITimelineDetailItem(items []UITimelineItem, detailRef string) (UITimelineItem, bool) {
+	for _, item := range items {
+		if item.ItemID == detailRef || item.DetailRef == detailRef {
+			return item, true
+		}
+		if nested, ok := findUITimelineDetailItem(item.Children, detailRef); ok {
+			return nested, true
+		}
+	}
+	return UITimelineItem{}, false
 }
 
 type timelineTurnBuilder struct {

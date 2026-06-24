@@ -38,6 +38,13 @@ type UITimelineResponse struct {
 	Items     []UITimelineItem `json:"items"`
 }
 
+type UITimelineDetailResponse struct {
+	SessionID string         `json:"session_id"`
+	Status    string         `json:"status"`
+	DetailRef string         `json:"detail_ref"`
+	Item      UITimelineItem `json:"item"`
+}
+
 type UITimelineItem struct {
 	ItemID              string           `json:"item_id"`
 	TurnID              string           `json:"turn_id"`
