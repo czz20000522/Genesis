@@ -3,6 +3,8 @@ package connectorruntime
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +33,7 @@ type FeishuEventSourceConfig struct {
 	Timeout         string
 	IgnoreSenderIDs []string
 	FailureStore    SourceFailureStore
+	SourceStore     SourceSupervisorStore
 }
 
 type FeishuEventSourceRetryPolicy struct {
@@ -149,7 +152,8 @@ func ConsumeFeishuEventSource(ctx context.Context, config FeishuEventSourceConfi
 		return err
 	}
 
-	scanErr := processFeishuEventStdout(ctx, stdoutPipe, diagnostics, ignoreSenderIDSet(config.IgnoreSenderIDs), config.FailureStore, handle)
+	sourceID, _, _ := config.sourceIdentity()
+	scanErr := processFeishuEventStdoutWithSourceState(ctx, stdoutPipe, diagnostics, ignoreSenderIDSet(config.IgnoreSenderIDs), config.FailureStore, config.SourceStore, sourceID, handle)
 	if scanErr != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
@@ -169,6 +173,9 @@ func ConsumeFeishuEventSourceWithRetry(ctx context.Context, config FeishuEventSo
 		return errors.New("Feishu event source handler is required")
 	}
 	if _, _, err := config.Command(); err != nil {
+		if recordErr := recordFeishuSourceBlocked(ctx, config, err); recordErr != nil {
+			return recordErr
+		}
 		return err
 	}
 	return consumeFeishuEventSourceWithRetry(ctx, config, normalizeFeishuEventSourceRetryPolicy(retry), diagnostics, func() error {
@@ -186,15 +193,36 @@ func consumeFeishuEventSourceWithRetry(ctx context.Context, config FeishuEventSo
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		startedAt := time.Now().UTC()
+		if err := recordFeishuSourceRunStatus(ctx, config, SourceRunStatusStarting, "", startedAt, time.Time{}); err != nil {
+			return err
+		}
 		err := consume()
+		endedAt := time.Now().UTC()
 		if err == nil {
+			if recordErr := recordFeishuSourceAttempt(ctx, config, attempt, startedAt, endedAt, SourceAttemptOutcomeReady, ""); recordErr != nil {
+				return recordErr
+			}
+			if recordErr := recordFeishuSourceRunStatus(ctx, config, SourceRunStatusReady, "", startedAt, endedAt); recordErr != nil {
+				return recordErr
+			}
 			return nil
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			_ = recordFeishuSourceAttempt(ctx, config, attempt, startedAt, endedAt, SourceAttemptOutcomeStopped, "")
+			_ = recordFeishuSourceRunStatus(ctx, config, SourceRunStatusStopped, err.Error(), startedAt, endedAt)
 			return err
 		}
 		lastErr = err
-		if recordErr := recordFeishuSourceRuntimeFailure(ctx, config.FailureStore, config, attempt, err); recordErr != nil {
+		attemptID := feishuSourceAttemptID(config, attempt, startedAt)
+		failureRef, recordErr := recordFeishuSourceRuntimeFailure(ctx, config.FailureStore, config, attempt, err, attemptID)
+		if recordErr != nil {
+			return recordErr
+		}
+		if recordErr := recordFeishuSourceAttemptWithID(ctx, config, attemptID, startedAt, endedAt, SourceAttemptOutcomeFailed, failureRef); recordErr != nil {
+			return recordErr
+		}
+		if recordErr := recordFeishuSourceRunStatus(ctx, config, SourceRunStatusDegraded, err.Error(), startedAt, endedAt); recordErr != nil {
 			return recordErr
 		}
 		if attempt == retry.MaxAttempts {
@@ -235,6 +263,10 @@ func sleepFeishuEventSourceBackoff(ctx context.Context, backoff time.Duration) e
 }
 
 func processFeishuEventStdout(ctx context.Context, reader io.Reader, diagnostics io.Writer, ignoredSenderIDs map[string]struct{}, failureStore SourceFailureStore, handle func(ExternalEvent) error) error {
+	return processFeishuEventStdoutWithSourceState(ctx, reader, diagnostics, ignoredSenderIDs, failureStore, nil, "", handle)
+}
+
+func processFeishuEventStdoutWithSourceState(ctx context.Context, reader io.Reader, diagnostics io.Writer, ignoredSenderIDs map[string]struct{}, failureStore SourceFailureStore, sourceStore SourceSupervisorStore, sourceID string, handle func(ExternalEvent) error) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -245,7 +277,7 @@ func processFeishuEventStdout(ctx context.Context, reader io.Reader, diagnostics
 		event, err := ExternalEventFromFeishuMessageReceiveJSON([]byte(line))
 		if err != nil {
 			fmt.Fprintf(diagnostics, "Feishu source event rejected: %v\n", err)
-			if err := recordFeishuSourceFailure(ctx, failureStore, line, err); err != nil {
+			if err := recordFeishuSourceFailure(ctx, failureStore, sourceID, line, err); err != nil {
 				return err
 			}
 			continue
@@ -255,43 +287,54 @@ func processFeishuEventStdout(ctx context.Context, reader io.Reader, diagnostics
 		}
 		if err := handle(event); err != nil {
 			fmt.Fprintf(diagnostics, "Feishu source event processing failed: %v\n", err)
+			continue
+		}
+		if err := recordFeishuSourceCursor(ctx, sourceStore, sourceID, event); err != nil {
+			return err
 		}
 	}
 	return scanner.Err()
 }
 
-func recordFeishuSourceRuntimeFailure(ctx context.Context, store SourceFailureStore, config FeishuEventSourceConfig, attempt int, cause error) error {
+func recordFeishuSourceRuntimeFailure(ctx context.Context, store SourceFailureStore, config FeishuEventSourceConfig, attempt int, cause error, sourceAttemptID string) (string, error) {
 	if store == nil {
-		return nil
+		return "", nil
 	}
 	eventKey := strings.TrimSpace(config.EventKey)
 	if eventKey == "" {
 		eventKey = DefaultFeishuMessageEventKey
 	}
 	detail := fmt.Sprintf("attempt %d: %s", attempt, SafeCLIProbeExcerpt([]byte(cause.Error())))
+	sourceID, _, _ := config.sourceIdentity()
 	record := SourceFailureRecord{
+		RecordID:         stableOpaqueID("source_failure", "feishu", eventKey, sourceID, sourceAttemptID, "source_runtime_error", detail),
 		Connector:        "feishu",
 		EventSource:      eventKey,
+		SourceRunRef:     sourceID,
+		SourceAttemptRef: sourceAttemptID,
 		Reason:           "source_runtime_error",
 		Detail:           detail,
 		SourceValidation: SourceValidationUnchecked,
 	}
 	if err := store.RecordSourceFailure(ctx, record); err != nil {
-		return fmt.Errorf("record Feishu source runtime failure: %w", err)
+		return "", fmt.Errorf("record Feishu source runtime failure: %w", err)
 	}
-	return nil
+	return record.RecordID, nil
 }
 
-func recordFeishuSourceFailure(ctx context.Context, store SourceFailureStore, rawLine string, cause error) error {
+func recordFeishuSourceFailure(ctx context.Context, store SourceFailureStore, sourceID string, rawLine string, cause error) error {
 	if store == nil {
 		return nil
 	}
 	record := SourceFailureRecord{
 		Connector:         "feishu",
 		EventSource:       DefaultFeishuMessageEventKey,
+		SourceRunRef:      strings.TrimSpace(sourceID),
 		Reason:            "malformed_source_event",
 		Detail:            cause.Error(),
 		DiagnosticExcerpt: malformedSourceDiagnostic(cause, rawLine),
+		PayloadHash:       sourcePayloadHash(rawLine),
+		PayloadSizeBytes:  len(rawLine),
 		SourceValidation:  SourceValidationRejected,
 	}
 	if err := store.RecordSourceFailure(ctx, record); err != nil {
@@ -305,6 +348,101 @@ func malformedSourceDiagnostic(cause error, rawLine string) string {
 		return fmt.Sprintf("malformed source event; source_bytes=%d", len(rawLine))
 	}
 	return fmt.Sprintf("%s; source_bytes=%d", cause.Error(), len(rawLine))
+}
+
+func recordFeishuSourceBlocked(ctx context.Context, config FeishuEventSourceConfig, cause error) error {
+	sourceID, _, _ := config.sourceIdentity()
+	now := time.Now().UTC()
+	if err := recordFeishuSourceRunStatus(ctx, config, SourceRunStatusBlocked, cause.Error(), now, time.Time{}); err != nil {
+		return err
+	}
+	return recordFeishuSourceAttemptWithID(ctx, config, stableOpaqueID("source_attempt", sourceID, "blocked", now.Format(time.RFC3339Nano), cause.Error()), now, now, SourceAttemptOutcomeBlocked, "")
+}
+
+func recordFeishuSourceRunStatus(ctx context.Context, config FeishuEventSourceConfig, status string, blockedReason string, startedAt time.Time, readyAt time.Time) error {
+	if config.SourceStore == nil {
+		return nil
+	}
+	sourceID, adapterRef, _ := config.sourceIdentity()
+	run := SourceRun{
+		SourceID:      sourceID,
+		Connector:     "feishu",
+		AdapterRef:    adapterRef,
+		Status:        status,
+		StartedAt:     startedAt,
+		BlockedReason: safeSourceFailureDiagnostic(blockedReason),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if status == SourceRunStatusReady {
+		run.LastReadyAt = readyAt
+	}
+	if status == SourceRunStatusStopped {
+		run.StoppedAt = readyAt
+	}
+	return config.SourceStore.UpsertSourceRun(ctx, run)
+}
+
+func recordFeishuSourceAttempt(ctx context.Context, config FeishuEventSourceConfig, attempt int, startedAt time.Time, endedAt time.Time, outcome string, failureRef string) error {
+	return recordFeishuSourceAttemptWithID(ctx, config, feishuSourceAttemptID(config, attempt, startedAt), startedAt, endedAt, outcome, failureRef)
+}
+
+func recordFeishuSourceAttemptWithID(ctx context.Context, config FeishuEventSourceConfig, attemptID string, startedAt time.Time, endedAt time.Time, outcome string, failureRef string) error {
+	if config.SourceStore == nil {
+		return nil
+	}
+	sourceID, _, _ := config.sourceIdentity()
+	return config.SourceStore.RecordSourceAttempt(ctx, SourceAttempt{
+		AttemptID:   attemptID,
+		SourceRunID: sourceID,
+		StartedAt:   startedAt,
+		EndedAt:     endedAt,
+		Outcome:     outcome,
+		FailureRef:  failureRef,
+	})
+}
+
+func recordFeishuSourceCursor(ctx context.Context, store SourceSupervisorStore, sourceID string, event ExternalEvent) error {
+	if store == nil || strings.TrimSpace(sourceID) == "" {
+		return nil
+	}
+	if strings.TrimSpace(event.ExternalEventID) == "" {
+		return nil
+	}
+	return store.SaveSourceCursor(ctx, SourceCursor{
+		SourceID:    sourceID,
+		CursorKind:  SourceCursorKindExternalEventID,
+		CursorValue: event.ExternalEventID,
+		WatermarkAt: event.ReceivedAt,
+		UpdatedAt:   time.Now().UTC(),
+	})
+}
+
+func feishuSourceAttemptID(config FeishuEventSourceConfig, attempt int, startedAt time.Time) string {
+	sourceID, _, _ := config.sourceIdentity()
+	return stableOpaqueID("source_attempt", sourceID, strconv.Itoa(attempt), startedAt.Format(time.RFC3339Nano))
+}
+
+func (c FeishuEventSourceConfig) sourceIdentity() (string, string, string) {
+	eventKey := strings.TrimSpace(c.EventKey)
+	if eventKey == "" {
+		eventKey = DefaultFeishuMessageEventKey
+	}
+	profile := strings.TrimSpace(c.Profile)
+	if profile == "" {
+		profile = "missing_profile"
+	}
+	identity := strings.TrimSpace(c.Identity)
+	if identity == "" {
+		identity = defaultFeishuEventIdentity
+	}
+	adapterRef := "lark-cli:event.consume:" + eventKey
+	sourceID := stableOpaqueID("source", "feishu", profile, eventKey, identity)
+	return sourceID, adapterRef, eventKey
+}
+
+func sourcePayloadHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func ignoreSenderIDSet(values []string) map[string]struct{} {

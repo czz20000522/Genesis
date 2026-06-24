@@ -21,6 +21,9 @@ type InspectionReport struct {
 	Outbox         []connectorruntime.ConnectorOutboxItem        `json:"outbox"`
 	OutboxSummary  []OutboxInspectionSummary                     `json:"outbox_summary"`
 	SourceFailures []connectorruntime.SourceFailureRecord        `json:"source_failures,omitempty"`
+	SourceRuns     []connectorruntime.SourceRun                  `json:"source_runs,omitempty"`
+	SourceAttempts map[string][]connectorruntime.SourceAttempt   `json:"source_attempts,omitempty"`
+	SourceCursors  []connectorruntime.SourceCursor               `json:"source_cursors,omitempty"`
 	Receipts       map[string][]connectorruntime.DeliveryReceipt `json:"receipts"`
 	KernelSessions map[string]json.RawMessage                    `json:"kernel_sessions,omitempty"`
 	KernelErrors   map[string]string                             `json:"kernel_errors,omitempty"`
@@ -87,6 +90,7 @@ func runInspect(ctx context.Context, args []string, stdout io.Writer, stderr io.
 	inboundPath := fs.String("inbound-state", envOrDefault("GENESIS_INGRESS_STATE", filepath.Join(".genesis_ingress", "state.json")), "connector inbound state file")
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
 	sourceFailurePath := fs.String("source-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_STATE", filepath.Join(".genesis_ingress", "source_failures.json")), "connector source failure state file")
+	sourceSupervisorPath := fs.String("source-supervisor-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_SUPERVISOR_STATE", filepath.Join(".genesis_ingress", "source_supervisor.json")), "connector source supervisor state file")
 	kernelURL := fs.String("kernel-url", os.Getenv("GENESIS_KERNEL_URL"), "optional Genesis Kernel HTTP URL for session projections")
 	runtimeToken := fs.String("runtime-token", os.Getenv("GENESIS_RUNTIME_TOKEN"), "Genesis runtime bearer token")
 	connector := fs.String("connector", "", "filter connector records by connector name")
@@ -103,7 +107,7 @@ func runInspect(ctx context.Context, args []string, stdout io.Writer, stderr io.
 		OutboxStatus:    strings.TrimSpace(*outboxStatus),
 		KernelSessionID: strings.TrimSpace(*kernelSessionID),
 	}
-	report, err := inspectConnectorState(ctx, *inboundPath, *outboxPath, *sourceFailurePath, strings.TrimRight(*kernelURL, "/"), *runtimeToken, filters)
+	report, err := inspectConnectorState(ctx, *inboundPath, *outboxPath, *sourceFailurePath, *sourceSupervisorPath, strings.TrimRight(*kernelURL, "/"), *runtimeToken, filters)
 	if err != nil {
 		return err
 	}
@@ -167,7 +171,7 @@ func runResolveOutbox(ctx context.Context, args []string, stdout io.Writer, stde
 	return nil
 }
 
-func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath string, sourceFailurePath string, kernelURL string, runtimeToken string, filters InspectFilters) (InspectionReport, error) {
+func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath string, sourceFailurePath string, sourceSupervisorPath string, kernelURL string, runtimeToken string, filters InspectFilters) (InspectionReport, error) {
 	inboundStore, err := connectorruntime.NewFileInboundStore(inboundPath)
 	if err != nil {
 		return InspectionReport{}, err
@@ -177,6 +181,10 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 		return InspectionReport{}, err
 	}
 	sourceFailureStore, err := connectorruntime.NewFileSourceFailureStore(sourceFailurePath)
+	if err != nil {
+		return InspectionReport{}, err
+	}
+	sourceSupervisorStore, err := connectorruntime.NewFileSourceSupervisorStore(sourceSupervisorPath)
 	if err != nil {
 		return InspectionReport{}, err
 	}
@@ -192,9 +200,29 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 	if err != nil {
 		return InspectionReport{}, err
 	}
+	sourceRuns, err := sourceSupervisorStore.ListSourceRuns(ctx)
+	if err != nil {
+		return InspectionReport{}, err
+	}
+	sourceCursors, err := sourceSupervisorStore.ListSourceCursors(ctx)
+	if err != nil {
+		return InspectionReport{}, err
+	}
 	inbound = filterInbound(inbound, filters)
 	outbox = filterOutbox(outbox, filters)
 	sourceFailures = filterSourceFailures(sourceFailures, filters)
+	sourceRuns = filterSourceRuns(sourceRuns, filters)
+	sourceCursors = filterSourceCursors(sourceCursors, sourceRuns)
+	sourceAttempts := map[string][]connectorruntime.SourceAttempt{}
+	for _, run := range sourceRuns {
+		attempts, err := sourceSupervisorStore.ListSourceAttempts(ctx, run.SourceID)
+		if err != nil {
+			return InspectionReport{}, err
+		}
+		if len(attempts) != 0 {
+			sourceAttempts[run.SourceID] = attempts
+		}
+	}
 	receipts := make(map[string][]connectorruntime.DeliveryReceipt, len(outbox))
 	for _, item := range outbox {
 		itemReceipts, err := outboxStore.ListReceipts(ctx, item.OutboxID)
@@ -208,6 +236,9 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 		Outbox:         outbox,
 		OutboxSummary:  summarizeOutbox(outbox, receipts),
 		SourceFailures: sourceFailures,
+		SourceRuns:     sourceRuns,
+		SourceAttempts: sourceAttempts,
+		SourceCursors:  sourceCursors,
 		Receipts:       receipts,
 	}
 	if strings.TrimSpace(kernelURL) != "" {
@@ -314,6 +345,36 @@ func filterSourceFailures(records []connectorruntime.SourceFailureRecord, filter
 			continue
 		}
 		filtered = append(filtered, record)
+	}
+	return filtered
+}
+
+func filterSourceRuns(runs []connectorruntime.SourceRun, filters InspectFilters) []connectorruntime.SourceRun {
+	if filters.Connector == "" {
+		return runs
+	}
+	filtered := make([]connectorruntime.SourceRun, 0, len(runs))
+	for _, run := range runs {
+		if run.Connector == filters.Connector {
+			filtered = append(filtered, run)
+		}
+	}
+	return filtered
+}
+
+func filterSourceCursors(cursors []connectorruntime.SourceCursor, runs []connectorruntime.SourceRun) []connectorruntime.SourceCursor {
+	if len(runs) == 0 {
+		return nil
+	}
+	allowed := make(map[string]struct{}, len(runs))
+	for _, run := range runs {
+		allowed[run.SourceID] = struct{}{}
+	}
+	filtered := make([]connectorruntime.SourceCursor, 0, len(cursors))
+	for _, cursor := range cursors {
+		if _, ok := allowed[cursor.SourceID]; ok {
+			filtered = append(filtered, cursor)
+		}
 	}
 	return filtered
 }

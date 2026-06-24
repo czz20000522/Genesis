@@ -131,13 +131,16 @@ Current automated coverage includes:
   `docs/applications/connector-source-supervisor-design.md`. The first Feishu
   event-source driver now wraps `lark-cli event
   consume im.message.receive_v1` and maps its flattened NDJSON into
-  `ExternalEvent`, but it is still a bounded smoke driver: it does not yet make
-  source validation verified, and the hardcoded event command shape must move
-  behind connector driver configuration or an external adapter process before
-  production. `genesis-ingress feishu-probe` now gives operators a no-side-effect
+  `ExternalEvent`, and the connector-local source supervisor store now records
+  `SourceRun`, `SourceAttempt`, `SourceCursor`, and blocked readiness state. It
+  is still a bounded smoke driver: it does not yet make source validation
+  verified, and the hardcoded event command shape must move behind connector
+  driver configuration or an external adapter process before production.
+  `genesis-ingress feishu-probe` now gives operators a no-side-effect
   installed-adapter readiness report for the event source and ordinary final
   delivery surfaces. Webhook signature verification, durable source dead-letter
-  records, and production source supervision remain open. The explicit
+  records, credential/profile refresh integration, and production source
+  supervision remain open. The explicit
   `--source-attempts` / `--source-backoff` wrapper is a smoke-grade retry slice,
   not the final process supervisor.
 - Real credential store integration for connector adapters remains future work.

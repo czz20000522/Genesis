@@ -102,9 +102,15 @@ type SourceFailureRecord struct {
 	RecordID          string    `json:"record_id"`
 	Connector         string    `json:"connector"`
 	EventSource       string    `json:"event_source"`
+	SourceRunRef      string    `json:"source_run_ref,omitempty"`
+	SourceAttemptRef  string    `json:"source_attempt_ref,omitempty"`
 	Reason            string    `json:"reason"`
 	Detail            string    `json:"detail"`
 	DiagnosticExcerpt string    `json:"diagnostic_excerpt,omitempty"`
+	PayloadHash       string    `json:"payload_hash,omitempty"`
+	PayloadSizeBytes  int       `json:"payload_size_bytes,omitempty"`
+	DebugRef          string    `json:"debug_ref,omitempty"`
+	ResourceRef       string    `json:"resource_ref,omitempty"`
 	SourceValidation  string    `json:"source_validation"`
 	CreatedAt         time.Time `json:"created_at"`
 }

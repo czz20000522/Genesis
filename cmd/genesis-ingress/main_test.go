@@ -165,6 +165,44 @@ func TestFeishuListenRejectsInvalidSourceRetryBeforeKernelCall(t *testing.T) {
 	}
 }
 
+func TestFeishuListenInvalidSourceCommandRecordsBlockedSourceRun(t *testing.T) {
+	var submitCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		submitCount++
+		t.Fatalf("kernel should not be called when source command is invalid; got %s %s", r.Method, r.URL.Path)
+	}))
+	t.Cleanup(server.Close)
+	dir := testsupport.ProjectTempDir(t, "feishu-listen-source-blocked")
+	sourceSupervisorPath := filepath.Join(dir, "source-supervisor.json")
+
+	err := runWithIO(context.Background(), []string{
+		"feishu-listen",
+		"--profile", "genesis",
+		"--event-key", "im.chat.updated_v1",
+		"--lark-cli", os.Args[0],
+		"--kernel-url", server.URL,
+		"--source-state", filepath.Join(dir, "source-failures.json"),
+		"--source-supervisor-state", sourceSupervisorPath,
+	}, strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("runWithIO should reject unsupported source event key")
+	}
+	if submitCount != 0 {
+		t.Fatalf("submit count = %d, want 0", submitCount)
+	}
+	store, err := connectorruntime.NewFileSourceSupervisorStore(sourceSupervisorPath)
+	if err != nil {
+		t.Fatalf("NewFileSourceSupervisorStore returned error: %v", err)
+	}
+	runs, err := store.ListSourceRuns(context.Background())
+	if err != nil {
+		t.Fatalf("ListSourceRuns returned error: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Status != connectorruntime.SourceRunStatusBlocked || !strings.Contains(runs[0].BlockedReason, "unsupported Feishu event key") {
+		t.Fatalf("source runs = %+v, want blocked unsupported event key readiness record", runs)
+	}
+}
+
 func TestFeishuProbeReportsInstalledAdapterReadiness(t *testing.T) {
 	var stdout bytes.Buffer
 	if err := runWithIO(context.Background(), []string{

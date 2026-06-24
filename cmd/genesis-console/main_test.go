@@ -323,6 +323,75 @@ func TestConsoleInspectIncludesFilteredSourceFailures(t *testing.T) {
 	}
 }
 
+func TestConsoleInspectIncludesSourceSupervisorState(t *testing.T) {
+	ctx := context.Background()
+	dir := testsupport.ProjectTempDir(t, "genesis-console-source-supervisor")
+	inboundPath := filepath.Join(dir, "inbound.json")
+	outboxPath := filepath.Join(dir, "outbox.json")
+	sourceFailurePath := filepath.Join(dir, "source-failures.json")
+	sourceSupervisorPath := filepath.Join(dir, "source-supervisor.json")
+	store, err := connectorruntime.NewFileSourceSupervisorStore(sourceSupervisorPath)
+	if err != nil {
+		t.Fatalf("NewFileSourceSupervisorStore returned error: %v", err)
+	}
+	now := time.Date(2026, 6, 24, 16, 0, 0, 0, time.UTC)
+	sourceRun := connectorruntime.SourceRun{
+		SourceID:    "source_feishu_events",
+		Connector:   "feishu",
+		AdapterRef:  "lark-cli:event.consume",
+		Status:      connectorruntime.SourceRunStatusReady,
+		StartedAt:   now,
+		LastReadyAt: now.Add(time.Second),
+		UpdatedAt:   now.Add(time.Second),
+	}
+	if err := store.UpsertSourceRun(ctx, sourceRun); err != nil {
+		t.Fatalf("UpsertSourceRun returned error: %v", err)
+	}
+	if err := store.RecordSourceAttempt(ctx, connectorruntime.SourceAttempt{
+		AttemptID:   "attempt_ready",
+		SourceRunID: sourceRun.SourceID,
+		StartedAt:   now,
+		EndedAt:     now.Add(time.Second),
+		Outcome:     connectorruntime.SourceAttemptOutcomeReady,
+	}); err != nil {
+		t.Fatalf("RecordSourceAttempt returned error: %v", err)
+	}
+	if err := store.SaveSourceCursor(ctx, connectorruntime.SourceCursor{
+		SourceID:    sourceRun.SourceID,
+		CursorKind:  connectorruntime.SourceCursorKindExternalEventID,
+		CursorValue: "evt_123",
+		WatermarkAt: now.Add(2 * time.Second),
+		UpdatedAt:   now.Add(3 * time.Second),
+	}); err != nil {
+		t.Fatalf("SaveSourceCursor returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := run(ctx, []string{
+		"inspect",
+		"--inbound-state", inboundPath,
+		"--outbox-state", outboxPath,
+		"--source-state", sourceFailurePath,
+		"--source-supervisor-state", sourceSupervisorPath,
+		"--connector", "feishu",
+	}, &stdout, io.Discard); err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	var got InspectionReport
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("decode report: %v\n%s", err, stdout.String())
+	}
+	if len(got.SourceRuns) != 1 || got.SourceRuns[0].SourceID != sourceRun.SourceID || got.SourceRuns[0].Status != connectorruntime.SourceRunStatusReady {
+		t.Fatalf("source runs = %+v, want ready Feishu source run", got.SourceRuns)
+	}
+	if len(got.SourceAttempts[sourceRun.SourceID]) != 1 || got.SourceAttempts[sourceRun.SourceID][0].Outcome != connectorruntime.SourceAttemptOutcomeReady {
+		t.Fatalf("source attempts = %+v, want ready attempt", got.SourceAttempts)
+	}
+	if len(got.SourceCursors) != 1 || got.SourceCursors[0].CursorValue != "evt_123" {
+		t.Fatalf("source cursors = %+v, want connector-local cursor", got.SourceCursors)
+	}
+}
+
 func TestConsoleRequeueOutboxMutatesOnlyConnectorState(t *testing.T) {
 	ctx := context.Background()
 	outboxPath := filepath.Join(testsupport.ProjectTempDir(t, "genesis-console-requeue"), "outbox.json")

@@ -1,0 +1,56 @@
+package connectorruntime
+
+import "time"
+
+const (
+	SourceRunStatusStarting = "starting"
+	SourceRunStatusReady    = "ready"
+	SourceRunStatusDegraded = "degraded"
+	SourceRunStatusBlocked  = "blocked"
+	SourceRunStatusStopped  = "stopped"
+
+	SourceAttemptOutcomeReady   = "ready"
+	SourceAttemptOutcomeFailed  = "failed"
+	SourceAttemptOutcomeBlocked = "blocked"
+	SourceAttemptOutcomeStopped = "stopped"
+
+	SourceCursorKindExternalEventID = "external_event_id"
+)
+
+type SourceRun struct {
+	SourceID      string    `json:"source_id"`
+	Connector     string    `json:"connector"`
+	AdapterRef    string    `json:"adapter_ref"`
+	Status        string    `json:"status"`
+	StartedAt     time.Time `json:"started_at"`
+	StoppedAt     time.Time `json:"stopped_at,omitempty"`
+	LastReadyAt   time.Time `json:"last_ready_at,omitempty"`
+	BlockedReason string    `json:"blocked_reason,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type SourceAttempt struct {
+	AttemptID   string    `json:"attempt_id"`
+	SourceRunID string    `json:"source_run_id"`
+	StartedAt   time.Time `json:"started_at"`
+	EndedAt     time.Time `json:"ended_at,omitempty"`
+	Outcome     string    `json:"outcome"`
+	FailureRef  string    `json:"failure_ref,omitempty"`
+}
+
+type SourceCursor struct {
+	SourceID    string    `json:"source_id"`
+	CursorKind  string    `json:"cursor_kind"`
+	CursorValue string    `json:"cursor_value"`
+	WatermarkAt time.Time `json:"watermark_at,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type SourceVerificationEvidence struct {
+	SourceEventRef   string    `json:"source_event_ref"`
+	ValidationStatus string    `json:"validation_status"`
+	EvidenceKind     string    `json:"evidence_kind,omitempty"`
+	EvidenceRef      string    `json:"evidence_ref,omitempty"`
+	CheckedAt        time.Time `json:"checked_at"`
+	AdapterRef       string    `json:"adapter_ref,omitempty"`
+}

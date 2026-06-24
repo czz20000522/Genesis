@@ -80,6 +80,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	deliverFinal := fs.Bool("deliver-final", false, "enqueue and deliver kernel final_text back through the connector outbox")
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
 	sourceFailurePath := fs.String("source-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_STATE", filepath.Join(".genesis_ingress", "source_failures.json")), "connector source failure state file")
+	sourceSupervisorPath := fs.String("source-supervisor-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_SUPERVISOR_STATE", filepath.Join(".genesis_ingress", "source_supervisor.json")), "connector source supervisor state file")
 	var ignoreSenderIDs stringListFlag
 	fs.Var(&ignoreSenderIDs, "ignore-sender-id", "external sender id to ignore before kernel submission; repeatable")
 	if err := fs.Parse(args); err != nil {
@@ -114,6 +115,10 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	if err != nil {
 		return err
 	}
+	sourceSupervisorStore, err := connectorruntime.NewFileSourceSupervisorStore(*sourceSupervisorPath)
+	if err != nil {
+		return err
+	}
 	sourceConfig := connectorruntime.FeishuEventSourceConfig{
 		Executable:      *larkCLI,
 		Profile:         *profile,
@@ -123,6 +128,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		Timeout:         *eventTimeout,
 		IgnoreSenderIDs: append([]string(nil), ignoreSenderIDs...),
 		FailureStore:    sourceFailureStore,
+		SourceStore:     sourceSupervisorStore,
 	}
 	encoder := json.NewEncoder(stdout)
 	return connectorruntime.ConsumeFeishuEventSourceWithRetry(ctx, sourceConfig, connectorruntime.FeishuEventSourceRetryPolicy{
