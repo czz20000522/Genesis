@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+const (
+	maxSkillCatalogScanDepth     = 3
+	maxSkillCatalogCandidates    = 200
+	maxSkillCatalogMetadataBytes = 64 * 1024
+)
+
 func loadSkillCatalog(roots []string) []SkillDescriptor {
 	return loadSkillCatalogWithDiagnostics(roots).Items
 }
@@ -40,12 +46,44 @@ func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
 			exclusions.add("root_linked")
 			continue
 		}
+		candidateCount := 0
 		_ = filepath.WalkDir(absRoot, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil || entry.IsDir() || entry.Name() != "SKILL.md" {
+			if walkErr != nil {
 				return nil
 			}
+			if path != absRoot {
+				rel, err := filepath.Rel(absRoot, path)
+				if err != nil {
+					exclusions.add("path_invalid")
+					if entry.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				if entry.IsDir() && pathDepth(rel) > maxSkillCatalogScanDepth {
+					exclusions.add("scan_depth_exceeded")
+					return filepath.SkipDir
+				}
+			}
+			if entry.IsDir() || entry.Name() != "SKILL.md" {
+				return nil
+			}
+			if candidateCount >= maxSkillCatalogCandidates {
+				exclusions.add("scan_count_exceeded")
+				return filepath.SkipAll
+			}
+			candidateCount++
 			if pathHasLinkOrReparsePoint(path) || !pathWithin(path, absRoot) {
 				exclusions.add("path_linked")
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil {
+				exclusions.add("read_failed")
+				return nil
+			}
+			if info.Size() > maxSkillCatalogMetadataBytes {
+				exclusions.add("skill_file_too_large")
 				return nil
 			}
 			payload, err := os.ReadFile(path)
@@ -134,6 +172,13 @@ func (c skillCatalogExclusionCounter) projections() []SkillCatalogExclusionProje
 		})
 	}
 	return projections
+}
+
+func pathDepth(rel string) int {
+	if rel == "." || rel == "" {
+		return 0
+	}
+	return len(strings.Split(filepath.Clean(rel), string(filepath.Separator)))
 }
 
 func isSafeSkillMetadata(name string, description string) bool {

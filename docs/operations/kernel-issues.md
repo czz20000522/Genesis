@@ -57,24 +57,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Next slice: Specify the signature rules before implementation. For Phase A, guard repeated same-error tool batches and a narrow allowlist of write-like shell/write primitives; do not attempt broad semantic command equivalence for arbitrary shell text.
 - Reference alignment: Aligned with Reasonix's storm breaker and repeat-success guard. Genesis should intentionally keep the guard inside Tool Runtime/Model Gateway outcome handling, not inside provider adapters or UI shells. Codex-style idempotent replay remains necessary but insufficient for model-level loop storms because provider-generated calls can be fresh while semantically repeating the same effect.
 
-### KERNEL-SKILL-CATALOG-SCAN-BOUNDS-20260625 - P2 - Skill catalog scanning needs bounded depth, count, and file-size guards
-
-- Status: open.
-- Area: Model Gateway / Skill Catalog / Context Projection.
-- Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
-- Design: `docs/design/kernel-foundation-capabilities.md`.
-- 标题: Skill catalog scanning needs bounded depth, count, and file-size guards.
-- 问题: Genesis correctly keeps skill bodies out of the default provider context and rejects unsafe metadata, duplicate names, and linked paths, but the configured skill-root scanner is still an unbounded filesystem walk that reads every discovered `SKILL.md` body in full before parsing metadata. A misconfigured root, a very deep directory tree, or a huge `SKILL.md` can make turn startup/capability inspection slow or memory-heavy even though only name/description metadata is needed.
-- 建议: Add a kernel-owned skill catalog scanning contract with explicit maximum recursion depth, maximum discovered skill candidates per root, maximum `SKILL.md` metadata read size, and stable exclusion reasons such as `scan_depth_exceeded`, `scan_count_exceeded`, and `skill_file_too_large`. The scanner should read only a bounded prefix sufficient for front matter, skip generated/vendor-style heavy directories if such policy is adopted, and keep model-visible skill index behavior unchanged.
-- 证据: `internal/kernel/skill_catalog.go::loadSkillCatalogWithDiagnostics` calls `filepath.WalkDir` over each configured root without a depth or candidate-count cap, and calls `os.ReadFile(path)` for each `SKILL.md` before `parseSkillMetadata`. Existing skill tests cover metadata-only provider context, missing/malformed roots, unsafe metadata, duplicate names, symlink/link rejection, and budgeted skill-index text, but no test covers oversized skill files, excessive candidate counts, or deep-root traversal bounds.
-- 验证: Add tests that create a deep nested tree beyond the configured scan depth, more than the allowed number of candidate skill files, and a `SKILL.md` larger than the metadata read cap. Verify excluded entries do not enter provider context or `/capabilities`, exclusion reasons are path-free and bounded, and normal safe skills still load. Run `go test ./internal/kernel -run "Test.*Skill" -count=1`.
-- 优先级: P2.
-- Gap: Skill metadata is a provider-context input owned by the kernel. The current implementation bounds the final skill-index text but not the filesystem scan and file read that produce that index.
-- Next slice: Introduce bounded scan constants and path-free exclusion reasons, add focused regression tests for deep roots, too many candidate skills, and oversized `SKILL.md`, then verify existing metadata-only and unsafe-metadata tests continue to pass.
-- Evidence: Local Reasonix bounds skill-root scanning in `internal/installsource/skill.go::scanSkillRoot` with maximum recursion depth and skill count, and caps the prompt skill index in `internal/skill/index.go`. Codex also has dedicated skill tests and context snapshot normalization around `SKILL.md` surfaces. Genesis currently has no equivalent test for scan depth/count/file size.
-- Verification: `go test ./internal/kernel -run "Test.*Skill" -count=1`; broader verification should include `go test ./internal/kernel -count=1` after implementation because skill catalog projection affects provider context, `/capabilities`, and context inspection behavior.
-- Reference alignment: Aligned with Reasonix's bounded skill root scan and bounded skill index. Genesis intentionally differs by not exposing full skill paths or bodies in model context, but it should still bound the filesystem scan that produces the safe metadata index.
-
 ### KERNEL-PROVIDER-REASONING-REPLAY-GUARD-20260625 - P2 - Provider reasoning output needs an explicit non-replay regression guard
 
 - Status: open.

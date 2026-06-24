@@ -313,6 +313,7 @@ sandbox profile, select credentials, or inject model-visible control fields.
 
 - Skill packages are user-space assets. The kernel may index safe metadata, but skills do not become kernel APIs.
 - Configured skill roots can be scanned for `SKILL.md` metadata.
+- Skill root scanning is bounded by recursion depth, candidate count per root, and metadata file size before any provider-context projection is built.
 - Provider context receives only a bounded path-free metadata index by default.
 - Skill bodies, instruction paths, package paths, and full examples are not injected into every turn.
 - Unsafe, malformed, duplicate, linked-path, authority-shaped, hidden-control, prompt-injection-shaped, or secret-shaped metadata is excluded rather than repaired into model context.

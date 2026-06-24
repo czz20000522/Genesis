@@ -40,6 +40,16 @@ Core conceptual commands and projections:
 
 Kernel-owned control fields stay out of model-visible schemas. Provider adapters translate kernel manifests to provider-native shapes but do not own tool permission, idempotency, execution, or ledger evidence.
 
+## Skill Catalog Projection
+
+Skill packages are user-space assets. The kernel scans configured skill roots only to build a safe metadata index for capability and provider-context projection. Discovery is bounded by recursion depth, candidate count per root, and `SKILL.md` metadata file size before parsing. Exclusions use stable path-free reasons so `/capabilities` can explain skipped metadata without exposing package paths, skill bodies, or heavy file contents.
+
+Reference alignment:
+
+- Reasonix bounds skill-root discovery depth and candidate count before registering user-space skill packages.
+- Codex keeps skill listing/reading as typed app-server surfaces and separately budgets model-visible skill context.
+- Genesis intentionally differs by indexing only safe name/description metadata by default; full skill bodies remain outside the kernel provider context unless a future generic resource/context contract is approved.
+
 ## UI Timeline Projection
 
 The user-facing timeline is a projection tree, not the raw event stream and not

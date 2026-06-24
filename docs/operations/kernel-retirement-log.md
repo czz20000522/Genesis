@@ -14,6 +14,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-SKILL-CATALOG-SCAN-BOUNDS-20260625 - P2 - Skill catalog scan bounds
+
+- Status: ready_for_acceptance.
+- Conclusion: Skill catalog discovery now bounds recursion depth, candidate count, and `SKILL.md` metadata size before parsing while preserving path-free exclusions and metadata-only provider context.
+- Fix commit: current Lore commit.
+- Verification: `go test ./internal/kernel -run "Test.*Skill" -count=1`; `go test ./internal/kernel -count=1`; `go test ./... -count=1`; `go build ./...`; `git diff --check`.
+- Reference alignment: Aligned with Reasonix bounded skill-root scanning and Codex model-visible skill-context budgeting while keeping Genesis skill bodies outside default provider context.
+
 ### KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624 - P1 - Generic resource_read primitive
 
 - Status: ready_for_acceptance.

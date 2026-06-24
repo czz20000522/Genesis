@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -471,6 +472,59 @@ func TestHTTPCapabilitiesReportsPathFreeSkillExclusions(t *testing.T) {
 	}
 }
 
+func TestSkillCatalogScanBoundsExcludeDeepExtraAndOversizedSkills(t *testing.T) {
+	root := testTempDir(t)
+	writeSkillForTest(t, root, "safe", "safe-skill", "Safe metadata", "safe body")
+
+	deepDir := filepath.Join(root, "deep-1", "deep-2", "deep-3", "deep-4")
+	if err := os.MkdirAll(deepDir, 0o755); err != nil {
+		t.Fatalf("mkdir deep skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(deepDir, "SKILL.md"), []byte("---\nname: deep-skill\ndescription: Too deep\n---\nbody"), 0o644); err != nil {
+		t.Fatalf("write deep skill: %v", err)
+	}
+
+	hugeDir := filepath.Join(root, "huge")
+	if err := os.MkdirAll(hugeDir, 0o755); err != nil {
+		t.Fatalf("mkdir huge skill dir: %v", err)
+	}
+	hugeSkill := "---\nname: huge-skill\ndescription: Huge metadata source\n---\n" + strings.Repeat("x", maxSkillCatalogMetadataBytes)
+	if err := os.WriteFile(filepath.Join(hugeDir, "SKILL.md"), []byte(hugeSkill), 0o644); err != nil {
+		t.Fatalf("write huge skill: %v", err)
+	}
+
+	countRoot := testTempDir(t)
+	for i := 0; i < maxSkillCatalogCandidates+5; i++ {
+		writeSkillForTest(t, countRoot, fmt.Sprintf("skill-%03d", i), fmt.Sprintf("count-skill-%03d", i), "Counted metadata", "body")
+	}
+
+	result := loadSkillCatalogWithDiagnostics([]string{root, countRoot})
+	if !skillCatalogHasName(result.Items, "safe-skill") {
+		t.Fatalf("items = %+v, want normal safe skill", result.Items)
+	}
+	for _, forbidden := range []string{"deep-skill", "huge-skill", fmt.Sprintf("count-skill-%03d", maxSkillCatalogCandidates+4)} {
+		if skillCatalogHasName(result.Items, forbidden) {
+			t.Fatalf("items = %+v, must not include bounded-out skill %q", result.Items, forbidden)
+		}
+	}
+	for _, want := range []string{"scan_depth_exceeded", "skill_file_too_large", "scan_count_exceeded"} {
+		if !skillCatalogLoadExclusionsHaveReason(result.Exclusions, want) {
+			t.Fatalf("exclusions = %+v, want reason %q", result.Exclusions, want)
+		}
+	}
+	exclusionJSON, err := json.Marshal(result.Exclusions)
+	if err != nil {
+		t.Fatalf("marshal exclusions: %v", err)
+	}
+	for _, forbidden := range []string{root, countRoot, "deep-skill", "huge-skill", fmt.Sprintf("count-skill-%03d", maxSkillCatalogCandidates+4)} {
+		for _, variant := range pathLeakVariants(forbidden) {
+			if strings.Contains(string(exclusionJSON), variant) {
+				t.Fatalf("exclusions = %s, must not contain %q", string(exclusionJSON), variant)
+			}
+		}
+	}
+}
+
 func TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext(t *testing.T) {
 	root := testTempDir(t)
 	writeSkillForTest(t, root, "lark-im", "lark-im", "Send and read chat messages", "Run lark-cli im send after reading channel context.\nGENESIS_PROVIDER_API_KEY=sk-secret123")
@@ -610,6 +664,24 @@ func TestSkillCatalogRejectsLinkedSkillDirectories(t *testing.T) {
 	if len(skills) != 0 {
 		t.Fatalf("skills = %+v, want linked skill directory excluded", skills)
 	}
+}
+
+func skillCatalogHasName(skills []SkillDescriptor, name string) bool {
+	for _, skill := range skills {
+		if skill.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func skillCatalogLoadExclusionsHaveReason(exclusions []SkillCatalogExclusionProjection, reason string) bool {
+	for _, exclusion := range exclusions {
+		if exclusion.Reason == reason && exclusion.Count > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func writeSkillForTest(t *testing.T, root string, dir string, name string, description string, body string) string {
