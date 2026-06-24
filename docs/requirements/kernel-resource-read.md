@@ -96,6 +96,6 @@ redaction policy, truncation metadata, and deterministic tool-result ordering.
 
 ## Relationship To Existing Issues
 
-This requirement governs `KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624` and the
-future implementation slice that can unblock the deferred executor-pool part of
-`KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624`.
+This requirement governed the retired
+`KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624` implementation slice and
+continues to govern future resource owner store and executor-pool slices.

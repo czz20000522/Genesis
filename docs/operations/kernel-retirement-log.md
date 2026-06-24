@@ -14,6 +14,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624 - P1 - Generic resource_read primitive
+
+- Status: ready_for_acceptance.
+- Conclusion: `resource_read` is now the only default non-shell `pure_read` candidate, with bounded immutable text reads, repair feedback for unknown refs, hidden scheduling metadata, and shell remaining serial.
+- Fix commit: `5da33e29e`.
+- Verification: `go test ./internal/kernel -count=1`; `git diff --check`.
+- Reference alignment: Matches Reasonix trusted read-only metadata and Codex opt-in parallel support while rejecting shell command text as a read classifier.
+
 ### KERNEL-UI-LIVE-TIMELINE-PROJECTION-20260624 - P1 - UI timeline projection
 
 - Status: ready_for_acceptance.
