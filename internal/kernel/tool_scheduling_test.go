@@ -188,14 +188,14 @@ func TestToolSchedulingMetadataStaysOutOfModelVisibleManifest(t *testing.T) {
 	}
 }
 
-func TestDefaultKernelToolsHaveNoRealParallelExecutionCandidatesYet(t *testing.T) {
+func TestDefaultKernelToolsHaveNoExecutorPoolPureReadCandidatesYet(t *testing.T) {
 	for _, tool := range defaultKernelTools() {
 		spec := tool.Spec.Scheduling
 		if tool.Spec.Name == "shell_exec" && spec.EffectClass == ToolEffectClassPureRead {
 			t.Fatalf("shell_exec scheduling = %+v, must not become pure-read by command text", spec)
 		}
 		if tool.Spec.Name != "shell_exec" && spec.EffectClass == ToolEffectClassPureRead && spec.ParallelPolicy == ToolParallelPolicyCompatibleLocks {
-			t.Fatalf("default tool %q is a real parallel execution candidate before resource/read tool design is approved", tool.Spec.Name)
+			t.Fatalf("default tool %q is an executor-pool pure-read candidate before resource/read tool design is approved", tool.Spec.Name)
 		}
 	}
 }

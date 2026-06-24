@@ -19,11 +19,18 @@ type toolCallExecutionResult struct {
 type toolBatchRunner func(context.Context, ToolGateway, string, string, []preparedModelToolCall, ToolExecutionBatch) ([]toolCallExecutionResult, error)
 
 func (k *Kernel) executeToolBatches(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, toolCallEventIDs map[string]string) (toolBatchExecutionOutcome, error) {
-	return k.executeToolBatchesWithRunner(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs, serialToolBatchRunner)
+	return k.executeToolBatchesWithRunner(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs, nil)
 }
 
 func (k *Kernel) executeToolBatchesWithRunner(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, toolCallEventIDs map[string]string, runner toolBatchRunner) (toolBatchExecutionOutcome, error) {
 	for _, batch := range planToolExecutionBatches(preparedCalls) {
+		if runner == nil {
+			outcome, err := k.executeToolBatchSerially(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs, batch)
+			if err != nil || outcome.Completed {
+				return outcome, err
+			}
+			continue
+		}
 		results, err := runner(runCtx, toolGateway, sessionID, turnID, preparedCalls, batch)
 		if err != nil {
 			return k.handleToolExecutionError(runCtx, sessionID, turnID, err)
@@ -45,19 +52,18 @@ func (k *Kernel) executeToolBatchesWithRunner(runCtx context.Context, toolGatewa
 	return toolBatchExecutionOutcome{}, nil
 }
 
-func serialToolBatchRunner(ctx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, batch ToolExecutionBatch) ([]toolCallExecutionResult, error) {
-	results := make([]toolCallExecutionResult, 0, len(batch.CallIndexes))
+func (k *Kernel) executeToolBatchSerially(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, toolCallEventIDs map[string]string, batch ToolExecutionBatch) (toolBatchExecutionOutcome, error) {
 	for _, callIndex := range batch.CallIndexes {
-		result, err := toolGateway.Execute(ctx, sessionID, turnID, preparedCalls[callIndex])
+		result, err := toolGateway.Execute(runCtx, sessionID, turnID, preparedCalls[callIndex])
 		if err != nil {
-			return nil, err
+			return k.handleToolExecutionError(runCtx, sessionID, turnID, err)
 		}
-		results = append(results, toolCallExecutionResult{
-			CallIndex: callIndex,
-			Result:    result,
-		})
+		outcome, err := k.commitToolExecutionResult(runCtx, sessionID, turnID, result, toolCallEventIDs)
+		if err != nil || outcome.Completed {
+			return outcome, err
+		}
 	}
-	return results, nil
+	return toolBatchExecutionOutcome{}, nil
 }
 
 func indexToolExecutionResults(batch ToolExecutionBatch, results []toolCallExecutionResult) (map[int]ModelToolResult, error) {

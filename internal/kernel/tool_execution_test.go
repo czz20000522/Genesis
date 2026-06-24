@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -86,6 +87,61 @@ func TestExecuteToolBatchesKeepsCurrentSerialProviderOrder(t *testing.T) {
 		if result.Tool != want.tool || result.ForEventID != want.forEvent || result.ProviderToolCallID != want.provider || result.ToolCallEventID != want.eventName {
 			t.Fatalf("events[%d] tool.result = %+v, want %+v", i, result, want)
 		}
+	}
+}
+
+func TestExecuteToolBatchesCommitsCompletedSerialResultBeforeLaterError(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-partial-error"), "events.jsonl"))
+	sessionID := "session_tool_execution_partial_error"
+	turnID := "turn_tool_execution_partial_error"
+	toolCallEventIDs := map[string]string{
+		"call_event_a": "evt_call_a",
+		"call_event_b": "evt_call_b",
+	}
+	prepared := []preparedModelToolCall{
+		{
+			eventID:        "call_event_a",
+			providerCallID: "provider_call_a",
+			name:           "read_a",
+			accessPlan:     pureReadAccessPlan("read_a"),
+			execute: func(context.Context, string, string) (ModelToolResult, error) {
+				return ModelToolResult{
+					ToolCallID:      "provider_call_a",
+					ToolCallEventID: "call_event_a",
+					Name:            "read_a",
+					Content:         `{"status":"ok","order":"a"}`,
+				}, nil
+			},
+		},
+		{
+			eventID:        "call_event_b",
+			providerCallID: "provider_call_b",
+			name:           "read_b",
+			accessPlan:     pureReadAccessPlan("read_b"),
+			execute: func(context.Context, string, string) (ModelToolResult, error) {
+				return ModelToolResult{}, fmt.Errorf("%w: failed after prior call", ErrToolInfrastructureFailed)
+			},
+		},
+	}
+
+	_, err := k.executeToolBatches(context.Background(), k.toolGateway(), sessionID, turnID, prepared, toolCallEventIDs)
+	if err == nil {
+		t.Fatal("executeToolBatches returned nil error, want later call failure")
+	}
+	events, err := k.TurnEvents(turnID)
+	if err != nil {
+		t.Fatalf("TurnEvents returned error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %+v, want committed tool.result then turn.failed", events)
+	}
+	first, ok := events[0].Data.(EventData)
+	if !ok || first.ToolResult == nil || first.ToolResult.Tool != "read_a" {
+		t.Fatalf("events[0] = %#v, want first successful tool.result committed before later failure", events[0].Data)
+	}
+	second, ok := events[1].Data.(EventData)
+	if !ok || second.TurnError == nil || second.TurnError.Code != "tool_infrastructure_failed" {
+		t.Fatalf("events[1] = %#v, want tool infrastructure turn failure", events[1].Data)
 	}
 }
 
