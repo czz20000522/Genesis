@@ -63,7 +63,7 @@ func (r *resourceRegistry) read(req resourceReadRequest) (ModelResourceReadResul
 	if !ok {
 		return ModelResourceReadResult{}, errors.New("resource not found")
 	}
-	data := []byte(item.text)
+	data := []byte(redactEvidenceText(item.text))
 	offset := req.offsetBytes
 	if offset > len(data) {
 		offset = len(data)

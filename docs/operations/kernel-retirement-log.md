@@ -14,6 +14,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-RESOURCE-READ-MODEL-RESULT-REDACTION-20260625 - P2 - resource_read model-result redaction
+
+- Status: ready_for_acceptance.
+- Conclusion: `resource_read` now keeps raw resource owner text unchanged while paginating over a bounded redacted `ModelResourceReadResult.Text` projection through provider tool results, provider context, provider-command/OpenAI-compatible serialization, session projection, and UI timeline.
+- Fix commit: current Lore commit.
+- Verification: `go test ./internal/kernel -run "TestResourceRead" -count=1`; `go test ./internal/kernel -run "Test.*ResourceRead|Test.*ProviderContext|Test.*Timeline" -count=1`; `go test ./internal/kernel -count=1`; `go test ./... -count=1`; `go build ./...`; `git diff --check`.
+- Reference alignment: Aligned with Codex's source/sandbox tests that keep denied sensitive read output out of model-visible function-call output and Reasonix's redacted diagnostic projection pattern while preserving Genesis's raw resource-owner truth boundary.
+
 ### KERNEL-SKILL-CATALOG-SCAN-BOUNDS-20260625 - P2 - Skill catalog scan bounds
 
 - Status: ready_for_acceptance.
