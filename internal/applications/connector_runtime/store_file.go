@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	fileOutboxStoreLockTimeout = 10 * time.Second
-	fileOutboxStoreLockPoll    = 10 * time.Millisecond
+	fileConnectorStoreLockTimeout = 10 * time.Second
+	fileConnectorStoreLockPoll    = 10 * time.Millisecond
 )
 
 type OutboxStore interface {
@@ -384,7 +384,7 @@ func (s *FileOutboxStore) reset() {
 func (s *FileOutboxStore) withLockedState(ctx context.Context, fn func() error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	release, err := acquireOutboxFileLock(ctx, s.path+".lock")
+	release, err := acquireConnectorStateFileLock(ctx, s.path+".lock")
 	if err != nil {
 		return err
 	}
@@ -426,13 +426,13 @@ func (s *FileOutboxStore) writeLocked() error {
 	return replaceConnectorStateFile(tmpPath, s.path)
 }
 
-func acquireOutboxFileLock(ctx context.Context, path string) (func(), error) {
+func acquireConnectorStateFileLock(ctx context.Context, path string) (func(), error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, fileOutboxStoreLockTimeout)
+		ctx, cancel = context.WithTimeout(ctx, fileConnectorStoreLockTimeout)
 		defer cancel()
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -453,11 +453,11 @@ func acquireOutboxFileLock(ctx context.Context, path string) (func(), error) {
 		if !errors.Is(err, os.ErrExist) {
 			return nil, err
 		}
-		timer := time.NewTimer(fileOutboxStoreLockPoll)
+		timer := time.NewTimer(fileConnectorStoreLockPoll)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, fmt.Errorf("outbox store lock unavailable: %w", ctx.Err())
+			return nil, fmt.Errorf("connector state lock unavailable: %w", ctx.Err())
 		case <-timer.C:
 		}
 	}

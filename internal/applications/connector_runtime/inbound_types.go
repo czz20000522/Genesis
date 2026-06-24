@@ -99,14 +99,14 @@ type InboundSubmissionRecord struct {
 }
 
 type SourceFailureRecord struct {
-	RecordID         string    `json:"record_id"`
-	Connector        string    `json:"connector"`
-	EventSource      string    `json:"event_source"`
-	Reason           string    `json:"reason"`
-	Detail           string    `json:"detail"`
-	RawExcerpt       string    `json:"raw_excerpt,omitempty"`
-	SourceValidation string    `json:"source_validation"`
-	CreatedAt        time.Time `json:"created_at"`
+	RecordID          string    `json:"record_id"`
+	Connector         string    `json:"connector"`
+	EventSource       string    `json:"event_source"`
+	Reason            string    `json:"reason"`
+	Detail            string    `json:"detail"`
+	DiagnosticExcerpt string    `json:"diagnostic_excerpt,omitempty"`
+	SourceValidation  string    `json:"source_validation"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 type ProcessResult struct {

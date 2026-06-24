@@ -287,12 +287,12 @@ func recordFeishuSourceFailure(ctx context.Context, store SourceFailureStore, ra
 		return nil
 	}
 	record := SourceFailureRecord{
-		Connector:        "feishu",
-		EventSource:      DefaultFeishuMessageEventKey,
-		Reason:           "malformed_source_event",
-		Detail:           cause.Error(),
-		RawExcerpt:       boundedSourceExcerpt(rawLine),
-		SourceValidation: SourceValidationRejected,
+		Connector:         "feishu",
+		EventSource:       DefaultFeishuMessageEventKey,
+		Reason:            "malformed_source_event",
+		Detail:            cause.Error(),
+		DiagnosticExcerpt: malformedSourceDiagnostic(cause, rawLine),
+		SourceValidation:  SourceValidationRejected,
 	}
 	if err := store.RecordSourceFailure(ctx, record); err != nil {
 		return fmt.Errorf("record Feishu source failure: %w", err)
@@ -300,13 +300,11 @@ func recordFeishuSourceFailure(ctx context.Context, store SourceFailureStore, ra
 	return nil
 }
 
-func boundedSourceExcerpt(value string) string {
-	const limit = 2048
-	value = strings.TrimSpace(value)
-	if len(value) <= limit {
-		return value
+func malformedSourceDiagnostic(cause error, rawLine string) string {
+	if cause == nil {
+		return fmt.Sprintf("malformed source event; source_bytes=%d", len(rawLine))
 	}
-	return value[:limit] + "\n[truncated]"
+	return fmt.Sprintf("%s; source_bytes=%d", cause.Error(), len(rawLine))
 }
 
 func ignoreSenderIDSet(values []string) map[string]struct{} {

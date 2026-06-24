@@ -278,14 +278,14 @@ func TestConsoleInspectIncludesFilteredSourceFailures(t *testing.T) {
 		t.Fatalf("NewFileSourceFailureStore returned error: %v", err)
 	}
 	if err := store.RecordSourceFailure(ctx, connectorruntime.SourceFailureRecord{
-		RecordID:         "failure_keep",
-		Connector:        "feishu",
-		EventSource:      connectorruntime.DefaultFeishuMessageEventKey,
-		Reason:           "malformed_source_event",
-		Detail:           "missing sender",
-		RawExcerpt:       `{"event_id":"evt_bad"}`,
-		SourceValidation: connectorruntime.SourceValidationRejected,
-		CreatedAt:        time.Date(2026, 6, 24, 12, 2, 0, 0, time.UTC),
+		RecordID:          "failure_keep",
+		Connector:         "feishu",
+		EventSource:       connectorruntime.DefaultFeishuMessageEventKey,
+		Reason:            "malformed_source_event",
+		Detail:            "missing sender",
+		DiagnosticExcerpt: "missing sender; source_bytes=42",
+		SourceValidation:  connectorruntime.SourceValidationRejected,
+		CreatedAt:         time.Date(2026, 6, 24, 12, 2, 0, 0, time.UTC),
 	}); err != nil {
 		t.Fatalf("record source failure: %v", err)
 	}

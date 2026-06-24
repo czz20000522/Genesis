@@ -206,7 +206,7 @@ func TestFeishuEventSourceRecordsMalformedSourceFailureBeforeKernel(t *testing.T
 		t.Fatalf("NewFileSourceFailureStore returned error: %v", err)
 	}
 	input := strings.Join([]string{
-		`{"event_id":"evt_bad","chat_id":"oc_123","chat_type":"group","message_id":"om_bad","message_type":"text","content":"missing sender","timestamp":"1782269315000","type":"im.message.receive_v1"}`,
+		`{"event_id":"evt_bad","chat_id":"oc_123","chat_type":"group","message_id":"om_bad","message_type":"text","content":"raw body should not persist","timestamp":"1782269315000","type":"im.message.receive_v1"}`,
 		`{"event_id":"evt_user","chat_id":"oc_123","chat_type":"group","message_id":"om_user","sender_id":"ou_user","message_type":"text","content":"user message","timestamp":"1782269316000","type":"im.message.receive_v1"}`,
 		"",
 	}, "\n")
@@ -236,8 +236,45 @@ func TestFeishuEventSourceRecordsMalformedSourceFailureBeforeKernel(t *testing.T
 	if !strings.Contains(failure.Detail, "missing sender_id") {
 		t.Fatalf("failure detail = %q, want missing sender evidence", failure.Detail)
 	}
-	if strings.TrimSpace(failure.RawExcerpt) == "" || !strings.Contains(failure.RawExcerpt, "evt_bad") {
-		t.Fatalf("raw excerpt = %q, want bounded source excerpt", failure.RawExcerpt)
+	if strings.TrimSpace(failure.DiagnosticExcerpt) == "" || !strings.Contains(failure.DiagnosticExcerpt, "source_bytes=") {
+		t.Fatalf("diagnostic excerpt = %q, want bounded source diagnostic", failure.DiagnosticExcerpt)
+	}
+	if strings.Contains(failure.DiagnosticExcerpt, "evt_bad") || strings.Contains(failure.DiagnosticExcerpt, "raw body should not persist") {
+		t.Fatalf("diagnostic excerpt leaked raw source payload: %q", failure.DiagnosticExcerpt)
+	}
+}
+
+func TestFeishuEventSourceSourceFailureDoesNotPersistRawPayload(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(testsupport.ProjectTempDir(t, "feishu-source-redaction"), "source-failures.json")
+	store, err := NewFileSourceFailureStore(path)
+	if err != nil {
+		t.Fatalf("NewFileSourceFailureStore returned error: %v", err)
+	}
+	input := `{"event_id":"evt_secret","chat_id":"oc_secret","message_id":"om_secret","message_type":"text","content":"Authorization: Bearer sk-secret body","timestamp":"1782269315000","type":"im.message.receive_v1"}` + "\n"
+
+	err = processFeishuEventStdout(ctx, strings.NewReader(input), io.Discard, nil, store, func(event ExternalEvent) error {
+		t.Fatalf("malformed source should not become ExternalEvent: %+v", event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("processFeishuEventStdout returned error: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read source failure state: %v", err)
+	}
+	for _, forbidden := range []string{"evt_secret", "oc_secret", "om_secret", "Authorization", "sk-secret body"} {
+		if strings.Contains(string(content), forbidden) {
+			t.Fatalf("source failure state leaked %q:\n%s", forbidden, string(content))
+		}
+	}
+	failures, err := store.ListSourceFailures(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceFailures returned error: %v", err)
+	}
+	if len(failures) != 1 || failures[0].DiagnosticExcerpt == "" {
+		t.Fatalf("failures = %+v, want redacted diagnostic", failures)
 	}
 }
 

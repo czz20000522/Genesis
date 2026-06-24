@@ -330,6 +330,40 @@ func TestFileInboundStorePersistsDuplicateAcrossReopen(t *testing.T) {
 	}
 }
 
+func TestFileInboundStoreConcurrentInstancesPreserveIndependentReservations(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(testsupport.ProjectTempDir(t, "connector-inbound-concurrent"), "connector-inbound-state.json")
+	first, err := NewFileInboundStore(path)
+	if err != nil {
+		t.Fatalf("first NewFileInboundStore returned error: %v", err)
+	}
+	second, err := NewFileInboundStore(path)
+	if err != nil {
+		t.Fatalf("second NewFileInboundStore returned error: %v", err)
+	}
+
+	firstRecord := testInboundRecord("dedupe_first", "turn_first")
+	if _, reserved, err := first.Reserve(ctx, firstRecord); err != nil || !reserved {
+		t.Fatalf("first Reserve returned reserved=%v err=%v", reserved, err)
+	}
+	secondRecord := testInboundRecord("dedupe_second", "turn_second")
+	if _, reserved, err := second.Reserve(ctx, secondRecord); err != nil || !reserved {
+		t.Fatalf("second Reserve returned reserved=%v err=%v", reserved, err)
+	}
+
+	reloaded, err := NewFileInboundStore(path)
+	if err != nil {
+		t.Fatalf("reload NewFileInboundStore returned error: %v", err)
+	}
+	records, err := reloaded.ListInbound(ctx)
+	if err != nil {
+		t.Fatalf("ListInbound returned error: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("records after two independent writers = %+v, want both writes preserved", records)
+	}
+}
+
 func newTestInboundStore(t *testing.T) *FileInboundStore {
 	t.Helper()
 	store, err := NewFileInboundStore(filepath.Join(testsupport.ProjectTempDir(t, "connector-inbound"), "connector-inbound-state.json"))
@@ -347,6 +381,22 @@ func testInboundRuntime(store InboundStore, client TurnClient) *Runtime {
 		Now: func() time.Time {
 			return time.Date(2026, 6, 23, 10, 0, 0, 0, time.UTC)
 		},
+	}
+}
+
+func testInboundRecord(dedupeKey string, turnID string) InboundSubmissionRecord {
+	return InboundSubmissionRecord{
+		RequestID:            stableOpaqueID("request", dedupeKey),
+		DedupeKey:            dedupeKey,
+		KernelIdempotencyKey: turnID,
+		Connector:            "feishu",
+		EventType:            "message.created",
+		ApplicationSessionID: "app_" + turnID,
+		KernelSessionID:      "kernel_" + turnID,
+		TurnID:               turnID,
+		Status:               SubmissionStatusPending,
+		CreatedAt:            time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		UpdatedAt:            time.Date(2026, 6, 24, 12, 0, 1, 0, time.UTC),
 	}
 }
 

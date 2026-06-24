@@ -36,46 +36,61 @@ func NewFileInboundStore(path string) (*FileInboundStore, error) {
 	return store, nil
 }
 
-func (s *FileInboundStore) Reserve(_ context.Context, record InboundSubmissionRecord) (InboundSubmissionRecord, bool, error) {
+func (s *FileInboundStore) Reserve(ctx context.Context, record InboundSubmissionRecord) (InboundSubmissionRecord, bool, error) {
 	if record.DedupeKey == "" {
 		return InboundSubmissionRecord{}, false, errors.New("inbound submission missing dedupe key")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if existing, ok := s.records[record.DedupeKey]; ok {
-		return existing, false, nil
-	}
-	s.records[record.DedupeKey] = record
-	if err := s.writeLocked(); err != nil {
-		delete(s.records, record.DedupeKey)
-		return InboundSubmissionRecord{}, false, err
-	}
-	return record, true, nil
+	var reserved bool
+	var result InboundSubmissionRecord
+	err := s.withLockedState(ctx, func() error {
+		if existing, ok := s.records[record.DedupeKey]; ok {
+			result = existing
+			return nil
+		}
+		s.records[record.DedupeKey] = record
+		if err := s.writeLocked(); err != nil {
+			delete(s.records, record.DedupeKey)
+			return err
+		}
+		result = record
+		reserved = true
+		return nil
+	})
+	return result, reserved, err
 }
 
-func (s *FileInboundStore) Complete(_ context.Context, record InboundSubmissionRecord) error {
+func (s *FileInboundStore) Complete(ctx context.Context, record InboundSubmissionRecord) error {
 	if record.DedupeKey == "" {
 		return errors.New("inbound submission missing dedupe key")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.records[record.DedupeKey] = record
-	return s.writeLocked()
+	return s.withLockedState(ctx, func() error {
+		s.records[record.DedupeKey] = record
+		return s.writeLocked()
+	})
 }
 
-func (s *FileInboundStore) ListInbound(_ context.Context) ([]InboundSubmissionRecord, error) {
+func (s *FileInboundStore) ListInbound(ctx context.Context) ([]InboundSubmissionRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	records := make([]InboundSubmissionRecord, 0, len(s.records))
-	for _, record := range s.records {
-		records = append(records, record)
-	}
-	return records, nil
+	var records []InboundSubmissionRecord
+	err := s.withLockedState(ctx, func() error {
+		records = make([]InboundSubmissionRecord, 0, len(s.records))
+		for _, record := range s.records {
+			records = append(records, record)
+		}
+		return nil
+	})
+	return records, err
 }
 
 func (s *FileInboundStore) load() error {
 	content, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
+		s.records = make(map[string]InboundSubmissionRecord)
 		return nil
 	}
 	if err != nil {
@@ -85,10 +100,23 @@ func (s *FileInboundStore) load() error {
 	if err := json.Unmarshal(content, &payload); err != nil {
 		return err
 	}
+	s.records = make(map[string]InboundSubmissionRecord)
 	if payload.Records != nil {
 		s.records = payload.Records
 	}
 	return nil
+}
+
+func (s *FileInboundStore) withLockedState(ctx context.Context, fn func() error) error {
+	release, err := acquireConnectorStateFileLock(ctx, s.path+".lock")
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := s.load(); err != nil {
+		return err
+	}
+	return fn()
 }
 
 func (s *FileInboundStore) writeLocked() error {
