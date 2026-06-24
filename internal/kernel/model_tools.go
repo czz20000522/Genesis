@@ -36,6 +36,7 @@ type preparedModelToolCall struct {
 	name           string
 	spec           ToolSpec
 	hasSpec        bool
+	accessPlan     ToolAccessPlan
 	requestInvalid *ToolRequestInvalidProjection
 	execute        func(context.Context, string, string) (ModelToolResult, error)
 	onDenied       func(context.Context, string, string) (ModelToolResult, error)
@@ -145,6 +146,7 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 		eventID:        eventID,
 		providerCallID: providerCallID,
 		name:           name,
+		accessPlan:     shellExecToolAccessPlan(name, args.CWD, timeoutSec),
 		onDenied: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
 			return k.shellInvokeModelToolResult(ctx, sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
 				SessionID:      sessionID,
@@ -214,6 +216,7 @@ func (k *Kernel) prepareJobStatusToolCall(eventID string, providerCallID string,
 		eventID:        eventID,
 		providerCallID: providerCallID,
 		name:           name,
+		accessPlan:     jobControlToolAccessPlan(name, jobID),
 		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
 			return k.jobStatusModelToolResult(sessionID, eventID, providerCallID, name, jobID)
 		},
@@ -234,6 +237,7 @@ func (k *Kernel) prepareJobCancelToolCall(eventID string, providerCallID string,
 		eventID:        eventID,
 		providerCallID: providerCallID,
 		name:           name,
+		accessPlan:     jobControlToolAccessPlan(name, jobID),
 		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
 			return k.cancelJobModelToolResult(sessionID, turnID, eventID, providerCallID, name, jobID, reason)
 		},
@@ -369,6 +373,11 @@ func invalidPreparedModelToolCall(eventID string, providerCallID string, name st
 		eventID:        eventID,
 		providerCallID: providerCallID,
 		name:           tool,
+		accessPlan: ToolAccessPlan{
+			ToolName: tool,
+			Trusted:  false,
+			Reason:   "tool_request_invalid",
+		},
 		requestInvalid: &ToolRequestInvalidProjection{
 			Status:   "tool_request_invalid",
 			Tool:     tool,

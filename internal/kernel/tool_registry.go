@@ -82,6 +82,7 @@ func defaultKernelTools() []registeredTool {
 				},
 				SideEffectLevel: ToolSideEffectWrite,
 				ExecutionKind:   ToolExecutionKindSandboxedProcess,
+				Scheduling:      shellExecToolSchedulingSpec(),
 			},
 			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 				return ctx.prepareShellExecToolCall(eventID, providerCallID, name, arguments)
@@ -104,6 +105,7 @@ func defaultKernelTools() []registeredTool {
 				},
 				SideEffectLevel: ToolSideEffectRead,
 				ExecutionKind:   ToolExecutionKindKernelControl,
+				Scheduling:      jobControlToolSchedulingSpec(),
 			},
 			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 				return ctx.prepareJobStatusToolCall(eventID, providerCallID, name, arguments)
@@ -130,6 +132,7 @@ func defaultKernelTools() []registeredTool {
 				},
 				SideEffectLevel: ToolSideEffectWrite,
 				ExecutionKind:   ToolExecutionKindKernelControl,
+				Scheduling:      jobControlToolSchedulingSpec(),
 			},
 			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 				return ctx.prepareJobCancelToolCall(eventID, providerCallID, name, arguments)

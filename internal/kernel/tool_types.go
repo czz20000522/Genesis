@@ -11,6 +11,21 @@ type ToolSpec struct {
 	InputSchema     map[string]interface{} `json:"input_schema"`
 	SideEffectLevel string                 `json:"side_effect_level"`
 	ExecutionKind   string                 `json:"execution_kind"`
+	Scheduling      ToolSchedulingSpec     `json:"-"`
+}
+
+type ToolSchedulingSpec struct {
+	EffectClass       string                `json:"-"`
+	ResourceFootprint ToolResourceFootprint `json:"-"`
+	ParallelPolicy    string                `json:"-"`
+}
+
+type ToolResourceFootprint struct {
+	ReadScopes      []string `json:"-"`
+	WriteScopes     []string `json:"-"`
+	StateScopes     []string `json:"-"`
+	Handles         []string `json:"-"`
+	ExternalTargets []string `json:"-"`
 }
 
 type ModelToolCall struct {
