@@ -55,3 +55,23 @@ issues remain in `docs/operations/application-issues.md`.
 - Boundary evidence: The adapter contains no Feishu, mail, WeChat, SDK, HTTP, or CLI command semantics. External adapter stdout is the typed result channel; malformed JSON, unsupported statuses, unsafe external refs, unsafe reasons, missing direct executables, timeouts, and failed adapter processes fail closed as connector-local delivery failures. Stderr and raw stdout are not persisted as `DeliveryReceipt` truth.
 - Verification: `TestConnectorCommandAdapterSendsTypedActionAndReadsTypedResult`; `TestConnectorCommandAdapterRejectsMalformedJSON`; `TestConnectorCommandAdapterRejectsUnsupportedStatus`; `TestConnectorCommandAdapterRedactsStderrAndDoesNotPersistRawOutput`; `TestConnectorCommandAdapterRejectsSecretShapedExternalActionRef`; `TestConnectorCommandAdapterRejectsMismatchedActionConnector`; `TestConnectorCommandAdapterRejectsCredentialShapedEnv`; `TestRuntimeExecuteOutboxItemWithConnectorCommandRecordsReceipt`; `TestRuntimeExecuteOutboxItemWithConnectorCommandFailureRecordsRedactedReceipt`; `go test ./internal/applications/connector_runtime -count=1`.
 - Residual risk: This retires only the generic process boundary. Packaged Feishu external adapter processes, installed-adapter capability probes, listener/poller hardening, runtime driver config loading, and operator console inspection remain active under the remaining application issues.
+
+### APP-CONNECTOR-FEISHU-LISTENER-SMOKE-20260624 - Add Feishu inbound stream smoke path
+
+- Retired in: Feishu listener smoke implementation change set.
+- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Fix summary: Added `genesis-ingress feishu-listen --stdin-jsonl --profile ...`, which consumes Feishu adapter NDJSON as connector-owned `ExternalEvent` records, submits them through the existing Application Connector Runtime, emits one `ProcessResult` JSON record per input event, and requires an explicit Feishu profile before kernel submission.
+- Boundary evidence: The command does not implement Feishu protocol logic inside the kernel. It accepts already-normalized connector events from a user-space event source, reuses connector-local dedupe and session mapping, and does not expose raw external ids as kernel authority.
+- Verification: `TestFeishuListenConsumesNDJSONEventsAndDedupes`; `TestFeishuListenRequiresExplicitProfileBeforeKernelCall`; `go test ./cmd/genesis-ingress -count=1`.
+- Residual risk: This retires only the automated smoke stream. Real Feishu webhook or `lark-cli event` process supervision, signature/source validation, source retry/backoff, token refresh, and installed-adapter probes remain active under `APP-CONNECTOR-FEISHU-LISTENER-20260623`.
+
+### APP-CONNECTOR-OPERATOR-CONSOLE-SMOKE-20260624 - Add read-only connector inspection console
+
+- Retired in: operator console smoke implementation change set.
+- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
+- Design: `docs/applications/application-connector-runtime-design.md`.
+- Fix summary: Added `genesis-console inspect`, which reads connector inbound state through `FileInboundStore`, outbox and receipt state through `FileOutboxStore`, and optional kernel session projections through the kernel HTTP surface.
+- Boundary evidence: The console does not import kernel internals, reconstruct provider context, write kernel facts, or mutate connector state. Kernel projections are fetched through HTTP and emitted as inspection material beside connector-owned state.
+- Verification: `TestConsoleInspectReadsConnectorStateAndKernelProjection`; `go test ./cmd/genesis-console -count=1`.
+- Residual risk: This retires only the read-only inspection view. Recovery commands for recovery-required and dead-lettered connector state remain active under `APP-CONNECTOR-OPERATOR-CONSOLE-20260623`.

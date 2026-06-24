@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"genesis/internal/applications/connector_runtime"
 )
@@ -19,37 +22,93 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
+	return runWithIO(ctx, args, os.Stdin, os.Stdout, os.Stderr)
+}
+
+func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: genesis-ingress <console-once|feishu-once> [flags]")
+		return fmt.Errorf("usage: genesis-ingress <console-once|feishu-once|feishu-listen> [flags]")
 	}
 	switch args[0] {
 	case "console-once":
-		return runOnce(ctx, args[1:], "console", true)
+		return runOnce(ctx, args[1:], "console", true, stdin, stdout)
 	case "feishu-once":
-		return runOnce(ctx, args[1:], "feishu", false)
+		return runOnce(ctx, args[1:], "feishu", false, stdin, stdout)
+	case "feishu-listen":
+		return runFeishuListen(ctx, args[1:], stdin, stdout, stderr)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
 }
 
-func runOnce(ctx context.Context, args []string, defaultChannel string, printFinal bool) error {
+func runOnce(ctx context.Context, args []string, defaultChannel string, printFinal bool, stdin io.Reader, stdout io.Writer) error {
 	fs := flag.NewFlagSet(defaultChannel+"-once", flag.ContinueOnError)
 	flags := registerCommonFlags(fs, defaultChannel)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	msg, runtime, err := buildRuntime(flags)
+	msg, runtime, err := buildRuntime(flags, stdin)
 	if err != nil {
 		return err
 	}
 	result, err := runtime.ProcessExternalEvent(ctx, msg)
 	if printFinal && result.FinalText != "" {
-		fmt.Println(result.FinalText)
+		fmt.Fprintln(stdout, result.FinalText)
 	}
 	if err != nil {
 		return err
 	}
-	_ = json.NewEncoder(os.Stdout).Encode(result)
+	_ = json.NewEncoder(stdout).Encode(result)
+	return nil
+}
+
+func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+	fs := flag.NewFlagSet("feishu-listen", flag.ContinueOnError)
+	flags := registerCommonFlags(fs, "feishu")
+	profile := fs.String("profile", "", "explicit lark-cli profile used by the Feishu event source")
+	stdinJSONL := fs.Bool("stdin-jsonl", false, "read ExternalEvent NDJSON from stdin")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*profile) == "" {
+		return fmt.Errorf("feishu-listen requires explicit --profile")
+	}
+	if !*stdinJSONL {
+		return fmt.Errorf("feishu-listen currently requires --stdin-jsonl")
+	}
+	_, runtime, err := buildRuntime(flags, stdin)
+	if err != nil {
+		return err
+	}
+	return processExternalEventJSONL(ctx, runtime, stdin, stdout, stderr)
+}
+
+func processExternalEventJSONL(ctx context.Context, runtime *connectorruntime.Runtime, reader io.Reader, stdout io.Writer, stderr io.Writer) error {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	encoder := json.NewEncoder(stdout)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var event connectorruntime.ExternalEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			return fmt.Errorf("decode external event line %d: %w", lineNumber, err)
+		}
+		result, err := runtime.ProcessExternalEvent(ctx, event)
+		if encodeErr := encoder.Encode(result); encodeErr != nil {
+			return encodeErr
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "external event line %d failed: %v\n", lineNumber, err)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -83,7 +142,7 @@ func registerCommonFlags(fs *flag.FlagSet, defaultChannel string) commonFlags {
 	}
 }
 
-func buildRuntime(flags commonFlags) (connectorruntime.ExternalEvent, *connectorruntime.Runtime, error) {
+func buildRuntime(flags commonFlags, stdin io.Reader) (connectorruntime.ExternalEvent, *connectorruntime.Runtime, error) {
 	threadID := *flags.threadID
 	if *flags.chatID != "" {
 		threadID = *flags.chatID
@@ -112,7 +171,7 @@ func buildRuntime(flags commonFlags) (connectorruntime.ExternalEvent, *connector
 		SourceValidation: connectorruntime.SourceValidationUnchecked,
 	}
 	if *flags.stdinJSON {
-		if err := json.NewDecoder(os.Stdin).Decode(&event); err != nil {
+		if err := json.NewDecoder(stdin).Decode(&event); err != nil {
 			return connectorruntime.ExternalEvent{}, nil, err
 		}
 	}
