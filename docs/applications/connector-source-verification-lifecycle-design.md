@@ -1,13 +1,14 @@
-# Design: Connector Source Supervisor And Verification
+# Design: Connector Source Verification And Lifecycle
 
-- **Requirement:** `docs/applications/connector-source-supervisor-requirement.md`
+- **Requirement:** `docs/applications/connector-source-verification-lifecycle-requirement.md`
 - **Owner:** user-space application connector runtime
 - **Status:** approved
 
 ## Boundary Model
 
-Connector Source Supervisor is a user-space source lifecycle owner. It sits
-before request mapping and kernel submission.
+Connector Source Verification And Lifecycle is a user-space source readiness,
+verification, and lifecycle owner. It sits before request mapping and kernel
+submission.
 
 ```text
 External Source
@@ -17,10 +18,13 @@ Source Adapter
         | source_command NDJSON frames
         |
         v
-Source Supervisor
+Source Verification / Lifecycle
         |
         v
 SourceRun / SourceAttempt / SourceCursor / SourceFailure
+        |
+        v
+SourceVerificationEvidence
         |
         v
 ExternalEvent
@@ -35,8 +39,9 @@ Kernel HTTP primitives
 Genesis Kernel
 ```
 
-The supervisor owns source lifecycle and event authenticity evidence. It does
-not own application policy, session mapping, outbox delivery, or kernel facts.
+This owner records source readiness, lifecycle, cursor, failure, and event
+authenticity evidence. It does not own application policy, session mapping,
+outbox delivery, reconciliation probes, or kernel facts.
 
 The source adapter owns external protocol translation. For Feishu, that means
 the adapter can know how to call `lark-cli`, an SDK, HTTP API, or webhook
@@ -46,13 +51,15 @@ the typed `source_command` stream.
 
 ## Owner Responsibilities
 
-Source Supervisor owns:
+Connector Source Verification And Lifecycle owns:
 
-- source adapter start, stop, probe, retry, and backoff;
+- source adapter start/probe/retry/backoff posture;
 - source run status and blocked/degraded reasons;
 - source attempt records and failure references;
 - source cursor persistence and resume markers;
 - event validation classification: `verified`, `unchecked`, or `rejected`;
+- verification evidence shape and source/event/adapter binding;
+- operator lifecycle control records for source retry/reset/replay requests;
 - source failure records with bounded, redacted diagnostics.
 - validation of `source_command` frame shape before any `ExternalEvent` is
   emitted.
@@ -137,6 +144,9 @@ a source failure and leaves cursor state unchanged.
 
 ```text
 source_event_ref
+source_batch_ref
+source_id
+connector
 validation_status: verified / unchecked / rejected
 evidence_kind
 evidence_ref
@@ -152,6 +162,21 @@ Verification evidence must be inspectable before a real source can emit
 `source_validation=verified`. A write-only evidence path is not sufficient for
 production verification because operators and tests must be able to audit why a
 source event became trusted.
+
+Approved `evidence_kind` values:
+
+```text
+webhook_signature
+provider_event_signature
+trusted_local_adapter_attestation
+```
+
+`webhook_signature` and `provider_event_signature` are strong evidence kinds
+when the connector can verify a provider-issued signature, challenge, token, or
+equivalent proof against the exact event or batch.
+`trusted_local_adapter_attestation` is accepted only when the configured
+adapter binding is explicitly trusted for that source and emits a verified,
+inspectable, source-bound, adapter-bound, event-bound evidence reference.
 
 ## Source Command Boundary
 
@@ -210,6 +235,12 @@ Unknown frame kind, malformed JSON, unknown fields, unsafe diagnostic content,
 missing required fields, a verified event without evidence, or a cursor that
 does not follow an accepted event fails closed. The runtime records a redacted
 `SourceFailureRecord` and does not emit an `ExternalEvent`.
+
+For a verified event, the runtime checks that the evidence status is
+`verified`, `evidence_kind` is approved, `evidence_ref` is non-empty, and the
+source id, connector, adapter ref, and event or batch ref match the configured
+source binding. A ready source adapter cannot self-upgrade an event to verified
+by omitting evidence or by sending unchecked evidence.
 
 `source_id` is stable source identity. Profile, account, credential, token, or
 adapter process configuration is binding/readiness state, not part of the
@@ -283,6 +314,21 @@ operator warning. `blocked` records a required operator action, such as missing
 profile, expired credential, revoked credential, unsupported source command, or
 policy rejection. `stopped` records an operator or supervisor stop.
 
+Readiness reason codes are explicit and stable:
+
+```text
+missing_profile
+profile_expired
+permission_denied
+refresh_required
+operator_action_required
+source_command_invalid
+source_runtime_failed
+```
+
+These reason codes describe connector readiness only. They do not become
+kernel authority, model context, or event verification.
+
 Each start, probe, consume, or poll attempt creates a `SourceAttempt`. Attempts
 must be bounded and observable. A repeated source failure updates connector
 source state and failure records, not kernel facts.
@@ -305,16 +351,17 @@ The source cursor prevents source reprocessing after restart. Inbound dedupe
 prevents repeated `ExternalEvent` processing after a valid event is emitted.
 They are related but not the same owner responsibility.
 
-- Source Supervisor owns cursor persistence before or during source intake.
+- Connector Source Verification And Lifecycle owns cursor persistence before or
+  during source intake.
 - Application Connector Runtime owns inbound event idempotency and request
   dedupe before `turn.submit`.
 - Kernel receives only the final application request and does not know source
   cursor details.
 
 Cursor advancement must be conservative. If an event cannot be parsed,
-validated, or durably accepted, the supervisor records a source failure and does
-not advance the cursor. The exact cursor strategy is adapter-specific, but the
-durable fact must stay connector-local.
+validated, or durably accepted, the connector source lifecycle owner records a
+source failure and does not advance the cursor. The exact cursor strategy is
+adapter-specific, but the durable fact must stay connector-local.
 
 ## Credential And Profile Readiness
 
@@ -328,7 +375,37 @@ outcomes:
 Credentials, tokens, and profiles are not model-visible, not copied into
 `ExternalEvent`, and not used to grant kernel authority. A future credential
 broker can replace the readiness probe implementation without changing source
-supervisor ownership.
+lifecycle ownership.
+
+If a profile is missing, expired, denied, or requires refresh, the source enters
+`blocked` or `degraded` before kernel submission. The adapter may provide a
+safe readiness reason and operator action hint, but it must not persist raw
+tokens, authorization headers, profile secrets, or platform credential payloads.
+
+## Operator Lifecycle Controls
+
+Operator controls mutate connector-owned source state only. They are not a
+kernel control plane and cannot manufacture inbound events or verification
+evidence.
+
+Minimum controls:
+
+- inspect source runs, attempts, cursors, verification evidence, and source
+  failures;
+- acknowledge or clear a blocked state after an operator fixes the cause;
+- request retry or restart for a source owned by an external process
+  supervisor;
+- reset or replay a cursor only after the operator accepts duplicate-processing
+  risk;
+- record a connector-local operator note or recovery record.
+
+Stop and restart are requests unless the connector runtime owns a concrete
+process handle. When an external daemon owns the listener, the connector
+records desired state and recovery facts, not a fake stopped/restarted fact.
+
+Operator controls cannot write kernel ledger events, alter kernel sessions,
+write memory truth, fabricate `ExternalEvent`, fabricate
+`SourceVerificationEvidence`, or mark outbound delivery as reconciled.
 
 ## Failure Semantics
 
@@ -343,10 +420,11 @@ them.
 Malformed, unauthenticated, policy-rejected, unsupported, or adapter-failed
 source data must be classified before kernel submission.
 
-The supervisor writes a bounded `SourceFailureRecord` for source failures. The
-record can include reason code, redacted summary, payload hash, payload size,
-source run reference, source attempt reference, and optional debug/resource ref.
-It must not make raw payload a durable source fact.
+Connector Source Verification And Lifecycle writes a bounded
+`SourceFailureRecord` for source failures. The record can include reason code,
+redacted summary, payload hash, payload size, source run reference, source
+attempt reference, and optional debug/resource ref. It must not make raw payload
+a durable source fact.
 
 Failure categories:
 
@@ -397,10 +475,11 @@ authenticity evidence must be normalized before entering the core runtime.
   availability does not authenticate individual events.
 - Putting Feishu listener supervision inside kernel. Rejected because Feishu is
   a user-space connector, not a kernel owner.
-- Letting the supervisor call `turn.submit` or map sessions. Rejected because
+- Letting the source lifecycle owner call `turn.submit` or map sessions. Rejected because
   those are Application Connector Runtime responsibilities.
-- Keeping a `while true lark-cli` loop as the production supervisor. Rejected
-  because it lacks source run, attempt, cursor, readiness, and failure
+- Keeping a `while true lark-cli` loop as the production source lifecycle
+  implementation. Rejected because it lacks source run, attempt, cursor,
+  readiness, and failure
   semantics.
 - Moving `lark-cli event consume ...` into an argv or string-template
   configuration. Rejected because it preserves protocol drift, argument
@@ -414,3 +493,7 @@ authenticity evidence must be normalized before entering the core runtime.
 - Persisting raw malformed payloads as source facts. Rejected because durable
   facts must be sparse, redacted, and bounded; raw payload belongs only in
   restricted debug/resource storage when explicitly enabled.
+- Treating outbound reconciliation probes as part of source lifecycle. Rejected
+  because reconciliation operates on connector outbox delivery receipts and
+  requires exact action refs, idempotency keys, or external receipt refs before
+  it can produce connector-local evidence.

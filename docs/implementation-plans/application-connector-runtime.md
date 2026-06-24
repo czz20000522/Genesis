@@ -127,8 +127,9 @@ Current automated coverage includes:
 
 - Real Feishu listener/poller hardening and signature verification remain
   Phase C and are governed by
-  `docs/applications/connector-source-supervisor-requirement.md` and
-  `docs/applications/connector-source-supervisor-design.md`. Source intake now
+  `docs/applications/connector-source-verification-lifecycle-requirement.md`
+  and
+  `docs/applications/connector-source-verification-lifecycle-design.md`. Source intake now
   uses the `source_command` typed streaming boundary: connector runtime starts a
   source adapter process, consumes source frames, and records `SourceRun`,
   `SourceAttempt`, `SourceCursor`, `SourceFailureRecord`, and
@@ -144,8 +145,8 @@ Current automated coverage includes:
   `genesis-ingress feishu-probe` now gives operators a no-side-effect
   installed-adapter readiness report for the event source and ordinary final
   delivery surfaces. Webhook signature verification, durable source dead-letter
-  records, credential/profile refresh integration, and production source
-  supervision remain open.
+  records, credential/profile refresh integration, verified evidence
+  inspection, and production source lifecycle controls remain open.
 - `source_command` is not `connector_command` and is not an argv template. It
   is a long-running source process stream with `source.ready`, `source.event`,
   `source.cursor`, `source.failed`, and `source.stopped` frames. Cursors persist

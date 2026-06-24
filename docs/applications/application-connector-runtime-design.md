@@ -328,10 +328,10 @@ that queries the external system without resending the action and returns
 connector-local evidence for the terminal decision.
 
 Listener runtime failure: connector may retry a bounded smoke source locally,
-recording connector-local source runtime failures. Production supervision,
-credential/profile refresh, source verification, and driver migration require a
-separate listener/supervisor design; they must not accrete inside the Feishu
-smoke source function.
+recording connector-local source runtime failures. Production source lifecycle
+controls, credential/profile refresh, source verification, and driver migration
+require the connector source verification/lifecycle boundary; they must not
+accrete inside the Feishu smoke source function.
 
 ## Observability
 
