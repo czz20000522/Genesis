@@ -25,6 +25,19 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
+### KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624 - P1 - Add generic resource_read before executor-pool concurrency
+
+- Status: open.
+- Area: Resource owner / Tool Runtime / Tool Scheduling.
+- Requirement: `docs/requirements/kernel-resource-read.md`.
+- Design: `docs/design/kernel-resource-read.md`.
+- Implementation plan: `docs/implementation-plans/kernel-resource-read.md`.
+- Gap: The scheduler can plan synthetic pure-read calls, but the default kernel has no real non-shell `pure_read` registered tool. Continuing to executor-pool concurrency without a trusted read primitive would either misuse `shell_exec` as a fake read tool or keep concurrency untestable against real registered tools.
+- Next slice: Implement a minimal immutable text resource registry and `resource_read` model tool. It must use opaque resource refs, bounded output, truncation metadata, fail-closed unknown refs, model-hidden scheduling metadata, and trusted `pure_read` access plans. Do not implement arbitrary filesystem read, `skill.read`, connector-specific attachment read, or production object storage in this slice.
+- Evidence: `internal/kernel/tool_scheduling_test.go` currently uses synthetic pure-read access plans and explicitly asserts default tools have no executor-pool pure-read candidate. The new requirement/design authorize replacing that guard with a real generic resource primitive.
+- Verification: Prove `resource_read` is model-visible but its scheduling metadata is hidden; unknown refs produce repair feedback and no effect; bounded text reads include truncation and next-offset metadata; two resource reads can be planned in one parallel batch; a resource read does not cross a prior write fence; `shell_exec` remains serial even for read-looking commands.
+- Reference alignment: Aligned with Reasonix's trusted `ReadOnly()`/MCP `readOnlyHint` opt-in and explicit resource references, and with Codex's executor-declared parallel support defaulting to false. Genesis intentionally does not copy arbitrary file reads as the first resource primitive.
+
 ### KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624 - P2 - Tool scheduling must use effect, footprint, and handle policy
 
 - Status: open.

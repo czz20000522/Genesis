@@ -381,6 +381,7 @@ Current related active issues:
 
 - `KERNEL-SANDBOX-APPROVAL-NEXT-20260623`: implementation gap for stronger sandbox and approval beyond the current authority-profile split.
 - `KERNEL-JOB-CONTROL-INTERRUPT-20260623`: remaining interrupt, progress snapshot, idle continuation, and foreground attach-or-kill semantics. It is governed by the shell/job requirement because it extends the generic Tool Runtime and managed-job path rather than the foundation baseline itself.
+- `KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624`: implementation gap for the first generic non-shell `pure_read` tool and resource ref contract. It is governed by `docs/requirements/kernel-resource-read.md`.
 - `KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624`: future gap for deriving `ToolAccessPlan` and deterministic execution batches from tool effect, footprint, and handle policy. The first slice should be a pure planning function and behavior tests, not an executor-pool rewrite.
 
 Related ready-for-acceptance shell/job evidence:
