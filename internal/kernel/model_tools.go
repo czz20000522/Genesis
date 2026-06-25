@@ -227,19 +227,9 @@ func (k *Kernel) prepareResourceReadToolCall(eventID string, providerCallID stri
 	if err := decodeStrictModelToolArguments("resource_read", arguments, &args); err != nil {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
 	}
-	req, code, err := resource.NormalizeReadRequest(args.ResourceRef, args.OffsetBytes, args.LimitBytes)
+	req, _, code, err := k.resourceRegistry.AdmitReadText(args.ResourceRef, args.OffsetBytes, args.LimitBytes)
 	if err != nil {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, code, fmt.Sprintf("invalid resource_read request: %v", err)), nil
-	}
-	if !k.resourceRegistry.Has(req.ResourceRef) {
-		return invalidPreparedModelToolCall(eventID, providerCallID, name, "unknown_resource_ref", fmt.Sprintf("unknown resource ref %q", req.ResourceRef)), nil
-	}
-	metadata, err := k.resourceRegistry.Metadata(req.ResourceRef)
-	if err != nil {
-		return invalidPreparedModelToolCall(eventID, providerCallID, name, "unknown_resource_ref", fmt.Sprintf("unknown resource ref %q", req.ResourceRef)), nil
-	}
-	if !metadata.TextReadable {
-		return invalidPreparedModelToolCall(eventID, providerCallID, name, "unsupported_mime_type", fmt.Sprintf("resource %q has unsupported mime type %q", req.ResourceRef, metadata.MimeType)), nil
 	}
 	return preparedModelToolCall{
 		eventID:        eventID,
@@ -253,7 +243,13 @@ func (k *Kernel) prepareResourceReadToolCall(eventID string, providerCallID stri
 }
 
 func (k *Kernel) resourceReadModelToolResult(eventID string, providerCallID string, name string, req resource.ReadRequest) (ModelToolResult, error) {
-	result, err := k.resourceRegistry.Read(req)
+	offsetBytes := req.OffsetBytes
+	limitBytes := req.LimitBytes
+	readReq, _, code, err := k.resourceRegistry.AdmitReadText(req.ResourceRef, &offsetBytes, &limitBytes)
+	if err != nil {
+		return invalidModelToolResult(eventID, providerCallID, name, code, fmt.Sprintf("invalid resource_read request: %v", err))
+	}
+	result, err := k.resourceRegistry.Read(readReq)
 	if err != nil {
 		return ModelToolResult{}, fmt.Errorf("%w: resource_read failed: %v", ErrToolInfrastructureFailed, err)
 	}

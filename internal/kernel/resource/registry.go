@@ -151,6 +151,31 @@ func (r *Registry) Read(req ReadRequest) (ModelReadResult, error) {
 	return result, nil
 }
 
+func (r *Registry) AdmitReadText(ref string, offsetBytes *int, limitBytes *int) (ReadRequest, ReferenceDescriptor, string, error) {
+	req, code, err := NormalizeReadRequest(ref, offsetBytes, limitBytes)
+	if err != nil {
+		return ReadRequest{}, ReferenceDescriptor{}, code, err
+	}
+	switch ClassifyReference(req.ResourceRef) {
+	case ReferenceVisibilityRuntimeHandle:
+		return ReadRequest{}, ReferenceDescriptor{}, "runtime_handle_not_resource", errors.New("resource_ref is a runtime handle, not a readable resource")
+	case ReferenceVisibilityOwnerInternal:
+		return ReadRequest{}, ReferenceDescriptor{}, "owner_internal_ref_not_resource", errors.New("resource_ref is an owner-internal ref, not a readable resource")
+	}
+	descriptor, ok := r.DescribeReference(req.ResourceRef)
+	if !ok {
+		metadata, metadataErr := r.Metadata(req.ResourceRef)
+		if metadataErr == nil && !metadata.TextReadable {
+			return ReadRequest{}, ReferenceDescriptor{}, "unsupported_mime_type", fmt.Errorf("resource %q has unsupported mime type %q", req.ResourceRef, metadata.MimeType)
+		}
+		return ReadRequest{}, ReferenceDescriptor{}, "unknown_resource_ref", fmt.Errorf("unknown resource ref %q", req.ResourceRef)
+	}
+	if !referenceDescriptorHasOperation(descriptor, ReferenceOperationReadText) {
+		return ReadRequest{}, ReferenceDescriptor{}, "read_text_unavailable", fmt.Errorf("resource %q does not currently expose read_text", req.ResourceRef)
+	}
+	return req, descriptor, "", nil
+}
+
 func NormalizeReadRequest(ref string, offsetBytes *int, limitBytes *int) (ReadRequest, string, error) {
 	normalizedRef, err := NormalizeRef(ref)
 	if err != nil {
@@ -199,6 +224,95 @@ func NormalizeRef(ref string) (string, error) {
 		}
 	}
 	return ref, nil
+}
+
+func ClassifyReference(ref string) string {
+	ref = strings.TrimSpace(ref)
+	lower := strings.ToLower(ref)
+	switch {
+	case looksLikeRuntimeHandle(lower):
+		return ReferenceVisibilityRuntimeHandle
+	case looksLikeOwnerInternalRef(lower):
+		return ReferenceVisibilityOwnerInternal
+	default:
+		return ReferenceVisibilityPublic
+	}
+}
+
+func looksLikeRuntimeHandle(ref string) bool {
+	for _, prefix := range []string{
+		"job_",
+		"job:",
+		"event:",
+		"evt_",
+		"tool_call_event:",
+		"operation:",
+		"op_",
+		"work:",
+		"work_",
+		"request:",
+		"req_",
+		"checkpoint:",
+		"checkpoint_",
+		"turn:",
+		"turn_",
+	} {
+		if strings.HasPrefix(ref, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeOwnerInternalRef(ref string) bool {
+	if looksLikeWindowsDriveRef(ref) || strings.Contains(ref, "skill.md") {
+		return true
+	}
+	for _, prefix := range []string{
+		"storage:",
+		"storage_ref:",
+		"object:",
+		"object_key:",
+		"db:",
+		"database:",
+		"row:",
+		"provider_payload:",
+		"provider_raw:",
+		"raw_provider:",
+		"raw_payload:",
+		"debug_trace:",
+		"debug:",
+		"connector_payload:",
+		"connector_raw:",
+		"skill_package:",
+		"skill_path:",
+		"package_root:",
+		"host_path:",
+		"path:",
+		"file:",
+	} {
+		if strings.HasPrefix(ref, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeWindowsDriveRef(ref string) bool {
+	if len(ref) < 2 || ref[1] != ':' {
+		return false
+	}
+	first := ref[0]
+	return first >= 'a' && first <= 'z'
+}
+
+func referenceDescriptorHasOperation(descriptor ReferenceDescriptor, operation string) bool {
+	for _, candidate := range descriptor.AvailableOperations {
+		if candidate == operation {
+			return true
+		}
+	}
+	return false
 }
 
 func referenceDescriptorFromMetadata(metadata Metadata) ReferenceDescriptor {

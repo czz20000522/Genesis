@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	kernelresource "genesis/internal/kernel/resource"
 	"genesis/internal/testsupport"
 )
 
@@ -309,6 +310,153 @@ func TestResourceReadPreparesPureReadAccessPlan(t *testing.T) {
 	assertToolBatchShape(t, batches, [][]int{{0, 1}}, []bool{true})
 }
 
+func TestResourceReadUsesReferenceAdmission(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "resource-read-reference-admission")
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+		Ref:      "res_alpha",
+		MimeType: "text/plain",
+		Text:     "alpha",
+	}})
+
+	prepared, err := k.toolGateway().PrepareBatch([]ModelToolCall{{
+		ToolCallID:      "call_reference_admission",
+		ToolCallEventID: "evt_reference_admission",
+		Name:            "resource_read",
+		Arguments:       mustMarshalToolArgs(t, map[string]interface{}{"resource_ref": "res_alpha"}),
+	}})
+	if err != nil {
+		t.Fatalf("PrepareBatch returned error: %v", err)
+	}
+	if len(prepared) != 1 || prepared[0].requestInvalid != nil {
+		t.Fatalf("prepared = %+v, want admitted reference read", prepared)
+	}
+	if !prepared[0].accessPlan.Trusted || prepared[0].accessPlan.EffectClass != ToolEffectClassPureRead {
+		t.Fatalf("access plan = %+v, want trusted pure read from descriptor admission", prepared[0].accessPlan)
+	}
+	if len(prepared[0].accessPlan.ResourceFootprint.ReadScopes) != 1 || prepared[0].accessPlan.ResourceFootprint.ReadScopes[0] != "resource:res_alpha" {
+		t.Fatalf("read scopes = %+v, want resource:res_alpha", prepared[0].accessPlan.ResourceFootprint.ReadScopes)
+	}
+}
+
+func TestResourceReadRefusesRuntimeHandles(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "resource-read-runtime-handles")
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+		Ref:      "res_alpha",
+		MimeType: "text/plain",
+		Text:     "alpha",
+	}})
+
+	for _, ref := range []string{
+		"job_running_001",
+		"event:evt_tool_call",
+		"tool_call_event:evt_tool_call",
+		"operation:op_001",
+		"work:work_001",
+		"request:req_001",
+		"checkpoint:cp_001",
+	} {
+		t.Run(ref, func(t *testing.T) {
+			result := executeResourceReadForTest(t, k, ref)
+			assertToolRequestInvalidCode(t, result, "runtime_handle_not_resource")
+		})
+	}
+}
+
+func TestResourceReadRefusesOwnerInternalRefs(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "resource-read-internal-refs")
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+		Ref:      "res_alpha",
+		MimeType: "text/plain",
+		Text:     "alpha",
+	}})
+
+	for _, ref := range []string{
+		"storage:blob:001",
+		"object:key:001",
+		"db:row:001",
+		"provider_payload:raw_001",
+		"debug_trace:trace_001",
+		"connector_payload:raw_001",
+		"skill_package:SKILL.md",
+	} {
+		t.Run(ref, func(t *testing.T) {
+			result := executeResourceReadForTest(t, k, ref)
+			assertToolRequestInvalidCode(t, result, "owner_internal_ref_not_resource")
+		})
+	}
+}
+
+func TestResourceReadDoesNotFallbackToHostPath(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "resource-read-host-path")
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+		Ref:      "res_alpha",
+		MimeType: "text/plain",
+		Text:     "alpha",
+	}})
+
+	for _, ref := range []string{`C:\Users\Tomczz\secret.txt`, `/tmp/secret.txt`, `..\secret.txt`, `./secret.txt`, `skills/lark/SKILL.md`} {
+		t.Run(ref, func(t *testing.T) {
+			result := executeResourceReadForTest(t, k, ref)
+			assertToolRequestInvalidCode(t, result, "invalid_resource_ref")
+		})
+	}
+}
+
+func TestResourceReadRevalidatesDescriptorAvailabilityAtCallTime(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "resource-read-revalidate")
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+		Ref:      "res_dynamic",
+		MimeType: "text/plain",
+		Text:     "dynamic text",
+	}})
+	prepared, err := k.toolGateway().PrepareBatch([]ModelToolCall{{
+		ToolCallID:      "call_resource_dynamic",
+		ToolCallEventID: "evt_tool_resource_dynamic",
+		Name:            "resource_read",
+		Arguments:       mustMarshalToolArgs(t, map[string]interface{}{"resource_ref": "res_dynamic"}),
+	}})
+	if err != nil {
+		t.Fatalf("PrepareBatch returned error: %v", err)
+	}
+	registry, err := kernelresource.NewRegistry([]kernelresource.Descriptor{{
+		Ref:      "res_dynamic",
+		MimeType: "application/json",
+		Text:     `{"body":"changed"}`,
+	}})
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	k.resourceRegistry = registry
+
+	result, err := k.toolGateway().Execute(context.Background(), "session_resource", "turn_resource", prepared[0])
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	assertToolRequestInvalidCode(t, result, "unsupported_mime_type")
+}
+
+func TestResourceReadSuccessfulResultShapeIsStable(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "resource-read-result-shape")
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+		Ref:      "res_shape",
+		MimeType: "text/plain",
+		Text:     "stable shape",
+	}})
+
+	result := executeResourceReadForTest(t, k, "res_shape")
+	payload := decodeJSONMap(t, result.Content)
+	for _, key := range []string{"status", "executed", "resource_ref", "mime_type", "text", "offset_bytes", "returned_bytes", "original_bytes", "truncated"} {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("resource_read payload missing %q: %s", key, result.Content)
+		}
+	}
+	for _, forbidden := range []string{"descriptor", "available_operations", "supported_operations", "event_id", "operation_id", "storage_ref", "host_path"} {
+		if strings.Contains(result.Content, forbidden) {
+			t.Fatalf("resource_read result leaked %q: %s", forbidden, result.Content)
+		}
+	}
+}
+
 func newTestKernelWithResources(t *testing.T, ledgerPath string, resources []ResourceDescriptor) *Kernel {
 	t.Helper()
 	k, err := New(Config{
@@ -339,5 +487,40 @@ func assertDoesNotContain(t *testing.T, text string, forbidden string, label str
 	t.Helper()
 	if strings.Contains(text, forbidden) {
 		t.Fatalf("%s leaked %q: %s", label, forbidden, text)
+	}
+}
+
+func executeResourceReadForTest(t *testing.T, k *Kernel, resourceRef string) ModelToolResult {
+	t.Helper()
+	prepared, err := k.toolGateway().PrepareBatch([]ModelToolCall{{
+		ToolCallID:      "call_" + strings.NewReplacer(":", "_", "\\", "_", "/", "_", ".", "_").Replace(resourceRef),
+		ToolCallEventID: "evt_" + strings.NewReplacer(":", "_", "\\", "_", "/", "_", ".", "_").Replace(resourceRef),
+		Name:            "resource_read",
+		Arguments:       mustMarshalToolArgs(t, map[string]interface{}{"resource_ref": resourceRef}),
+	}})
+	if err != nil {
+		t.Fatalf("PrepareBatch returned error: %v", err)
+	}
+	if len(prepared) != 1 {
+		t.Fatalf("prepared count = %d, want 1", len(prepared))
+	}
+	result, err := k.toolGateway().Execute(context.Background(), "session_resource", "turn_resource", prepared[0])
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	return result
+}
+
+func assertToolRequestInvalidCode(t *testing.T, result ModelToolResult, code string) {
+	t.Helper()
+	var payload ToolRequestInvalidProjection
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("unmarshal invalid result: %v\n%s", err, result.Content)
+	}
+	if payload.Status != "tool_request_invalid" || payload.Executed {
+		t.Fatalf("invalid resource result = %+v, want repair feedback without execution", payload)
+	}
+	if payload.Error.Code != code {
+		t.Fatalf("invalid resource error = %+v, want %s", payload.Error, code)
 	}
 }
