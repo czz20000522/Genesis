@@ -300,6 +300,14 @@ provider response body caps, provider retry/repair attempt caps, shell
 foreground timeout ceilings, and debug trace quotas. Those caps stay with their
 own owners and are not configurable by the model.
 
+Capabilities and context inspection expose a runtime limit classification
+projection. Each active limit records its owner, class, default source,
+inspectability, model visibility, override policy, effective value, and unit.
+This projection is the drift guard for future slices: new kernel limits should
+be classified as BudgetLease, shell timeout policy, hard safety guard,
+provider retry/repair cap, or projection/output cap before they become durable
+contracts.
+
 The response is a normal turn response with pause evidence, not a provider
 error. Idempotent retry of the same paused `turn.submit` returns the same
 paused turn evidence without invoking the provider or re-running tools.

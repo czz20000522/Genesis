@@ -46,12 +46,12 @@ Model-visible `shell_exec` arguments include semantic command fields and `timeou
 
 `timeout_sec` uses seconds:
 
-- missing means 30;
-- 1 through 180 is foreground-valid;
-- greater than 180 routes to managed-job admission;
+- missing means the kernel-owned `ShellTimeoutPolicy` default;
+- values through the policy foreground cap are foreground-valid;
+- values above the policy managed-job threshold route to managed-job admission;
 - invalid values produce repairable `tool_request_invalid` feedback with no effect.
 
-Direct `POST /tools/shell_exec` uses the same timeout routing. It decodes omitted `timeout_sec` as the 30 second default, rejects explicit non-positive values before effects, returns foreground operation projections for foreground-valid requests, and returns managed job projections for admitted values above 180 seconds. The current local managed executor requires the resolved host sandbox profile; controlled-workspace/default requests above the cap return a blocked operation until a controlled managed executor exists. The HTTP transport does not own managed-job lifecycle; it delegates to the same ToolGateway admission, job ledger, and executor path as model-requested long shell work.
+Direct `POST /tools/shell_exec` uses the same timeout routing. It decodes omitted `timeout_sec` from `ShellTimeoutPolicy`, rejects explicit non-positive values before effects, returns foreground operation projections for foreground-valid requests, and returns managed job projections for admitted values above the policy managed-job threshold. The current local managed executor requires the resolved host sandbox profile; controlled-workspace/default requests above the cap return a blocked operation until a controlled managed executor exists. The HTTP transport does not own managed-job lifecycle; it delegates to the same ToolGateway admission, job ledger, and executor path as model-requested long shell work.
 
 Managed job events:
 

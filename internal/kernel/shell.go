@@ -14,10 +14,8 @@ const (
 	PermissionModeDefault = "default"
 	PermissionModeYolo    = "yolo"
 
-	maxShellOutputBytes          = 64 * 1024
-	defaultShellTimeoutSec       = 30
-	maxForegroundShellTimeoutSec = 180
-	defaultShellDuration         = time.Duration(defaultShellTimeoutSec) * time.Second
+	maxShellOutputBytes  = 64 * 1024
+	defaultShellDuration = time.Duration(defaultShellTimeoutSec) * time.Second
 
 	outputOmissionMarkerFormat = "\n[... %d bytes omitted ...]\n"
 
@@ -58,8 +56,8 @@ func (g ToolGateway) InvokeShell(ctx context.Context, req ShellExecRequest, turn
 		}
 	}
 
-	timeoutSec := normalizedShellTimeoutSec(req.TimeoutSec)
-	if timeoutSec <= maxForegroundShellTimeoutSec {
+	timeoutSec := g.kernel.normalizedShellTimeoutSec(req.TimeoutSec)
+	if !g.kernel.shellTimeoutExceedsForeground(timeoutSec) {
 		operation, err := g.ExecShell(ctx, req, turnID)
 		if err != nil {
 			return shellInvokeResult{}, err
@@ -153,8 +151,8 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 	if err := validateShellRequest(req); err != nil {
 		return OperationProjection{}, err
 	}
-	timeoutSec := normalizedShellTimeoutSec(req.TimeoutSec)
 	k := g.kernel
+	timeoutSec := k.normalizedShellTimeoutSec(req.TimeoutSec)
 	k.operationMu.Lock()
 	defer k.operationMu.Unlock()
 
@@ -347,7 +345,7 @@ func (g ToolGateway) recordBlockedShellOperationWithCWD(req ShellExecRequest, tu
 		ApprovalPolicy:  resolvedPolicy.ApprovalPolicy,
 		CWD:             strings.TrimSpace(cwd),
 		Command:         strings.TrimSpace(req.Command),
-		TimeoutSec:      normalizedShellTimeoutSec(req.TimeoutSec),
+		TimeoutSec:      k.normalizedShellTimeoutSec(req.TimeoutSec),
 		BlockedReason:   strings.TrimSpace(reason),
 		StartedAt:       now,
 		EndedAt:         now,
@@ -426,13 +424,6 @@ func validateShellRequest(req ShellExecRequest) error {
 		return err
 	}
 	return nil
-}
-
-func normalizedShellTimeoutSec(timeoutSec int) int {
-	if timeoutSec == 0 {
-		return defaultShellTimeoutSec
-	}
-	return timeoutSec
 }
 
 func (k *Kernel) operationByIdempotencyKey(sessionID string, tool string, key string) (OperationProjection, bool, error) {

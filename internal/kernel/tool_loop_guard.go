@@ -129,8 +129,8 @@ func toolLoopSuccessCountsOnlyTrackSignature(counts map[string]int, signature st
 	return true
 }
 
-func shellExecRepeatSuccessSignature(cwd string, command string, timeoutSec int) string {
-	if timeoutSec > maxForegroundShellTimeoutSec {
+func (k *Kernel) shellExecRepeatSuccessSignature(cwd string, command string, timeoutSec int) string {
+	if k.shellTimeoutExceedsForeground(timeoutSec) {
 		return ""
 	}
 	cwd = strings.TrimSpace(cwd)

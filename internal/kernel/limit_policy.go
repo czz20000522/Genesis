@@ -1,0 +1,150 @@
+package kernel
+
+import "genesis/internal/kernel/resource"
+
+const (
+	LimitClassBudgetLease            = "budget_lease"
+	LimitClassHardSafetyGuard        = "hard_safety_guard"
+	LimitClassProjectionOutputCap    = "projection_output_cap"
+	LimitClassProviderRetryRepairCap = "provider_retry_repair_cap"
+	LimitClassShellTimeoutPolicy     = "shell_timeout_policy"
+)
+
+func (k *Kernel) runtimeLimitProjections() []RuntimeLimitProjection {
+	lease := k.budgetLeaseProjection()
+	shellPolicy := k.shellTimeoutPolicy
+	return []RuntimeLimitProjection{
+		{
+			Name:           "budget.model_tool_round_budget",
+			Class:          LimitClassBudgetLease,
+			Owner:          "budget",
+			DefaultSource:  "runtime_budget_policy",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "operator_configurable",
+			EffectiveValue: lease.ModelToolRoundBudget,
+			Unit:           "round",
+		},
+		{
+			Name:           "budget.model_tool_round_ceiling",
+			Class:          LimitClassBudgetLease,
+			Owner:          "budget",
+			DefaultSource:  "runtime_budget_policy",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "operator_configurable_ceiling",
+			EffectiveValue: lease.ModelToolRoundCeiling,
+			Unit:           "round",
+		},
+		{
+			Name:           "shell.default_foreground_timeout_sec",
+			Class:          LimitClassShellTimeoutPolicy,
+			Owner:          "tool_runtime",
+			DefaultSource:  "shell_timeout_policy",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "operator_configurable",
+			EffectiveValue: shellPolicy.DefaultForegroundTimeoutSec,
+			Unit:           "second",
+		},
+		{
+			Name:           "shell.foreground_timeout_cap_sec",
+			Class:          LimitClassHardSafetyGuard,
+			Owner:          "tool_runtime",
+			DefaultSource:  "shell_timeout_policy",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "operator_configurable_hard_cap",
+			EffectiveValue: shellPolicy.ForegroundTimeoutCapSec,
+			Unit:           "second",
+		},
+		{
+			Name:           "shell.managed_job_threshold_sec",
+			Class:          LimitClassShellTimeoutPolicy,
+			Owner:          "tool_runtime",
+			DefaultSource:  "shell_timeout_policy",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "derived_from_foreground_cap",
+			EffectiveValue: shellPolicy.ManagedJobThresholdSec,
+			Unit:           "second",
+		},
+		{
+			Name:           "tool_loop.repeated_failure_threshold",
+			Class:          LimitClassHardSafetyGuard,
+			Owner:          "tool_loop_guard",
+			DefaultSource:  "kernel_safety_policy",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "not_model_overridable",
+			EffectiveValue: toolLoopRepeatedFailureThreshold,
+			Unit:           "repeat",
+		},
+		{
+			Name:           "tool_loop.repeated_write_success_threshold",
+			Class:          LimitClassHardSafetyGuard,
+			Owner:          "tool_loop_guard",
+			DefaultSource:  "kernel_safety_policy",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "not_model_overridable",
+			EffectiveValue: toolLoopRepeatedSuccessThreshold,
+			Unit:           "repeat",
+		},
+		{
+			Name:           "projection.shell_output_max_bytes",
+			Class:          LimitClassProjectionOutputCap,
+			Owner:          "tool_runtime_projection",
+			DefaultSource:  "projection_budget",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "projection_owner_only",
+			EffectiveValue: maxShellOutputBytes,
+			Unit:           "byte",
+		},
+		{
+			Name:           "projection.resource_read_default_bytes",
+			Class:          LimitClassProjectionOutputCap,
+			Owner:          "resource_projection",
+			DefaultSource:  "projection_budget",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "resource_owner_only",
+			EffectiveValue: resource.DefaultReadLimitBytes,
+			Unit:           "byte",
+		},
+		{
+			Name:           "projection.resource_read_max_bytes",
+			Class:          LimitClassProjectionOutputCap,
+			Owner:          "resource_projection",
+			DefaultSource:  "projection_budget",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "resource_owner_only",
+			EffectiveValue: resource.MaxReadLimitBytes,
+			Unit:           "byte",
+		},
+		{
+			Name:           "provider.transient_retry_attempts",
+			Class:          LimitClassProviderRetryRepairCap,
+			Owner:          "model_gateway",
+			DefaultSource:  "provider_resilience_policy",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "not_model_overridable",
+			EffectiveValue: maxProviderTransientAttempts,
+			Unit:           "attempt",
+		},
+		{
+			Name:           "provider.visible_final_repair_attempts",
+			Class:          LimitClassProviderRetryRepairCap,
+			Owner:          "model_gateway",
+			DefaultSource:  "provider_resilience_policy",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "not_model_overridable",
+			EffectiveValue: maxProviderVisibleFinalRepairs,
+			Unit:           "attempt",
+		},
+	}
+}

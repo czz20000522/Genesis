@@ -3,16 +3,17 @@ package kernel
 import "time"
 
 type Config struct {
-	LedgerPath    string
-	Provider      Provider
-	JobExecutor   ManagedJobExecutor
-	RuntimeToken  string
-	ToolPolicy    ToolPolicy
-	ContextPolicy ContextPolicy
-	BudgetPolicy  BudgetPolicy
-	SkillRoots    []string
-	Resources     []ResourceDescriptor
-	Clock         func() time.Time
+	LedgerPath         string
+	Provider           Provider
+	JobExecutor        ManagedJobExecutor
+	RuntimeToken       string
+	ToolPolicy         ToolPolicy
+	ContextPolicy      ContextPolicy
+	BudgetPolicy       BudgetPolicy
+	ShellTimeoutPolicy ShellTimeoutPolicy
+	SkillRoots         []string
+	Resources          []ResourceDescriptor
+	Clock              func() time.Time
 }
 
 type ToolPolicy struct {
@@ -36,9 +37,27 @@ type BudgetPolicy struct {
 	ModelToolRoundCeiling int
 }
 
+type ShellTimeoutPolicy struct {
+	DefaultForegroundTimeoutSec int `json:"default_foreground_timeout_sec"`
+	ForegroundTimeoutCapSec     int `json:"foreground_timeout_cap_sec"`
+	ManagedJobThresholdSec      int `json:"managed_job_threshold_sec"`
+}
+
 type BudgetLeaseProjection struct {
 	ModelToolRoundBudget  int `json:"model_tool_round_budget"`
 	ModelToolRoundCeiling int `json:"model_tool_round_ceiling"`
+}
+
+type RuntimeLimitProjection struct {
+	Name           string `json:"name"`
+	Class          string `json:"class"`
+	Owner          string `json:"owner"`
+	DefaultSource  string `json:"default_source"`
+	Inspectable    bool   `json:"inspectable"`
+	ModelVisible   bool   `json:"model_visible"`
+	OverridePolicy string `json:"override_policy"`
+	EffectiveValue int    `json:"effective_value,omitempty"`
+	Unit           string `json:"unit,omitempty"`
 }
 
 type ReadyResponse struct {
@@ -49,13 +68,15 @@ type ReadyResponse struct {
 }
 
 type CapabilitiesResponse struct {
-	Status       string                     `json:"status"`
-	Provider     ProviderStatus             `json:"provider"`
-	RuntimeAuth  ReadyCheck                 `json:"runtime_auth"`
-	Ledger       ReadyCheck                 `json:"ledger"`
-	BudgetLease  BudgetLeaseProjection      `json:"budget_lease"`
-	Tools        []ToolCapabilityProjection `json:"tools"`
-	SkillCatalog SkillCatalogProjection     `json:"skill_catalog"`
+	Status             string                     `json:"status"`
+	Provider           ProviderStatus             `json:"provider"`
+	RuntimeAuth        ReadyCheck                 `json:"runtime_auth"`
+	Ledger             ReadyCheck                 `json:"ledger"`
+	BudgetLease        BudgetLeaseProjection      `json:"budget_lease"`
+	ShellTimeoutPolicy ShellTimeoutPolicy         `json:"shell_timeout_policy"`
+	Limits             []RuntimeLimitProjection   `json:"limits"`
+	Tools              []ToolCapabilityProjection `json:"tools"`
+	SkillCatalog       SkillCatalogProjection     `json:"skill_catalog"`
 }
 
 type ProviderStatus struct {

@@ -14,26 +14,27 @@ import (
 )
 
 type Kernel struct {
-	ledger           Ledger
-	provider         Provider
-	jobExecutor      ManagedJobExecutor
-	runtimeToken     string
-	toolPolicy       ToolPolicy
-	contextPolicy    ContextPolicy
-	budgetPolicy     BudgetPolicy
-	toolRegistry     *ToolRegistry
-	resourceRegistry *resource.Registry
-	skillCatalog     []SkillDescriptor
-	skillExclusions  []SkillCatalogExclusionProjection
-	clock            func() time.Time
-	turnMu           sync.Mutex
-	activeTurnMu     sync.Mutex
-	activeTurns      map[string]*activeTurn
-	operationMu      sync.Mutex
-	jobMu            sync.Mutex
-	approvalMu       sync.Mutex
-	memoryReviewMu   sync.Mutex
-	workMu           sync.Mutex
+	ledger             Ledger
+	provider           Provider
+	jobExecutor        ManagedJobExecutor
+	runtimeToken       string
+	toolPolicy         ToolPolicy
+	contextPolicy      ContextPolicy
+	budgetPolicy       BudgetPolicy
+	shellTimeoutPolicy ShellTimeoutPolicy
+	toolRegistry       *ToolRegistry
+	resourceRegistry   *resource.Registry
+	skillCatalog       []SkillDescriptor
+	skillExclusions    []SkillCatalogExclusionProjection
+	clock              func() time.Time
+	turnMu             sync.Mutex
+	activeTurnMu       sync.Mutex
+	activeTurns        map[string]*activeTurn
+	operationMu        sync.Mutex
+	jobMu              sync.Mutex
+	approvalMu         sync.Mutex
+	memoryReviewMu     sync.Mutex
+	workMu             sync.Mutex
 }
 
 type activeTurn struct {
@@ -59,7 +60,8 @@ func New(config Config) (*Kernel, error) {
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
-	toolRegistry, err := defaultToolRegistry()
+	shellTimeoutPolicy := normalizedShellTimeoutPolicy(config.ShellTimeoutPolicy)
+	toolRegistry, err := defaultToolRegistry(shellTimeoutPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -69,19 +71,20 @@ func New(config Config) (*Kernel, error) {
 	}
 	skillCatalog := loadSkillCatalogWithDiagnostics(config.SkillRoots)
 	return &Kernel{
-		ledger:           NewJSONLLedger(config.LedgerPath),
-		provider:         provider,
-		jobExecutor:      jobExecutor,
-		runtimeToken:     strings.TrimSpace(config.RuntimeToken),
-		toolPolicy:       normalizedToolPolicy(config.ToolPolicy),
-		contextPolicy:    normalizedContextPolicy(config.ContextPolicy),
-		budgetPolicy:     normalizedBudgetPolicy(config.BudgetPolicy),
-		toolRegistry:     toolRegistry,
-		resourceRegistry: resourceRegistry,
-		skillCatalog:     skillCatalog.Items,
-		skillExclusions:  skillCatalog.Exclusions,
-		clock:            clock,
-		activeTurns:      map[string]*activeTurn{},
+		ledger:             NewJSONLLedger(config.LedgerPath),
+		provider:           provider,
+		jobExecutor:        jobExecutor,
+		runtimeToken:       strings.TrimSpace(config.RuntimeToken),
+		toolPolicy:         normalizedToolPolicy(config.ToolPolicy),
+		contextPolicy:      normalizedContextPolicy(config.ContextPolicy),
+		budgetPolicy:       normalizedBudgetPolicy(config.BudgetPolicy),
+		shellTimeoutPolicy: shellTimeoutPolicy,
+		toolRegistry:       toolRegistry,
+		resourceRegistry:   resourceRegistry,
+		skillCatalog:       skillCatalog.Items,
+		skillExclusions:    skillCatalog.Exclusions,
+		clock:              clock,
+		activeTurns:        map[string]*activeTurn{},
 	}, nil
 }
 
@@ -113,13 +116,15 @@ func (k *Kernel) Ready() ReadyResponse {
 func (k *Kernel) Capabilities() CapabilitiesResponse {
 	ready := k.Ready()
 	return CapabilitiesResponse{
-		Status:       ready.Status,
-		Provider:     safeProviderStatusForInspection(ready.Provider),
-		RuntimeAuth:  ready.RuntimeAuth,
-		Ledger:       ready.Ledger,
-		BudgetLease:  k.budgetLeaseProjection(),
-		Tools:        k.toolCapabilityProjections(),
-		SkillCatalog: k.skillCatalogProjection(),
+		Status:             ready.Status,
+		Provider:           safeProviderStatusForInspection(ready.Provider),
+		RuntimeAuth:        ready.RuntimeAuth,
+		Ledger:             ready.Ledger,
+		BudgetLease:        k.budgetLeaseProjection(),
+		ShellTimeoutPolicy: k.shellTimeoutPolicy,
+		Limits:             k.runtimeLimitProjections(),
+		Tools:              k.toolCapabilityProjections(),
+		SkillCatalog:       k.skillCatalogProjection(),
 	}
 }
 
@@ -392,8 +397,10 @@ func cloneModelRequest(req ModelRequest) ModelRequest {
 func (k *Kernel) contextRuntimeSnapshot() *ContextRuntimeSnapshot {
 	policy := resolveToolPolicy(k.toolPolicy)
 	return &ContextRuntimeSnapshot{
-		Provider:    safeProviderStatusForInspection(k.provider.Ready()),
-		BudgetLease: k.budgetLeaseProjection(),
+		Provider:           safeProviderStatusForInspection(k.provider.Ready()),
+		BudgetLease:        k.budgetLeaseProjection(),
+		ShellTimeoutPolicy: k.shellTimeoutPolicy,
+		Limits:             k.runtimeLimitProjections(),
 		Permission: PermissionInspection{
 			PermissionMode:  policy.PermissionMode,
 			AuthorityPolicy: policy.AuthorityPolicy,

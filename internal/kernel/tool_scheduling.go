@@ -36,6 +36,10 @@ func shellExecToolAccessPlan(toolName string, cwd string, timeoutSec int) ToolAc
 	return toolruntime.ShellExecAccessPlan(toolName, cwd, timeoutSec, maxForegroundShellTimeoutSec)
 }
 
+func (k *Kernel) shellExecAccessPlan(toolName string, cwd string, timeoutSec int) ToolAccessPlan {
+	return toolruntime.ShellExecAccessPlan(toolName, cwd, timeoutSec, k.shellTimeoutPolicy.ManagedJobThresholdSec)
+}
+
 func resourceReadToolAccessPlan(toolName string, resourceRef string) ToolAccessPlan {
 	return toolruntime.ResourceReadAccessPlan(toolName, resourceRef)
 }

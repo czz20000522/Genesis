@@ -164,7 +164,7 @@ func (k *Kernel) ensureApprovedApprovalEffect(ctx context.Context, approval Appr
 		IdempotencyKey: "approval:" + approval.ApprovalID,
 		approvedByID:   approval.ApprovalID,
 	}
-	if normalizedShellTimeoutSec(operation.TimeoutSec) > maxForegroundShellTimeoutSec {
+	if k.shellTimeoutExceedsForeground(k.normalizedShellTimeoutSec(operation.TimeoutSec)) {
 		_, err := k.toolGateway().InvokeShell(ctx, execReq, operation.TurnID, "", true)
 		return err
 	}
@@ -240,7 +240,7 @@ func (k *Kernel) approvalAuthorizesShellExecution(approvalID string, req ShellEx
 		operation.TurnID != strings.TrimSpace(turnID) ||
 		operation.CWD != strings.TrimSpace(req.CWD) ||
 		operation.Command != strings.TrimSpace(req.Command) ||
-		normalizedShellTimeoutSec(operation.TimeoutSec) != normalizedShellTimeoutSec(req.TimeoutSec) {
+		k.normalizedShellTimeoutSec(operation.TimeoutSec) != k.normalizedShellTimeoutSec(req.TimeoutSec) {
 		return false, "approval_effect_mismatch", nil
 	}
 	return true, "", nil

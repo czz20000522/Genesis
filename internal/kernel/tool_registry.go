@@ -51,11 +51,15 @@ func NewToolRegistry(tools []registeredTool) (*ToolRegistry, error) {
 	return registry, nil
 }
 
-func defaultToolRegistry() (*ToolRegistry, error) {
-	return NewToolRegistry(defaultKernelTools())
+func defaultToolRegistry(shellPolicy ShellTimeoutPolicy) (*ToolRegistry, error) {
+	return NewToolRegistry(defaultKernelTools(shellPolicy))
 }
 
-func defaultKernelTools() []registeredTool {
+func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
+	shellPolicy := normalizedShellTimeoutPolicy(ShellTimeoutPolicy{})
+	if len(policies) > 0 {
+		shellPolicy = normalizedShellTimeoutPolicy(policies[0])
+	}
 	return []registeredTool{
 		{
 			Spec: ToolSpec{
@@ -75,7 +79,7 @@ func defaultKernelTools() []registeredTool {
 						"timeout_sec": map[string]interface{}{
 							"type":        "integer",
 							"minimum":     1,
-							"description": "Foreground timeout in seconds. Omit for 30 seconds. Values above 180 are accepted as managed-job intent.",
+							"description": shellTimeoutDescription(shellPolicy),
 						},
 					},
 					"required":             []string{"command"},

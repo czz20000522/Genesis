@@ -13,9 +13,9 @@ func (k *Kernel) prepareManagedShellJob(req ShellExecRequest, turnID string, too
 	if err := validateShellRequest(req); err != nil {
 		return JobProjection{}, false, err
 	}
-	timeoutSec := normalizedShellTimeoutSec(req.TimeoutSec)
-	if timeoutSec <= maxForegroundShellTimeoutSec {
-		return JobProjection{}, false, fmt.Errorf("managed shell jobs require timeout_sec greater than %d", maxForegroundShellTimeoutSec)
+	timeoutSec := k.normalizedShellTimeoutSec(req.TimeoutSec)
+	if !k.shellTimeoutExceedsForeground(timeoutSec) {
+		return JobProjection{}, false, fmt.Errorf("managed shell jobs require timeout_sec greater than %d", k.shellTimeoutPolicy.ManagedJobThresholdSec)
 	}
 	sessionID := strings.TrimSpace(req.SessionID)
 	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)

@@ -92,9 +92,11 @@ type ContextInspectionResponse struct {
 }
 
 type ContextRuntimeSnapshot struct {
-	Provider    ProviderStatus        `json:"provider"`
-	BudgetLease BudgetLeaseProjection `json:"budget_lease"`
-	Permission  PermissionInspection  `json:"permission"`
+	Provider           ProviderStatus           `json:"provider"`
+	BudgetLease        BudgetLeaseProjection    `json:"budget_lease"`
+	ShellTimeoutPolicy ShellTimeoutPolicy       `json:"shell_timeout_policy"`
+	Limits             []RuntimeLimitProjection `json:"limits"`
+	Permission         PermissionInspection     `json:"permission"`
 }
 
 type PermissionInspection struct {

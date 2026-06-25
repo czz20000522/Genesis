@@ -188,6 +188,10 @@ Every production store or schema proposal must answer:
   caps such as output byte truncation, HTTP request size, provider response
   body size, shell foreground timeout ceilings, and debug trace quotas remain
   separate owner-specific guardrails and are not leased to the model.
+- Runtime inspection must classify active limits by owner and class, including
+  BudgetLease, shell timeout policy, hard safety guard, provider retry/repair
+  cap, and projection/output cap. The classification is operator-visible
+  evidence, not a model-visible control surface.
 - Continuing paused work uses ordinary `turn.submit` in the same session. Shells
   and applications do not get a separate resume owner. The kernel-owned
   provider-context projection must expose prior committed user, assistant,

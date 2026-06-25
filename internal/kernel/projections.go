@@ -294,6 +294,7 @@ func cloneContextRuntimeSnapshot(snapshot *ContextRuntimeSnapshot) *ContextRunti
 	}
 	copied := *snapshot
 	copied.Provider = safeProviderStatusForInspection(copied.Provider)
+	copied.Limits = append([]RuntimeLimitProjection(nil), snapshot.Limits...)
 	return &copied
 }
 

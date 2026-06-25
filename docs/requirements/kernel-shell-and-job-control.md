@@ -68,14 +68,14 @@ Application:
 ### Foreground Timeout
 
 1. `shell_exec` exposes `timeout_sec` as the model-visible duration field.
-2. Omitted `timeout_sec` defaults to 30 seconds.
-3. Foreground synchronous shell accepts integer seconds from 1 through 180.
-4. `timeout_sec=180` is the maximum foreground request.
-5. `timeout_sec>180` is a valid long-task intent. It routes to managed-job admission and must not continue as ordinary synchronous shell execution.
+2. Omitted `timeout_sec` uses the kernel-owned `ShellTimeoutPolicy` default. The current default policy is 30 seconds.
+3. Foreground synchronous shell accepts integer seconds through the policy foreground cap. The current cap is 180 seconds.
+4. A value above the policy managed-job threshold is a valid long-task intent. The current threshold is 180 seconds.
+5. Long-task intent routes to managed-job admission and must not continue as ordinary synchronous shell execution.
 6. Non-positive, non-integer, missing-type, or malformed timeout values produce repairable `tool_request_invalid` feedback and no effect.
 7. Timeout validation happens before command execution and before any workspace or host shell side effect.
 
-Direct HTTP `POST /tools/shell_exec` follows the same kernel owner path. It returns a foreground operation projection for `timeout_sec` values within the foreground cap, and returns a managed job projection for admitted `timeout_sec>180` requests. It does not create a parallel direct-HTTP lifecycle owner. Because direct HTTP can distinguish an omitted JSON field from an explicit value, omitted `timeout_sec` defaults to 30 seconds while explicit non-positive values are invalid. The current local managed executor requires the resolved host sandbox profile; controlled-workspace/default requests above the cap return a blocked operation until a controlled managed executor exists.
+Direct HTTP `POST /tools/shell_exec` follows the same kernel owner path. It returns a foreground operation projection for `timeout_sec` values within the policy foreground cap, and returns a managed job projection for admitted values above the policy managed-job threshold. It does not create a parallel direct-HTTP lifecycle owner. Because direct HTTP can distinguish an omitted JSON field from an explicit value, omitted `timeout_sec` uses the policy default while explicit non-positive values are invalid. The current local managed executor requires the resolved host sandbox profile; controlled-workspace/default requests above the cap return a blocked operation until a controlled managed executor exists.
 8. The model-visible schema uses seconds. Internal runtimes may use other units.
 
 ### Shell Environment Policy
@@ -221,7 +221,7 @@ This requirement does not add:
 
 Phase A: timeout contract and validation.
 
-- Proves: model-visible `timeout_sec`, default 30 seconds, foreground range 1 through 180, invalid value repair feedback, and no side effects before validation.
+- Proves: model-visible `timeout_sec`, policy-backed default, policy foreground cap, invalid value repair feedback, and no side effects before validation.
 - Still short of production: managed-job lifecycle is outside this validation-only slice and must be proved by later phases.
 
 Phase B: managed-job ledger foundation.
@@ -248,11 +248,11 @@ Phase E: interrupt behavior.
 
 Positive cases:
 
-- omitted timeout uses 30 seconds;
-- 1 through 180 seconds are foreground-valid;
+- omitted timeout uses the `ShellTimeoutPolicy` default;
+- values through the policy foreground cap are foreground-valid;
 - valid foreground command returns terminal-equivalent evidence;
-- values above 180 seconds enter managed-job admission rather than synchronous shell execution;
-- direct HTTP shell transport returns a job receipt/projection for admitted values above 180 seconds, or a blocked operation when policy/profile admission rejects the managed executor;
+- values above the policy managed-job threshold enter managed-job admission rather than synchronous shell execution;
+- direct HTTP shell transport returns a job receipt/projection for admitted values above the policy threshold, or a blocked operation when policy/profile admission rejects the managed executor;
 - model-requested managed job writes `tool.call`, `job.started`, receipt `tool.result`, and terminal job event;
 - job status and cancellation use generic job controls;
 - completed job observations can enter the next provider context through kernel delivery.

@@ -133,7 +133,7 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 	if args.CWD == "" {
 		args.CWD = strings.TrimSpace(k.toolPolicy.WorkspaceRoot)
 	}
-	timeoutSec := defaultShellTimeoutSec
+	timeoutSec := k.shellTimeoutPolicy.DefaultForegroundTimeoutSec
 	if args.TimeoutSec != nil {
 		timeoutSec = *args.TimeoutSec
 		if timeoutSec <= 0 {
@@ -153,8 +153,8 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 		eventID:                eventID,
 		providerCallID:         providerCallID,
 		name:                   name,
-		accessPlan:             shellExecToolAccessPlan(name, args.CWD, timeoutSec),
-		repeatSuccessSignature: shellExecRepeatSuccessSignature(args.CWD, args.Command, timeoutSec),
+		accessPlan:             k.shellExecAccessPlan(name, args.CWD, timeoutSec),
+		repeatSuccessSignature: k.shellExecRepeatSuccessSignature(args.CWD, args.Command, timeoutSec),
 		onDenied: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
 			return k.shellInvokeModelToolResult(ctx, sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
 				SessionID:      sessionID,
