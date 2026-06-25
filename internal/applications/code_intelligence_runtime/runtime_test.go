@@ -3,8 +3,11 @@ package codeintelligenceruntime
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"genesis/internal/testsupport"
 )
 
 func TestReadinessBlocksWorktreeMismatchAndSkipsQuery(t *testing.T) {
@@ -197,26 +200,138 @@ func TestQueryResultsAreBoundedByRequestedLimit(t *testing.T) {
 	}
 }
 
+func TestQueryAdmissionRejectsInvalidScopeBeforeAdapterExecution(t *testing.T) {
+	root := testProjectRoot(t)
+	outside := testProjectRoot(t)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("user home dir: %v", err)
+	}
+	rootPath := filesystemRoot(root)
+	tests := []struct {
+		name   string
+		query  CodeQuery
+		reason string
+	}{
+		{
+			name:   "unsupported query kind",
+			query:  CodeQuery{QueryKind: "raw_sql", QueryText: "select"},
+			reason: "unsupported_query_kind",
+		},
+		{
+			name:   "missing explore text",
+			query:  CodeQuery{QueryKind: QueryKindExplore},
+			reason: "query_text_required",
+		},
+		{
+			name:   "missing affected target",
+			query:  CodeQuery{QueryKind: QueryKindAffectedTests},
+			reason: "target_path_required",
+		},
+		{
+			name:   "relative traversal",
+			query:  CodeQuery{QueryKind: QueryKindAffectedTests, TargetPath: filepath.Join("..", "outside.go")},
+			reason: "target_path_outside_project",
+		},
+		{
+			name:   "absolute outside target",
+			query:  CodeQuery{QueryKind: QueryKindAffectedTests, TargetPath: filepath.Join(outside, "outside.go")},
+			reason: "target_path_outside_project",
+		},
+		{
+			name:   "filesystem root target",
+			query:  CodeQuery{QueryKind: QueryKindAffectedTests, TargetPath: rootPath},
+			reason: "target_path_filesystem_root",
+		},
+		{
+			name:   "home directory target",
+			query:  CodeQuery{QueryKind: QueryKindAffectedTests, TargetPath: home},
+			reason: "target_path_home_directory",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			adapter := readyFakeAdapter(root)
+			runtime := NewRuntime(adapter)
+			result, err := runtime.Query(context.Background(), CodeProjectRef{ProjectRef: "proj_scope", AdmittedRoot: root}, tc.query)
+			if !errors.Is(err, ErrCodeQueryBlocked) {
+				t.Fatalf("Query error = %v, want ErrCodeQueryBlocked", err)
+			}
+			if result.Status != QueryStatusBlocked || result.DiagnosticReason != tc.reason {
+				t.Fatalf("result = %+v, want blocked reason %q", result, tc.reason)
+			}
+			if adapter.queryCalls != 0 {
+				t.Fatalf("adapter queryCalls = %d, want no adapter query for invalid scope", adapter.queryCalls)
+			}
+		})
+	}
+}
+
+func TestQueryAdmissionNormalizesRelativeTargetBeforeAdapterExecution(t *testing.T) {
+	root := testProjectRoot(t)
+	adapter := readyFakeAdapter(root)
+	runtime := NewRuntime(adapter)
+
+	result, err := runtime.Query(context.Background(), CodeProjectRef{ProjectRef: "proj_scope_ok", AdmittedRoot: root}, CodeQuery{
+		QueryKind:  QueryKindAffectedTests,
+		TargetPath: filepath.Join("internal", "kernel", "..", "kernel", "approval.go"),
+	})
+	if err != nil {
+		t.Fatalf("Query returned error: %v", err)
+	}
+	if result.Status != QueryStatusCompleted {
+		t.Fatalf("result = %+v, want completed", result)
+	}
+	wantTarget := filepath.ToSlash(filepath.Join("internal", "kernel", "approval.go"))
+	if adapter.lastQuery.TargetPath != wantTarget {
+		t.Fatalf("adapter target path = %q, want normalized %q", adapter.lastQuery.TargetPath, wantTarget)
+	}
+}
+
 func testProjectRoot(t *testing.T) string {
 	t.Helper()
-	root, err := filepath.Abs(t.TempDir())
+	root, err := filepath.Abs(testsupport.ProjectTempDir(t, t.Name()))
 	if err != nil {
 		t.Fatalf("abs temp dir: %v", err)
 	}
 	return root
 }
 
+func readyFakeAdapter(root string) *fakeAdapter {
+	return &fakeAdapter{
+		readiness: AdapterReadiness{
+			Adapter:             "codegraph",
+			ExecutableAvailable: true,
+			CachePresent:        true,
+			ProjectPath:         root,
+			IndexPath:           filepath.Join(root, ".codegraph"),
+			Telemetry:           TelemetryDisabled,
+		},
+		queryResult: AdapterQueryResult{Items: []CodeQueryItem{{Kind: "symbol", Text: "ok"}}},
+	}
+}
+
+func filesystemRoot(path string) string {
+	volume := filepath.VolumeName(path)
+	if volume != "" {
+		return volume + string(os.PathSeparator)
+	}
+	return string(os.PathSeparator)
+}
+
 type fakeAdapter struct {
 	readiness   AdapterReadiness
 	queryResult AdapterQueryResult
 	queryCalls  int
+	lastQuery   CodeQuery
 }
 
 func (f *fakeAdapter) Readiness(_ context.Context, _ CodeProjectRef) (AdapterReadiness, error) {
 	return f.readiness, nil
 }
 
-func (f *fakeAdapter) Query(_ context.Context, _ CodeProjectRef, _ CodeQuery) (AdapterQueryResult, error) {
+func (f *fakeAdapter) Query(_ context.Context, _ CodeProjectRef, query CodeQuery) (AdapterQueryResult, error) {
 	f.queryCalls++
+	f.lastQuery = query
 	return f.queryResult, nil
 }

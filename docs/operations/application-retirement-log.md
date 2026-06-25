@@ -14,6 +14,10 @@ tests, governing requirement/design, or still-active issues.
 
 - Retired: CodeGraph now sits behind a user-space code intelligence runtime that classifies executable/cache/worktree/staleness/telemetry readiness, blocks unsafe queries by default, projects affected-tests as advisory hints, and keeps CodeGraph out of kernel core. Evidence: retiring Lore commit.
 
+### APP-CODE-INTELLIGENCE-RUNTIME-SCOPE-GATE-20260625 - Validate code query scope before adapter execution
+
+- Retired: code intelligence runtime now validates query kind, required fields, target containment, traversal, filesystem-root, and home-directory targets before adapter execution, while normalizing admitted relative targets for the adapter. Evidence: retiring Lore commit.
+
 ### APP-CONNECTOR-INBOUND-CONTEXT-UNIFICATION-20260623 - Unify inbound message slice with connector request context
 
 - Retired: inbound messages now enter the connector runtime through connector-owned `ExternalEvent` and `RequestContext` rather than the removed split `message_ingress` package. Evidence: commit `085315652`.

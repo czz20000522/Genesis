@@ -36,6 +36,9 @@ Intentional Genesis differences:
   smoke.
 - `affectedTests` and covering-test claims are advisory hints. Go tests and
   source inspection remain the verification authority.
+- Code query scope admission is a runtime responsibility. The CodeGraph adapter
+  receives only already-admitted query shapes and normalized project-relative
+  targets.
 
 Remaining drift risks:
 

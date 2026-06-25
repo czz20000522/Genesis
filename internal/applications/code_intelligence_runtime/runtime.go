@@ -3,6 +3,7 @@ package codeintelligenceruntime
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -10,6 +11,7 @@ import (
 const defaultResultLimit = 20
 
 var ErrCodeReadinessBlocked = errors.New("code intelligence readiness blocked")
+var ErrCodeQueryBlocked = errors.New("code intelligence query blocked")
 
 type Adapter interface {
 	Readiness(context.Context, CodeProjectRef) (AdapterReadiness, error)
@@ -71,20 +73,30 @@ func (r Runtime) Probe(ctx context.Context, project CodeProjectRef) (CodeIndexRe
 }
 
 func (r Runtime) Query(ctx context.Context, project CodeProjectRef, query CodeQuery) (CodeQueryResult, error) {
-	if root, reason := normalizeAdmittedRoot(project.AdmittedRoot); reason == "" {
+	root, rootReason := normalizeAdmittedRoot(project.AdmittedRoot)
+	if rootReason == "" {
 		project.AdmittedRoot = root
+	}
+	result := CodeQueryResult{
+		ProjectRef: project.ProjectRef,
+		QueryKind:  strings.TrimSpace(query.QueryKind),
+		Freshness:  FreshnessUnknown,
+	}
+	admittedQuery, queryReason := admitQuery(root, rootReason, query)
+	if queryReason != "" {
+		result.Status = QueryStatusBlocked
+		result.DiagnosticReason = queryReason
+		return result, ErrCodeQueryBlocked
 	}
 	readiness, err := r.Probe(ctx, project)
 	if err != nil {
 		return CodeQueryResult{}, err
 	}
-	result := CodeQueryResult{
-		ProjectRef:       readiness.ProjectRef,
-		QueryKind:        strings.TrimSpace(query.QueryKind),
-		ReadinessStatus:  readiness.Status,
-		Freshness:        readiness.Freshness,
-		DiagnosticReason: readiness.BlockedReason,
-	}
+	result.ProjectRef = readiness.ProjectRef
+	result.QueryKind = strings.TrimSpace(admittedQuery.QueryKind)
+	result.ReadinessStatus = readiness.Status
+	result.Freshness = readiness.Freshness
+	result.DiagnosticReason = readiness.BlockedReason
 	if !readinessAllowsQuery(readiness.Status, query.AcceptDegradedFreshness) {
 		result.Status = QueryStatusBlocked
 		if result.DiagnosticReason == "" {
@@ -97,7 +109,7 @@ func (r Runtime) Query(ctx context.Context, project CodeProjectRef, query CodeQu
 		result.DiagnosticReason = "adapter_missing"
 		return result, ErrCodeReadinessBlocked
 	}
-	adapterResult, err := r.adapter.Query(ctx, project, query)
+	adapterResult, err := r.adapter.Query(ctx, project, admittedQuery)
 	if err != nil {
 		result.Status = QueryStatusFailed
 		result.DiagnosticReason = "adapter_query_failed"
@@ -113,6 +125,96 @@ func (r Runtime) Query(ctx context.Context, project CodeProjectRef, query CodeQu
 	}
 	result.Items = items
 	return result, nil
+}
+
+func admitQuery(admittedRoot string, rootReason string, query CodeQuery) (CodeQuery, string) {
+	if rootReason != "" {
+		return CodeQuery{}, rootReason
+	}
+	query.QueryKind = strings.TrimSpace(query.QueryKind)
+	query.QueryText = strings.TrimSpace(query.QueryText)
+	query.TargetPath = strings.TrimSpace(query.TargetPath)
+	switch query.QueryKind {
+	case QueryKindExplore:
+		if query.QueryText == "" {
+			return CodeQuery{}, "query_text_required"
+		}
+		query.TargetPath = ""
+		return query, ""
+	case QueryKindAffectedTests:
+		target, reason := normalizeProjectTarget(admittedRoot, query.TargetPath)
+		if reason != "" {
+			return CodeQuery{}, reason
+		}
+		query.TargetPath = target
+		return query, ""
+	default:
+		return CodeQuery{}, "unsupported_query_kind"
+	}
+}
+
+func normalizeProjectTarget(admittedRoot string, target string) (string, string) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", "target_path_required"
+	}
+	if isHomeAlias(target) {
+		return "", "target_path_home_directory"
+	}
+	cleanTarget := filepath.Clean(target)
+	if isFilesystemRoot(cleanTarget) {
+		return "", "target_path_filesystem_root"
+	}
+	var absoluteTarget string
+	if filepath.IsAbs(cleanTarget) {
+		absoluteTarget = cleanTarget
+	} else {
+		absoluteTarget = filepath.Join(admittedRoot, cleanTarget)
+	}
+	absoluteTarget = filepath.Clean(absoluteTarget)
+	if isFilesystemRoot(absoluteTarget) {
+		return "", "target_path_filesystem_root"
+	}
+	if isHomeDirectoryTarget(absoluteTarget) {
+		return "", "target_path_home_directory"
+	}
+	relative, err := filepath.Rel(admittedRoot, absoluteTarget)
+	if err != nil || relative == "." || relativeEscapes(relative) {
+		return "", "target_path_outside_project"
+	}
+	return filepath.ToSlash(filepath.Clean(relative)), ""
+}
+
+func relativeEscapes(relative string) bool {
+	relative = filepath.Clean(relative)
+	return relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) || filepath.IsAbs(relative)
+}
+
+func isFilesystemRoot(path string) bool {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "" {
+		return false
+	}
+	volume := filepath.VolumeName(path)
+	if volume != "" {
+		return strings.EqualFold(path, volume+string(os.PathSeparator))
+	}
+	return path == string(os.PathSeparator)
+}
+
+func isHomeAlias(path string) bool {
+	path = strings.TrimSpace(path)
+	return path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\")
+}
+
+func isHomeDirectoryTarget(path string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return false
+	}
+	home = filepath.Clean(home)
+	path = filepath.Clean(path)
+	return strings.EqualFold(path, home)
 }
 
 func (r Runtime) projectReadiness(project CodeProjectRef, adapter AdapterReadiness) CodeIndexReadiness {

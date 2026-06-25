@@ -15,6 +15,7 @@ func TestApplicationTestsUseProjectLocalArtifacts(t *testing.T) {
 		filepath.Join("cmd", "genesis-console"),
 		filepath.Join("cmd", "genesis-feishu-connector-adapter"),
 		filepath.Join("cmd", "genesis-ingress"),
+		filepath.Join("internal", "applications", "code_intelligence_runtime"),
 		filepath.Join("internal", "applications", "connector_runtime"),
 	} {
 		dir := filepath.Join(root, relRoot)
@@ -29,8 +30,10 @@ func TestApplicationTestsUseProjectLocalArtifacts(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if strings.Contains(string(content), "t."+"TempDir(") {
-				t.Fatalf("application test %s uses system temp; use testsupport.ProjectTempDir", path)
+			for _, forbidden := range []string{"t." + "TempDir(", "os." + "MkdirTemp("} {
+				if strings.Contains(string(content), forbidden) {
+					t.Fatalf("application test %s uses system temp via %s; use testsupport.ProjectTempDir", path, forbidden)
+				}
 			}
 			return nil
 		}); err != nil {

@@ -7,12 +7,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"genesis/internal/testsupport"
 )
 
 func TestCodeGraphCLIAdapterClassifiesMissingExecutable(t *testing.T) {
-	adapter := CodeGraphCLIAdapter{Executable: filepath.Join(t.TempDir(), "missing-codegraph")}
+	adapter := CodeGraphCLIAdapter{Executable: filepath.Join(testsupport.ProjectTempDir(t, "missing-codegraph"), "missing-codegraph")}
 
-	readiness, err := adapter.Readiness(context.Background(), CodeProjectRef{AdmittedRoot: t.TempDir()})
+	readiness, err := adapter.Readiness(context.Background(), CodeProjectRef{AdmittedRoot: testsupport.ProjectTempDir(t, "missing-codegraph-root")})
 	if err != nil {
 		t.Fatalf("Readiness returned error: %v", err)
 	}
