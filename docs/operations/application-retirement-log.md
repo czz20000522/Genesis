@@ -93,3 +93,7 @@ tests, governing requirement/design, or still-active issues.
 ### APP-CONNECTOR-FILE-STORE-STALE-LOCK-20260625 - Recover stale connector file-store locks
 
 - Retired: connector file-backed stores now inspect crash-left lock records, safely take over stale invalid or dead reservations without losing outbox state, and retain live or unverifiable locks instead of stealing them. Evidence: commit `f02263c47`.
+
+### APP-CONNECTOR-PROFILE-READINESS-PROBE-BUILD-20260625 - Keep profile probe path buildable
+
+- Retired: the profile readiness probe path no longer has duplicate `ok` switch cases and is covered by connector-runtime and ingress profile probe tests. Evidence: fixing Lore commit.

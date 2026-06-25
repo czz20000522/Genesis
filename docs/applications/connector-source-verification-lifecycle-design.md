@@ -382,6 +382,14 @@ If a profile is missing, expired, denied, or requires refresh, the source enters
 safe readiness reason and operator action hint, but it must not persist raw
 tokens, authorization headers, profile secrets, or platform credential payloads.
 
+The current Feishu ingress surface supports a connector-local profile readiness
+command probe. The probe is a direct executable boundary that receives the
+configured profile as a generated argument and returns typed readiness JSON. It
+does not start source adapters, send messages, call the kernel, or expose
+credentials to the model. Unsupported readiness values, command failure, or
+malformed output fail closed as connector-local operator action requirements.
+This is an application connector boundary, not a kernel credential store.
+
 ## Operator Lifecycle Controls
 
 Operator controls mutate connector-owned source state only. They are not a

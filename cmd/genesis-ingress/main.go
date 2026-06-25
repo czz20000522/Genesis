@@ -70,6 +70,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	flags := registerCommonFlags(fs, "feishu")
 	profile := fs.String("profile", "", "explicit lark-cli profile passed to the Feishu connector adapter")
 	profileReadiness := fs.String("profile-readiness", "ok", "connector-local Feishu profile readiness posture: ok, missing_profile, profile_expired, permission_denied, or refresh_required")
+	profileProbeCommand := fs.String("profile-probe-command", "", "direct profile readiness probe executable; emits typed readiness JSON and does not start source or delivery adapters")
 	stdinJSONL := fs.Bool("stdin-jsonl", false, "read ExternalEvent NDJSON from stdin")
 	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable passed to the Feishu connector adapter")
 	deliveryCommand := fs.String("delivery-command", envOrDefault("GENESIS_FEISHU_CONNECTOR_COMMAND", "genesis-feishu-connector-adapter"), "direct Feishu connector adapter executable for final delivery")
@@ -88,6 +89,8 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	fs.Var(&sourceCommandArgs, "source-command-arg", "argument passed to the source adapter executable; repeatable")
 	var deliveryCommandArgs stringListFlag
 	fs.Var(&deliveryCommandArgs, "delivery-command-arg", "argument passed to the Feishu connector adapter executable before generated profile flags; repeatable")
+	var profileProbeCommandArgs stringListFlag
+	fs.Var(&profileProbeCommandArgs, "profile-probe-command-arg", "argument passed to the profile readiness probe executable before generated profile flags; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -101,11 +104,15 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	if err != nil {
 		return err
 	}
-	if *deliverFinal {
-		finalDeliveryBlockedReason, err := feishuProfileReadinessBlockReason(*profile, *profileReadiness)
+	profileBlockedReason := ""
+	if *deliverFinal || strings.TrimSpace(*sourceCommand) != "" {
+		profileBlockedReason, err = feishuProfileReadinessBlockReason(ctx, *profile, *profileReadiness, *profileProbeCommand, profileProbeCommandArgs)
 		if err != nil {
 			return err
 		}
+	}
+	if *deliverFinal {
+		finalDeliveryBlockedReason := profileBlockedReason
 		if finalDeliveryBlockedReason != "" {
 			return fmt.Errorf("feishu-listen final delivery blocked by profile readiness: %s", finalDeliveryBlockedReason)
 		}
@@ -130,10 +137,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	sourceReadinessBlockDescription := ""
 	sourceArgs := append([]string(nil), sourceCommandArgs...)
 	if strings.TrimSpace(*sourceCommand) != "" {
-		sourceReadinessBlockReason, err = feishuProfileReadinessBlockReason(*profile, *profileReadiness)
-		if err != nil {
-			return err
-		}
+		sourceReadinessBlockReason = profileBlockedReason
 		if sourceReadinessBlockReason == "" {
 			sourceArgs = feishuSourceCommandArgs(sourceArgs, *profile, *larkCLI, *sourceID)
 		} else {
@@ -168,10 +172,11 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	})
 }
 
-func runFeishuProbe(_ context.Context, args []string, stdout io.Writer) error {
+func runFeishuProbe(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("feishu-probe", flag.ContinueOnError)
 	profile := fs.String("profile", "", "explicit lark-cli profile used by the Feishu connector probe")
 	profileReadiness := fs.String("profile-readiness", "ok", "connector-local Feishu profile readiness posture: ok, missing_profile, profile_expired, permission_denied, or refresh_required")
+	profileProbeCommand := fs.String("profile-probe-command", "", "direct profile readiness probe executable; emits typed readiness JSON and does not start source or delivery adapters")
 	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable passed to the Feishu connector adapter")
 	deliveryCommand := fs.String("delivery-command", envOrDefault("GENESIS_FEISHU_CONNECTOR_COMMAND", "genesis-feishu-connector-adapter"), "direct Feishu connector adapter executable to validate")
 	sourceCommand := fs.String("source-command", "", "direct source adapter executable to validate")
@@ -179,10 +184,12 @@ func runFeishuProbe(_ context.Context, args []string, stdout io.Writer) error {
 	fs.Var(&sourceCommandArgs, "source-command-arg", "argument passed to the source adapter executable; repeatable")
 	var deliveryCommandArgs stringListFlag
 	fs.Var(&deliveryCommandArgs, "delivery-command-arg", "argument passed to the Feishu connector adapter executable before generated profile flags; repeatable")
+	var profileProbeCommandArgs stringListFlag
+	fs.Var(&profileProbeCommandArgs, "profile-probe-command-arg", "argument passed to the profile readiness probe executable before generated profile flags; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	finalDeliveryBlockedReason, err := feishuProfileReadinessBlockReason(*profile, *profileReadiness)
+	finalDeliveryBlockedReason, err := feishuProfileReadinessBlockReason(ctx, *profile, *profileReadiness, *profileProbeCommand, profileProbeCommandArgs)
 	if err != nil {
 		return err
 	}
@@ -250,18 +257,15 @@ func feishuSourceCommandArgs(prefix []string, profile string, larkCLI string, so
 	return args
 }
 
-func feishuProfileReadinessBlockReason(profile string, readiness string) (string, error) {
-	readiness = strings.TrimSpace(readiness)
-	if readiness == "" || readiness == "ok" {
-		if strings.TrimSpace(profile) == "" {
-			return connectorruntime.SourceReadinessReasonMissingProfile, nil
-		}
-		return "", nil
+func feishuProfileReadinessBlockReason(ctx context.Context, profile string, readiness string, probeCommand string, probeArgs []string) (string, error) {
+	blockReason, err := connectorruntime.ResolveProfileReadiness(ctx, profile, readiness, connectorruntime.ProfileReadinessCommandProbe{
+		Executable: probeCommand,
+		Args:       append([]string(nil), probeArgs...),
+	})
+	if err != nil {
+		return blockReason, fmt.Errorf("Feishu profile readiness probe failed: %w", err)
 	}
-	if !connectorruntime.ValidSourceReadinessReasonCode(readiness) {
-		return "", fmt.Errorf("Feishu profile readiness must be ok or a known source readiness reason")
-	}
-	return readiness, nil
+	return blockReason, nil
 }
 
 func processExternalEventJSONL(ctx context.Context, runtime *connectorruntime.Runtime, reader io.Reader, stdout io.Writer, stderr io.Writer) error {

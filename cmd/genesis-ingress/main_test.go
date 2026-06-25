@@ -403,6 +403,53 @@ func TestFeishuListenProfileReadinessBlocksSourceBeforeProcessStart(t *testing.T
 	}
 }
 
+func TestFeishuListenProfileProbeBlocksSourceBeforeProcessStart(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("kernel should not be called when profile probe blocks source; got %s %s", r.Method, r.URL.Path)
+	}))
+	t.Cleanup(server.Close)
+	dir := testsupport.ProjectTempDir(t, "feishu-listen-source-profile-probe")
+	sourceLifecyclePath := filepath.Join(dir, "source-lifecycle.json")
+	startedPath := filepath.Join(dir, "source-started.txt")
+
+	err := runWithIO(context.Background(), []string{
+		"feishu-listen",
+		"--kernel-url", server.URL,
+		"--runtime-token", "token",
+		"--state", filepath.Join(dir, "state.json"),
+		"--source-id", "source_feishu_chat",
+		"--profile", "genesis",
+		"--profile-probe-command", os.Args[0],
+		"--profile-probe-command-arg", "-test.run=TestFeishuProfileProbeHelper",
+		"--profile-probe-command-arg", "--",
+		"--profile-probe-command-arg", connectorruntime.SourceReadinessReasonRefreshRequired,
+		"--source-command", os.Args[0],
+		"--source-command-arg", "-test.run=TestFeishuListenSourceCommandHelper",
+		"--source-command-arg", "--",
+		"--source-command-arg", "record-start",
+		"--source-command-arg", startedPath,
+		"--source-state", filepath.Join(dir, "source-failures.json"),
+		"--source-lifecycle-state", sourceLifecyclePath,
+	}, strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("runWithIO should block refresh_required profile probe before source process start")
+	}
+	if _, statErr := os.Stat(startedPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("source command side effect exists or stat failed: %v", statErr)
+	}
+	store, storeErr := connectorruntime.NewFileSourceLifecycleStore(sourceLifecyclePath)
+	if storeErr != nil {
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", storeErr)
+	}
+	runs, listErr := store.ListSourceRuns(context.Background())
+	if listErr != nil {
+		t.Fatalf("ListSourceRuns returned error: %v", listErr)
+	}
+	if len(runs) != 1 || runs[0].Status != connectorruntime.SourceRunStatusBlocked || runs[0].BlockedReasonCode != connectorruntime.SourceReadinessReasonRefreshRequired {
+		t.Fatalf("source runs = %+v, want refresh_required blocked readiness record", runs)
+	}
+}
+
 func TestFeishuListenRetriesRecoverableSourceCommandFailure(t *testing.T) {
 	var submitCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -532,6 +579,35 @@ func TestFeishuProbeReportsProfileReadinessFailure(t *testing.T) {
 	}
 }
 
+func TestFeishuProbeUsesProfileReadinessCommandBeforeAdapters(t *testing.T) {
+	var stdout bytes.Buffer
+	err := runWithIO(context.Background(), []string{
+		"feishu-probe",
+		"--profile", "genesis",
+		"--profile-probe-command", os.Args[0],
+		"--profile-probe-command-arg", "-test.run=TestFeishuProfileProbeHelper",
+		"--profile-probe-command-arg", "--",
+		"--profile-probe-command-arg", connectorruntime.SourceReadinessReasonProfileExpired,
+		"--source-command", os.Args[0],
+		"--source-command-arg", "-test.run=TestFeishuListenSourceCommandHelper",
+		"--source-command-arg", "--",
+		"--source-command-arg", "record-start",
+		"--source-command-arg", filepath.Join(testsupport.ProjectTempDir(t, "feishu-profile-probe"), "source-started.txt"),
+		"--delivery-command", os.Args[0],
+		"--delivery-command-arg", "-test.run=TestFeishuDeliveryCommandHelper",
+	}, strings.NewReader(""), &stdout, io.Discard)
+	if err == nil {
+		t.Fatal("runWithIO should reject profile_expired from profile probe command")
+	}
+	var got connectorruntime.FeishuAdapterProbeReport
+	if decodeErr := json.Unmarshal(stdout.Bytes(), &got); decodeErr != nil {
+		t.Fatalf("decode probe report: %v\n%s", decodeErr, stdout.String())
+	}
+	if got.Ready || got.EventSource.Reason != connectorruntime.SourceReadinessReasonProfileExpired || got.FinalDelivery.Reason != connectorruntime.SourceReadinessReasonProfileExpired {
+		t.Fatalf("probe report = %+v, want profile_expired on source and final delivery", got)
+	}
+}
+
 func TestFeishuProbeRejectsMissingProfileWithoutKernelCall(t *testing.T) {
 	var stdout bytes.Buffer
 	err := runWithIO(context.Background(), []string{
@@ -567,7 +643,7 @@ func TestFeishuProfileReadinessBlockReasonClassifiesKnownStates(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := feishuProfileReadinessBlockReason(tt.profile, tt.readiness)
+			got, err := feishuProfileReadinessBlockReason(context.Background(), tt.profile, tt.readiness, "", nil)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("feishuProfileReadinessBlockReason returned nil error")
@@ -647,6 +723,19 @@ func TestFeishuListenSourceCommandHelper(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestFeishuProfileProbeHelper(t *testing.T) {
+	readiness := profileProbeHelperReadiness()
+	if readiness == "" {
+		return
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(connectorruntime.ProfileReadinessCommandResult{
+		Readiness: readiness,
+	}); err != nil {
+		t.Fatalf("encode profile readiness result: %v", err)
+	}
+	os.Exit(0)
+}
+
 func TestFeishuDeliveryCommandHelper(t *testing.T) {
 	capturePath := feishuDeliveryHelperCapturePath()
 	if capturePath == "" {
@@ -676,6 +765,15 @@ func feishuDeliveryHelperCapturePath() string {
 	for _, arg := range os.Args {
 		if path, ok := strings.CutPrefix(arg, "--capture="); ok {
 			return path
+		}
+	}
+	return ""
+}
+
+func profileProbeHelperReadiness() string {
+	for i, arg := range os.Args {
+		if arg == "--" && i+1 < len(os.Args) {
+			return os.Args[i+1]
 		}
 	}
 	return ""
