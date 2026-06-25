@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -199,6 +200,224 @@ func TestInterruptSessionDuringForegroundShellWritesInterruptedToolResult(t *tes
 	}
 }
 
+func TestForegroundInterruptAttachesToManagedJobWhenExecutorSupportsAttach(t *testing.T) {
+	workspace := testTempDir(t)
+	executor := &foregroundAttachTestExecutor{
+		attachResult: ManagedJobForegroundAttachResult{Attached: true},
+		complete: &JobProjection{
+			Status: "completed",
+			Stdout: "attached command finished",
+		},
+		hostHandle: "host-pid-123 signal=TERM process_handle=abc",
+	}
+	k, provider, result := submitInterruptedForegroundShellTurn(t, "foreground-attach-success", workspace, executor, "")
+	if !errors.Is(result.err, ErrTurnInterrupted) {
+		t.Fatalf("SubmitTurn error = %v, want ErrTurnInterrupted", result.err)
+	}
+	if got := executor.attachCallCount(); got != 1 {
+		t.Fatalf("attach calls = %d, want 1", got)
+	}
+	request := executor.attachRequest(t)
+	if request.SessionID != "foreground-attach-success" || request.TurnID == "" || request.OperationID == "" {
+		t.Fatalf("attach request = %+v, want kernel-owned session/turn/operation identity", request)
+	}
+	if strings.TrimSpace(request.Job.JobID) == "" || request.Job.SessionID != "foreground-attach-success" || request.Job.Tool != "shell_exec" {
+		t.Fatalf("attach request job = %+v, want kernel-owned managed job identity", request.Job)
+	}
+	if len(provider.Requests()) != 1 {
+		t.Fatalf("provider requests = %d, want no provider step after interrupted foreground attach", len(provider.Requests()))
+	}
+
+	projection, err := k.Session("foreground-attach-success")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	for _, want := range []string{"tool.call", "operation.running", "job.started", "operation.interrupted", "tool.result", "assistant.interrupted", "job.completed"} {
+		if got := countSessionEventType(projection.Events, want); got != 1 {
+			t.Fatalf("%s count = %d, want 1; events=%+v", want, got, projection.Events)
+		}
+	}
+	if len(projection.Operations) != 1 || projection.Operations[0].InterruptReason != foregroundAttachedManagedJobReason {
+		t.Fatalf("operations = %+v, want foreground attached interrupt reason", projection.Operations)
+	}
+	if len(projection.Jobs) != 1 || projection.Jobs[0].Status != "completed" || !strings.Contains(projection.Jobs[0].Stdout, "attached command finished") {
+		t.Fatalf("jobs = %+v, want completed attached managed job", projection.Jobs)
+	}
+	toolResult := requireToolResultPayload(t, projection)
+	if toolResult["status"] != "managed_job_started" || toolResult["executed"] != true {
+		t.Fatalf("tool result payload = %+v, want managed job receipt", toolResult)
+	}
+	if strings.TrimSpace(fmt.Sprint(toolResult["job_id"])) == "" || !strings.Contains(fmt.Sprint(toolResult["visible_output"]), "continued as managed job") {
+		t.Fatalf("tool result payload = %+v, want visible managed job continuation receipt", toolResult)
+	}
+}
+
+func TestForegroundAttachFailureKeepsKillFallback(t *testing.T) {
+	workspace := testTempDir(t)
+	executor := &foregroundAttachTestExecutor{
+		attachResult: ManagedJobForegroundAttachResult{Attached: false, FailureReason: "attach_not_available"},
+	}
+	k, _, result := submitInterruptedForegroundShellTurn(t, "foreground-attach-failure", workspace, executor, "")
+	if !errors.Is(result.err, ErrTurnInterrupted) {
+		t.Fatalf("SubmitTurn error = %v, want ErrTurnInterrupted", result.err)
+	}
+	projection, err := k.Session("foreground-attach-failure")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if got := countSessionEventType(projection.Events, "job.started"); got != 0 {
+		t.Fatalf("job.started count = %d, want no forged managed job when attach fails", got)
+	}
+	toolResult := requireToolResultPayload(t, projection)
+	if toolResult["status"] != "interrupted" || toolResult["interrupt_reason"] != foregroundAttachUnavailableKilledReason {
+		t.Fatalf("tool result payload = %+v, want truthful kill fallback", toolResult)
+	}
+}
+
+func TestForegroundAttachDoesNotExposeHostProcessHandle(t *testing.T) {
+	workspace := testTempDir(t)
+	executor := &foregroundAttachTestExecutor{
+		attachResult: ManagedJobForegroundAttachResult{Attached: true},
+		observe: JobProjection{
+			Stdout: "attached progress",
+		},
+		hostHandle: "HOST_PROCESS_HANDLE_SHOULD_NOT_LEAK pid=123 SIGTERM",
+	}
+	k, _, result := submitInterruptedForegroundShellTurn(t, "foreground-attach-hidden-handle", workspace, executor, "")
+	if !errors.Is(result.err, ErrTurnInterrupted) {
+		t.Fatalf("SubmitTurn error = %v, want ErrTurnInterrupted", result.err)
+	}
+	projection, err := k.Session("foreground-attach-hidden-handle")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	encoded, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatalf("marshal projection: %v", err)
+	}
+	for _, forbidden := range []string{"HOST_PROCESS_HANDLE_SHOULD_NOT_LEAK", "process_handle", "pid=123", "SIGTERM"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("projection leaked host process detail %q: %s", forbidden, string(encoded))
+		}
+	}
+}
+
+func TestForegroundAttachReplayDoesNotDuplicateManagedJob(t *testing.T) {
+	workspace := testTempDir(t)
+	executor := &foregroundAttachTestExecutor{
+		attachResult: ManagedJobForegroundAttachResult{Attached: true},
+	}
+	k, _, result := submitInterruptedForegroundShellTurn(t, "foreground-attach-replay", workspace, executor, "replay-key")
+	if !errors.Is(result.err, ErrTurnInterrupted) {
+		t.Fatalf("SubmitTurn error = %v, want ErrTurnInterrupted", result.err)
+	}
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:      "foreground-attach-replay",
+		IdempotencyKey: "replay-key",
+		InputItems:     []InputItem{{Type: "text", Text: "same turn replay"}},
+	}); !errors.Is(err, ErrTurnInterrupted) {
+		t.Fatalf("replay SubmitTurn error = %v, want ErrTurnInterrupted", err)
+	}
+	if got := executor.attachCallCount(); got != 1 {
+		t.Fatalf("attach calls after replay = %d, want original attach only", got)
+	}
+	projection, err := k.Session("foreground-attach-replay")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if got := countSessionEventType(projection.Events, "job.started"); got != 1 {
+		t.Fatalf("job.started count = %d, want no duplicate managed job on replay", got)
+	}
+}
+
+func TestAttachedManagedJobObservationRequiresContinuation(t *testing.T) {
+	workspace := testTempDir(t)
+	executor := &foregroundAttachTestExecutor{
+		attachResult: ManagedJobForegroundAttachResult{Attached: true},
+		complete: &JobProjection{
+			Status: "completed",
+			Stdout: "attached terminal output",
+		},
+	}
+	k, provider, result := submitInterruptedForegroundShellTurn(t, "foreground-attach-continuation", workspace, executor, "")
+	if !errors.Is(result.err, ErrTurnInterrupted) {
+		t.Fatalf("SubmitTurn error = %v, want ErrTurnInterrupted", result.err)
+	}
+	if len(provider.Requests()) != 1 {
+		t.Fatalf("provider requests = %d, want no autonomous provider step for attached job completion", len(provider.Requests()))
+	}
+
+	continuationProvider := &recordingTextProvider{text: "continued after attached job"}
+	k.provider = continuationProvider
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "foreground-attach-continuation",
+		InputItems: []InputItem{{Type: "text", Text: "continue"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn continuation returned error: %v", err)
+	}
+	requests := continuationProvider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("continuation provider requests = %d, want 1", len(requests))
+	}
+	contextText, ok := modelInputTextByKind(requests[0].InputItems, ModelInputKindKernelObservationContext)
+	if !ok || !strings.Contains(contextText, "attached terminal output") {
+		t.Fatalf("kernel observation context = %q ok=%v, want attached terminal output on user-triggered continuation", contextText, ok)
+	}
+}
+
+func TestAttachedJobOutputSnapshotIsBounded(t *testing.T) {
+	workspace := testTempDir(t)
+	executor := &foregroundAttachTestExecutor{
+		attachResult: ManagedJobForegroundAttachResult{Attached: true},
+		observe: JobProjection{
+			Stdout: strings.Repeat("x", maxShellOutputBytes+managedJobOutputSnapshotMinBytes),
+		},
+	}
+	k, _, result := submitInterruptedForegroundShellTurn(t, "foreground-attach-bounded-output", workspace, executor, "")
+	if !errors.Is(result.err, ErrTurnInterrupted) {
+		t.Fatalf("SubmitTurn error = %v, want ErrTurnInterrupted", result.err)
+	}
+	projection, err := k.Session("foreground-attach-bounded-output")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if got := countSessionEventType(projection.Events, "job.output"); got != 1 {
+		t.Fatalf("job.output count = %d, want one attached output snapshot", got)
+	}
+	if len(projection.Jobs) != 1 || !projection.Jobs[0].StdoutTruncated || len(projection.Jobs[0].Stdout) > maxShellOutputBytes+len(outputOmissionMarkerFormat)+32 {
+		t.Fatalf("job projection = %+v, want bounded/truncated attached output", projection.Jobs)
+	}
+}
+
+func TestAttachedJobProgressDoesNotBecomeProviderContextByDefault(t *testing.T) {
+	workspace := testTempDir(t)
+	executor := &foregroundAttachTestExecutor{
+		attachResult: ManagedJobForegroundAttachResult{Attached: true},
+		observe: JobProjection{
+			Stdout: "attached running progress",
+		},
+	}
+	k, _, result := submitInterruptedForegroundShellTurn(t, "foreground-attach-progress-not-provider", workspace, executor, "")
+	if !errors.Is(result.err, ErrTurnInterrupted) {
+		t.Fatalf("SubmitTurn error = %v, want ErrTurnInterrupted", result.err)
+	}
+	continuationProvider := &recordingTextProvider{text: "continued without progress observation"}
+	k.provider = continuationProvider
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "foreground-attach-progress-not-provider",
+		InputItems: []InputItem{{Type: "text", Text: "continue"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn continuation returned error: %v", err)
+	}
+	requests := continuationProvider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("continuation provider requests = %d, want 1", len(requests))
+	}
+	if contextText, ok := modelInputTextByKind(requests[0].InputItems, ModelInputKindKernelObservationContext); ok {
+		t.Fatalf("provider context included non-terminal attached progress %q; only terminal job observations should be delivered", contextText)
+	}
+}
+
 func TestLocalManagedJobExecutorDoesNotAdvertiseForegroundAttach(t *testing.T) {
 	capabilities := managedJobExecutorCapabilities(newLocalManagedJobExecutor())
 	if capabilities.ForegroundAttach {
@@ -352,6 +571,121 @@ type attachCapableManagedJobExecutor struct {
 
 func (attachCapableManagedJobExecutor) AttachForeground(_ context.Context, _ ManagedJobForegroundAttachRequest) (ManagedJobForegroundAttachResult, error) {
 	return ManagedJobForegroundAttachResult{Attached: false, FailureReason: "test_only"}, nil
+}
+
+type foregroundAttachTestExecutor struct {
+	attachAdvertisingManagedJobExecutor
+
+	mu           sync.Mutex
+	attachCalls  int
+	requests     []ManagedJobForegroundAttachRequest
+	attachResult ManagedJobForegroundAttachResult
+	attachErr    error
+	observe      JobProjection
+	complete     *JobProjection
+	hostHandle   string
+}
+
+func (e *foregroundAttachTestExecutor) AttachForeground(_ context.Context, request ManagedJobForegroundAttachRequest) (ManagedJobForegroundAttachResult, error) {
+	e.mu.Lock()
+	e.attachCalls++
+	e.requests = append(e.requests, request)
+	result := e.attachResult
+	err := e.attachErr
+	observe := e.observe
+	var complete *JobProjection
+	if e.complete != nil {
+		copied := *e.complete
+		complete = &copied
+	}
+	_ = e.hostHandle
+	e.mu.Unlock()
+	if err != nil {
+		return ManagedJobForegroundAttachResult{}, err
+	}
+	if result.Attached {
+		if request.Observe != nil && (strings.TrimSpace(observe.Stdout) != "" || strings.TrimSpace(observe.Stderr) != "") {
+			request.Observe(observe)
+		}
+		if request.Complete != nil && complete != nil {
+			request.Complete(*complete)
+		}
+	}
+	return result, nil
+}
+
+func (e *foregroundAttachTestExecutor) attachCallCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.attachCalls
+}
+
+func (e *foregroundAttachTestExecutor) attachRequest(t *testing.T) ManagedJobForegroundAttachRequest {
+	t.Helper()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.requests) == 0 {
+		t.Fatal("attach request missing")
+	}
+	return e.requests[0]
+}
+
+func submitInterruptedForegroundShellTurn(t *testing.T, sessionID string, workspace string, executor ManagedJobExecutor, idempotencyKey string) (*Kernel, *toolFeedbackProvider, submitTurnResult) {
+	t.Helper()
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{
+				ToolCallID: "call_interrupt_foreground",
+				Name:       "shell_exec",
+				Arguments: mustJSONRaw(t, map[string]interface{}{
+					"cwd":         workspace,
+					"command":     longRunningShellCommand(30),
+					"timeout_sec": 30,
+				}),
+			},
+		},
+		final: "must not reach final provider step",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		Provider:     provider,
+		JobExecutor:  executor,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	t.Cleanup(k.Close)
+
+	resultCh := make(chan submitTurnResult, 1)
+	go func() {
+		resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+			SessionID:      sessionID,
+			IdempotencyKey: idempotencyKey,
+			InputItems:     []InputItem{{Type: "text", Text: "run foreground shell until interrupted"}},
+		})
+		resultCh <- submitTurnResult{response: resp, err: err}
+	}()
+	waitForSessionEventType(t, k, sessionID, "operation.running")
+	if _, err := k.InterruptSession(sessionID, TurnInterruptRequest{Reason: "stop foreground command"}); err != nil {
+		t.Fatalf("InterruptSession returned error: %v", err)
+	}
+	return k, provider, waitSubmitTurnResult(t, resultCh)
+}
+
+func requireToolResultPayload(t *testing.T, projection SessionProjection) map[string]interface{} {
+	t.Helper()
+	for _, event := range projection.Events {
+		if event.Type == "tool.result" && event.Data.ToolResult != nil {
+			return decodeJSONMap(t, event.Data.ToolResult.Content)
+		}
+	}
+	t.Fatal("tool.result projection missing")
+	return nil
 }
 
 func newBlockingManagedJobExecutor() *blockingManagedJobExecutor {

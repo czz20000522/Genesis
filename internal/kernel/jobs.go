@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -52,6 +53,157 @@ func (k *Kernel) prepareManagedShellJob(req ShellExecRequest, turnID string, too
 		return JobProjection{}, false, err
 	}
 	return started, true, nil
+}
+
+func (k *Kernel) prepareForegroundAttachedShellJob(operation OperationProjection) (JobProjection, bool, error) {
+	sessionID := strings.TrimSpace(operation.SessionID)
+	idempotencyKey := strings.TrimSpace(operation.IdempotencyKey)
+
+	k.jobMu.Lock()
+	defer k.jobMu.Unlock()
+	if idempotencyKey != "" {
+		job, ok, err := k.lookupSessionJobByIdempotencyKey(sessionID, "shell_exec", idempotencyKey)
+		if err != nil {
+			return JobProjection{}, false, err
+		}
+		if ok {
+			return job, false, nil
+		}
+	}
+
+	startedAt := k.clock()
+	jobID := newID("job", startedAt)
+	receipt := fmt.Sprintf("Foreground command continued as managed job %s after interruption. Terminal job evidence is recorded in the session events.", jobID)
+	return JobProjection{
+		JobID:           jobID,
+		SessionID:       sessionID,
+		TurnID:          strings.TrimSpace(operation.TurnID),
+		Tool:            "shell_exec",
+		IdempotencyKey:  idempotencyKey,
+		Status:          "running",
+		CWD:             strings.TrimSpace(operation.CWD),
+		Command:         strings.TrimSpace(operation.Command),
+		TimeoutSec:      operation.TimeoutSec,
+		Receipt:         receipt,
+		StartedAt:       startedAt,
+		ToolCallEventID: idempotencyKey,
+	}, true, nil
+}
+
+func (k *Kernel) appendJobStartedIfAbsent(job JobProjection) (JobProjection, bool, error) {
+	k.jobMu.Lock()
+	defer k.jobMu.Unlock()
+	if strings.TrimSpace(job.IdempotencyKey) != "" {
+		existing, ok, err := k.lookupSessionJobByIdempotencyKey(job.SessionID, job.Tool, job.IdempotencyKey)
+		if err != nil {
+			return JobProjection{}, false, err
+		}
+		if ok {
+			return existing, false, nil
+		}
+	}
+	if strings.TrimSpace(job.JobID) != "" {
+		existing, ok, err := k.lookupSessionJob(job.SessionID, job.JobID)
+		if err != nil {
+			return JobProjection{}, false, err
+		}
+		if ok {
+			return existing, false, nil
+		}
+	}
+	if err := k.appendJobEvent("job.started", job); err != nil {
+		return JobProjection{}, false, err
+	}
+	return job, true, nil
+}
+
+func (k *Kernel) attachInterruptedForegroundShell(ctx context.Context, operation OperationProjection, reason string) (*JobProjection, string, error) {
+	if managedJobExecutorCapabilities(k.jobExecutor).ForegroundAttach == false {
+		return nil, foregroundAttachUnavailableKilledReason, nil
+	}
+	attachExecutor, ok := k.jobExecutor.(managedJobForegroundAttachExecutor)
+	if !ok {
+		return nil, foregroundAttachUnavailableKilledReason, nil
+	}
+	job, created, err := k.prepareForegroundAttachedShellJob(operation)
+	if err != nil {
+		return nil, foregroundAttachUnavailableKilledReason, err
+	}
+	if !created {
+		return &job, foregroundAttachedManagedJobReason, nil
+	}
+
+	var startOnce sync.Once
+	var started JobProjection
+	var startErr error
+	ensureStarted := func() error {
+		startOnce.Do(func() {
+			started, _, startErr = k.appendJobStartedIfAbsent(job)
+		})
+		return startErr
+	}
+	request := ManagedJobForegroundAttachRequest{
+		SessionID:     strings.TrimSpace(operation.SessionID),
+		TurnID:        strings.TrimSpace(operation.TurnID),
+		OperationID:   strings.TrimSpace(operation.OperationID),
+		Job:           cloneJobProjection(job),
+		Reason:        strings.TrimSpace(reason),
+		InterruptedAt: k.clock(),
+		Observe: func(progress JobProjection) {
+			if err := ensureStarted(); err != nil {
+				return
+			}
+			progress = mergeJobOutputSnapshot(started, progress)
+			_ = k.appendJobOutputEvent(progress)
+		},
+		Complete: func(done JobProjection) {
+			if err := ensureStarted(); err != nil {
+				return
+			}
+			done = bindAttachedTerminalJob(started, done)
+			if done.Status == "" || done.Status == "running" {
+				done.Status = "completed"
+			}
+			_ = k.appendTerminalJobEvent(done)
+		},
+	}
+	attachCtx := context.Background()
+	if ctx != nil {
+		attachCtx = context.WithoutCancel(ctx)
+	}
+	result, err := attachExecutor.AttachForeground(attachCtx, request)
+	if err != nil || !result.Attached {
+		return nil, foregroundAttachUnavailableKilledReason, nil
+	}
+	if err := ensureStarted(); err != nil {
+		return nil, foregroundAttachUnavailableKilledReason, err
+	}
+	return &started, foregroundAttachedManagedJobReason, nil
+}
+
+func bindAttachedTerminalJob(started JobProjection, done JobProjection) JobProjection {
+	status := strings.TrimSpace(done.Status)
+	exitCode := done.ExitCode
+	stdout := done.Stdout
+	stderr := done.Stderr
+	stdoutTruncated := done.StdoutTruncated
+	stderrTruncated := done.StderrTruncated
+	failureReason := done.FailureReason
+	cancelReason := done.CancelReason
+	completedAt := done.CompletedAt
+
+	done = mergeJobOutputSnapshot(started, JobProjection{
+		Stdout:          stdout,
+		Stderr:          stderr,
+		StdoutTruncated: stdoutTruncated,
+		StderrTruncated: stderrTruncated,
+	})
+	done.Status = status
+	done.ExitCode = exitCode
+	done.FailureReason = failureReason
+	done.CancelReason = cancelReason
+	done.CompletedAt = completedAt
+	return done
 }
 
 func (k *Kernel) startManagedJobExecutor(job JobProjection) error {

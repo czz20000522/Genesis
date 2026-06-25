@@ -24,6 +24,7 @@ const (
 	staleRunningOperationReason             = "stale_running_operation"
 	foregroundTimeoutReason                 = "foreground_timeout"
 	foregroundAttachUnavailableKilledReason = "foreground_attach_unavailable_killed"
+	foregroundAttachedManagedJobReason      = "foreground_attached_managed_job"
 	foregroundTimeoutExitCode               = 124
 )
 
@@ -63,7 +64,15 @@ func (g ToolGateway) InvokeShell(ctx context.Context, req ShellExecRequest, turn
 		if err != nil {
 			return shellInvokeResult{}, err
 		}
-		return shellInvokeResult{Operation: &operation}, nil
+		result := shellInvokeResult{Operation: &operation}
+		if operation.Interrupted && operation.InterruptReason == foregroundAttachedManagedJobReason && req.IdempotencyKey != "" {
+			if job, ok, err := g.kernel.lookupSessionJobByIdempotencyKey(operation.SessionID, "shell_exec", req.IdempotencyKey); err != nil {
+				return shellInvokeResult{}, err
+			} else if ok {
+				result.Job = &job
+			}
+		}
+		return result, nil
 	}
 
 	definition, ok := g.registry.Resolve("shell_exec")
@@ -247,7 +256,18 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		}
 		if interrupted {
 			operation.Interrupted = true
-			operation.InterruptReason = k.foregroundShellInterruptReason()
+			_, interruptReason, attachErr := k.attachInterruptedForegroundShell(ctx, operation, k.activeTurnInterruptReason(operation.SessionID, operation.TurnID))
+			if attachErr != nil {
+				operation.EndedAt = k.clock()
+				operation.ElapsedMs = operationElapsedMs(operation.StartedAt, operation.EndedAt)
+				operation.Status = "tool_infrastructure_failed"
+				operation.InfrastructureReason = "foreground_attach_failed"
+				if appendErr := k.appendOperationEvent(operation); appendErr != nil {
+					return OperationProjection{}, appendErr
+				}
+				return OperationProjection{}, fmt.Errorf("%w: foreground attach failed: %v", ErrToolInfrastructureFailed, attachErr)
+			}
+			operation.InterruptReason = interruptReason
 		}
 		applyOperationOutputCapture(&operation, stdout, stderr)
 		if err != nil && !timedOut && !interrupted {

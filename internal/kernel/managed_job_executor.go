@@ -36,8 +36,11 @@ type ManagedJobForegroundAttachRequest struct {
 	SessionID     string
 	TurnID        string
 	OperationID   string
+	Job           JobProjection
 	Reason        string
 	InterruptedAt time.Time
+	Observe       func(JobProjection)
+	Complete      func(JobProjection)
 }
 
 type ManagedJobForegroundAttachResult struct {

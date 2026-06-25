@@ -187,6 +187,17 @@ func (k *Kernel) shellInvokeModelToolResult(ctx context.Context, sessionID strin
 		Name:            strings.TrimSpace(name),
 	}
 	switch {
+	case result.Job != nil && result.Operation != nil && result.Operation.Interrupted && result.Operation.InterruptReason == foregroundAttachedManagedJobReason:
+		content, err := json.Marshal(ModelManagedJobResult{
+			Status:        "managed_job_started",
+			Executed:      true,
+			JobID:         result.Job.JobID,
+			VisibleOutput: result.Job.Receipt,
+		})
+		if err != nil {
+			return ModelToolResult{}, err
+		}
+		toolResult.Content = string(content)
 	case result.Operation != nil:
 		content, err := json.Marshal(modelOperationResult(*result.Operation))
 		if err != nil {
