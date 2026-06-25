@@ -69,3 +69,7 @@ tests, governing requirement/design, or still-active issues.
 ### APP-CONNECTOR-DRIVER-MIGRATION-20260625 - Move Feishu final delivery to connector_command
 
 - Retired: Feishu final delivery and probe readiness now use `ConnectorCommandAdapter` by default, with `genesis-feishu-connector-adapter` owning the lark-cli send-message protocol and command-template retained only as explicit smoke fallback. Evidence: commit `c69928afe`.
+
+### APP-CONNECTOR-COMMAND-OUTPUT-BOUNDS-20260625 - Bound external connector command output before parsing
+
+- Retired: connector OS command capture, command-template delivery, and the Feishu connector adapter now cap external command output before parsing and return `external_command_output_exceeded` instead of treating oversized raw CLI output as delivery truth. Evidence: commit `ad73f4ee6`.

@@ -40,22 +40,6 @@ Genesis Kernel. Kernel primitive gaps belong in
 - 优先级: P2.
 - Reference alignment: Aligned with Codex's daemon pid/lock stale-reservation handling and with our connector-owner rule that adapter/runtime state must be recoverable without kernel truth mutation. Genesis may still treat JSON file stores as a lab seam, but if they remain usable by source listener or outbox commands, their lock failure mode must be deliberate and recoverable.
 
-### APP-CONNECTOR-COMMAND-OUTPUT-BOUNDS-20260625 - P2 - Connector external command output must be bounded before parsing
-
-- Status: open.
-- Requirement: `docs/applications/application-connector-runtime-requirement.md`.
-- Design: `docs/applications/application-connector-runtime-design.md`.
-- Kernel/owner pressure: connector-owned outbox/action/receipt execution
-  boundary and external adapter process hygiene without kernel ownership of
-  Feishu or raw CLI protocol details.
-- 标题: Connector external command output must be bounded before parsing.
-- 问题: Application Connector Runtime already records normalized connector actions, results, and delivery receipts instead of persisting raw external commands, but the in-process external CLI runner still captures command output with `CombinedOutput()` before the adapter parses or truncates it. That leaves Feishu/lark-cli and future connector drivers able to return arbitrarily large stdout/stderr into process memory before `firstStringAtJSONPath`, `firstSafeExternalActionRef`, or `SafeCLIProbeExcerpt` can trim the visible projection.
-- 建议: Replace the shared connector `OSCommandRunner` capture path with a bounded runner that mirrors the existing `ConnectorCommandAdapter` capped stdout/stderr behavior. The runner should cap captured output before returning bytes, expose a truncation flag or stable failure reason, redact credential-shaped diagnostics for operator-visible failure summaries, and preserve direct-argv execution without shell strings. Add tests for oversized successful stdout, oversized stderr on command failure, and oversized output returned through both `CommandTemplateDriver` and `cmd/genesis-feishu-connector-adapter`.
-- 证据: `internal/applications/connector_runtime/adapters.go::OSCommandRunner.Run` calls `cmd.CombinedOutput()` directly. `internal/applications/connector_runtime/command_template_driver.go` and `cmd/genesis-feishu-connector-adapter/main.go` parse only the first 4096 bytes for external action refs after the runner has already returned the full output. `internal/applications/connector_runtime/connector_command_adapter.go` already uses `connectorCommandCappedBuffer` with `maxConnectorCommandOutputBytes`, so the lower-level connector-command process boundary is bounded while the concrete CLI driver boundary is not. Existing connector tests cover redaction and malformed refs, but no test covers oversized external CLI output before parsing.
-- 验证: Add a fake `CommandRunner` or local helper process that emits output larger than the configured connector command cap. Verify `CommandTemplateDriver.Execute` and `genesis-feishu-connector-adapter` return a bounded result without storing or exposing the full output, and that failure receipts/reasons do not contain raw oversized or credential-shaped output. Run `go test ./internal/applications/connector_runtime ./cmd/genesis-feishu-connector-adapter -count=1`.
-- 优先级: P2.
-- Reference alignment: Aligned with Codex's bounded/truncated tool output and context projection tests, including `codex-rs/core/src/exec.rs` capped process output and `codex-rs/core/src/tools/mod.rs` truncation formatting. Aligned with Reasonix's `internal/hook` capped output buffers and `internal/agent/guards_test.go` head/tail tool-output truncation. Genesis should intentionally keep connector raw CLI output as debug-only material, but the external process capture itself must still be bounded before parsing.
-
 ### APP-CONNECTOR-FEISHU-LISTENER-20260623 - P2 - Connector source verification and lifecycle gate
 
 - Status: open.
