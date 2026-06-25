@@ -52,23 +52,23 @@ func (p *OpenAICompatibleProvider) Name() string {
 
 func (p *OpenAICompatibleProvider) Ready() ProviderStatus {
 	if p.baseURL == "" {
-		return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: "provider_base_url_missing"}
+		return ProviderStatus{Name: p.Name(), Readiness: ReadinessNotReady, ReadinessReason: "provider_base_url_missing"}
 	}
 	if _, err := url.ParseRequestURI(p.baseURL); err != nil {
-		return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: "provider_base_url_invalid"}
+		return ProviderStatus{Name: p.Name(), Readiness: ReadinessNotReady, ReadinessReason: "provider_base_url_invalid"}
 	}
 	if p.apiKey == "" {
-		return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: "provider_api_key_missing"}
+		return ProviderStatus{Name: p.Name(), Readiness: ReadinessNotReady, ReadinessReason: "provider_api_key_missing"}
 	}
 	if p.model == "" {
-		return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: "provider_model_missing"}
+		return ProviderStatus{Name: p.Name(), Readiness: ReadinessNotReady, ReadinessReason: "provider_model_missing"}
 	}
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelRequest) (ModelResponse, error) {
-	if status := p.Ready(); status.Status != "ok" {
-		return ModelResponse{}, fmt.Errorf("%w: %s", ErrProviderUnavailable, status.Reason)
+	if status := p.Ready(); status.Readiness != ReadinessReady {
+		return ModelResponse{}, fmt.Errorf("%w: %s", ErrProviderUnavailable, status.ReadinessReason)
 	}
 
 	payload := chatCompletionRequest{

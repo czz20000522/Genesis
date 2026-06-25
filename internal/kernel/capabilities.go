@@ -13,22 +13,22 @@ func (k *Kernel) toolCapabilityProjections() []ToolCapabilityProjection {
 
 func safeProviderStatusForInspection(status ProviderStatus) ProviderStatus {
 	return ProviderStatus{
-		Name:   safeInspectionToken(status.Name, "provider"),
-		Status: safeInspectionStatus(status.Status),
-		Reason: safeInspectionReason(status.Reason),
+		Name:            safeInspectionToken(status.Name, "provider"),
+		Readiness:       safeInspectionReadiness(status.Readiness),
+		ReadinessReason: safeInspectionReadinessReason(status.ReadinessReason),
 	}
 }
 
-func safeInspectionStatus(status string) string {
-	switch strings.TrimSpace(status) {
-	case "ok":
-		return "ok"
+func safeInspectionReadiness(readiness string) string {
+	switch strings.TrimSpace(readiness) {
+	case ReadinessReady:
+		return ReadinessReady
 	default:
-		return "blocked"
+		return ReadinessNotReady
 	}
 }
 
-func safeInspectionReason(reason string) string {
+func safeInspectionReadinessReason(reason string) string {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		return ""

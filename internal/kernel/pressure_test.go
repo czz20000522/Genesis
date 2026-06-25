@@ -243,7 +243,7 @@ func (p *kernelPressureProvider) Name() string {
 }
 
 func (p *kernelPressureProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *kernelPressureProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {

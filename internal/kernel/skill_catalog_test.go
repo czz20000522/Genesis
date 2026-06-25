@@ -237,7 +237,7 @@ func TestHTTPCapabilitiesProjectsToolsAndSkillCatalogWithoutPaths(t *testing.T) 
 		t.Fatalf("capabilities status = %d, want 200; body=%s", resp.StatusCode, string(body))
 	}
 	var payload struct {
-		Status      string     `json:"status"`
+		Readiness   string     `json:"readiness"`
 		RuntimeAuth ReadyCheck `json:"runtime_auth"`
 		Tools       []struct {
 			Name            string `json:"name"`
@@ -257,7 +257,7 @@ func TestHTTPCapabilitiesProjectsToolsAndSkillCatalogWithoutPaths(t *testing.T) 
 	if err := json.Unmarshal(body, &payload); err != nil {
 		t.Fatalf("decode capabilities response: %v; body=%s", err, string(body))
 	}
-	if payload.Status != "ok" || payload.RuntimeAuth.Status != "ok" {
+	if payload.Readiness != ReadinessReady || payload.RuntimeAuth.Readiness != ReadinessReady {
 		t.Fatalf("capabilities = %+v, want ok runtime auth", payload)
 	}
 	for _, want := range []string{"shell_exec"} {
@@ -310,7 +310,7 @@ func TestHTTPCapabilitiesSanitizesProviderInspectionStatus(t *testing.T) {
 	if err := json.Unmarshal(body, &payload); err != nil {
 		t.Fatalf("decode capabilities response: %v; body=%s", err, string(body))
 	}
-	if payload.Provider.Name != "provider" || payload.Provider.Status != "blocked" || payload.Provider.Reason != "provider_status_unavailable" {
+	if payload.Provider.Name != "provider" || payload.Provider.Readiness != ReadinessNotReady || payload.Provider.ReadinessReason != "provider_status_unavailable" {
 		t.Fatalf("provider = %+v, want sanitized blocked provider", payload.Provider)
 	}
 	forbiddenValues := append(pathLeakVariants(unsafeReason), "secret://provider", "tokentest123456", "Authorization")
@@ -382,7 +382,7 @@ func TestHTTPCapabilitiesSanitizesCredentialShapedProviderTokens(t *testing.T) {
 			if err := json.Unmarshal(body, &payload); err != nil {
 				t.Fatalf("decode capabilities response: %v; body=%s", err, string(body))
 			}
-			if payload.Provider.Name != tc.wantName || payload.Provider.Reason != tc.wantReason {
+			if payload.Provider.Name != tc.wantName || payload.Provider.ReadinessReason != tc.wantReason {
 				t.Fatalf("provider = %+v, want name=%q reason=%q", payload.Provider, tc.wantName, tc.wantReason)
 			}
 			for _, forbidden := range tc.forbidden {
@@ -720,7 +720,7 @@ func (p *capturingProvider) Name() string {
 }
 
 func (p *capturingProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *capturingProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
@@ -780,7 +780,7 @@ func (p unsafeReadinessProvider) Name() string {
 }
 
 func (p unsafeReadinessProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: p.reason}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessNotReady, ReadinessReason: p.reason}
 }
 
 func (p unsafeReadinessProvider) Complete(_ context.Context, _ ModelRequest) (ModelResponse, error) {

@@ -67,26 +67,26 @@ func (p *CommandProvider) Name() string {
 
 func (p *CommandProvider) Ready() ProviderStatus {
 	if err := validateProviderCommandEnv(p.env); err != nil {
-		return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: "provider_command_env_secret_rejected"}
+		return ProviderStatus{Name: p.Name(), Readiness: ReadinessNotReady, ReadinessReason: "provider_command_env_secret_rejected"}
 	}
 	if p.command == "" {
-		return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: "provider_command_missing"}
+		return ProviderStatus{Name: p.Name(), Readiness: ReadinessNotReady, ReadinessReason: "provider_command_missing"}
 	}
 	if !providerCommandExists(p.command) {
-		return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: "provider_command_not_found"}
+		return ProviderStatus{Name: p.Name(), Readiness: ReadinessNotReady, ReadinessReason: "provider_command_not_found"}
 	}
 	if p.workingDir != "" {
 		info, err := os.Stat(p.workingDir)
 		if err != nil || !info.IsDir() {
-			return ProviderStatus{Name: p.Name(), Status: "blocked", Reason: "provider_command_working_dir_invalid"}
+			return ProviderStatus{Name: p.Name(), Readiness: ReadinessNotReady, ReadinessReason: "provider_command_working_dir_invalid"}
 		}
 	}
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *CommandProvider) Complete(ctx context.Context, req ModelRequest) (ModelResponse, error) {
-	if status := p.Ready(); status.Status != "ok" {
-		return ModelResponse{}, fmt.Errorf("%w: %s", ErrProviderUnavailable, status.Reason)
+	if status := p.Ready(); status.Readiness != ReadinessReady {
+		return ModelResponse{}, fmt.Errorf("%w: %s", ErrProviderUnavailable, status.ReadinessReason)
 	}
 	requestPayload := providerCommandRequest{
 		Protocol:     providerCommandProtocol,

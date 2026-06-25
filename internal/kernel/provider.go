@@ -74,8 +74,8 @@ func (FakeProvider) Name() string {
 
 func (p FakeProvider) Ready() ProviderStatus {
 	return ProviderStatus{
-		Name:   p.Name(),
-		Status: "ok",
+		Name:      p.Name(),
+		Readiness: ReadinessReady,
 	}
 }
 
@@ -120,9 +120,9 @@ func (p BlockedProvider) Name() string {
 
 func (p BlockedProvider) Ready() ProviderStatus {
 	return ProviderStatus{
-		Name:   p.Name(),
-		Status: "blocked",
-		Reason: p.reason,
+		Name:            p.Name(),
+		Readiness:       ReadinessNotReady,
+		ReadinessReason: p.reason,
 	}
 }
 

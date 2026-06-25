@@ -682,13 +682,13 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 	if err := json.NewDecoder(readyResp.Body).Decode(&ready); err != nil {
 		t.Fatalf("decode ready response: %v", err)
 	}
-	if ready.Status != "ok" || ready.Provider.Name != "fake" || ready.Provider.Status != "ok" {
+	if ready.Readiness != ReadinessReady || ready.Provider.Name != "fake" || ready.Provider.Readiness != ReadinessReady {
 		t.Fatalf("ready = %+v, want ok fake provider", ready)
 	}
-	if ready.RuntimeAuth.Status != "ok" {
+	if ready.RuntimeAuth.Readiness != ReadinessReady {
 		t.Fatalf("runtime auth ready = %+v, want ok", ready.RuntimeAuth)
 	}
-	if ready.Ledger.Status != "ok" {
+	if ready.Ledger.Readiness != ReadinessReady {
 		t.Fatalf("ledger ready = %+v, want ok", ready.Ledger)
 	}
 
@@ -756,7 +756,7 @@ func TestHTTPReadyDoesNotExposeInspectionDetails(t *testing.T) {
 	if err := json.Unmarshal(body, &ready); err != nil {
 		t.Fatalf("decode ready response: %v; body=%s", err, string(body))
 	}
-	if ready.Provider.Name != "provider" || ready.Provider.Reason != "provider_status_unavailable" {
+	if ready.Provider.Name != "provider" || ready.Provider.ReadinessReason != "provider_status_unavailable" {
 		t.Fatalf("ready provider = %+v, want sanitized provider status", ready.Provider)
 	}
 	forbiddenValues := append(pathLeakVariants(ledgerPath), pathLeakVariants(unsafeReason)...)
@@ -1213,7 +1213,7 @@ func TestObservabilityProjectionsSeparateRawAuditAndProviderContext(t *testing.T
 					ExecutionKind:   "sandboxed_process",
 				}},
 				RuntimeContext: &ContextRuntimeSnapshot{
-					Provider: ProviderStatus{Name: "test-provider", Status: "ok"},
+					Provider: ProviderStatus{Name: "test-provider", Readiness: ReadinessReady},
 					Permission: PermissionInspection{
 						PermissionMode:  PermissionModeDefault,
 						AuthorityPolicy: AuthorityPolicyWorkspaceWrite,
@@ -1738,10 +1738,10 @@ func TestHTTPProtectedRoutesFailClosedWithoutConfiguredRuntimeToken(t *testing.T
 	if err := json.NewDecoder(readyResp.Body).Decode(&ready); err != nil {
 		t.Fatalf("decode ready response: %v", err)
 	}
-	if ready.Status != "blocked" {
-		t.Fatalf("ready status = %q, want blocked", ready.Status)
+	if ready.Readiness != ReadinessNotReady {
+		t.Fatalf("ready readiness = %q, want not_ready", ready.Readiness)
 	}
-	if ready.RuntimeAuth.Status != "blocked" || ready.RuntimeAuth.Reason != "runtime_token_missing" {
+	if ready.RuntimeAuth.Readiness != ReadinessNotReady || ready.RuntimeAuth.ReadinessReason != "runtime_token_missing" {
 		t.Fatalf("runtime auth ready = %+v, want runtime_token_missing blocker", ready.RuntimeAuth)
 	}
 
@@ -1760,13 +1760,13 @@ func TestReadyBlocksWhenLedgerUnwritable(t *testing.T) {
 	k := newTestKernel(t, ledgerPathUnderFile(t))
 
 	ready := k.Ready()
-	if ready.Status != "blocked" {
-		t.Fatalf("ready status = %q, want blocked", ready.Status)
+	if ready.Readiness != ReadinessNotReady {
+		t.Fatalf("ready readiness = %q, want not_ready", ready.Readiness)
 	}
-	if ready.Ledger.Status != "blocked" || ready.Ledger.Reason != "ledger_unwritable" {
+	if ready.Ledger.Readiness != ReadinessNotReady || ready.Ledger.ReadinessReason != "ledger_unwritable" {
 		t.Fatalf("ledger ready = %+v, want ledger_unwritable blocker", ready.Ledger)
 	}
-	if ready.Provider.Status != "ok" || ready.RuntimeAuth.Status != "ok" {
+	if ready.Provider.Readiness != ReadinessReady || ready.RuntimeAuth.Readiness != ReadinessReady {
 		t.Fatalf("provider/runtime readiness = %+v/%+v, want ok", ready.Provider, ready.RuntimeAuth)
 	}
 }
@@ -1788,7 +1788,7 @@ func TestHTTPLedgerUnavailableBlocksReadyAndTurn(t *testing.T) {
 	if err := json.NewDecoder(readyResp.Body).Decode(&ready); err != nil {
 		t.Fatalf("decode ready response: %v", err)
 	}
-	if ready.Status != "blocked" || ready.Ledger.Status != "blocked" || ready.Ledger.Reason != "ledger_unwritable" {
+	if ready.Readiness != ReadinessNotReady || ready.Ledger.Readiness != ReadinessNotReady || ready.Ledger.ReadinessReason != "ledger_unwritable" {
 		t.Fatalf("ready = %+v, want ledger_unwritable blocker", ready)
 	}
 
@@ -1824,7 +1824,7 @@ func TestHTTPCorruptLedgerBlocksReadyReplayAndAppend(t *testing.T) {
 	if err := json.NewDecoder(readyResp.Body).Decode(&ready); err != nil {
 		t.Fatalf("decode ready response: %v", err)
 	}
-	if ready.Status != "blocked" || ready.Ledger.Status != "blocked" || ready.Ledger.Reason != "ledger_corrupt" {
+	if ready.Readiness != ReadinessNotReady || ready.Ledger.Readiness != ReadinessNotReady || ready.Ledger.ReadinessReason != "ledger_corrupt" {
 		t.Fatalf("ready = %+v, want ledger_corrupt blocker", ready)
 	}
 
@@ -4906,7 +4906,7 @@ func TestHTTPReportsBlockedProvider(t *testing.T) {
 	if err := json.NewDecoder(readyResp.Body).Decode(&ready); err != nil {
 		t.Fatalf("decode ready response: %v", err)
 	}
-	if ready.Status != "blocked" || ready.Provider.Status != "blocked" {
+	if ready.Readiness != ReadinessNotReady || ready.Provider.Readiness != ReadinessNotReady {
 		t.Fatalf("ready = %+v, want blocked provider", ready)
 	}
 
@@ -4943,10 +4943,10 @@ func TestOpenAICompatibleProviderReadyRequiresConfiguration(t *testing.T) {
 	provider := NewOpenAICompatibleProvider(OpenAICompatibleConfig{})
 
 	status := provider.Ready()
-	if status.Status != "blocked" {
-		t.Fatalf("status = %q, want blocked", status.Status)
+	if status.Readiness != ReadinessNotReady {
+		t.Fatalf("status = %q, want blocked", status.Readiness)
 	}
-	if status.Reason == "" {
+	if status.ReadinessReason == "" {
 		t.Fatal("status reason is empty")
 	}
 }
@@ -5041,7 +5041,7 @@ func TestCommandProviderCompletesFromTypedStdoutEvent(t *testing.T) {
 		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
 	})
 	status := provider.Ready()
-	if status.Status != "ok" || status.Name != "provider_command" {
+	if status.Readiness != ReadinessReady || status.Name != "provider_command" {
 		t.Fatalf("ready = %+v, want ok provider_command", status)
 	}
 
@@ -8417,7 +8417,7 @@ func TestLiveOpenAICompatibleProviderThroughKernel(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 	ready := k.Ready()
-	if ready.Status != "ok" {
+	if ready.Readiness != ReadinessReady {
 		t.Fatalf("ready = %+v, want ok", ready)
 	}
 
@@ -8470,7 +8470,7 @@ func TestLiveOpenAICompatibleProviderToolLoopThroughKernel(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 	ready := k.Ready()
-	if ready.Status != "ok" {
+	if ready.Readiness != ReadinessReady {
 		t.Fatalf("ready = %+v, want ok", ready)
 	}
 
@@ -8798,7 +8798,7 @@ func (l *staticLedger) Load() ([]StoredEvent, error) {
 }
 
 func (l *staticLedger) Ready() ReadyCheck {
-	return ReadyCheck{Status: "ok"}
+	return ReadyCheck{Readiness: ReadinessReady}
 }
 
 func (l *staticLedger) Path() string {
@@ -8827,7 +8827,7 @@ func (l *failOnOperationLedger) Load() ([]StoredEvent, error) {
 }
 
 func (l *failOnOperationLedger) Ready() ReadyCheck {
-	return ReadyCheck{Status: "ok"}
+	return ReadyCheck{Readiness: ReadinessReady}
 }
 
 func (l *failOnOperationLedger) Path() string {
@@ -8883,7 +8883,7 @@ func (l *reviewRaceLedger) Load() ([]StoredEvent, error) {
 }
 
 func (l *reviewRaceLedger) Ready() ReadyCheck {
-	return ReadyCheck{Status: "ok"}
+	return ReadyCheck{Readiness: ReadinessReady}
 }
 
 func (l *reviewRaceLedger) Path() string {
@@ -8965,7 +8965,7 @@ func (p singleToolCallProvider) Name() string {
 }
 
 func (p singleToolCallProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p singleToolCallProvider) Complete(_ context.Context, _ ModelRequest) (ModelResponse, error) {
@@ -8980,7 +8980,7 @@ func (p multiToolCallProvider) Name() string {
 }
 
 func (p multiToolCallProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p multiToolCallProvider) Complete(_ context.Context, _ ModelRequest) (ModelResponse, error) {
@@ -8995,7 +8995,7 @@ func (p *toolFeedbackProvider) Name() string {
 }
 
 func (p *toolFeedbackProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *toolFeedbackProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
@@ -9036,7 +9036,7 @@ func (p *jobObservationFailingProvider) Name() string {
 }
 
 func (p *jobObservationFailingProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *jobObservationFailingProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
@@ -9064,7 +9064,7 @@ func (p *countingTextProvider) Name() string {
 }
 
 func (p *countingTextProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *countingTextProvider) Complete(_ context.Context, _ ModelRequest) (ModelResponse, error) {
@@ -9088,7 +9088,7 @@ func (p *recordingTextProvider) Name() string {
 }
 
 func (p *recordingTextProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *recordingTextProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
@@ -9158,7 +9158,7 @@ func (p *compactionProvider) Name() string {
 }
 
 func (p *compactionProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *compactionProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
@@ -9197,7 +9197,7 @@ func (p *compactionToolPairProvider) Name() string {
 }
 
 func (p *compactionToolPairProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *compactionToolPairProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {

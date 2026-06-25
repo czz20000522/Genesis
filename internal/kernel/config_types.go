@@ -60,15 +60,22 @@ type RuntimeLimitProjection struct {
 	Unit           string `json:"unit,omitempty"`
 }
 
+const (
+	ReadinessReady    = "ready"
+	ReadinessNotReady = "not_ready"
+)
+
 type ReadyResponse struct {
-	Status      string         `json:"status"`
-	Provider    ProviderStatus `json:"provider"`
-	RuntimeAuth ReadyCheck     `json:"runtime_auth"`
-	Ledger      ReadyCheck     `json:"ledger"`
+	Readiness       string         `json:"readiness"`
+	ReadinessReason string         `json:"readiness_reason,omitempty"`
+	Provider        ProviderStatus `json:"provider"`
+	RuntimeAuth     ReadyCheck     `json:"runtime_auth"`
+	Ledger          ReadyCheck     `json:"ledger"`
 }
 
 type CapabilitiesResponse struct {
-	Status             string                     `json:"status"`
+	Readiness          string                     `json:"readiness"`
+	ReadinessReason    string                     `json:"readiness_reason,omitempty"`
 	Provider           ProviderStatus             `json:"provider"`
 	RuntimeAuth        ReadyCheck                 `json:"runtime_auth"`
 	Ledger             ReadyCheck                 `json:"ledger"`
@@ -80,12 +87,12 @@ type CapabilitiesResponse struct {
 }
 
 type ProviderStatus struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Reason string `json:"reason,omitempty"`
+	Name            string `json:"name"`
+	Readiness       string `json:"readiness"`
+	ReadinessReason string `json:"readiness_reason,omitempty"`
 }
 
 type ReadyCheck struct {
-	Status string `json:"status"`
-	Reason string `json:"reason,omitempty"`
+	Readiness       string `json:"readiness"`
+	ReadinessReason string `json:"readiness_reason,omitempty"`
 }

@@ -210,7 +210,7 @@ func TestBlockedProviderReportsReadinessBlocker(t *testing.T) {
 	provider := NewBlockedProvider("openai-compatible", "provider_config_missing")
 
 	status := provider.Ready()
-	if status.Name != "openai-compatible" || status.Status != "blocked" || status.Reason != "provider_config_missing" {
+	if status.Name != "openai-compatible" || status.Readiness != ReadinessNotReady || status.ReadinessReason != "provider_config_missing" {
 		t.Fatalf("status = %+v", status)
 	}
 	if _, err := provider.Complete(nil, ModelRequest{}); !errors.Is(err, ErrProviderUnavailable) {

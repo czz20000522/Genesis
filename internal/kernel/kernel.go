@@ -96,27 +96,39 @@ func (k *Kernel) Close() {
 
 func (k *Kernel) Ready() ReadyResponse {
 	providerStatus := k.provider.Ready()
-	runtimeAuth := ReadyCheck{Status: "ok"}
+	runtimeAuth := ReadyCheck{Readiness: ReadinessReady}
 	if k.runtimeToken == "" {
-		runtimeAuth = ReadyCheck{Status: "blocked", Reason: "runtime_token_missing"}
+		runtimeAuth = ReadyCheck{Readiness: ReadinessNotReady, ReadinessReason: "runtime_token_missing"}
 	}
 	ledgerStatus := k.ledger.Ready()
-	status := "ok"
-	if providerStatus.Status != "ok" || runtimeAuth.Status != "ok" || ledgerStatus.Status != "ok" {
-		status = "blocked"
+	readiness := ReadinessReady
+	readinessReason := ""
+	if providerStatus.Readiness != ReadinessReady {
+		readiness = ReadinessNotReady
+		readinessReason = "provider_not_ready"
+	}
+	if readiness == ReadinessReady && runtimeAuth.Readiness != ReadinessReady {
+		readiness = ReadinessNotReady
+		readinessReason = firstNonEmpty(runtimeAuth.ReadinessReason, "runtime_auth_unavailable")
+	}
+	if readiness == ReadinessReady && ledgerStatus.Readiness != ReadinessReady {
+		readiness = ReadinessNotReady
+		readinessReason = firstNonEmpty(ledgerStatus.ReadinessReason, "ledger_unavailable")
 	}
 	return ReadyResponse{
-		Status:      status,
-		Provider:    safeProviderStatusForInspection(providerStatus),
-		RuntimeAuth: runtimeAuth,
-		Ledger:      ledgerStatus,
+		Readiness:       readiness,
+		ReadinessReason: readinessReason,
+		Provider:        safeProviderStatusForInspection(providerStatus),
+		RuntimeAuth:     runtimeAuth,
+		Ledger:          ledgerStatus,
 	}
 }
 
 func (k *Kernel) Capabilities() CapabilitiesResponse {
 	ready := k.Ready()
 	return CapabilitiesResponse{
-		Status:             ready.Status,
+		Readiness:          ready.Readiness,
+		ReadinessReason:    ready.ReadinessReason,
 		Provider:           safeProviderStatusForInspection(ready.Provider),
 		RuntimeAuth:        ready.RuntimeAuth,
 		Ledger:             ready.Ledger,
@@ -991,10 +1003,10 @@ func (k *Kernel) loadEvents() ([]StoredEvent, error) {
 
 func (k *Kernel) ensureLedgerReady() error {
 	check := k.ledger.Ready()
-	if check.Status == "ok" {
+	if check.Readiness == ReadinessReady {
 		return nil
 	}
-	switch check.Reason {
+	switch check.ReadinessReason {
 	case "ledger_corrupt":
 		return wrapLedgerUnavailable(ErrLedgerCorrupt)
 	case "ledger_unreadable":

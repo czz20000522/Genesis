@@ -44,15 +44,15 @@ func (l *JSONLLedger) Ready() ReadyCheck {
 
 	f, err := l.openAppendLocked()
 	if err != nil {
-		return ReadyCheck{Status: "blocked", Reason: ledgerErrorCode(err)}
+		return ReadyCheck{Readiness: ReadinessNotReady, ReadinessReason: ledgerErrorCode(err)}
 	}
 	if err := f.Close(); err != nil {
-		return ReadyCheck{Status: "blocked", Reason: "ledger_unwritable"}
+		return ReadyCheck{Readiness: ReadinessNotReady, ReadinessReason: "ledger_unwritable"}
 	}
 	if _, err := l.loadLocked(); err != nil {
-		return ReadyCheck{Status: "blocked", Reason: ledgerErrorCode(err)}
+		return ReadyCheck{Readiness: ReadinessNotReady, ReadinessReason: ledgerErrorCode(err)}
 	}
-	return ReadyCheck{Status: "ok"}
+	return ReadyCheck{Readiness: ReadinessReady}
 }
 
 func (l *JSONLLedger) Append(event StoredEvent) error {

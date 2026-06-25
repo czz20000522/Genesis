@@ -40,7 +40,7 @@ func TestBuildProviderFromGenesisConfigCanSelectCommandProvider(t *testing.T) {
 		t.Fatalf("buildProvider returned error: %v", err)
 	}
 	status := provider.Ready()
-	if status.Name != "provider_command" || status.Status != "ok" {
+	if status.Name != "provider_command" || status.Readiness != kernel.ReadinessReady {
 		t.Fatalf("provider status = %+v, want ok provider_command", status)
 	}
 	if _, ok := provider.(*kernel.CommandProvider); !ok {
@@ -58,7 +58,7 @@ func TestBuildProviderCanSelectCommandProviderDirectly(t *testing.T) {
 		t.Fatalf("buildProvider returned error: %v", err)
 	}
 	status := provider.Ready()
-	if status.Name != "provider_command" || status.Status != "ok" {
+	if status.Name != "provider_command" || status.Readiness != kernel.ReadinessReady {
 		t.Fatalf("provider status = %+v, want ok provider_command", status)
 	}
 }
@@ -101,7 +101,7 @@ func TestBuildProviderBlocksSecretShapedCommandEnvironment(t *testing.T) {
 		t.Fatalf("buildProvider returned error: %v", err)
 	}
 	status := provider.Ready()
-	if status.Status != "blocked" || status.Reason != "provider_command_env_secret_rejected" {
+	if status.Readiness != kernel.ReadinessNotReady || status.ReadinessReason != "provider_command_env_secret_rejected" {
 		t.Fatalf("provider status = %+v, want provider_command_env_secret_rejected", status)
 	}
 }

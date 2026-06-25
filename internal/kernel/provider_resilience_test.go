@@ -222,7 +222,7 @@ func (p *scriptedResilienceProvider) Name() string {
 }
 
 func (p *scriptedResilienceProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *scriptedResilienceProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {

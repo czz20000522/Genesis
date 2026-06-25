@@ -564,7 +564,7 @@ type repeatingToolProvider struct {
 func (p *repeatingToolProvider) Name() string { return "repeating-tool" }
 
 func (p *repeatingToolProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *repeatingToolProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
@@ -619,7 +619,7 @@ type scriptedToolProvider struct {
 func (p *scriptedToolProvider) Name() string { return "scripted-tool" }
 
 func (p *scriptedToolProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *scriptedToolProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
@@ -658,7 +658,7 @@ type untilLoopGuardProvider struct {
 func (p *untilLoopGuardProvider) Name() string { return "until-loop-guard" }
 
 func (p *untilLoopGuardProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *untilLoopGuardProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {

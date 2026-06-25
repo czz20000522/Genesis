@@ -26,6 +26,18 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
+### KERNEL-STATE-SEMANTICS-PROJECTION-DRIFT-20260625 - P1 - State vocabulary migration is incomplete across kernel and application projections
+
+- Status: open.
+- Area: Kernel Contract / Projection Governance / Application Runtime Boundaries.
+- Requirement: `docs/kernel-contract.md`.
+- Design: `docs/kernel-contract.md`.
+- Gap: Context hydration already uses `admission_result=admitted|refused`, and kernel/provider/runtime/ledger readiness now use `readiness=ready|not_ready` plus `readiness_reason`. Remaining drift is in runtime/projection/application surfaces that still expose generic `status` words without consistently identifying the axis they belong to. Examples include `TurnProjection.Status`, UI/audit/context inspection read-model status fields, connector source lifecycle using `blocked/degraded/stopped`, and Code Intelligence readiness/query results using `blocked/degraded/cache_stale`. Some of these may remain valid as model-visible tool denial or adapter-local operator language, but each remaining use must be classified before being kept or renamed.
+- Next slice: Migrate runtime activity and terminal outcome projections toward `phase + terminal_outcome + terminal_cause`, starting with turn/session projections and then UI/audit/context inspection read models. Preserve model-visible tool denial `blocked` only where it is explicitly a tool-result denial, not readiness or lifecycle. Application connector and Code Intelligence state terms should be split into follow-up application issues once the kernel-facing projection surface is classified. Do not add compatibility aliases during development.
+- Evidence: `docs/kernel-contract.md` states that `accepted/rejected/blocked` are not cross-system status words and separates admission, readiness, validation, review, runtime terminal outcome, workflow state, and job state. The readiness slice now has `TestReadinessDTOsDoNotExposeGenericStatusTags`, `TestReadinessSurfacesUseReadinessAxis`, and `TestContextRuntimeReadinessDoesNotUseProviderStatus`, while `TestToolDenialMayStillUseBlockedAsModelVisibleOutcome` proves model-visible tool denial remains a separate axis. Current code still contains runtime/application projection status fields such as `TurnProjection.Status`, `UITimelineResponse.Status`, connector source lifecycle states, and Code Intelligence readiness/query results.
+- Verification: Add the next state-contract test around turn/session projection axes before renaming those fields. Each owner migration must prove the same runtime condition is projected as the correct state axis with a reason/cause field, not as a generic status word. Confirm `go test ./internal/kernel -count=1` and affected application tests pass after each owner migration.
+- Reference alignment: Reasonix and Codex both use typed event/projection families instead of one global status word; Reasonix can return a blocked tool result in plan mode, but that is a model-visible denial result, not a universal lifecycle/readiness state. Genesis should adopt the same split: tool denial may be observable, owner readiness and lifecycle should use explicit axes.
+
 ### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Local managed job streaming and attach capability
 
 - Status: open.

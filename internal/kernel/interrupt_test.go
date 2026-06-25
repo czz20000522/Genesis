@@ -524,7 +524,7 @@ func (p *blockingProvider) Name() string {
 }
 
 func (p *blockingProvider) Ready() ProviderStatus {
-	return ProviderStatus{Name: p.Name(), Status: "ok"}
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
 }
 
 func (p *blockingProvider) Complete(ctx context.Context, _ ModelRequest) (ModelResponse, error) {
