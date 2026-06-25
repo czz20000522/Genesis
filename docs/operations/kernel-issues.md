@@ -25,22 +25,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-TOOL-LOOP-STORM-GUARD-PROGRESS-RESET-20260625 - P2 - Storm guard success counters must reset on different real progress
-
-- Status: open.
-- Area: Tool Runtime / Model Gateway / Safety Backstop.
-- Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
-- Design: `docs/design/kernel-foundation-capabilities.md`.
-- 标题: Storm guard success counters must reset on different real progress.
-- 问题: `KERNEL-TOOL-LOOP-STORM-GUARD-20260625` retired the first repeated-failure and repeated-write-success guard, but the current success counter is keyed by repeat-success signature and only resets when a successful tool result has no repeat-success signature, such as a read/verification tool. The requirement says storm guards reset on real progress, including a different batch shape or partial success. With the current per-signature map, two successful write-like calls for effect A, then a different successful write-like effect B, can still cause a later A call to be blocked because A's old counter remains at the threshold. That is conservative, but it can over-block legitimate model work after real progress.
-- 建议: Extend the storm-guard reset contract and tests. Phase A should reset or age out repeated-write-success counters when a different trusted effect signature succeeds, when a different batch shape makes progress, or when the model performs an explicit verification/read step. Keep the narrow shell signature rules; do not attempt semantic command equivalence. The model-visible guard result should still block true repeated same-effect loops before the next side effect.
-- 证据: `internal/kernel/tool_loop_guard.go::observeSuccess` increments `repeatedSuccessCount[signature]` for every successful write-like signature and only clears the whole map when the successful call has an empty repeat-success signature. `docs/requirements/kernel-foundation-capabilities.md` states storm guards reset on real progress, including different batch shape, partial success, successful read/verification, user continuation, or a new turn. Current tests cover repeated write block and read-progress reset, but do not cover different write-like success or different batch-shape progress between repeated writes.
-- 验证: Add a fake-provider test where the model performs write-like effect A twice, then a different successful write-like effect B, then A again. The fourth call should not be blocked solely because of the old A counter if B is accepted as real progress. Add a companion test proving A/A/A with no intervening progress is still blocked before the third effect. Re-run `go test ./internal/kernel -run "TestToolLoop.*Storm|TestToolLoop.*Repeat|Test.*Tool.*Loop" -count=1`, then `go test ./internal/kernel -count=1`.
-- 优先级: P2.
-- Gap: The first storm guard prevents obvious duplicate effects, but its reset semantics are narrower than the approved requirement/design. This should be fixed before relying on the guard for longer real LLM work.
-- Next slice: Update the storm guard reset rule in code and tests only; do not reopen provider retry, shell env, or memory context work.
-- Reference alignment: Aligned with Reasonix's loop guard intent of stopping stuck loops while allowing real progress to change the trajectory. Genesis should keep the guard kernel-owned and model-visible, but it should not turn a stale same-signature counter into a broad write freeze after unrelated progress.
-
 ### KERNEL-CONTEXT-COMPACTION-STUCK-GUARD-20260625 - P2 - Auto compaction needs a stuck/cache-thrash guard for too-small windows
 
 - Status: open.
