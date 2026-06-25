@@ -155,6 +155,10 @@ Every production store or schema proposal must answer:
 - A provider response that is syntactically valid but lacks a visible final answer is repairable only through a bounded Model Gateway visible-final repair step. The repair prompt may ask for a visible answer; it must not replay hidden reasoning. Repeated empty visible finals fail with a typed provider-visible-final reason.
 - Future streaming provider reconnects must preserve the no-replay-after-visible-output rule: a stream may be retried only before visible assistant output or tool calls have been accepted into the kernel fact trail.
 - Context compaction is executed by a kernel compaction runner. Triggers submit typed kernel commands; shells, adapters, provider commands, and daemons do not summarize, truncate, or rewrite history.
+- Auto compaction must not thrash a too-small context window. If consecutive successful auto compactions still leave the next provider-reported input over the auto-compaction limit, the compaction runner pauses automatic compaction with `context.compaction.deferred` evidence instead of calling the summarizer again.
+- The stuck guard consumes provider-backed accounting only: source input tokens, source usage, recent-tail accounting, and cache-stability facts when present. It must not reintroduce local text token estimates.
+- Deferred auto compaction keeps provider context append-only until a later non-thrashing turn sequence provides new evidence to retry. Manual compaction can remain available as an explicit operator/user action, but it must still be recorded by the kernel compaction runner.
+- Compaction deferral is a typed kernel fact and a user-inspectable notice. It is not a provider failure, not a tool failure, and not an adapter-owned retry policy.
 
 ### Tool Runtime
 

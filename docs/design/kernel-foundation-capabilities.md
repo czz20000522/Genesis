@@ -458,6 +458,34 @@ Observability is split by audience:
 
 Provider raw requests are not transcript. Production storage keeps derivation evidence such as included event refs, input kinds, manifest or skill refs, compaction refs, gateway profile id, and normalized usage. Full prompt or provider payload capture belongs only in debug trace, and even then stays bounded and redacted.
 
+## Auto Compaction Stuck Guard
+
+The compaction runner owns the stuck/cache-thrash guard. Provider adapters,
+shells, connectors, and UI surfaces cannot decide to summarize, skip, or rewrite
+history.
+
+The first production guard is intentionally conservative:
+
+- It applies only to automatic compaction.
+- It uses the normalized auto-compaction limit from `ContextPolicy`.
+- It uses provider-backed source input tokens and model context accounting; it
+  does not estimate tokens from text bytes.
+- It treats two successful automatic compactions on immediately adjacent
+  completed turns, followed by another over-limit turn, as a stuck window.
+- It continues a stuck pause when the immediately previous completed turn wrote
+  a stuck `context.compaction.deferred` fact and the current provider-reported
+  input is still over the limit.
+- It does not pause a healthy session where successful compactions are separated
+  by one or more turns that do not trigger automatic compaction.
+
+When the guard fires, the runner writes `context.compaction.deferred` with a
+stable reason, source usage, cache-stability evidence when available, and the
+consecutive compaction count. It does not call the summarizer, does not create a
+new summary, and does not mutate the previous compaction summary. UI timeline
+projection renders the deferral as a compaction notice; diagnostics can inspect
+the raw durable fact. Manual compaction remains a separate explicit command
+path and is not blocked by this automatic stuck guard.
+
 Store design starts with owner stores, not a global ERD. Session, resource,
 kernel/runtime, job, audit, and projection owners each write the smallest
 persistence proposal that satisfies the requirement's store gate. A proposal may
