@@ -64,7 +64,7 @@ func (b *sessionProjectionBuilder) appendRawEvent(event StoredEvent) {
 
 func (b *sessionProjectionBuilder) applyOwnerEvent(event StoredEvent) error {
 	switch event.Type {
-	case "turn.submitted", "model.final", "turn.failed", "assistant.interrupted":
+	case "turn.submitted", "model.final", "turn.paused", "turn.failed", "assistant.interrupted":
 		b.applyTurnEvent(event)
 	case "operation.running", "operation.completed", "operation.failed", "operation.blocked", "operation.interrupted", "operation.tool_infrastructure_failed":
 		b.applyOperationEvent(event)
@@ -100,6 +100,16 @@ func (b *sessionProjectionBuilder) applyTurnEvent(event StoredEvent) {
 		b.projection.Turns[idx].Status = "completed"
 		if event.Data.Final != nil {
 			b.projection.Turns[idx].FinalMessage = *event.Data.Final
+		}
+		b.projection.Turns[idx].CompletedAt = event.CreatedAt
+	case "turn.paused":
+		idx, ok := b.turnByID[event.TurnID]
+		if !ok {
+			return
+		}
+		b.projection.Turns[idx].Status = "paused"
+		if event.Data.TurnPause != nil {
+			b.projection.Turns[idx].Pause = event.Data.TurnPause
 		}
 		b.projection.Turns[idx].CompletedAt = event.CreatedAt
 	case "turn.failed":

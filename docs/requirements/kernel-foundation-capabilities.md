@@ -167,6 +167,30 @@ Every production store or schema proposal must answer:
 - Tool results preserve the distinction between invalid request, permission denial, command failure, and tool infrastructure failure.
 - Long output is presented with bounded head/tail text, truncation flags, original byte counts, omitted byte counts, and a visible omission marker.
 - Redaction is projection policy. It must not mutate append-only operation evidence before it is recorded.
+- Tool-loop budget exhaustion is a recoverable control stop, not a provider
+  failure and not a tool failure. When the model requests another tool batch
+  after the configured round budget is exhausted, the kernel stops before
+  executing that batch, records `turn.paused` with reason
+  `tool_loop_round_budget_exhausted`, preserves already committed tool rounds,
+  and returns a paused turn projection through the normal turn response.
+- Continuing paused work uses ordinary `turn.submit` in the same session. Shells
+  and applications do not get a separate resume owner. The kernel-owned
+  provider-context projection must expose prior committed user, assistant,
+  tool-call, and tool-result facts without exposing event ids, operation ids,
+  audit refs, or checkpoint internals.
+- Tool-loop storm guards are model-visible repair observations. Repeated
+  identical failure signatures in one turn should preserve the original error
+  while adding a directive to change approach. Repeated identical successful
+  write-like signatures should be blocked before a new effect and returned as
+  a non-executed guarded tool result.
+- Storm guards reset on real progress: a different batch shape, partial
+  success, successful read/verification, user continuation, or a new turn. They
+  do not replace idempotent replay, permission checks, sandbox admission,
+  approval, or the hard infrastructure failure path.
+- Phase A storm matching is deliberately conservative. It may key repeated
+  failures by tool plus structured error code/status, and repeated write-like
+  success by exact registered write primitive signature. It must not infer
+  arbitrary shell command semantic equivalence.
 
 #### Tool Scheduling And Concurrency
 

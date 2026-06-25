@@ -24,13 +24,21 @@ func (k *Kernel) executeToolBatches(runCtx context.Context, toolGateway ToolGate
 }
 
 func (k *Kernel) executeToolBatchesWithRunner(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, toolCallEventIDs map[string]string, runner toolBatchRunner) (toolBatchExecutionOutcome, error) {
+	return k.executeToolBatchesWithGuard(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs, runner, nil)
+}
+
+func (k *Kernel) executeToolBatchesGuarded(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, toolCallEventIDs map[string]string, guard *toolLoopGuard) (toolBatchExecutionOutcome, error) {
+	return k.executeToolBatchesWithGuard(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs, nil, guard)
+}
+
+func (k *Kernel) executeToolBatchesWithGuard(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, toolCallEventIDs map[string]string, runner toolBatchRunner, guard *toolLoopGuard) (toolBatchExecutionOutcome, error) {
 	for _, batch := range planToolExecutionBatches(preparedCalls) {
 		batchRunner := runner
 		if batchRunner == nil && canExecuteToolBatchConcurrently(batch, preparedCalls) {
 			batchRunner = executeToolBatchConcurrently
 		}
 		if batchRunner == nil {
-			outcome, err := k.executeToolBatchSerially(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs, batch)
+			outcome, err := k.executeToolBatchSeriallyGuarded(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs, batch, guard)
 			if err != nil || outcome.Completed {
 				return outcome, err
 			}
@@ -45,7 +53,11 @@ func (k *Kernel) executeToolBatchesWithRunner(runCtx context.Context, toolGatewa
 			return toolBatchExecutionOutcome{}, err
 		}
 		for _, callIndex := range batch.CallIndexes {
-			outcome, err := k.commitToolExecutionResult(runCtx, sessionID, turnID, resultByCallIndex[callIndex], toolCallEventIDs)
+			result, err := observeToolLoopGuardResult(guard, preparedCalls[callIndex], resultByCallIndex[callIndex])
+			if err != nil {
+				return toolBatchExecutionOutcome{}, err
+			}
+			outcome, err := k.commitToolExecutionResult(runCtx, sessionID, turnID, result, toolCallEventIDs)
 			if err != nil {
 				return toolBatchExecutionOutcome{}, err
 			}
@@ -106,11 +118,53 @@ func executeToolBatchConcurrently(runCtx context.Context, toolGateway ToolGatewa
 	return results, nil
 }
 
+func guardToolLoopBeforeExecution(guard *toolLoopGuard, call preparedModelToolCall) (ModelToolResult, bool, error) {
+	if guard == nil {
+		return ModelToolResult{}, false, nil
+	}
+	return guard.beforeExecute(call)
+}
+
+func observeToolLoopGuardResult(guard *toolLoopGuard, call preparedModelToolCall, result ModelToolResult) (ModelToolResult, error) {
+	if guard == nil {
+		return result, nil
+	}
+	return guard.afterExecute(call, result)
+}
+
 func (k *Kernel) executeToolBatchSerially(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, toolCallEventIDs map[string]string, batch ToolExecutionBatch) (toolBatchExecutionOutcome, error) {
 	for _, callIndex := range batch.CallIndexes {
 		result, err := toolGateway.Execute(runCtx, sessionID, turnID, preparedCalls[callIndex])
 		if err != nil {
 			return k.handleToolExecutionError(runCtx, sessionID, turnID, err)
+		}
+		outcome, err := k.commitToolExecutionResult(runCtx, sessionID, turnID, result, toolCallEventIDs)
+		if err != nil || outcome.Completed {
+			return outcome, err
+		}
+	}
+	return toolBatchExecutionOutcome{}, nil
+}
+
+func (k *Kernel) executeToolBatchSeriallyGuarded(runCtx context.Context, toolGateway ToolGateway, sessionID string, turnID string, preparedCalls []preparedModelToolCall, toolCallEventIDs map[string]string, batch ToolExecutionBatch, guard *toolLoopGuard) (toolBatchExecutionOutcome, error) {
+	for _, callIndex := range batch.CallIndexes {
+		if result, blocked, err := guardToolLoopBeforeExecution(guard, preparedCalls[callIndex]); err != nil || blocked {
+			if err != nil {
+				return toolBatchExecutionOutcome{}, err
+			}
+			outcome, err := k.commitToolExecutionResult(runCtx, sessionID, turnID, result, toolCallEventIDs)
+			if err != nil || outcome.Completed {
+				return outcome, err
+			}
+			continue
+		}
+		result, err := toolGateway.Execute(runCtx, sessionID, turnID, preparedCalls[callIndex])
+		if err != nil {
+			return k.handleToolExecutionError(runCtx, sessionID, turnID, err)
+		}
+		result, err = observeToolLoopGuardResult(guard, preparedCalls[callIndex], result)
+		if err != nil {
+			return toolBatchExecutionOutcome{}, err
 		}
 		outcome, err := k.commitToolExecutionResult(runCtx, sessionID, turnID, result, toolCallEventIDs)
 		if err != nil || outcome.Completed {

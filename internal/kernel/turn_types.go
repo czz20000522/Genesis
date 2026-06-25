@@ -14,11 +14,12 @@ type InputItem struct {
 }
 
 type TurnResponse struct {
-	SessionID string       `json:"session_id"`
-	TurnID    string       `json:"turn_id"`
-	Events    []Event      `json:"events"`
-	Final     FinalMessage `json:"final"`
-	Error     *TurnError   `json:"error,omitempty"`
+	SessionID string               `json:"session_id"`
+	TurnID    string               `json:"turn_id"`
+	Events    []Event              `json:"events"`
+	Final     FinalMessage         `json:"final"`
+	Pause     *TurnPauseProjection `json:"pause,omitempty"`
+	Error     *TurnError           `json:"error,omitempty"`
 }
 
 type TurnInterruptRequest struct {
@@ -31,6 +32,16 @@ type TurnInterruptionProjection struct {
 	Status        string    `json:"status"`
 	Reason        string    `json:"reason,omitempty"`
 	InterruptedAt time.Time `json:"interrupted_at"`
+}
+
+type TurnPauseProjection struct {
+	SessionID           string    `json:"session_id"`
+	TurnID              string    `json:"turn_id"`
+	Status              string    `json:"status"`
+	Reason              string    `json:"reason"`
+	RoundBudget         int       `json:"round_budget"`
+	CompletedToolRounds int       `json:"completed_tool_rounds"`
+	PausedAt            time.Time `json:"paused_at"`
 }
 
 type TurnEventsResponse struct {
@@ -52,6 +63,7 @@ type TurnProjection struct {
 	ModelInputKinds  []string                    `json:"model_input_kinds,omitempty"`
 	RecalledMemories []MemoryRecall              `json:"recalled_memories,omitempty"`
 	FinalMessage     FinalMessage                `json:"final,omitempty"`
+	Pause            *TurnPauseProjection        `json:"pause,omitempty"`
 	Error            *TurnError                  `json:"error,omitempty"`
 	Interruption     *TurnInterruptionProjection `json:"interruption,omitempty"`
 	StartedAt        time.Time                   `json:"started_at"`

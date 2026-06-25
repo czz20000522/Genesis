@@ -55,6 +55,7 @@ type EventData struct {
 	ModelContextAccounting     *ModelContextAccountingProjection    `json:"model_context_accounting,omitempty"`
 	ContextCompaction          *ContextCompactionProjection         `json:"context_compaction,omitempty"`
 	Final                      *FinalMessage                        `json:"final,omitempty"`
+	TurnPause                  *TurnPauseProjection                 `json:"turn_pause,omitempty"`
 	TurnInterruption           *TurnInterruptionProjection          `json:"turn_interruption,omitempty"`
 	TurnError                  *TurnError                           `json:"turn_error,omitempty"`
 	Operation                  *OperationProjection                 `json:"operation,omitempty"`

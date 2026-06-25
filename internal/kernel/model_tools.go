@@ -37,15 +37,16 @@ type jobCancelToolArguments struct {
 }
 
 type preparedModelToolCall struct {
-	eventID        string
-	providerCallID string
-	name           string
-	spec           ToolSpec
-	hasSpec        bool
-	accessPlan     ToolAccessPlan
-	requestInvalid *ToolRequestInvalidProjection
-	execute        func(context.Context, string, string) (ModelToolResult, error)
-	onDenied       func(context.Context, string, string) (ModelToolResult, error)
+	eventID                string
+	providerCallID         string
+	name                   string
+	spec                   ToolSpec
+	hasSpec                bool
+	accessPlan             ToolAccessPlan
+	requestInvalid         *ToolRequestInvalidProjection
+	repeatSuccessSignature string
+	execute                func(context.Context, string, string) (ModelToolResult, error)
+	onDenied               func(context.Context, string, string) (ModelToolResult, error)
 }
 
 type ToolGateway struct {
@@ -149,10 +150,11 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_shell_exec_request", fmt.Sprintf("invalid shell_exec request: %v", err)), nil
 	}
 	return preparedModelToolCall{
-		eventID:        eventID,
-		providerCallID: providerCallID,
-		name:           name,
-		accessPlan:     shellExecToolAccessPlan(name, args.CWD, timeoutSec),
+		eventID:                eventID,
+		providerCallID:         providerCallID,
+		name:                   name,
+		accessPlan:             shellExecToolAccessPlan(name, args.CWD, timeoutSec),
+		repeatSuccessSignature: shellExecRepeatSuccessSignature(args.CWD, args.Command, timeoutSec),
 		onDenied: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
 			return k.shellInvokeModelToolResult(ctx, sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
 				SessionID:      sessionID,

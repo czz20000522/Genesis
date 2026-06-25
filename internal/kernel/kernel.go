@@ -156,6 +156,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	defer finishActiveTurn()
 
 	toolGateway := k.toolGateway()
+	loopGuard := newToolLoopGuard()
 	for roundIndex := 0; roundIndex <= maxModelToolRounds; roundIndex++ {
 		providerContext, err := k.ProviderContextProjection(turnID)
 		if err != nil {
@@ -207,14 +208,20 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			}, nil
 		}
 		if roundIndex == maxModelToolRounds {
-			failure := TurnError{
-				Code:    "tool_loop_limit_exceeded",
-				Message: "model tool loop exceeded the maximum number of rounds",
+			pause, err := k.appendToolLoopBudgetPause(sessionID, turnID, providerContext)
+			if err != nil {
+				return TurnResponse{}, err
 			}
-			if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
-				return TurnResponse{}, appendErr
+			events, err := k.TurnEvents(turnID)
+			if err != nil {
+				return TurnResponse{}, err
 			}
-			return TurnResponse{}, errors.New("model tool loop exceeded the maximum number of rounds")
+			return TurnResponse{
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Events:    events,
+				Pause:     &pause,
+			}, nil
 		}
 		normalizedCalls, toolCallEventIDs, err := k.appendToolCallEvents(sessionID, turnID, modelResp.ToolCalls)
 		if err != nil {
@@ -240,7 +247,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			}
 			return TurnResponse{}, err
 		}
-		outcome, err := k.executeToolBatches(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs)
+		outcome, err := k.executeToolBatchesGuarded(runCtx, toolGateway, sessionID, turnID, preparedCalls, toolCallEventIDs, loopGuard)
 		if err != nil {
 			return TurnResponse{}, err
 		}
@@ -440,6 +447,7 @@ func (k *Kernel) turnByIdempotencyKey(sessionID string, key string) (TurnRespons
 	var turnID string
 	var turnEvents []Event
 	var final *FinalMessage
+	var pause *TurnPauseProjection
 	var failure *TurnError
 	for _, event := range events {
 		if event.SessionID != sessionID {
@@ -461,6 +469,11 @@ func (k *Kernel) turnByIdempotencyKey(sessionID string, key string) (TurnRespons
 				copied := *event.Data.Final
 				final = &copied
 			}
+		case "turn.paused":
+			if event.Data.TurnPause != nil {
+				copied := *event.Data.TurnPause
+				pause = &copied
+			}
 		case "assistant.interrupted":
 			failure = &TurnError{Code: "turn_interrupted", Message: "turn was interrupted"}
 		case "turn.failed":
@@ -479,6 +492,14 @@ func (k *Kernel) turnByIdempotencyKey(sessionID string, key string) (TurnRespons
 			TurnID:    turnID,
 			Events:    turnEvents,
 			Final:     *final,
+		}, true, nil
+	}
+	if pause != nil {
+		return TurnResponse{
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Events:    turnEvents,
+			Pause:     pause,
 		}, true, nil
 	}
 	if failure != nil {
@@ -535,6 +556,31 @@ func (k *Kernel) appendTurnFailure(sessionID string, turnID string, failure Turn
 			TurnError: &failure,
 		},
 	})
+}
+
+func (k *Kernel) appendToolLoopBudgetPause(sessionID string, turnID string, providerContext ProviderContextProjection) (TurnPauseProjection, error) {
+	pausedAt := k.clock()
+	completedRounds, _, _ := modelToolRoundCounts(providerContext.ToolRounds)
+	pause := TurnPauseProjection{
+		SessionID:           strings.TrimSpace(sessionID),
+		TurnID:              strings.TrimSpace(turnID),
+		Status:              "paused",
+		Reason:              "tool_loop_round_budget_exhausted",
+		RoundBudget:         maxModelToolRounds,
+		CompletedToolRounds: completedRounds,
+		PausedAt:            pausedAt,
+	}
+	err := k.appendEvent(StoredEvent{
+		EventID:   newID("evt", pausedAt),
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      "turn.paused",
+		CreatedAt: pausedAt,
+		Data: EventData{
+			TurnPause: &pause,
+		},
+	})
+	return pause, err
 }
 
 func (k *Kernel) appendProviderAttempt(sessionID string, turnID string, eventType string, attempt ProviderAttemptProjection) error {
@@ -842,6 +888,24 @@ func sameSessionCompletedConversationTurns(events []StoredEvent, sessionID strin
 			delete(submittedInputs, event.TurnID)
 			delete(toolCallsByTurn, event.TurnID)
 			delete(toolResultsByTurn, event.TurnID)
+		case "turn.paused":
+			if event.Data.TurnPause == nil {
+				continue
+			}
+			userText := inputText(submittedInputs[event.TurnID])
+			toolExchanges := pairedConversationToolExchanges(toolCallsByTurn[event.TurnID], toolResultsByTurn[event.TurnID])
+			assistantText := toolLoopPausedHistoryText(*event.Data.TurnPause)
+			if strings.TrimSpace(userText) != "" || len(toolExchanges) > 0 {
+				turns = append(turns, conversationHistoryTurn{
+					TurnID:        event.TurnID,
+					UserText:      userText,
+					ToolExchanges: toolExchanges,
+					AssistantText: assistantText,
+				})
+			}
+			delete(submittedInputs, event.TurnID)
+			delete(toolCallsByTurn, event.TurnID)
+			delete(toolResultsByTurn, event.TurnID)
 		case "turn.failed":
 			delete(submittedInputs, event.TurnID)
 			delete(toolCallsByTurn, event.TurnID)
@@ -849,6 +913,14 @@ func sameSessionCompletedConversationTurns(events []StoredEvent, sessionID strin
 		}
 	}
 	return turns
+}
+
+func toolLoopPausedHistoryText(pause TurnPauseProjection) string {
+	reason := strings.TrimSpace(pause.Reason)
+	if reason == "" {
+		reason = "tool_loop_round_budget_exhausted"
+	}
+	return fmt.Sprintf("tool loop paused: %s after %d committed tool rounds; continue from the committed tool results", reason, pause.CompletedToolRounds)
 }
 
 func pairedConversationToolExchanges(calls []ToolCallProjection, results []ToolResultProjection) []conversationToolExchange {
