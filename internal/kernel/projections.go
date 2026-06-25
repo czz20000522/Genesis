@@ -44,6 +44,7 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 				ToolManifest:      cloneToolSpecs(nil),
 				SkillCatalog:      cloneSkillCatalogItems(nil),
 				RecalledMemories:  cloneMemoryRecalls(event.Data.RecalledMemories),
+				HydratedContexts:  cloneContextHydrationProjections(event.Data.HydratedContexts),
 				UnavailableReason: "turn context snapshot was not recorded for this turn",
 			}, nil
 		}
@@ -56,6 +57,7 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 			ToolManifest:     cloneToolSpecs(event.Data.ToolManifest),
 			SkillCatalog:     cloneSkillCatalogItems(event.Data.SkillCatalog),
 			RecalledMemories: cloneMemoryRecalls(event.Data.RecalledMemories),
+			HydratedContexts: cloneContextHydrationProjections(event.Data.HydratedContexts),
 			Runtime:          cloneContextRuntimeSnapshot(event.Data.RuntimeContext),
 		}, nil
 	}
@@ -316,6 +318,11 @@ func inspectionEventData(data EventData) EventData {
 	next := data
 	next.InputItems = cloneProjectionInputItems(data.InputItems)
 	next.RecalledMemories = cloneMemoryRecalls(data.RecalledMemories)
+	next.HydratedContexts = cloneContextHydrationProjections(data.HydratedContexts)
+	if data.ContextHydration != nil {
+		copied := cloneContextHydrationProjection(*data.ContextHydration)
+		next.ContextHydration = &copied
+	}
 	if data.ToolCall != nil {
 		copied := *data.ToolCall
 		copied.ProviderToolCallID = redactProviderToolCallID(copied.ProviderToolCallID)

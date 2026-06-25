@@ -223,6 +223,13 @@ func (k *Kernel) prepareResourceReadToolCall(eventID string, providerCallID stri
 	if !k.resourceRegistry.Has(req.ResourceRef) {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, "unknown_resource_ref", fmt.Sprintf("unknown resource ref %q", req.ResourceRef)), nil
 	}
+	metadata, err := k.resourceRegistry.Metadata(req.ResourceRef)
+	if err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "unknown_resource_ref", fmt.Sprintf("unknown resource ref %q", req.ResourceRef)), nil
+	}
+	if !metadata.TextReadable {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "unsupported_mime_type", fmt.Sprintf("resource %q has unsupported mime type %q", req.ResourceRef, metadata.MimeType)), nil
+	}
 	return preparedModelToolCall{
 		eventID:        eventID,
 		providerCallID: providerCallID,

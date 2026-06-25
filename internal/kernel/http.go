@@ -38,6 +38,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleExecShell(w, r, k)
+		case r.Method == http.MethodPost && r.URL.Path == "/context/admit_resource":
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
+			handleAdmitContextResource(w, r, k)
 		case r.Method == http.MethodGet && r.URL.Path == "/approvals":
 			if !authorizeRuntimeRequest(w, r, k) {
 				return

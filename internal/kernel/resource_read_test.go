@@ -89,6 +89,42 @@ func TestResourceReadUnknownRefReturnsRepairFeedback(t *testing.T) {
 	}
 }
 
+func TestResourceReadUnsupportedMimeReturnsRepairFeedback(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "resource-read-unsupported-mime")
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+		Ref:      "res_json",
+		MimeType: "application/json",
+		Text:     `{"body":"not text/plain"}`,
+	}})
+	args := mustMarshalToolArgs(t, map[string]interface{}{
+		"resource_ref": "res_json",
+	})
+
+	prepared, err := k.toolGateway().PrepareBatch([]ModelToolCall{{
+		ToolCallID:      "call_resource_json",
+		ToolCallEventID: "evt_tool_resource_json",
+		Name:            "resource_read",
+		Arguments:       args,
+	}})
+	if err != nil {
+		t.Fatalf("PrepareBatch returned error: %v", err)
+	}
+	result, err := k.toolGateway().Execute(context.Background(), "session_resource", "turn_resource", prepared[0])
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	var payload ToolRequestInvalidProjection
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("unmarshal invalid result: %v\n%s", err, result.Content)
+	}
+	if payload.Status != "tool_request_invalid" || payload.Executed {
+		t.Fatalf("invalid resource result = %+v, want repair feedback without execution", payload)
+	}
+	if payload.Error.Code != "unsupported_mime_type" {
+		t.Fatalf("invalid resource error = %+v, want unsupported_mime_type", payload.Error)
+	}
+}
+
 func TestResourceReadPreservesKeyShapedTextInLocalAndModelInternalProjection(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read-content")
 	secret := "sk-resource-secret"

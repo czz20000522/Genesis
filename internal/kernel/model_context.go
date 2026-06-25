@@ -23,9 +23,13 @@ func modelInputItems(userItems []InputItem, memories []MemoryRecall) []ModelInpu
 }
 
 func modelInputItemsWithHistory(userItems []InputItem, memories []MemoryRecall, skills []SkillCatalogItemProjection, skillIndexBudget int, historyContext string) []ModelInputItem {
+	return modelInputItemsWithHistoryAndHydration(userItems, memories, skills, nil, skillIndexBudget, historyContext, "")
+}
+
+func modelInputItemsWithHistoryAndHydration(userItems []InputItem, memories []MemoryRecall, skills []SkillCatalogItemProjection, hydratedContexts []ContextHydrationProjection, skillIndexBudget int, historyContext string, observationContext string) []ModelInputItem {
 	skillContext := skillIndexContext(skills, skillIndexBudget)
 	memoryContext := approvedMemoryContext(memories)
-	withContext := make([]ModelInputItem, 0, len(userItems)+3)
+	withContext := make([]ModelInputItem, 0, len(userItems)+4+len(hydratedContexts))
 	if strings.TrimSpace(historyContext) != "" {
 		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindConversationHistoryContext, Text: historyContext})
 	}
@@ -35,12 +39,28 @@ func modelInputItemsWithHistory(userItems []InputItem, memories []MemoryRecall, 
 	if memoryContext != "" {
 		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindApprovedMemoryContext, Text: memoryContext})
 	}
+	if context := strings.TrimSpace(observationContext); context != "" {
+		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindKernelObservationContext, Text: context})
+	}
+	withContext = appendHydratedContextItems(withContext, hydratedContexts)
 	for _, item := range userItems {
 		if item.Type == "text" && item.Text != "" {
 			withContext = append(withContext, ModelInputItem{Kind: ModelInputKindUserText, Text: item.Text})
 		}
 	}
 	return withContext
+}
+
+func appendHydratedContextItems(items []ModelInputItem, hydratedContexts []ContextHydrationProjection) []ModelInputItem {
+	for _, context := range hydratedContexts {
+		if context.Status != "accepted" || context.InputKind != ModelInputKindHydratedContext {
+			continue
+		}
+		if text := strings.TrimSpace(context.VisibleText); text != "" {
+			items = append(items, ModelInputItem{Kind: ModelInputKindHydratedContext, Text: context.VisibleText})
+		}
+	}
+	return items
 }
 
 func conversationHistoryContext(turns []conversationHistoryTurn) string {

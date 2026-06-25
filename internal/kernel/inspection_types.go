@@ -86,6 +86,7 @@ type ContextInspectionResponse struct {
 	ToolManifest      []ToolSpec                   `json:"tool_manifest"`
 	SkillCatalog      []SkillCatalogItemProjection `json:"skill_catalog"`
 	RecalledMemories  []MemoryRecall               `json:"recalled_memories"`
+	HydratedContexts  []ContextHydrationProjection `json:"hydrated_contexts,omitempty"`
 	Runtime           *ContextRuntimeSnapshot      `json:"runtime,omitempty"`
 	UnavailableReason string                       `json:"unavailable_reason,omitempty"`
 }

@@ -51,6 +51,7 @@ const (
 	ModelInputKindConversationHistoryContext = "conversation_history_context"
 	ModelInputKindKernelObservationContext   = "kernel_observation_context"
 	ModelInputKindProviderRepairContext      = "provider_repair_context"
+	ModelInputKindHydratedContext            = "hydrated_context"
 )
 
 type ModelInputItem struct {

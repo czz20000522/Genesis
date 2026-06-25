@@ -277,7 +277,8 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 	}
 	historyContext := sameSessionConversationHistoryContext(events, sessionID, "")
 	skillIndex := k.skillCatalogProjection().Items
-	modelInputs := modelInputItemsWithHistory(req.InputItems, recalledMemories, skillIndex, k.contextPolicy.SkillIndexChars, historyContext)
+	hydratedContexts := pendingContextHydrationsForNewTurn(events, sessionID, turnID)
+	modelInputs := modelInputItemsWithHistoryAndHydration(req.InputItems, recalledMemories, skillIndex, hydratedContexts, k.contextPolicy.SkillIndexChars, historyContext, "")
 	submitted := StoredEvent{
 		EventID:   newID("evt", now),
 		SessionID: sessionID,
@@ -293,6 +294,7 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 			SkillCatalog:     skillIndex,
 			RuntimeContext:   k.contextRuntimeSnapshot(),
 			RecalledMemories: recalledMemories,
+			HydratedContexts: hydratedContexts,
 		},
 	}
 	if err := k.appendEvent(submitted); err != nil {
@@ -795,25 +797,7 @@ func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID stri
 }
 
 func modelInputItemsFromSubmittedEvent(data EventData, historyContext string, skillIndexBudget int, observationContext string) []ModelInputItem {
-	items := []ModelInputItem{}
-	if strings.TrimSpace(historyContext) != "" {
-		items = append(items, ModelInputItem{Kind: ModelInputKindConversationHistoryContext, Text: historyContext})
-	}
-	if context := skillIndexContext(data.SkillCatalog, skillIndexBudget); context != "" {
-		items = append(items, ModelInputItem{Kind: ModelInputKindSkillIndexContext, Text: context})
-	}
-	if context := approvedMemoryContext(data.RecalledMemories); context != "" {
-		items = append(items, ModelInputItem{Kind: ModelInputKindApprovedMemoryContext, Text: context})
-	}
-	if context := strings.TrimSpace(observationContext); context != "" {
-		items = append(items, ModelInputItem{Kind: ModelInputKindKernelObservationContext, Text: context})
-	}
-	for _, item := range data.InputItems {
-		if item.Type == "text" && item.Text != "" {
-			items = append(items, ModelInputItem{Kind: ModelInputKindUserText, Text: item.Text})
-		}
-	}
-	return items
+	return modelInputItemsWithHistoryAndHydration(data.InputItems, data.RecalledMemories, data.SkillCatalog, data.HydratedContexts, skillIndexBudget, historyContext, observationContext)
 }
 
 func sameSessionConversationHistoryContext(events []StoredEvent, sessionID string, beforeTurnID string) string {

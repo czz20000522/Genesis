@@ -6,6 +6,14 @@ type Descriptor struct {
 	Text     string
 }
 
+type Metadata struct {
+	Ref           string
+	MimeType      string
+	OriginalBytes int
+	ResourceHash  string
+	TextReadable  bool
+}
+
 type ModelReadResult struct {
 	Status          string `json:"status"`
 	Executed        bool   `json:"executed"`

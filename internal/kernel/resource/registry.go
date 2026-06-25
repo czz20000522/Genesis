@@ -1,6 +1,8 @@
 package resource
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +11,11 @@ import (
 const (
 	defaultReadLimitBytes = 4096
 	maxReadLimitBytes     = 16 * 1024
+)
+
+const (
+	DefaultReadLimitBytes = defaultReadLimitBytes
+	MaxReadLimitBytes     = maxReadLimitBytes
 )
 
 type Registry struct {
@@ -40,9 +47,6 @@ func NewRegistry(items []Descriptor) (*Registry, error) {
 			return nil, fmt.Errorf("duplicate resource ref %q", ref)
 		}
 		mimeType := normalizedMimeType(item.MimeType)
-		if !isTextMimeType(mimeType) {
-			return nil, fmt.Errorf("resource %q has unsupported mime type %q", ref, mimeType)
-		}
 		registry.items[ref] = registeredResource{
 			ref:      ref,
 			mimeType: mimeType,
@@ -60,6 +64,24 @@ func (r *Registry) Has(ref string) bool {
 	return ok
 }
 
+func (r *Registry) Metadata(ref string) (Metadata, error) {
+	if r == nil {
+		return Metadata{}, errors.New("resource not found")
+	}
+	item, ok := r.items[strings.TrimSpace(ref)]
+	if !ok {
+		return Metadata{}, errors.New("resource not found")
+	}
+	sum := sha256.Sum256([]byte(item.text))
+	return Metadata{
+		Ref:           item.ref,
+		MimeType:      item.mimeType,
+		OriginalBytes: len([]byte(item.text)),
+		ResourceHash:  "sha256:" + hex.EncodeToString(sum[:]),
+		TextReadable:  isTextMimeType(item.mimeType),
+	}, nil
+}
+
 func (r *Registry) Read(req ReadRequest) (ModelReadResult, error) {
 	if r == nil {
 		return ModelReadResult{}, errors.New("resource not found")
@@ -67,6 +89,9 @@ func (r *Registry) Read(req ReadRequest) (ModelReadResult, error) {
 	item, ok := r.items[strings.TrimSpace(req.ResourceRef)]
 	if !ok {
 		return ModelReadResult{}, errors.New("resource not found")
+	}
+	if !isTextMimeType(item.mimeType) {
+		return ModelReadResult{}, fmt.Errorf("unsupported mime type %q", item.mimeType)
 	}
 	data := []byte(item.text)
 	offset := req.OffsetBytes

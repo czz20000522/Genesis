@@ -640,7 +640,10 @@ func TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles(t *testing.T) {
 		"ProviderStatus":                      "config_types.go",
 		"ReadyCheck":                          "config_types.go",
 		"ResourceDescriptor":                  "resource_types.go",
+		"ResourceMetadata":                    "resource_types.go",
 		"ModelResourceReadResult":             "resource_types.go",
+		"ContextHydrationAdmissionRequest":    "resource_types.go",
+		"ContextHydrationProjection":          "resource_types.go",
 		"TurnRequest":                         "turn_types.go",
 		"InputItem":                           "turn_types.go",
 		"TurnResponse":                        "turn_types.go",
@@ -720,6 +723,7 @@ func TestArchitectureBoundaryResourceOwnerHasSubpackageTypes(t *testing.T) {
 	got := kernelTypeDeclarationFiles(t, resourceDir)
 	for typeName, wantFile := range map[string]string{
 		"Descriptor":         "types.go",
+		"Metadata":           "types.go",
 		"ModelReadResult":    "types.go",
 		"Registry":           "registry.go",
 		"ReadRequest":        "registry.go",
