@@ -80,15 +80,23 @@ The production admission contract is:
 - the resource/context owner validates scope, grant, content type, size,
   freshness, sensitivity, and derivation evidence before any provider context
   is assembled;
-- accepted hydration becomes a kernel-owned fact bound to a session, turn, task,
+- admitted hydration becomes a kernel-owned fact bound to a session, turn, task,
   or checkpoint scope, with a stable context handle, bounded projection limits,
   input kind, and derivation refs;
-- rejected hydration is a structured owner refusal and must not silently fall
+- refused hydration is a structured owner refusal and must not silently fall
   back to raw prompt splicing, filesystem reads, connector payload paths, or
   package-specific tools;
-- the Model Gateway renders only accepted hydrated fragments and records enough
+- the Model Gateway renders only admitted hydrated fragments and records enough
   context-inspection evidence to explain which handles were included without
   making the full provider prompt canonical truth.
+
+The current implementation supports session-scoped pending hydration only.
+`context.admit_resource` records `context.hydration.admitted` for an admitted
+bounded text resource with no `turn_id`; the next submitted turn consumes that
+fact exactly once as a `hydrated_context` model input. A non-empty `turn_id` is
+currently refused with `admission_result=refused` and
+`refusal_reason_class=scope_violation` because post-submit turn-scoped
+hydration is not yet consumable by provider projection.
 
 Skill packages are one possible source of hydrated context, not a special
 kernel feature. The skill catalog remains metadata-only by default. If a future
@@ -104,8 +112,9 @@ skill-specific kernel tool such as `read_skill` or `skill.read`.
   reader, OCR reader, or application-specific resource API enters the kernel.
 - No connector or shell may read resource bodies directly and then fabricate
   kernel tool results.
-- No production object store, attachment ingestion, binary rendering, vector
-  index, or retention policy is required in the first implementation slice.
+- No production object store, attachment ingestion, OCR/binary rendering,
+  vector index, freshness policy, richer selection policy, or retention policy
+  is required in the first implementation slice.
 
 ## Phased Delivery
 
@@ -119,11 +128,13 @@ skill-specific kernel tool such as `read_skill` or `skill.read`.
   `pure_read` resource reads whose footprints are compatible and whose replay
   semantics are proven.
 - Phase E: implement the generic context hydration owner contract on top of
-  admitted resource or context handles. Skill-body hydration, connector
-  attachment hydration, and application-provided long instructions must all use
-  this generic path rather than package-specific tools. The first Phase E slice
-  is the admission contract and tests that keep skill bodies absent by default;
-  later slices may add durable body storage and selection policy.
+  admitted resource or context handles. The current Phase E slice supports
+  session-scoped pending text-resource hydration for the next turn only.
+  Skill-body hydration, connector attachment hydration, and
+  application-provided long instructions must all use this generic path rather
+  than package-specific tools. Later slices may add object storage, attachment
+  ingest, OCR/binary rendering, vector indexing, freshness policy, and richer
+  selection policy.
 
 ## Acceptance Criteria
 
@@ -140,9 +151,13 @@ skill-specific kernel tool such as `read_skill` or `skill.read`.
 - Full skill bodies are absent from default provider context, capabilities,
   timeline, and context inspection unless they have been explicitly admitted as
   bounded generic hydrated context.
-- A future hydration implementation records typed model input kinds and
-  derivation refs so compaction and replay can distinguish default skill index
-  metadata from hydrated resource content.
+- Generic hydration admission records typed model input kinds and derivation
+  refs so compaction and replay can distinguish default skill index metadata
+  from hydrated resource content.
+- Session-scoped admitted hydration enters the next new turn exactly once.
+- Turn-scoped post-submit hydration is refused until provider projection can
+  consume it without rewriting transcript, duplicating context, or exposing
+  caller-owned handles.
 
 ## Reference Alignment
 
@@ -164,4 +179,5 @@ skill-specific kernel tool such as `read_skill` or `skill.read`.
 
 This requirement governed the retired
 `KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624` implementation slice and
-continues to govern future resource owner store and executor-pool slices.
+continues to govern current generic hydration admission, future resource owner
+store, and executor-pool slices.

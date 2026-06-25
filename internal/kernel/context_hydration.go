@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	contextHydrationStatusAccepted = "accepted"
-	contextHydrationStatusRejected = "rejected"
+	contextHydrationAdmissionAdmitted = "admitted"
+	contextHydrationAdmissionRefused  = "refused"
 )
 
 func (k *Kernel) AdmitContextResource(req ContextHydrationAdmissionRequest) (ContextHydrationProjection, error) {
@@ -19,12 +19,12 @@ func (k *Kernel) AdmitContextResource(req ContextHydrationAdmissionRequest) (Con
 		return ContextHydrationProjection{}, err
 	}
 	projection := k.evaluateContextHydrationAdmission(req, events, now)
-	eventType := "context.hydration.rejected"
-	if projection.Status == contextHydrationStatusAccepted {
-		eventType = "context.hydration.accepted"
+	eventType := "context.hydration.refused"
+	if projection.AdmissionResult == contextHydrationAdmissionAdmitted {
+		eventType = "context.hydration.admitted"
 	}
 	eventTurnID := ""
-	if projection.Status == contextHydrationStatusAccepted {
+	if projection.AdmissionResult == contextHydrationAdmissionAdmitted {
 		eventTurnID = projection.TurnID
 	}
 	if err := k.appendEvent(StoredEvent{
@@ -44,55 +44,49 @@ func (k *Kernel) AdmitContextResource(req ContextHydrationAdmissionRequest) (Con
 
 func (k *Kernel) evaluateContextHydrationAdmission(req ContextHydrationAdmissionRequest, events []StoredEvent, now time.Time) ContextHydrationProjection {
 	projection := ContextHydrationProjection{
-		SessionID:      strings.TrimSpace(req.SessionID),
-		TurnID:         strings.TrimSpace(req.TurnID),
-		Status:         contextHydrationStatusRejected,
-		SourceOwner:    strings.TrimSpace(req.SourceOwner),
-		ResourceRef:    strings.TrimSpace(req.ResourceRef),
-		InputKind:      ModelInputKindHydratedContext,
-		Reason:         strings.TrimSpace(req.Reason),
-		DerivationRefs: normalizedHydrationDerivationRefs(req.DerivationRefs),
-		CreatedAt:      now,
+		SessionID:       strings.TrimSpace(req.SessionID),
+		TurnID:          strings.TrimSpace(req.TurnID),
+		AdmissionResult: contextHydrationAdmissionRefused,
+		SourceOwner:     strings.TrimSpace(req.SourceOwner),
+		ResourceRef:     strings.TrimSpace(req.ResourceRef),
+		InputKind:       ModelInputKindHydratedContext,
+		Reason:          strings.TrimSpace(req.Reason),
+		DerivationRefs:  normalizedHydrationDerivationRefs(req.DerivationRefs),
+		CreatedAt:       now,
 	}
 	if projection.SessionID == "" {
-		projection.RejectedReason = "invalid_session_id"
+		projection.RefusalReasonClass = "invalid_session_id"
 		return projection
 	}
 	if err := validateKernelControlToken("session_id", projection.SessionID); err != nil {
-		projection.RejectedReason = "invalid_session_id"
+		projection.RefusalReasonClass = "invalid_session_id"
 		return projection
 	}
 	if projection.TurnID != "" {
-		if err := validateKernelControlToken("turn_id", projection.TurnID); err != nil {
-			projection.RejectedReason = "invalid_turn_id"
-			return projection
-		}
-		if !turnBelongsToSession(events, projection.TurnID, projection.SessionID) {
-			projection.RejectedReason = "scope_mismatch"
-			return projection
-		}
+		projection.RefusalReasonClass = "scope_violation"
+		return projection
 	}
 	if projection.SourceOwner == "" {
-		projection.RejectedReason = "invalid_source_owner"
+		projection.RefusalReasonClass = "invalid_source_owner"
 		return projection
 	}
 	if err := validateKernelControlToken("source_owner", projection.SourceOwner); err != nil {
-		projection.RejectedReason = "invalid_source_owner"
+		projection.RefusalReasonClass = "invalid_source_owner"
 		return projection
 	}
 	ref, err := resource.NormalizeRef(projection.ResourceRef)
 	if err != nil {
-		projection.RejectedReason = "invalid_resource_ref"
+		projection.RefusalReasonClass = "invalid_resource_ref"
 		return projection
 	}
 	projection.ResourceRef = ref
 	if req.MaxVisibleBytes < 0 {
-		projection.RejectedReason = "invalid_visible_byte_cap"
+		projection.RefusalReasonClass = "invalid_visible_byte_cap"
 		return projection
 	}
 	metadata, err := k.resourceRegistry.Metadata(ref)
 	if err != nil {
-		projection.RejectedReason = "resource_not_found"
+		projection.RefusalReasonClass = "resource_not_found"
 		return projection
 	}
 	projection.ResourceRef = metadata.Ref
@@ -100,7 +94,7 @@ func (k *Kernel) evaluateContextHydrationAdmission(req ContextHydrationAdmission
 	projection.MimeType = metadata.MimeType
 	projection.OriginalBytes = metadata.OriginalBytes
 	if !metadata.TextReadable {
-		projection.RejectedReason = "unsupported_mime_type"
+		projection.RefusalReasonClass = "unsupported_mime_type"
 		return projection
 	}
 	limit := req.MaxVisibleBytes
@@ -108,44 +102,30 @@ func (k *Kernel) evaluateContextHydrationAdmission(req ContextHydrationAdmission
 		limit = resource.DefaultReadLimitBytes
 	}
 	if limit > resource.MaxReadLimitBytes {
-		projection.RejectedReason = "visible_byte_cap_too_large"
+		projection.RefusalReasonClass = "visible_byte_cap_too_large"
 		return projection
 	}
 	if req.MaxVisibleBytes == 0 && metadata.OriginalBytes > resource.DefaultReadLimitBytes {
-		projection.RejectedReason = "max_visible_bytes_required"
+		projection.RefusalReasonClass = "max_visible_bytes_required"
 		return projection
 	}
 	readReq, code, err := resource.NormalizeReadRequest(ref, nil, &limit)
 	if err != nil {
-		projection.RejectedReason = code
+		projection.RefusalReasonClass = code
 		return projection
 	}
 	result, err := k.resourceRegistry.Read(readReq)
 	if err != nil {
-		projection.RejectedReason = "resource_read_failed"
+		projection.RefusalReasonClass = "resource_read_failed"
 		return projection
 	}
-	projection.Status = contextHydrationStatusAccepted
+	projection.AdmissionResult = contextHydrationAdmissionAdmitted
 	projection.HydrationID = newID("hydration", now)
 	projection.VisibleText = result.Text
 	projection.VisibleBytes = result.ReturnedBytes
 	projection.Truncated = result.Truncated
-	projection.RejectedReason = ""
+	projection.RefusalReasonClass = ""
 	return projection
-}
-
-func turnBelongsToSession(events []StoredEvent, turnID string, sessionID string) bool {
-	turnID = strings.TrimSpace(turnID)
-	sessionID = strings.TrimSpace(sessionID)
-	if turnID == "" || sessionID == "" {
-		return false
-	}
-	for _, event := range events {
-		if event.Type == "turn.submitted" && event.TurnID == turnID && event.SessionID == sessionID {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizedHydrationDerivationRefs(refs []string) []string {
@@ -163,11 +143,11 @@ func normalizedHydrationDerivationRefs(refs []string) []string {
 func pendingContextHydrationsForNewTurn(events []StoredEvent, sessionID string, turnID string) []ContextHydrationProjection {
 	out := []ContextHydrationProjection{}
 	for i, event := range events {
-		if event.SessionID != sessionID || event.Type != "context.hydration.accepted" || event.Data.ContextHydration == nil {
+		if event.SessionID != sessionID || event.Type != "context.hydration.admitted" || event.Data.ContextHydration == nil {
 			continue
 		}
 		hydration := *event.Data.ContextHydration
-		if hydration.Status != contextHydrationStatusAccepted {
+		if hydration.AdmissionResult != contextHydrationAdmissionAdmitted {
 			continue
 		}
 		if hydration.TurnID != "" && hydration.TurnID != turnID {

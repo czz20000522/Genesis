@@ -107,28 +107,31 @@ bounded, scoped to the target session or task, and safe for model-visible
 projection. It then writes one of two facts:
 
 ```text
-context.hydration.accepted
-context.hydration.rejected
+context.hydration.admitted
+context.hydration.refused
 ```
 
-Accepted facts include the generated context handle, source owner, derivation
+Admitted facts include the generated context handle, source owner, derivation
 refs, visible byte cap, content type, truncation policy, model input kind, and
 scope. They do not include filesystem paths, connector credentials, package
-roots, raw payloads, or full provider prompt text. Rejected facts include a
-reason code and safe diagnostic summary; they do not cause fallback prompt
-splicing.
+roots, raw payloads, or full provider prompt text. Refused facts include
+`admission_result=refused`, a `refusal_reason_class`, and safe diagnostic
+summary; they do not cause fallback prompt splicing.
 
-The Model Gateway consumes accepted hydration facts while building provider
+The Model Gateway consumes admitted hydration facts while building provider
 context. It records context-inspection evidence such as included context handles,
 input kinds, source owner, derivation refs, byte counts, and truncation status.
 It does not treat hydration as transcript, memory truth, tool permission, or
 connector delivery state.
 
-Until `context.hydration.accepted` exists, provider context may include only the
-metadata-only skill index, approved memory projection, conversation history,
-kernel observations, repair context, and ordinary user text. Full skill bodies,
-connector attachment text, and long application instructions remain absent by
-default.
+The current implementation intentionally supports only session-scoped pending
+hydration: `context.admit_resource` may admit a bounded text resource without a
+`turn_id`, and the next submitted turn consumes that fact once as a typed
+`hydrated_context` input. Post-submit turn-scoped hydration is not implemented.
+Any non-empty `turn_id` is refused with
+`refusal_reason_class=scope_violation` until a paused/running provider
+projection can consume the fact without rewriting transcript or duplicating
+context.
 
 ## Tool Contract
 
@@ -205,13 +208,16 @@ The first slice should still be strict:
 
 ## Current Hydration Boundary
 
-Current Genesis implements the metadata-only skill index and the first
-`resource_read` primitive. It does not yet implement full skill-body hydration.
-That absence is intentional. The approved next implementation must first decide
-how a user-space skill or application admits a body into a generic resource or
-context owner and how the Model Gateway records the resulting hydrated fragment.
-Until that exists, full skill bodies remain outside default provider context and
-outside model-visible tools.
+Current Genesis implements the metadata-only skill index, the first
+`resource_read` primitive, and generic session-scoped resource hydration
+admission for bounded text resources. Full skill bodies, connector attachment
+text, and long application instructions stay outside default provider context
+unless an owner admits them through the generic resource/context path.
+
+Current limits remain explicit: there is no production object store, attachment
+ingest, OCR/binary rendering, vector index, freshness policy, or richer
+selection policy in this slice. Turn-scoped post-submit hydration is also
+unsupported and must be refused rather than recorded as an optimistic fact.
 
 ## Reference Alignment
 

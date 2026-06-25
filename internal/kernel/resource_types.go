@@ -21,21 +21,21 @@ type ContextHydrationAdmissionRequest struct {
 }
 
 type ContextHydrationProjection struct {
-	HydrationID    string    `json:"hydration_id,omitempty"`
-	SessionID      string    `json:"session_id"`
-	TurnID         string    `json:"turn_id,omitempty"`
-	Status         string    `json:"status"`
-	SourceOwner    string    `json:"source_owner,omitempty"`
-	ResourceRef    string    `json:"resource_ref,omitempty"`
-	ResourceHash   string    `json:"resource_hash,omitempty"`
-	MimeType       string    `json:"mime_type,omitempty"`
-	OriginalBytes  int       `json:"original_bytes,omitempty"`
-	VisibleBytes   int       `json:"visible_bytes,omitempty"`
-	Truncated      bool      `json:"truncated,omitempty"`
-	InputKind      string    `json:"input_kind,omitempty"`
-	Reason         string    `json:"reason,omitempty"`
-	RejectedReason string    `json:"rejected_reason,omitempty"`
-	DerivationRefs []string  `json:"derivation_refs,omitempty"`
-	VisibleText    string    `json:"visible_text,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	HydrationID        string    `json:"hydration_id,omitempty"`
+	SessionID          string    `json:"session_id"`
+	TurnID             string    `json:"turn_id,omitempty"`
+	AdmissionResult    string    `json:"admission_result"`
+	SourceOwner        string    `json:"source_owner,omitempty"`
+	ResourceRef        string    `json:"resource_ref,omitempty"`
+	ResourceHash       string    `json:"resource_hash,omitempty"`
+	MimeType           string    `json:"mime_type,omitempty"`
+	OriginalBytes      int       `json:"original_bytes,omitempty"`
+	VisibleBytes       int       `json:"visible_bytes,omitempty"`
+	Truncated          bool      `json:"truncated,omitempty"`
+	InputKind          string    `json:"input_kind,omitempty"`
+	Reason             string    `json:"reason,omitempty"`
+	RefusalReasonClass string    `json:"refusal_reason_class,omitempty"`
+	DerivationRefs     []string  `json:"derivation_refs,omitempty"`
+	VisibleText        string    `json:"visible_text,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }

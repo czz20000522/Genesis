@@ -53,7 +53,7 @@ func modelInputItemsWithHistoryAndHydration(userItems []InputItem, memories []Me
 
 func appendHydratedContextItems(items []ModelInputItem, hydratedContexts []ContextHydrationProjection) []ModelInputItem {
 	for _, context := range hydratedContexts {
-		if context.Status != "accepted" || context.InputKind != ModelInputKindHydratedContext {
+		if context.AdmissionResult != contextHydrationAdmissionAdmitted || context.InputKind != ModelInputKindHydratedContext {
 			continue
 		}
 		if text := strings.TrimSpace(context.VisibleText); text != "" {

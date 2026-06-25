@@ -14,7 +14,7 @@ import (
 )
 
 func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing.T) {
-	dir := testsupport.ProjectTempDir(t, "context-hydration-accepted")
+	dir := testsupport.ProjectTempDir(t, "context-hydration-admitted")
 	provider := &capturingProvider{text: "hydrated answer"}
 	body := "FULL SKILL BODY Authorization: Bearer local-token should stay literal and bounded"
 	k, err := New(Config{
@@ -42,8 +42,8 @@ func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing
 	if err != nil {
 		t.Fatalf("AdmitContextResource returned error: %v", err)
 	}
-	if admitted.Status != "accepted" || admitted.HydrationID == "" || admitted.InputKind != ModelInputKindHydratedContext {
-		t.Fatalf("admitted hydration = %+v, want accepted with system-owned id and hydrated input kind", admitted)
+	if admitted.AdmissionResult != "admitted" || admitted.HydrationID == "" || admitted.InputKind != ModelInputKindHydratedContext {
+		t.Fatalf("admitted hydration = %+v, want admitted with system-owned id and hydrated input kind", admitted)
 	}
 	if admitted.ResourceHash == "" || admitted.OriginalBytes != len([]byte(body)) || admitted.VisibleBytes != len([]byte(body)) || admitted.Truncated {
 		t.Fatalf("admitted evidence = %+v, want hash and byte accounting without truncation", admitted)
@@ -81,7 +81,7 @@ func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing
 		t.Fatalf("inspection model kinds = %v, want hydrated context", inspection.ModelInputKinds)
 	}
 	if len(inspection.HydratedContexts) != 1 {
-		t.Fatalf("inspection hydrated contexts = %+v, want one accepted context", inspection.HydratedContexts)
+		t.Fatalf("inspection hydrated contexts = %+v, want one admitted context", inspection.HydratedContexts)
 	}
 	evidence := inspection.HydratedContexts[0]
 	if evidence.SourceOwner != "skill_catalog" || evidence.ResourceRef != "cf:skill-lark-body" || evidence.ResourceHash == "" || evidence.MimeType != "text/plain" {
@@ -103,10 +103,21 @@ func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing
 		t.Fatalf("timeline rendered hydration as chat surface: %s", string(timelineJSON))
 	}
 	assertNoEventTypes(t, k, "tool.call", "tool.result")
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "hydration-session",
+		InputItems: []InputItem{{Type: "text", Text: "hydration should not repeat"}},
+	})
+	if err != nil {
+		t.Fatalf("second SubmitTurn returned error: %v", err)
+	}
+	if _, ok := modelInputTextByKind(provider.inputItems, ModelInputKindHydratedContext); ok {
+		t.Fatalf("provider input items = %+v, unscoped hydration must be consumed once", provider.inputItems)
+	}
 }
 
-func TestContextHydrationRejectsResourcesWithoutPromptSplicing(t *testing.T) {
-	dir := testsupport.ProjectTempDir(t, "context-hydration-rejected")
+func TestContextHydrationRefusesResourcesWithoutPromptSplicing(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "context-hydration-refused")
 	oversize := strings.Repeat("OVERSIZE-CONTENT-", 500)
 	provider := &capturingProvider{text: "plain answer"}
 	k, err := New(Config{
@@ -182,25 +193,25 @@ func TestContextHydrationRejectsResourcesWithoutPromptSplicing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rejected, err := k.AdmitContextResource(tc.request)
+			refused, err := k.AdmitContextResource(tc.request)
 			if err != nil {
 				t.Fatalf("AdmitContextResource returned error: %v", err)
 			}
-			if rejected.Status != "rejected" || rejected.RejectedReason != tc.wantReason || rejected.VisibleText != "" {
-				t.Fatalf("rejected hydration = %+v, want %s without visible text", rejected, tc.wantReason)
+			if refused.AdmissionResult != "refused" || refused.RefusalReasonClass != tc.wantReason || refused.VisibleText != "" {
+				t.Fatalf("refused hydration = %+v, want %s without visible text", refused, tc.wantReason)
 			}
 		})
 	}
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
 		SessionID:  "reject-session",
-		InputItems: []InputItem{{Type: "text", Text: "do not splice rejected context"}},
+		InputItems: []InputItem{{Type: "text", Text: "do not splice refused context"}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
 	if _, ok := modelInputTextByKind(provider.inputItems, ModelInputKindHydratedContext); ok {
-		t.Fatalf("provider input items = %+v, rejected hydration must not enter context", provider.inputItems)
+		t.Fatalf("provider input items = %+v, refused hydration must not enter context", provider.inputItems)
 	}
 	providerJSON, err := json.Marshal(provider.inputItems)
 	if err != nil {
@@ -216,11 +227,11 @@ func TestContextHydrationRejectsResourcesWithoutPromptSplicing(t *testing.T) {
 		t.Fatalf("ContextInspection returned error: %v", err)
 	}
 	if len(inspection.HydratedContexts) != 0 {
-		t.Fatalf("inspection hydrated contexts = %+v, want none for rejected admissions", inspection.HydratedContexts)
+		t.Fatalf("inspection hydrated contexts = %+v, want none for refused admissions", inspection.HydratedContexts)
 	}
 }
 
-func TestContextHydrationRejectsScopeMismatch(t *testing.T) {
+func TestContextHydrationRefusesScopeMismatch(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "context-hydration-scope")
 	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
 		Ref:      "cf:scoped",
@@ -235,7 +246,7 @@ func TestContextHydrationRejectsScopeMismatch(t *testing.T) {
 		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
 
-	rejected, err := k.AdmitContextResource(ContextHydrationAdmissionRequest{
+	refused, err := k.AdmitContextResource(ContextHydrationAdmissionRequest{
 		SessionID:       "different-session",
 		TurnID:          resp.TurnID,
 		SourceOwner:     "connector_attachment",
@@ -245,9 +256,49 @@ func TestContextHydrationRejectsScopeMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AdmitContextResource returned error: %v", err)
 	}
-	if rejected.Status != "rejected" || rejected.RejectedReason != "scope_mismatch" || rejected.VisibleText != "" {
-		t.Fatalf("scope mismatch projection = %+v, want rejected without text", rejected)
+	if refused.AdmissionResult != "refused" || refused.RefusalReasonClass != "scope_violation" || refused.VisibleText != "" {
+		t.Fatalf("scope mismatch projection = %+v, want refused scope_violation without text", refused)
 	}
+}
+
+func TestContextHydrationRefusesTurnScopedAdmissionUntilProjectionCanConsumeIt(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "context-hydration-turn-scope")
+	provider := &capturingProvider{text: "initial answer"}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		Resources: []ResourceDescriptor{{
+			Ref:      "cf:turn-scoped",
+			MimeType: "text/plain",
+			Text:     "turn scoped body must not be accepted until projection consumes it",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "turn-scope-session",
+		InputItems: []InputItem{{Type: "text", Text: "create the turn first"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+
+	refused, err := k.AdmitContextResource(ContextHydrationAdmissionRequest{
+		SessionID:       "turn-scope-session",
+		TurnID:          resp.TurnID,
+		SourceOwner:     "connector_attachment",
+		ResourceRef:     "cf:turn-scoped",
+		MaxVisibleBytes: 128,
+	})
+	if err != nil {
+		t.Fatalf("AdmitContextResource returned error: %v", err)
+	}
+	if refused.AdmissionResult != "refused" || refused.RefusalReasonClass != "scope_violation" || refused.VisibleText != "" {
+		t.Fatalf("turn-scoped hydration = %+v, want refused scope_violation without visible text", refused)
+	}
+	assertNoEventTypes(t, k, "context.hydration.admitted", "tool.call", "tool.result")
 }
 
 func TestContextHydrationRejectsCallerOwnedControlFieldsOverHTTP(t *testing.T) {
@@ -296,6 +347,9 @@ func TestContextHydrationRejectsCallerOwnedControlFieldsOverHTTP(t *testing.T) {
 	}
 	if projection.HydrationID == "" || projection.HydrationID == "caller_supplied" || projection.CreatedAt.IsZero() {
 		t.Fatalf("projection = %+v, want system-owned id and timestamp", projection)
+	}
+	if projection.AdmissionResult != "admitted" {
+		t.Fatalf("projection admission result = %q, want admitted", projection.AdmissionResult)
 	}
 }
 

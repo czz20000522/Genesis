@@ -26,30 +26,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-CONTEXT-HYDRATION-TURN-SCOPE-20260625 - P1 - Accepted turn-scoped hydration is not consumed by provider projection
-
-- Status: open.
-- Area: Model Gateway / Resource Owner / Context Hydration.
-- Requirement: `docs/requirements/kernel-resource-read.md`.
-- Design: `docs/design/kernel-resource-read.md`.
-- Gap: `context.admit_resource` accepts a caller-supplied `turn_id` and can write `context.hydration.accepted` with that turn scope, but provider context is built only from `turn.submitted.Data.HydratedContexts`. A hydration fact admitted after a turn exists can therefore be returned as `accepted` while never becoming provider-visible context for that turn or a future turn. This is a control-plane/fact-plane mismatch: accepted hydration must either be consumable by the intended provider projection or fail closed.
-- Next slice: Pick one Phase E semantics and lock it with tests. Conservative option: reject non-empty `turn_id` until a paused/resume provider projection can consume post-submit hydration. Fuller option: make an admitted turn-scoped hydration participate in the next provider step for that same paused/running turn without rewriting transcript, duplicating context, or exposing caller-owned handles.
-- Evidence: `internal/kernel/context_hydration.go` accepts and validates `TurnID` against an existing submitted turn, then records `context.hydration.accepted` with that `TurnID`; `internal/kernel/kernel.go` only snapshots hydration into `turn.submitted` during `submitNewTurn`; `ProviderContextProjection` rebuilds model inputs from the `turn.submitted` snapshot and does not consume later `context.hydration.accepted` events. Existing `context_hydration_test.go` covers unscoped next-turn admission and scope mismatch, but does not prove a successful `turn_id` admission is provider-visible.
-- Verification: Add a red test proving a `turn_id` admission cannot return `accepted` unless the corresponding provider context includes exactly one `hydrated_context` fragment for that scope. Also prove repeated/retried admission does not duplicate hydrated context and rejected/unsupported turn scope does not splice prompt text.
-- Reference alignment: Aligned with Codex/Reasonix style owner facts only if accepted facts are replayable by the projection that claims them. The active drift risk is recording optimistic acceptance evidence that the model gateway cannot actually consume.
-
-### KERNEL-CONTEXT-HYDRATION-DOC-DRIFT-20260625 - P3 - Resource-read docs still describe hydration as absent after retirement
-
-- Status: open.
-- Area: Documentation Governance / Model Gateway / Resource Owner.
-- Requirement: `docs/requirements/kernel-resource-read.md`.
-- Design: `docs/design/kernel-resource-read.md`.
-- Gap: `KERNEL-CONTEXT-RESOURCE-HYDRATION-20260625` was retired after `context.admit_resource` landed, but the current resource-read requirement/design still contain future-tense or absence language for hydration. This makes the active contract ambiguous for the next implementer: the retirement log says generic hydration exists, while the design still says current Genesis does not implement full skill-body hydration.
-- Next slice: Update the resource-read requirement/design to distinguish the implemented Phase E admission path from future work. Keep future work limited to production object storage, attachment ingest, OCR/binary rendering, vector search, freshness policy, and richer selection policy; remove or rewrite stale “current absence” language.
-- Evidence: `docs/operations/kernel-retirement-log.md` records `KERNEL-CONTEXT-RESOURCE-HYDRATION-20260625` as retired, while `docs/design/kernel-resource-read.md` still says current Genesis implements only metadata skill index plus `resource_read` and “does not yet implement full skill-body hydration”; `docs/requirements/kernel-resource-read.md` still uses “A future hydration implementation” in acceptance text.
-- Verification: After the doc update, `rg -n "does not yet implement full skill-body hydration|future hydration implementation|Until that exists" docs/requirements/kernel-resource-read.md docs/design/kernel-resource-read.md` must not find stale current-contract language. The updated docs must still list the remaining future work explicitly.
-- Reference alignment: Aligned with the repo rule that implementation, issue ledger, and design docs must not disagree after retirement. Codex/Reasonix references stay useful only when translated into the current Genesis contract rather than left as stale future-tense notes.
-
 ### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Local managed job streaming and attach capability
 
 - Status: open.
