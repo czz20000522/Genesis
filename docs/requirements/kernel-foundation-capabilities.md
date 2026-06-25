@@ -273,7 +273,7 @@ in-flight effects.
 - Credentials are referenced through kernel-owned refs, not raw secrets in config, prompts, events, logs, readiness, provider context, or model-visible tool results.
 - `plan`, `default`, and `yolo` are user-facing permission modes. The kernel resolves them into `authority_policy`, `sandbox_profile`, and `approval_policy` before admission.
 - Current `default` is a controlled-workspace adapter, not an OS-level sandbox claim.
-- Default `approval_policy` is `never`. `on_request` is a kernel-owned admission state: until an approval owner exists, write tools are blocked with structured `approval_required` feedback and no side effect.
+- Default `approval_policy` is `never`. `on_request` is a kernel-owned admission state: write tools create `approval.requested` for the frozen effect request, return structured `approval_required` feedback, and produce no side effect until the approval owner accepts a decision command.
 - A stronger workspace OS sandbox profile is a future enforcement target. If configured before an executor can enforce it, admission fails closed with structured sandbox feedback rather than silently running unconfined.
 - Tool arguments cannot select permission mode, sandbox profile, approval policy, workspace root, credential authority, or runtime client authority.
 
@@ -306,9 +306,12 @@ that binds:
 
 Approval denial records a terminal blocked decision and no external effect.
 Approval approval records decision evidence before execution, then the tool
-runtime executes under the already-resolved policy and sandbox profile. Approval
-does not let a caller broaden permission mode, change workspace root, change
-sandbox profile, select credentials, or inject model-visible control fields.
+runtime continues the original frozen effect request under the already-resolved
+policy and sandbox profile. Approval does not let a caller broaden permission
+mode, change workspace root, change sandbox profile, select credentials, change
+tool arguments, or inject model-visible control fields. Denied, expired,
+unknown, mismatched, and stale approvals fail closed and record terminal blocked
+evidence without executing the effect.
 
 Next-stage production work is split into three independent slices:
 
@@ -323,9 +326,10 @@ Next-stage production work is split into three independent slices:
    can display pending approvals and submit decisions through the kernel command
    path. This slice owns no authority itself and cannot mint tool results.
 
-These slices must remain separate. Sandbox readiness does not approve a tool.
-Approval does not create a sandbox. A UI decision is not valid unless the
-approval owner accepts it and records decision evidence before execution.
+These slices must remain separate. Sandbox readiness is evaluated before
+approval and does not approve a tool. Approval does not create or downgrade a
+sandbox. A UI decision is not valid unless the approval owner accepts it and
+records decision evidence before execution.
 
 ### Work Registry
 
@@ -465,11 +469,11 @@ This requirement governs the foundation baseline and is the source for future fo
 
 Current related active issues:
 
-- `KERNEL-SANDBOX-APPROVAL-NEXT-20260623`: implementation gap for stronger sandbox and approval beyond the current authority-profile split.
 - `KERNEL-JOB-CONTROL-INTERRUPT-20260623`: remaining interrupt, progress snapshot, idle continuation, and foreground attach-or-kill semantics. It is governed by the shell/job requirement because it extends the generic Tool Runtime and managed-job path rather than the foundation baseline itself.
 
 Related ready-for-acceptance shell/job evidence:
 
 - `KERNEL-SHELL-TIMEOUT-CAP-20260623`, `KERNEL-MANAGED-JOB-FOUNDATION-20260623`, `KERNEL-OBSERVATION-DELIVERY-20260623`, `KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624`, and `KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624` are recorded in `docs/operations/kernel-retirement-log.md`.
+- `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` is recorded as retired evidence for sandbox readiness, approval owner command path, and the minimal decision surface.
 
 Issues should cite this requirement only for gaps against these production semantics. They should not restate the full requirement or reopen application-specific kernel ownership.

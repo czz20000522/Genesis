@@ -362,12 +362,12 @@ model tool call
   -> ToolGateway validates schema and rejects hidden control fields
   -> Authority Plane resolves permission_mode / authority_policy /
      sandbox_profile / approval_policy
-  -> approval required?
-       yes: write approval.requested and stop before effect
-       no: continue
   -> sandbox profile enforceable?
        no: write sandbox block and stop before effect
-       yes: acquire sandbox execution boundary
+       yes: continue
+  -> approval required?
+       yes: write approval.requested for the frozen effect request and stop before effect
+       no: acquire sandbox execution boundary
   -> execute tool
   -> write operation/tool result evidence
 ```
@@ -391,11 +391,10 @@ InteractiveApprovalSurface
   no authority decision outside kernel, no tool.result fabrication
 ```
 
-The first implementation slice should be the sandbox readiness probe because it
-turns the current `os_workspace` fail-closed behavior into inspectable adapter
-evidence without changing execution authority. The approval owner command path
-comes next. The interactive surface comes last and only calls the owner command
-path.
+Sandbox readiness is evaluated before approval because readiness only proves
+whether the resolved execution boundary can be enforced. It never approves a
+tool, and an unavailable stronger sandbox remains a pre-effect blocker that
+cannot be downgraded into host execution by an approval decision.
 
 Approval decision flow:
 
@@ -404,12 +403,16 @@ shell/UI/application displays approval.requested
   -> caller submits approval decision command
   -> kernel validates approval id, authority, policy snapshot, and evidence
   -> denied: write approval.denied and terminal operation block
-  -> approved: write approval.approved before effect admission resumes
+  -> approved: write approval.approved before the frozen effect resumes
 ```
 
-The approval owner must keep decision fields out of model-visible tool schemas.
-The model can request an effect; it cannot invent approval ids, permission
-modes, sandbox profiles, workspace roots, credential refs, or decision evidence.
+The approval owner approves only the specific frozen effect request that produced
+`approval.requested`. Approval does not expand permission mode, sandbox profile,
+workspace root, credentials, or tool arguments. The model can request an effect;
+it cannot invent approval ids, permission modes, sandbox profiles, workspace
+roots, credential refs, or decision evidence. The approved path continues the
+original effect execution path and does not require the model to submit another
+tool call.
 
 Sandbox enforcement flow:
 

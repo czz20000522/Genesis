@@ -121,6 +121,7 @@ type ShellExecRequest struct {
 	Command        string `json:"command"`
 	TimeoutSec     int    `json:"timeout_sec,omitempty"`
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	approvedByID   string
 }
 
 type OperationProjection struct {

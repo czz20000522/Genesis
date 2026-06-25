@@ -3,41 +3,47 @@ package kernel
 import "time"
 
 type EventProjection struct {
-	EventID     string    `json:"event_id"`
-	TurnID      string    `json:"turn_id"`
-	OperationID string    `json:"operation_id,omitempty"`
-	JobID       string    `json:"job_id,omitempty"`
-	WorkID      string    `json:"work_id,omitempty"`
-	CandidateID string    `json:"candidate_id,omitempty"`
-	Type        string    `json:"type"`
-	CreatedAt   time.Time `json:"created_at"`
-	Data        EventData `json:"data,omitempty"`
+	EventID            string    `json:"event_id"`
+	TurnID             string    `json:"turn_id"`
+	OperationID        string    `json:"operation_id,omitempty"`
+	JobID              string    `json:"job_id,omitempty"`
+	WorkID             string    `json:"work_id,omitempty"`
+	CandidateID        string    `json:"candidate_id,omitempty"`
+	ApprovalID         string    `json:"approval_id,omitempty"`
+	SandboxReadinessID string    `json:"sandbox_readiness_id,omitempty"`
+	Type               string    `json:"type"`
+	CreatedAt          time.Time `json:"created_at"`
+	Data               EventData `json:"data,omitempty"`
 }
 
 type Event struct {
-	EventID     string      `json:"event_id"`
-	SessionID   string      `json:"session_id"`
-	TurnID      string      `json:"turn_id"`
-	OperationID string      `json:"operation_id,omitempty"`
-	JobID       string      `json:"job_id,omitempty"`
-	WorkID      string      `json:"work_id,omitempty"`
-	CandidateID string      `json:"candidate_id,omitempty"`
-	Type        string      `json:"type"`
-	CreatedAt   time.Time   `json:"created_at"`
-	Data        interface{} `json:"data"`
+	EventID            string      `json:"event_id"`
+	SessionID          string      `json:"session_id"`
+	TurnID             string      `json:"turn_id"`
+	OperationID        string      `json:"operation_id,omitempty"`
+	JobID              string      `json:"job_id,omitempty"`
+	WorkID             string      `json:"work_id,omitempty"`
+	CandidateID        string      `json:"candidate_id,omitempty"`
+	ApprovalID         string      `json:"approval_id,omitempty"`
+	SandboxReadinessID string      `json:"sandbox_readiness_id,omitempty"`
+	Type               string      `json:"type"`
+	CreatedAt          time.Time   `json:"created_at"`
+	Data               interface{} `json:"data"`
 }
 
 type StoredEvent struct {
-	EventID     string    `json:"event_id"`
-	SessionID   string    `json:"session_id"`
-	TurnID      string    `json:"turn_id"`
-	OperationID string    `json:"operation_id,omitempty"`
-	JobID       string    `json:"job_id,omitempty"`
-	WorkID      string    `json:"work_id,omitempty"`
-	CandidateID string    `json:"candidate_id,omitempty"`
-	Type        string    `json:"type"`
-	CreatedAt   time.Time `json:"created_at"`
-	Data        EventData `json:"data"`
+	EventID            string    `json:"event_id"`
+	SessionID          string    `json:"session_id"`
+	TurnID             string    `json:"turn_id"`
+	OperationID        string    `json:"operation_id,omitempty"`
+	JobID              string    `json:"job_id,omitempty"`
+	WorkID             string    `json:"work_id,omitempty"`
+	CandidateID        string    `json:"candidate_id,omitempty"`
+	ApprovalID         string    `json:"approval_id,omitempty"`
+	SandboxReadinessID string    `json:"sandbox_readiness_id,omitempty"`
+	Type               string    `json:"type"`
+	CreatedAt          time.Time `json:"created_at"`
+	Data               EventData `json:"data"`
 }
 
 type EventData struct {
@@ -60,6 +66,8 @@ type EventData struct {
 	TurnError                  *TurnError                           `json:"turn_error,omitempty"`
 	Operation                  *OperationProjection                 `json:"operation,omitempty"`
 	Job                        *JobProjection                       `json:"job,omitempty"`
+	Approval                   *ApprovalProjection                  `json:"approval,omitempty"`
+	SandboxReadiness           *SandboxReadinessProjection          `json:"sandbox_readiness,omitempty"`
 	KernelObservationDelivery  *KernelObservationDeliveryProjection `json:"kernel_observation_delivery,omitempty"`
 	Work                       *WorkProjection                      `json:"work,omitempty"`
 	MemoryCandidate            *MemoryCandidateProjection           `json:"memory_candidate,omitempty"`

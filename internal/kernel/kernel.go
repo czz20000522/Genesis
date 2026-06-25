@@ -27,6 +27,7 @@ type Kernel struct {
 	activeTurns      map[string]*activeTurn
 	operationMu      sync.Mutex
 	jobMu            sync.Mutex
+	approvalMu       sync.Mutex
 	memoryReviewMu   sync.Mutex
 	workMu           sync.Mutex
 }

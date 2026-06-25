@@ -71,6 +71,36 @@ func (g ToolGateway) InvokeShell(ctx context.Context, req ShellExecRequest, turn
 		return shellInvokeResult{}, fmt.Errorf("%w: shell_exec is not registered", ErrToolInfrastructureFailed)
 	}
 	authorization := authorizeKernelTool(g.kernel.toolPolicy, definition.Spec)
+	if !authorization.Allowed && authorization.Reason == "approval_required" && strings.TrimSpace(req.approvedByID) != "" {
+		resolvedPolicy := resolveToolPolicy(g.kernel.toolPolicy)
+		allowed, reason, err := g.kernel.approvalAuthorizesShellExecution(req.approvedByID, req, turnID, resolvedPolicy)
+		if err != nil {
+			return shellInvokeResult{}, err
+		}
+		if allowed {
+			authorization = toolAuthorizationDecision{Allowed: true}
+		} else {
+			authorization.Reason = reason
+		}
+	}
+	resolvedPolicy := resolveToolPolicy(g.kernel.toolPolicy)
+	if !authorization.Allowed && authorization.Reason == "approval_required" {
+		executionPlan, reason := prepareShellExecution(resolvedPolicy, req)
+		if reason != "" {
+			operation, err := g.recordBlockedShellOperationWithCWD(req, turnID, reason, executionPlan.cwd)
+			if err != nil {
+				return shellInvokeResult{}, err
+			}
+			return shellInvokeResult{Operation: &operation}, nil
+		}
+		if resolvedPolicy.SandboxProfile != SandboxProfileHost {
+			operation, err := g.recordBlockedShellOperationWithCWD(req, turnID, "managed_job_requires_host_sandbox", executionPlan.cwd)
+			if err != nil {
+				return shellInvokeResult{}, err
+			}
+			return shellInvokeResult{Operation: &operation}, nil
+		}
+	}
 	if !authorization.Allowed {
 		operation, err := g.recordBlockedShellOperation(req, turnID, authorization.Reason)
 		if err != nil {
@@ -78,7 +108,6 @@ func (g ToolGateway) InvokeShell(ctx context.Context, req ShellExecRequest, turn
 		}
 		return shellInvokeResult{Operation: &operation}, nil
 	}
-	resolvedPolicy := resolveToolPolicy(g.kernel.toolPolicy)
 	executionPlan, reason := prepareShellExecution(resolvedPolicy, req)
 	if reason != "" {
 		operation, err := g.recordBlockedShellOperationWithCWD(req, turnID, reason, executionPlan.cwd)
@@ -143,10 +172,25 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		return OperationProjection{}, fmt.Errorf("%w: shell_exec is not registered", ErrToolInfrastructureFailed)
 	}
 	authorization := authorizeKernelTool(policy, definition.Spec)
+	if !authorization.Allowed && authorization.Reason == "approval_required" && strings.TrimSpace(req.approvedByID) != "" {
+		allowed, approvalReason, err := k.approvalAuthorizesShellExecution(req.approvedByID, req, turnID, resolvedPolicy)
+		if err != nil {
+			return OperationProjection{}, err
+		}
+		if allowed {
+			authorization = toolAuthorizationDecision{Allowed: true}
+		} else {
+			authorization.Reason = approvalReason
+		}
+	}
 	executionPlan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
 	reason := authorization.Reason
-	if authorization.Allowed {
-		executionPlan, reason = prepareShellExecution(resolvedPolicy, req)
+	if authorization.Allowed || reason == "approval_required" {
+		preparedPlan, preparedReason := prepareShellExecution(resolvedPolicy, req)
+		executionPlan = preparedPlan
+		if preparedReason != "" {
+			reason = preparedReason
+		}
 	}
 	operation := OperationProjection{
 		OperationID:     newID("op", now),
@@ -170,7 +214,15 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		operation.BlockedReason = reason
 		operation.EndedAt = k.clock()
 		operation.ElapsedMs = operationElapsedMs(operation.StartedAt, operation.EndedAt)
+		if readiness, ok := sandboxReadinessForShellOperation(operation, resolvedPolicy, reason); ok {
+			if err := k.appendSandboxReadinessEvent(readiness); err != nil {
+				return OperationProjection{}, err
+			}
+		}
 		if err := k.appendOperationEvent(operation); err != nil {
+			return OperationProjection{}, err
+		}
+		if err := k.requestApprovalForBlockedShellOperation(operation); err != nil {
 			return OperationProjection{}, err
 		}
 		return redactOperationEvidence(operation), nil
@@ -281,7 +333,15 @@ func (g ToolGateway) recordBlockedShellOperationWithCWD(req ShellExecRequest, tu
 		EndedAt:         now,
 		ElapsedMs:       1,
 	}
+	if readiness, ok := sandboxReadinessForShellOperation(operation, resolvedPolicy, reason); ok {
+		if err := k.appendSandboxReadinessEvent(readiness); err != nil {
+			return OperationProjection{}, err
+		}
+	}
 	if err := k.appendOperationEvent(operation); err != nil {
+		return OperationProjection{}, err
+	}
+	if err := k.requestApprovalForBlockedShellOperation(operation); err != nil {
 		return OperationProjection{}, err
 	}
 	return redactOperationEvidence(operation), nil

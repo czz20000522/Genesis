@@ -103,11 +103,13 @@ type PermissionInspection struct {
 }
 
 type SessionProjection struct {
-	SessionID        string                      `json:"session_id"`
-	Turns            []TurnProjection            `json:"turns"`
-	Operations       []OperationProjection       `json:"operations"`
-	Jobs             []JobProjection             `json:"jobs"`
-	Works            []WorkProjection            `json:"works"`
-	MemoryCandidates []MemoryCandidateProjection `json:"memory_candidates"`
-	Events           []EventProjection           `json:"events"`
+	SessionID        string                       `json:"session_id"`
+	Turns            []TurnProjection             `json:"turns"`
+	Operations       []OperationProjection        `json:"operations"`
+	Jobs             []JobProjection              `json:"jobs"`
+	Approvals        []ApprovalProjection         `json:"approvals"`
+	SandboxReadiness []SandboxReadinessProjection `json:"sandbox_readiness"`
+	Works            []WorkProjection             `json:"works"`
+	MemoryCandidates []MemoryCandidateProjection  `json:"memory_candidates"`
+	Events           []EventProjection            `json:"events"`
 }

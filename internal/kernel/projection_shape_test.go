@@ -26,7 +26,7 @@ func TestPublicProjectionArraysMarshalAsNonNullArrays(t *testing.T) {
 		t.Fatalf("Session returned error: %v", err)
 	}
 	assertJSONArrays(t, "session", session,
-		"turns", "operations", "jobs", "works", "memory_candidates", "events",
+		"turns", "operations", "jobs", "approvals", "sandbox_readiness", "works", "memory_candidates", "events",
 	)
 
 	timeline, err := k.UITimeline(resp.SessionID)

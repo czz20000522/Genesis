@@ -38,6 +38,16 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleExecShell(w, r, k)
+		case r.Method == http.MethodGet && r.URL.Path == "/approvals":
+			if !authorizeRuntimeRequest(w, r, k) {
+				return
+			}
+			handleListApprovals(w, r, k)
+		case r.Method == http.MethodPost && isApprovalDecisionPath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
+			handleDecideApproval(w, r, k)
 		case r.Method == http.MethodPost && r.URL.Path == "/work":
 			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
 				return

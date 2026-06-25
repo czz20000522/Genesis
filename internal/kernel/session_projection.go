@@ -9,6 +9,8 @@ type sessionProjectionBuilder struct {
 	projection    SessionProjection
 	turnByID      map[string]int
 	jobByID       map[string]int
+	approvalByID  map[string]int
+	sandboxByID   map[string]int
 	workByID      map[string]int
 	candidateByID map[string]int
 }
@@ -37,12 +39,16 @@ func newSessionProjectionBuilder(sessionID string) *sessionProjectionBuilder {
 			Turns:            []TurnProjection{},
 			Operations:       []OperationProjection{},
 			Jobs:             []JobProjection{},
+			Approvals:        []ApprovalProjection{},
+			SandboxReadiness: []SandboxReadinessProjection{},
 			Works:            []WorkProjection{},
 			MemoryCandidates: []MemoryCandidateProjection{},
 			Events:           []EventProjection{},
 		},
 		turnByID:      map[string]int{},
 		jobByID:       map[string]int{},
+		approvalByID:  map[string]int{},
+		sandboxByID:   map[string]int{},
 		workByID:      map[string]int{},
 		candidateByID: map[string]int{},
 	}
@@ -50,15 +56,17 @@ func newSessionProjectionBuilder(sessionID string) *sessionProjectionBuilder {
 
 func (b *sessionProjectionBuilder) appendRawEvent(event StoredEvent) {
 	b.projection.Events = append(b.projection.Events, EventProjection{
-		EventID:     event.EventID,
-		TurnID:      event.TurnID,
-		OperationID: event.OperationID,
-		JobID:       event.JobID,
-		WorkID:      event.WorkID,
-		CandidateID: event.CandidateID,
-		Type:        event.Type,
-		CreatedAt:   event.CreatedAt,
-		Data:        inspectionEventData(event.Data),
+		EventID:            event.EventID,
+		TurnID:             event.TurnID,
+		OperationID:        event.OperationID,
+		JobID:              event.JobID,
+		WorkID:             event.WorkID,
+		CandidateID:        event.CandidateID,
+		ApprovalID:         event.ApprovalID,
+		SandboxReadinessID: event.SandboxReadinessID,
+		Type:               event.Type,
+		CreatedAt:          event.CreatedAt,
+		Data:               inspectionEventData(event.Data),
 	})
 }
 
@@ -70,12 +78,56 @@ func (b *sessionProjectionBuilder) applyOwnerEvent(event StoredEvent) error {
 		b.applyOperationEvent(event)
 	case "job.started", "job.output", "job.cancel_requested", "job.completed", "job.failed", "job.cancelled":
 		b.applyJobEvent(event)
+	case "approval.requested", "approval.approved", "approval.denied", "approval.expired":
+		b.applyApprovalEvent(event)
+	case "sandbox.ready", "sandbox.unavailable":
+		b.applySandboxReadinessEvent(event)
 	case "work.submitted", "work.canceled":
 		return b.applyWorkEvent(event)
 	case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected", "memory.candidate.superseded":
 		return b.applyMemoryCandidateEvent(event)
 	}
 	return nil
+}
+
+func (b *sessionProjectionBuilder) applyApprovalEvent(event StoredEvent) {
+	if event.Data.Approval == nil {
+		return
+	}
+	approval := *event.Data.Approval
+	if approval.ApprovalID == "" {
+		approval.ApprovalID = event.ApprovalID
+	}
+	if approval.ApprovalID == "" {
+		return
+	}
+	idx, ok := b.approvalByID[approval.ApprovalID]
+	if ok {
+		b.projection.Approvals[idx] = approval
+		return
+	}
+	b.approvalByID[approval.ApprovalID] = len(b.projection.Approvals)
+	b.projection.Approvals = append(b.projection.Approvals, approval)
+}
+
+func (b *sessionProjectionBuilder) applySandboxReadinessEvent(event StoredEvent) {
+	if event.Data.SandboxReadiness == nil {
+		return
+	}
+	readiness := *event.Data.SandboxReadiness
+	if readiness.SandboxReadinessID == "" {
+		readiness.SandboxReadinessID = event.SandboxReadinessID
+	}
+	if readiness.SandboxReadinessID == "" {
+		return
+	}
+	idx, ok := b.sandboxByID[readiness.SandboxReadinessID]
+	if ok {
+		b.projection.SandboxReadiness[idx] = readiness
+		return
+	}
+	b.sandboxByID[readiness.SandboxReadinessID] = len(b.projection.SandboxReadiness)
+	b.projection.SandboxReadiness = append(b.projection.SandboxReadiness, readiness)
 }
 
 func (b *sessionProjectionBuilder) applyTurnEvent(event StoredEvent) {

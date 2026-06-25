@@ -93,7 +93,7 @@ Observed live probe with `deepseek-v4-flash`:
 | `permission_mode` | User-facing trust mode selected by kernel startup/configuration. | `plan`, `default`, `yolo`. | Tool System authority gate. |
 | `authority_policy` | Effect-admission policy derived from `permission_mode`. | `read_only`, `workspace_write`, `full_access`, or `unknown` for fail-closed diagnostics. | Tool System authority gate. |
 | `sandbox_profile` | Actual execution isolation profile selected by the kernel. | `read_only`, `controlled_workspace`, `os_workspace`, `host`, or `none` for fail-closed diagnostics. `os_workspace` is a stronger future profile and currently fails closed when no executor can enforce it. | Tool System authority gate. |
-| `approval_policy` | Whether an otherwise admissible write effect requires approval before execution. | `never`, `on_request`. `on_request` currently blocks write tools with structured `approval_required` feedback until an approval owner exists. | Tool System authority gate. |
+| `approval_policy` | Whether an otherwise admissible write effect requires approval before execution. | `never`, `on_request`. `on_request` creates a kernel-owned pending approval for the frozen effect request, returns structured `approval_required` feedback, and executes only after an accepted approval decision. | Tool System authority gate. |
 
 `controlled_workspace` is not an OS-level sandbox claim. It means the current default executor uses Genesis-owned command parsing, workspace containment, and link checks instead of invoking the host shell. Provider-visible tool results must not include these control-plane fields.
 

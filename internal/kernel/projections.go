@@ -219,6 +219,12 @@ func redactSessionProjection(projection SessionProjection) SessionProjection {
 	for i := range projection.Jobs {
 		projection.Jobs[i] = redactJobProjection(projection.Jobs[i])
 	}
+	for i := range projection.Approvals {
+		projection.Approvals[i] = redactApprovalProjection(projection.Approvals[i])
+	}
+	for i := range projection.SandboxReadiness {
+		projection.SandboxReadiness[i] = redactSandboxReadinessProjection(projection.SandboxReadiness[i])
+	}
 	for i := range projection.Works {
 		projection.Works[i] = redactWorkProjection(projection.Works[i])
 	}
@@ -258,6 +264,22 @@ func redactJobProjection(job JobProjection) JobProjection {
 	job.FailureReason = redactEvidenceText(job.FailureReason)
 	job.CancelReason = redactEvidenceText(job.CancelReason)
 	return job
+}
+
+func redactApprovalProjection(approval ApprovalProjection) ApprovalProjection {
+	approval.PolicySnapshot.WorkspaceRoot = redactEvidenceText(approval.PolicySnapshot.WorkspaceRoot)
+	approval.Effect.CWD = redactEvidenceText(approval.Effect.CWD)
+	approval.Effect.CommandPreview = redactEvidenceText(approval.Effect.CommandPreview)
+	approval.DecisionReason = redactEvidenceText(approval.DecisionReason)
+	approval.DecisionEvidenceRef = redactEvidenceText(approval.DecisionEvidenceRef)
+	approval.BlockedReason = redactEvidenceText(approval.BlockedReason)
+	return approval
+}
+
+func redactSandboxReadinessProjection(readiness SandboxReadinessProjection) SandboxReadinessProjection {
+	readiness.WorkspaceRoot = redactEvidenceText(readiness.WorkspaceRoot)
+	readiness.UnavailableReason = redactEvidenceText(readiness.UnavailableReason)
+	return readiness
 }
 
 func redactMemoryCandidateProjection(candidate MemoryCandidateProjection) MemoryCandidateProjection {
@@ -308,16 +330,18 @@ func cloneContextRuntimeSnapshot(snapshot *ContextRuntimeSnapshot) *ContextRunti
 
 func toInspectionEvent(event StoredEvent) Event {
 	return Event{
-		EventID:     event.EventID,
-		SessionID:   event.SessionID,
-		TurnID:      event.TurnID,
-		OperationID: event.OperationID,
-		JobID:       event.JobID,
-		WorkID:      event.WorkID,
-		CandidateID: event.CandidateID,
-		Type:        event.Type,
-		CreatedAt:   event.CreatedAt,
-		Data:        inspectionEventData(event.Data),
+		EventID:            event.EventID,
+		SessionID:          event.SessionID,
+		TurnID:             event.TurnID,
+		OperationID:        event.OperationID,
+		JobID:              event.JobID,
+		WorkID:             event.WorkID,
+		CandidateID:        event.CandidateID,
+		ApprovalID:         event.ApprovalID,
+		SandboxReadinessID: event.SandboxReadinessID,
+		Type:               event.Type,
+		CreatedAt:          event.CreatedAt,
+		Data:               inspectionEventData(event.Data),
 	}
 }
 
@@ -363,6 +387,14 @@ func inspectionEventData(data EventData) EventData {
 	if data.Job != nil {
 		copied := redactJobProjection(*data.Job)
 		next.Job = &copied
+	}
+	if data.Approval != nil {
+		copied := redactApprovalProjection(*data.Approval)
+		next.Approval = &copied
+	}
+	if data.SandboxReadiness != nil {
+		copied := redactSandboxReadinessProjection(*data.SandboxReadiness)
+		next.SandboxReadiness = &copied
 	}
 	if data.KernelObservationDelivery != nil {
 		copied := KernelObservationDeliveryProjection{
@@ -442,6 +474,23 @@ func auditReplayItem(event StoredEvent) AuditReplayItem {
 			item.Tool = data.Job.Tool
 			item.ToolStatus = data.Job.Status
 			item.OutputPreview = jobOutputPreview(*data.Job)
+		}
+	case "approval.requested", "approval.approved", "approval.denied", "approval.expired":
+		if data.Approval != nil {
+			item.Tool = data.Approval.Tool
+			item.ToolStatus = data.Approval.Status
+			item.OutputPreview = boundedTimelinePreview(data.Approval.Effect.CommandPreview)
+			if data.Approval.BlockedReason != "" {
+				item.ErrorCode = data.Approval.BlockedReason
+			}
+		}
+	case "sandbox.ready", "sandbox.unavailable":
+		if data.SandboxReadiness != nil {
+			item.ToolStatus = data.SandboxReadiness.Status
+			item.OutputPreview = boundedTimelinePreview(data.SandboxReadiness.SandboxProfile)
+			if data.SandboxReadiness.UnavailableReason != "" {
+				item.ErrorCode = data.SandboxReadiness.UnavailableReason
+			}
 		}
 	case "kernel.observation.delivered":
 		if data.KernelObservationDelivery != nil {

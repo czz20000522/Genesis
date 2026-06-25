@@ -8262,6 +8262,7 @@ func TestSubmitTurnReturnsRepairFeedbackForUnknownModelToolArgumentFields(t *tes
 		"authority_policy",
 		"sandbox_profile",
 		"approval_policy",
+		"approval_id",
 		"event_id",
 		"operation_id",
 		"lease_id",
