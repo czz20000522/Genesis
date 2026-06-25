@@ -37,6 +37,73 @@ The ref is not:
 - a raw payload id;
 - a skill package path.
 
+## Reference Model Relationship
+
+Resource read is the first typed tool on top of the Genesis Reference Model. It
+does not make all references readable resources.
+
+The resource owner should project public resources through a descriptor:
+
+```text
+ReferenceDescriptor
+  ref
+  ref_kind
+  owner
+  display_label
+  available_operations
+  scope
+  provenance
+  public_metadata
+```
+
+For current text resources, `available_operations` can include `read_text` only
+when the current actor, session/task scope, grant, resource state, purpose,
+budget, and tool surface allow the request. The descriptor is a projection, not
+authority truth. `resource_read` must run admission again at call time and may
+refuse a previously projected operation when a dynamic reason exists, such as
+expired grant, resource unavailable, quarantine, or budget exhaustion.
+
+Do not use `allowed_operations`. It sounds like a final authorization promise.
+Use `available_operations` for current projection and reserve
+`supported_operations` for owner/debug metadata about what a ref kind can
+theoretically support.
+
+The resolver must classify the ref before admitting the operation:
+
+```text
+Public Reference      -> may be described and may request typed operations
+Runtime Handle        -> only valid for its runtime/control tool
+Owner Internal Ref    -> never model-visible and never accepted by resource_read
+```
+
+Examples:
+
+- `resource_ref` with `ref_kind=text_resource` can request `read_text`.
+- `job_id` can be used by `job_status` or `job_cancel`, but not by
+  `resource_read`.
+- `event_id`, `tool_call_event_id`, `operation_id`, and `checkpoint_ref` are
+  control-plane/runtime handles, not resources.
+- `storage_ref`, object keys, database row keys, host paths, raw provider
+  payload refs, debug trace paths, connector raw payload ids, and skill package
+  paths are owner-internal refs.
+
+Future source and artifact capabilities may share the descriptor and resolver
+foundation, but they stay typed:
+
+```text
+source_tree   -> source snapshot/container listing
+source_read   -> source file/range text
+source_search -> source snapshot search
+source_span   -> source span/citation projection
+artifact_list -> artifact bundle listing
+artifact_preview -> artifact preview
+```
+
+The rejected shape is a universal `ref_read(any_ref)` tool with a large
+option-heavy result. That would force callers to infer whether the response was
+text, a directory, media, a span, an artifact list, or diagnostic data, and it
+would leak owner type boundaries into the model/UI contract.
+
 ## Generic Context Hydration
 
 Context hydration is a Model Gateway input-building path backed by resource or

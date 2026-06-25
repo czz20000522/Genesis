@@ -16,12 +16,13 @@ Genesis Kernel is the authority execution layer for LLM-driven applications. It 
 
 The production target is:
 
-- every accepted effect has a kernel-owned fact trail;
+- every admitted effect has a kernel-owned fact trail;
 - every model-visible context fragment comes from an owner projection;
 - every tool call goes through registry, validation, permission, execution, and evidence;
 - every memory truth flows through candidate, review, and recall policy;
 - every shell and application is user-space and cannot bypass kernel truth;
-- every inspection surface is bounded, redacted, and purpose-specific.
+- every inspection surface is bounded, purpose-specific, and non-lossy for
+  user-owned local content by default.
 
 ## Users And Roles
 
@@ -63,8 +64,56 @@ Application:
 2. Control-plane fields are generated, bound, and validated by the kernel. The model can propose semantic content, not event ids, operation ids, session authority, sandbox profiles, approval policies, credential refs, checkpoint refs, or audit refs.
 3. Provider context is assembled by the Model Gateway from ledger-backed facts. Same-session conversation history, approved memory, tool call/result rounds, skill index metadata, and compaction summaries are not synthesized by adapters.
 4. Tools are registry-owned generic effects. Application-specific verbs do not enter the kernel as tool names.
-5. Inspection surfaces expose bounded, redacted, path-safe projections. They are not hidden owner paths for raw secrets, skill bodies, provider-native payloads, or ordinary UI access to kernel internals.
-6. Development-stage retired surfaces are removed from active code, tests, and requirements. Historical evidence may remain only in operations records.
+5. Inspection surfaces expose bounded, path-safe, purpose-specific projections.
+   They are not hidden owner paths for provider credentials, daemon-local
+   secrets, skill bodies, provider-native payloads, or ordinary UI access to
+    kernel internals. They must not irreversibly replace user-owned local content
+    merely because the text resembles a credential.
+6. State terms follow `docs/kernel-contract.md#state-semantics`. Owners must
+   distinguish request admission, runtime phase, terminal outcome, validation,
+   readiness, review, authority, and workflow control instead of reusing one
+   generic `status` vocabulary.
+7. Development-stage retired surfaces are removed from active code, tests, and requirements. Historical evidence may remain only in operations records.
+
+### Content Fidelity, Safety, And Budget Boundaries
+
+Genesis uses three separate concepts that must not be collapsed into one
+"redaction" rule.
+
+1. Content fidelity is the local truth contract. Genesis must keep the real
+   first-party material it accepted or observed: user messages, resource bodies,
+   shell stdout/stderr, memory text, and workspace material. These remain
+   user-owned content even when they contain key-shaped strings, passwords,
+   hostile prompt samples, file paths, or logs. For an authorized local user,
+   the default experience is WYSIWYG: the user should be able to inspect the
+   original material, subject only to explicit budget projection such as
+   folding, pagination, or truncation. If the system protects stored content, it
+   should use storage protection such as encryption, access control, and owner
+   refs; it must not save only a lossy replacement string that cannot be
+   restored for the authorized user.
+2. Safety is the authority and egress contract. Provider credentials, connector
+   credentials, daemon environment secrets, credential refs, sandbox authority,
+   approval decisions, and external delivery rights are protected by admission
+   gates, credential refs, explicit environment construction, approval policy,
+   and outbound egress policy. Safety prevents unintended access or external
+   disclosure; it is not a reason to hide the user's own local transcript from
+   that user.
+3. Budget is the capacity contract. Tool-round ceilings, token/context windows,
+   stdout/stderr byte caps, request/response body caps, debug trace quotas,
+   foreground timeouts, and head/tail output previews are BudgetLease or
+   owner-specific projection-budget concerns. Budget truncation must carry
+   truncation metadata and, when the owner keeps the source material, a way to
+   inspect or rehydrate authorized content. It is not sensitivity handling.
+
+The word `redaction` is reserved for an explicit lossy view across a trust
+boundary, such as a future public export, external provider egress policy,
+connector diagnostic excerpt, or operator-approved debug bundle. Redaction is
+about what leaves the local trust boundary, not about destroying what Genesis
+knows. It must name its source, audience, owner, and reason; it must not become
+canonical truth; and it must not be the default behavior for ordinary local
+UI/session/resource projections. If an external boundary cannot safely receive a
+fragment, the owning policy may omit, summarize, require approval, or block the
+egress; it must not silently corrupt the local content source.
 
 ### Persistence And Audit Layers
 
@@ -74,7 +123,7 @@ Genesis separates runtime output into five layers:
 2. Session transcript is the recovery and user-experience spine. It stores user messages, final assistant-visible replies, model-visible tool calls, model-visible final tool results, and product-approved reasoning summaries or notices. It does not store provider raw payloads or hidden reasoning chains.
 3. Kernel durable facts store recovery and state truth. Checkpoints, terminal outcomes, permission denials, operation status, job terminal state, compaction outcome, memory review decisions, work decisions, and provider usage accounting belong here even when they are not ordinary UI content.
 4. Security and control audit is strong-persistence and low-noise. It records authority changes, permission denials, credential use, dangerous-operation decisions, control-plane writes, governance publication or intake, break-glass actions, boundary-crossing access, and security failures. Ordinary success info and UI actions do not enter this audit layer.
-5. Debug trace is opt-in. It may record provider projection summaries, response summaries, internal spans, chunk-level diagnostics, and gateway decisions, but it must have explicit enablement, bounded retention, quota, and redaction. Debug trace does not participate in replay, memory, provider context, or audit decisions.
+5. Debug trace is opt-in. It may record provider projection summaries, response summaries, internal spans, chunk-level diagnostics, and gateway decisions, but it must have explicit enablement, bounded retention, quota, access controls, and any audience-specific egress policy. Debug trace does not participate in replay, memory, provider context, or audit decisions.
 
 A runtime event can enter long-term facts only when it is user-visible or model-visible, required for replay/recovery/idempotency/checkpointing, changes kernel-owned state, records a permission or risk decision, records failure or abnormal termination, or feeds provider context, compaction, memory recall, or observation delivery. Otherwise it stays in realtime transport, debug trace, or aggregate metrics.
 
@@ -156,7 +205,7 @@ Every production store or schema proposal must answer:
 - Token accounting belongs to the Model Gateway. Compaction selectors consume provider-backed accounting and do not fall back to local text token estimates.
 - Provider failures become structured model/provider failures. They are not command stderr and are not disguised as tool results.
 - Provider retry is a Model Gateway contract. Non-streaming provider calls may retry only pre-output transient failures such as temporary transport errors, HTTP 408, 429, and 5xx. Authentication, authorization, billing/quota, configuration, request-shape, provider-command process, and provider-command response-shape failures fail fast with typed reasons.
-- Provider retry evidence is durable and bounded. Each retry, repair, and final failure records attempt status, reason code, retryability, and a redacted message without storing raw provider payloads or credentials.
+- Provider retry evidence is durable and bounded. Each retry, repair, and final failure records attempt status, reason code, retryability, and safe diagnostic text without storing raw provider payloads or provider credentials.
 - A provider response that is syntactically valid but lacks a visible final answer is repairable only through a bounded Model Gateway visible-final repair step. The repair prompt may ask for a visible answer; it must not replay hidden reasoning. Repeated empty visible finals fail with a typed provider-visible-final reason.
 - Future streaming provider reconnects must preserve the no-replay-after-visible-output rule: a stream may be retried only before visible assistant output or tool calls have been accepted into the kernel fact trail.
 - Context compaction is executed by a kernel compaction runner. Triggers submit typed kernel commands; shells, adapters, provider commands, and daemons do not summarize, truncate, or rewrite history.
@@ -175,7 +224,10 @@ Every production store or schema proposal must answer:
 - Tool call batches are preflighted as a unit before any effect executes.
 - Tool results preserve the distinction between invalid request, permission denial, command failure, and tool infrastructure failure.
 - Long output is presented with bounded head/tail text, truncation flags, original byte counts, omitted byte counts, and a visible omission marker.
-- Redaction is projection policy. It must not mutate append-only operation evidence before it is recorded.
+- Output bounding is BudgetLease or owner-specific projection-budget policy. It
+  must not be described as sensitivity handling. Ordinary local projections must
+  not lossy-mask key-shaped user content; explicit external egress policy is a
+  separate safety decision.
 - Tool-loop budget exhaustion is a recoverable control stop, not a provider
   failure and not a tool failure. The configured round budget is owned by a
   kernel-minted `BudgetLease`, not by hidden package constants and not by
@@ -291,7 +343,9 @@ in-flight effects.
 ### Authority And Credential Plane
 
 - Runtime-protected routes require a configured runtime token. Readiness is blocked when protected work cannot be accepted.
-- Credentials are referenced through kernel-owned refs, not raw secrets in config, prompts, events, logs, readiness, provider context, or model-visible tool results.
+- Provider and connector credentials are referenced through kernel-owned refs,
+  not raw credential strings in config, prompts, events, logs, readiness,
+  provider context, or model-visible tool results.
 - `plan`, `default`, and `yolo` are user-facing permission modes. The kernel resolves them into `authority_policy`, `sandbox_profile`, and `approval_policy` before admission.
 - Current `default` is a controlled-workspace adapter, not an OS-level sandbox claim.
 - Default `approval_policy` is `never`. `on_request` is a kernel-owned admission state: write tools create `approval.requested` for the frozen effect request, return structured `approval_required` feedback, and produce no side effect until the approval owner accepts a decision command.
@@ -369,15 +423,22 @@ records decision evidence before execution.
 - `memory.recall` is a read-only observation surface. It does not run a model, append review evidence, or mutate candidates.
 - Turn submission may record recalled approved memory refs on the admitted turn event.
 - Approved memory truth and provider-visible memory context are separate projections. Approval allows recall eligibility; it does not guarantee that raw text is safe to replay to every future provider request.
-- Provider-visible approved memory context is bounded and redacted by default. Secret-shaped tokens, authorization headers, passwords, provider keys, connector tokens, and similar credential material are removed from the model-visible memory fragment without mutating Accumulation owner truth.
-- A future explicit sensitivity or credential-grant owner may define narrower exceptions, but absent that owner the conservative provider projection wins over raw approved text.
+- Provider-visible approved memory context is an external egress projection. It
+  is bounded by context budget and governed by the Model Gateway egress policy;
+  it does not mutate Accumulation owner truth and does not imply that local UI
+  must hide key-shaped user content. Until an explicit egress policy can decide
+  a fragment safely, the gateway should omit, summarize, or require approval
+  rather than silently replacing local memory text with irreversible markers.
 
 ### Readiness And Inspection
 
 - `/ready` reports whether the kernel can accept protected work and names structured blockers.
 - Capability inspection reports provider/runtime/ledger status, canonical kernel tool names, and safe skill metadata.
 - Timeline, raw events, audit, and context inspection are separate projections for different audiences.
-- Context inspection reports provider-visible input kinds, tool manifest names, skill metadata summaries, approved memory refs, provider status, and resolved permission profile without exposing full rendered prompts or raw secrets.
+- Context inspection reports provider-visible input kinds, tool manifest names,
+  skill metadata summaries, approved memory refs, provider status, and resolved
+  permission profile without exposing full rendered prompts, provider
+  credentials, connector credentials, or daemon-local secrets.
 - Audit inspection reports event types, operation status, provider context input kinds, usage, failure codes, and truncation metadata.
 - Ordinary UI timeline omits kernel-owned ids and control-plane internals unless the user opens a diagnostics surface.
 - Ordinary UI timeline is the chat-readable projection. It shows user messages, final assistant messages, and compact processing summaries; it does not render raw kernel events, raw tool results, raw job lifecycle events, audit facts, or context inspection facts as chat rows.
@@ -458,7 +519,9 @@ Negative cases:
 - `shell_exec` is not classified as pure read by command text inspection alone;
 - tool/job failures do not become ordinary chat messages and do not force the processing group open after the final assistant message starts;
 - approval-required state is projected as a user action rather than as an assistant-authored message or a generic failed tool row;
-- raw secrets do not appear in context, logs, readiness, events, or model-visible results;
+- provider/connector credential material and daemon-local secrets do not appear
+  in context, logs, readiness, events, or model-visible results merely because a
+  caller supplied or the daemon inherited them;
 - unsafe skill metadata is excluded;
 - rejected and superseded memories do not enter recall.
 

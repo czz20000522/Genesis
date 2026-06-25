@@ -16,7 +16,8 @@ storage references, preview references, and bounded read projections. A model ca
 read only a resource ref that the kernel or an application has already admitted
 into the current task context. Reading a resource is a governed kernel tool
 operation with schema validation, permission/grant checks, bounded output,
-redaction policy, truncation metadata, and deterministic tool-result ordering.
+content-fidelity policy, projection-budget metadata, and deterministic
+tool-result ordering.
 
 ## Roles
 
@@ -35,6 +36,14 @@ redaction policy, truncation metadata, and deterministic tool-result ordering.
 
 - `resource_ref` is an opaque model-visible handle, not a filesystem path and
   not an external protocol id.
+- `resource_ref` is one kind of Public Reference under the kernel Reference
+  Model. Runtime handles such as `event_id`, `tool_call_event_id`, `job_id`,
+  `operation_id`, `work_ref`, `request_ref`, and `checkpoint_ref` are not
+  resources and must not be accepted by `resource_read`.
+- Owner-internal refs such as `storage_ref`, object keys, database row keys,
+  host paths, raw provider payload refs, debug trace paths, connector raw
+  payload ids, and skill package paths must never become model-visible
+  `resource_ref` values.
 - A resource read is `pure_read` only when the resource owner can prove the ref
   points to immutable or snapshot-stable content for the duration of the turn.
 - Unknown, expired, unauthorized, binary-only, or malformed refs fail before any
@@ -49,6 +58,60 @@ redaction policy, truncation metadata, and deterministic tool-result ordering.
 - Resource refs can participate in scheduling footprints. Compatible immutable
   reads can be planned into the same parallel batch; reads of mutable owner
   state remain `state_read`.
+
+## Reference Descriptor And Operation Grants
+
+Genesis should unify reference identity and admission without merging every
+reference into a universal read tool. The resource owner should be able to
+project a descriptor for each model-visible resource:
+
+```text
+ReferenceDescriptor:
+  ref
+  ref_kind
+  owner
+  display_label
+  available_operations
+  scope
+  provenance
+  public_metadata
+```
+
+`available_operations` is a current projection computed from actor, scope,
+grant, purpose, resource state, and active tool surface. It is not the authority
+truth and it is not the same as static `supported_operations`. Tool execution
+must re-run admission, because grants can expire, resources can become
+unavailable, snapshots can be quarantined, and budgets can be exhausted after a
+descriptor was projected.
+
+Resource read uses an operation-level grant:
+
+```text
+operation = read_text
+```
+
+Future source and artifact tools may share the same reference descriptor and
+resolver foundation, but they must keep typed tools and typed result schemas:
+
+```text
+source_tree   ~= list_children on a source snapshot/container
+source_read   ~= read_text on a source file
+source_search ~= search on a source snapshot
+source_span   ~= read_span on a source span/citation ref
+artifact_list / artifact_preview remain artifact-owner tools
+```
+
+Genesis must not introduce a universal `ref_read(any_ref)` result full of
+optional fields for text, directories, media, artifacts, spans, and debug data.
+The common part is descriptor, resolver, grant, and admission; the operation
+tools stay typed by owner capability.
+
+Skill loading, workflow node selection, project binding, and workspace context
+do not grant resource access. They may surface a descriptor or request
+admission, but the resolver still decides from actor, scope, grant, purpose,
+snapshot, freshness, and budget. Resolver failure fails closed with structured
+repair feedback and must not fall back to host paths or owner-internal storage
+refs.
 
 ## Context Hydration Semantics
 
@@ -147,7 +210,9 @@ skill-specific kernel tool such as `read_skill` or `skill.read`.
 - A resource read after a write fence cannot cross that fence.
 - Model-visible tool manifest does not expose scheduling metadata, storage
   paths, hidden body refs, or credential refs.
-- Tool result output is bounded, redacted, and includes truncation metadata.
+- Tool result output is bounded by projection budget and includes truncation
+  metadata. It must not irreversibly replace user-owned resource text merely
+  because the text resembles a credential.
 - Full skill bodies are absent from default provider context, capabilities,
   timeline, and context inspection unless they have been explicitly admitted as
   bounded generic hydrated context.

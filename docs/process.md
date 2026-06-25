@@ -108,6 +108,14 @@ The scan is about control-plane semantics, not feature parity. Check for compara
 
 The reference scan is local. It compares Genesis against the local `codex-main` and `reasonix` checkouts. It must not look up a Genesis remote, GitHub repository, issue tracker, or release history as project authority.
 
+State semantics are part of the reference scan and design gate. New
+requirements, designs, implementation plans, issues, and DTOs must use
+`docs/kernel-contract.md#state-semantics` for request admission, runtime phase,
+terminal outcome, validation, readiness, review, authority, and workflow
+control. If a patch needs older terms such as `accepted`, `rejected`, or
+`blocked`, it must explain whether the term is an existing compatibility surface,
+a derived projection, or a deliberate owner-specific exception.
+
 The scan must read implementation behavior, not just names. A reference is not
 "aligned" merely because both projects have a `Session`, `Controller`, `Tool`,
 `Job`, `Queue`, or `Provider` symbol. The scan should trace the actual path from
@@ -162,7 +170,7 @@ choose the relevant cases from this checklist:
 - persistence, replay, idempotency, resume, or duplicate-delivery behavior;
 - separation between provider context, UI projection, audit/replay, and raw
   debug detail;
-- bounded output, truncation, redaction, and malformed payload handling;
+- bounded output, truncation, explicit external-egress policy, and malformed payload handling;
 - concurrency, ordering, lease, or handle serialization when the capability can
   run in parallel or outlive a turn;
 - failure, retry, cancellation, or recovery behavior when the capability crosses

@@ -123,3 +123,10 @@ issues remain in `docs/operations/kernel-issues.md`.
 - `code-intelligence-runtime-design.md`: the owner split and data flow for
   `User-space Code Intelligence Runtime -> CodeGraph Adapter -> codegraph
   CLI/MCP`.
+- `workflow-runtime-requirement.md`: the production boundary for
+  developer-authored workflow config, compiled definitions, fixed workflow
+  runs, deterministic node transitions, run logs, and the TaskGraph/Workflow
+  split.
+- `workflow-runtime-design.md`: the owner split, data shapes, execution model,
+  config compilation, generated flowchart projection, failure behavior, and
+  log-driven optimization model for user-space Workflow Runtime.

@@ -50,6 +50,43 @@ same rule when clients are expected to iterate them. Optional scalar fields and
 diagnostic-only nested collections may still be omitted when absence is the
 documented meaning.
 
+## Content Fidelity, Safety, And Budget Implementation
+
+The kernel treats local content fidelity, security, and budget as separate
+implementation paths.
+
+Local content fidelity means Genesis retains the real first-party material it
+accepted or observed, and the authorized user's own messages, shell output,
+resource text, memory text, and workspace material remain readable as the user
+supplied or observed them. A string that looks like a provider key is not
+automatically a credential just because it appears inside user content. Local
+projections may fold, paginate, or truncate for budget, but they must not
+replace the source text with irreversible markers as the default behavior. The
+default local rule is WYSIWYG against the retained source, not "mask anything
+that looks risky."
+
+Safety is enforced before authority crosses a boundary. The kernel uses
+credential refs, explicit environment construction, sandbox admission, approval
+owners, connector/provider adapter boundaries, and future egress policy to keep
+provider credentials, connector credentials, daemon-local secrets, and
+authority handles from leaking or being misused. These mechanisms protect access
+and external disclosure; they are not text-replacement filters for the user's
+own local data.
+
+Budget is implemented by owner-specific budget and projection controls:
+BudgetLease for turn/tool execution ceilings, provider-backed context accounting
+for compaction, and output projection budgets for long stdout/stderr or resource
+previews. Budgeted projections carry truncation metadata and should preserve a
+rehydration or inspection path when the owning source is retained. Truncation is
+therefore an explicit capacity decision, not a sensitivity decision.
+
+The word `redaction` is used only for an explicit lossy view at a trust boundary
+with a named source, audience, owner, and reason. Examples are a future public
+export, an external provider egress decision, a connector diagnostic excerpt, or
+an operator-approved debug bundle. Redaction is about the view being sent out,
+not the material Genesis owns. Redacted output is never canonical owner truth
+and must not be the default local UI/session/resource behavior.
+
 ## Model Gateway Resilience
 
 Provider reliability belongs to the Model Gateway, not to shells,
@@ -80,7 +117,7 @@ For the current non-streaming provider surface, the retry planner is:
 
 Retry and repair evidence is inspection and audit material, not transcript
 content. It may include attempt number, max attempts, status, reason code,
-retryability, repair kind, and redacted diagnostic text. It must not include
+retryability, repair kind, and safe diagnostic text. It must not include
 provider raw payloads, credentials, authorization headers, hidden reasoning, or
 provider-native request bodies.
 
@@ -364,7 +401,8 @@ Reference alignment:
 - Permission denial blocks before effect and records policy evidence.
 - Command failure returns terminal-equivalent output evidence.
 - Tool infrastructure failure is separate from command failure.
-- Credential failure blocks readiness or authorized effects without exposing raw secrets.
+- Credential failure blocks readiness or authorized effects without exposing
+  provider credentials, connector credentials, or daemon-local secrets.
 
 ## Permission And Authority
 
@@ -479,7 +517,7 @@ Reference alignment:
   concrete executor can enforce it; no silent host fallback is allowed for a
   configured stronger profile.
 
-## Memory Context Sensitivity
+## Memory Context Egress
 
 Accumulation owns raw memory candidate truth, review decisions, and recall
 eligibility. The Model Gateway owns the provider-visible memory fragment derived
@@ -491,19 +529,23 @@ The provider-context flow is:
    candidate text and source refs as owner truth.
 2. Turn admission records the recalled refs on the turn event.
 3. Before building `approved_memory_context`, the Model Gateway applies the
-   model-visible context projection policy.
-4. The projection keeps useful semantic text, but redacts credential-shaped
-   substrings such as provider keys, bearer tokens, authorization headers,
-   passwords, API keys, and connector tokens.
-5. Session, context inspection, timeline, and provider-command projections use
-   the same model-visible redaction boundary or a stricter inspection boundary.
+   model-visible egress and budget policy.
+4. The projection keeps useful semantic text only when the policy can send it
+   without turning local user content into an irreversible lossy view. If the
+   gateway cannot decide safely, it omits, summarizes, or requests approval
+   rather than replacing the owner text with markers.
+5. Session, context inspection, timeline, and provider-command projections are
+   separate read models. Local user-facing projections preserve authorized
+   content subject to budget; provider egress may be stricter because it crosses
+   an external boundary.
 6. The raw memory candidate remains unchanged inside the Accumulation owner
    store and review surfaces that are explicitly owner-authorized.
 
 Approval therefore means "eligible for recall," not "safe to replay raw to the
-provider forever." A future sensitivity owner may add explicit grants, scopes,
-or credential handles, but the default projection remains conservative and does
-not rely on prompt instructions telling the model to ignore secrets.
+provider forever." A future egress or credential-grant owner may add explicit
+grants, scopes, or credential handles, but the default policy remains
+conservative and does not rely on prompt instructions telling the model to
+ignore credentials.
 
 ## Recovery And Observability
 
@@ -519,9 +561,9 @@ Observability is split by audience:
 - audit for authority, risk, control, credential, and failure evidence;
 - context for provider-visible inputs;
 - capabilities and readiness for operator status;
-- debug trace for opt-in, bounded, redacted diagnostics outside canonical replay.
+- debug trace for opt-in, bounded, access-controlled diagnostics outside canonical replay.
 
-Provider raw requests are not transcript. Production storage keeps derivation evidence such as included event refs, input kinds, manifest or skill refs, compaction refs, gateway profile id, and normalized usage. Full prompt or provider payload capture belongs only in debug trace, and even then stays bounded and redacted.
+Provider raw requests are not transcript. Production storage keeps derivation evidence such as included event refs, input kinds, manifest or skill refs, compaction refs, gateway profile id, and normalized usage. Full prompt or provider payload capture belongs only in debug trace, and even then stays bounded, access-controlled, and subject to explicit egress policy.
 
 ## Auto Compaction Stuck Guard
 

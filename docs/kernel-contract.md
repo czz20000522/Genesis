@@ -105,6 +105,279 @@ The LLM is not a boundary owner. It produces semantic intent. The boundary
 owner decides how that intent becomes an admitted request, command, action, or
 receipt under the relevant authority and recovery model.
 
+## Reference Model
+
+Genesis uses many handles, but they are not all resource references. New
+contracts must classify every handle by visibility, owner, and allowed use
+before it can enter model context, tool arguments, logs, or UI projections.
+
+There are three reference layers:
+
+```text
+Public Reference
+Runtime Handle
+Owner Internal Ref
+```
+
+Public References are owner-issued, user-visible handles for materials or
+artifacts that users, LLMs, and UI surfaces may mention. Examples include user
+uploaded materials, admitted resource refs, source snapshots, source spans,
+artifact bundles, drafts, reports, and future user-visible capability assets.
+They can appear in transcript projections, model-visible context, typed tool
+arguments, and UI/detail views only through an owner-approved projection.
+
+Runtime Handles are control-plane handles for a specific runtime owner. Examples
+include `event_id`, `tool_call_event_id`, `job_id`, `job_event_id`,
+`operation_id`, `work_ref`, `request_ref`, and `checkpoint_ref`. A runtime
+handle may be used by the specific runtime/control tool that issued or governs
+it, such as `job_status(job_id)` or `job_cancel(job_id)`. It must not be treated
+as a public resource and must not be accepted by generic resource-read tools.
+
+Owner Internal Refs are private implementation references. Examples include
+`storage_ref`, object keys, database row keys, host paths, raw provider payload
+refs, debug trace paths, connector raw payload ids, and skill package paths.
+They are owner-private storage or diagnostic implementation details. They must
+not be model-visible, must not be copied into public references, and must not be
+used as tool arguments outside the owner that created them.
+
+The stable public shape is a descriptor projection, not a universal read tool:
+
+```text
+ReferenceDescriptor
+  ref
+  ref_kind
+  owner
+  display_label
+  available_operations
+  scope
+  provenance
+  public_metadata
+```
+
+`available_operations` is a projection of what the current actor, scope, grant,
+purpose, resource state, and tool surface may request now. It is not authority
+truth. The authority truth remains owner grant plus resolver admission at tool
+execution time. If a descriptor says an operation is available and the same
+request scope immediately refuses that operation without a dynamic reason such
+as grant expiry, budget exhaustion, quarantine, or resource unavailability, that
+is a projection bug.
+
+`supported_operations` may exist as owner/debug metadata for what a ref kind can
+theoretically support, but it is not the same as availability and should not be
+the default model-visible field. Static ref kind capability must not be confused
+with current authorization.
+
+Reference operations are operation-specific. Reading text, listing children,
+searching, reading a span, previewing, downloading, mounting into a sandbox, and
+writing an artifact are different grants:
+
+```text
+read_text
+list_children
+search
+read_span
+preview
+download
+sandbox_mount
+artifact_write
+```
+
+Skill loading, workflow node selection, project binding, and workspace context
+do not grant reference access by themselves. They may surface public references
+or request admission, but the resolver must still evaluate actor, scope, grant,
+purpose, snapshot, freshness, and budget.
+
+Typed tools may share the same reference resolver and grant model, but Genesis
+must not collapse all references into a single `ref_read` tool with an
+option-heavy response. Tools stay typed by owner capability:
+
+```text
+resource_read        -> text-like admitted resources
+source_tree          -> source snapshot/container listing
+source_read          -> source file text/range
+source_search        -> source snapshot search
+source_span          -> source span/citation projection
+artifact_list        -> artifact bundle listing
+artifact_preview     -> artifact preview
+job_status/job_cancel -> runtime job handles, not resources
+```
+
+Generic `ref_stat` or `reference.describe` may exist as a descriptor surface, but
+it must not imply that any operation is authorized. Every operation still goes
+through the typed owner tool and rechecks admission at call time. Resolver
+unavailability fails closed with a structured `resource_unavailable` or
+`readiness=not_ready` style reason; tools must not fall back to host paths,
+storage keys, database keys, raw payload refs, or best-effort filesystem reads.
+
+## State Semantics
+
+Genesis state terms are axis-specific. New contracts must not use one generic
+`status` vocabulary to mean admission, execution, validation, readiness,
+review, authority, and workflow control at the same time. Each owner must name
+the semantic axis it is recording. UI and inspection projections may still
+publish compact `status` fields, but those fields are derived read models, not
+canonical truth.
+
+### Admission Result
+
+Admission answers whether an owner can receive a request or fact into its
+ledger or state machine.
+
+```text
+admission_result = admitted | refused
+refusal_reason_class =
+  invalid_request
+  permission_denied
+  scope_violation
+  conflict
+  resource_unavailable
+  quota_exceeded
+  unknown_ref
+```
+
+`admitted` means the owner accepted the request into its own control path. It
+does not mean the request is approved, executed, valid, or successful.
+`refused` means the owner did not receive the request as an admitted fact.
+`refused` must carry a reason class; otherwise it is indistinguishable from a
+review rejection.
+
+Use `refused` for "I cannot receive this request." Use `rejected` only for "I
+received this candidate and judged its content unsuitable" in a review axis.
+
+### Runtime Activity
+
+Runtime activity answers where a run, turn, operation, job, invocation, or
+workflow node execution is in its lifecycle. It does not encode the final
+result by itself.
+
+```text
+phase = queued | running | waiting | finalizing | ended
+wait_reason =
+  approval_required
+  revision_requested
+  user_input_required
+  dependency_wait
+  budget_pause
+```
+
+`waiting` is a phase, not a failure. For example, a run waiting for user
+approval uses `phase=waiting` and `wait_reason=approval_required`.
+
+### Terminal Outcome
+
+Terminal outcome appears only when `phase=ended`. It summarizes how the
+activity ended, while the cause explains why.
+
+```text
+terminal_outcome = succeeded | failed | cancelled | interrupted
+terminal_cause =
+  timeout
+  budget_exhausted
+  runtime_error
+  permission_denied
+  dependency_unavailable
+  user_cancelled
+```
+
+A terminal outcome must not directly drive a workflow edge. Workflow transition
+owners must derive edge movement from outcome plus cause plus validation,
+review, authority, and owner-specific evidence.
+
+### Validation Result
+
+Validation answers whether a machine-checkable predicate passed.
+
+```text
+validation_result = passed | failed | not_run | inconclusive
+validation_reason =
+  missing_evidence
+  oracle_missing
+  sandbox_unavailable
+  unsupported_source
+```
+
+Do not use `blocked` for validation. If validation did not run, record
+`not_run` and explain why.
+
+### Readiness
+
+Readiness answers whether a component or system can enter the next stage.
+
+```text
+readiness = ready | not_ready
+readiness_reason =
+  missing_credential
+  ledger_unavailable
+  provider_unavailable
+  sandbox_unavailable
+  validation_not_passed
+```
+
+Readiness is not execution success. A component can be `ready` before any work
+runs, and a completed run does not make an unavailable component ready.
+
+### Review Decision
+
+Review decision answers whether an admitted candidate is acceptable as content,
+design, memory, workflow output, or another reviewable artifact.
+
+```text
+review_decision = approved | revision_requested | rejected | waived
+```
+
+`rejected` belongs here because review implies the candidate was received and
+judged. It must not be used as the negative term for request admission.
+
+### Authority Decision
+
+Authority decision answers whether a permission, approval, or governance
+authority grants a requested effect.
+
+```text
+authority_decision = approved | denied | expired
+```
+
+Use `denied` for permission that is not granted. Do not call authority denial
+`rejected`, because it is not a quality review.
+
+### Workflow State
+
+Workflow state controls a developer-authored flow definition. It is not the same
+as runtime lifecycle and not the same as TaskGraph topology.
+
+```text
+workflow_state =
+  at_node
+  waiting_for_feedback_action
+  waiting_for_revision
+  exhausted
+  ended
+
+edge_condition =
+  passed
+  failed
+  revision_requested
+  escalation_required
+  cancelled
+```
+
+Workflow nodes may return declared outcomes and evidence, but the workflow owner
+derives edge conditions. A node cannot mutate the workflow definition, broaden
+capability grants, or convert its own terminal outcome directly into an edge.
+
+### Naming Rules
+
+- `accepted`, `rejected`, and `blocked` are not new cross-system status words.
+- Request intake uses `admitted/refused`.
+- Machine checks use `passed/failed/not_run/inconclusive`.
+- Content review uses `approved/revision_requested/rejected/waived`.
+- Authority uses `approved/denied/expired`.
+- Runtime uses `phase + terminal_outcome + terminal_cause`.
+- Readiness uses `ready/not_ready + readiness_reason`.
+- Workflow uses `workflow_state` and `edge_condition`.
+- Existing implementation fields that still expose older terms must be migrated
+  through owner-specific issues instead of copied into new contracts.
+
 ## Provider, Role, Invocation, And TaskGraph Boundaries
 
 This section records the boundary decision for future provider routing, role profiles, multi-agent execution, and project task graphs. The decision comes from the Genesis kernel rewrite discussion and from reviewing the Python TaskGraph and multi-agent design: Genesis should keep the useful control-plane ideas, but it must not copy the old implementation shape or let application roles become kernel authority.
@@ -112,8 +385,9 @@ This section records the boundary decision for future provider routing, role pro
 The layer split is:
 
 ```text
-Application / Agent Framework  owns strategy, role taxonomy, graph templates, and user experience
-TaskGraphOwner                 owns project work topology facts
+Application / Agent Framework  owns strategy, role taxonomy, workflow use, and user experience
+Workflow Runtime               owns developer-authored fixed execution contracts
+TaskGraphOwner                 owns dynamic project work topology facts
 Agent Kernel                   owns controlled execution facts
 Model Gateway                  owns Genesis model protocol and model-policy resolution
 Provider Adapter               owns vendor payload translation
@@ -140,6 +414,28 @@ Only an invocation with a validated CapabilityGrant may execute. A `CapabilityGr
 TaskGraph is project-level work topology fact, not a kernel scheduler. TaskGraphOwner is a platform owner that may run in the same binary as the kernel, but it is not Agent Kernel core. It owns `graph_id`, `node_id`, `edge_id`, graph edit admission, node status transitions, dependency edges, evidence refs, projection, and replay for project work topology. It does not execute tasks, choose providers, assign role authority, grant tools, manage jobs, or write kernel execution events.
 
 TaskGraph nodes do not grant authority. A node kind such as `review`, `implementation`, `repair`, `verification`, `investigation`, or `decision` may help an application organize work, but it cannot imply read access, write access, shell access, network access, provider choice, role choice, or credential access. Execution requires a separate AgentInvocation whose CapabilityGrant was validated by the kernel.
+
+Workflow is developer-authored execution contract, not dynamic work topology and
+not a kernel scheduler. Workflow Runtime is a user-space platform owner for
+fixed production processes. It owns workflow definition identity, definition
+hash binding, node state, deterministic edge transitions, retry policy, run
+logs, artifact refs, flowchart projections, and workflow projections. It does
+not own provider context, tool results, memory truth, approval decisions,
+credential resolution, jobs, BudgetLease, audit, or kernel event facts.
+
+TaskGraph and Workflow are different owners. TaskGraph is dynamic, revisable,
+and may be shaped by LLM or application proposals after owner validation.
+Workflow is fixed during a run. Developers define the workflow before execution;
+nodes only return declared outcomes, evidence refs, artifact refs, diagnostics,
+and bounded structured data. A node cannot add nodes, replace checkers, rewrite
+edges, change allowed outcomes, broaden capability grants, or upgrade its
+budget. Run logs inform later developer-authored workflow revisions; they are
+not a self-modification channel for the current run.
+
+Skill, tool, and workflow are orthogonal. Loading a skill does not restrict or
+grant tools. Registering a tool does not imply a skill. A workflow may select
+which node instructions, tools, or application services a node can request, but
+kernel CapabilityGrant and ToolGateway still decide execution authority.
 
 Applications and parent orchestrators may propose graph edits and delegation. TaskGraphOwner admits or rejects graph changes. The Agent Kernel admits or rejects execution. The normal flow is:
 
@@ -176,9 +472,9 @@ These names are conceptual. The first implementation may expose HTTP endpoints, 
 
 Kernel-owned HTTP paths are not versioned. Contract evolution belongs in typed request/response schema changes, capability readiness, and explicit acceptance evidence, not in numbered transport prefixes that become stale compatibility surfaces.
 
-The first HTTP transport for `turn.stream` is `GET /turns/{id}/events`. It reads ordered turn events from the kernel ledger through a raw event inspection projection. It is intentionally a minimal observation surface, not a streaming protocol commitment and not a shell/UI timeline owner. Raw event inspection keeps typed event envelopes and correlation ids for authorized debugging, but projects redacted payload text rather than raw credential-shaped evidence.
+The first HTTP transport for `turn.stream` is `GET /turns/{id}/events`. It reads ordered turn events from the kernel ledger through a raw event inspection projection. It is intentionally a minimal observation surface, not a streaming protocol commitment and not a shell/UI timeline owner. Raw event inspection keeps typed event envelopes and correlation ids for authorized debugging, but it is still a bounded inspection projection rather than the append-only evidence store or an external export surface.
 
-The replay/audit read model is `GET /turns/{id}/audit`. It projects event types, operation status, provider-context input kinds, final usage, failure codes, and output truncation metadata. It is not the ordinary UI timeline and not the next provider context. Audit replay may include replay identifiers such as event id and operation id, but it must not expose provider credentials, raw secret-bearing stderr/stdout, or full command output when a bounded preview is enough.
+The replay/audit read model is `GET /turns/{id}/audit`. It projects event types, operation status, provider-context input kinds, final usage, failure codes, and output truncation metadata. It is not the ordinary UI timeline and not the next provider context. Audit replay may include replay identifiers such as event id and operation id, but it must not expose provider or connector credentials, daemon-local secrets, or full command output when a bounded preview is enough.
 
 The user-facing timeline read model is `GET /sessions/{id}/timeline`. It merges `tool.call` and `tool.result` causality into stable tool items, projects ordinary user and assistant message items, and omits kernel-owned event, operation, provider-call, checkpoint, and audit identity from ordinary UI items. Raw events remain available through the event inspection surface; WebUI, desktop shells, and external apps must not rebuild chat timelines by rendering raw ledger events directly.
 
@@ -188,7 +484,7 @@ Detailed UI surfaces are projections layered under timeline items. A processing 
 
 The runtime context inspection read model is `GET /turns/{id}/context`. It is a diagnostics surface for the per-turn provider-visible snapshot recorded on `turn.submitted`: user input, model input kinds, model-visible tool manifest, skill summaries, recalled memory refs, provider status, and the resolved permission profile. That profile separates the user-facing `permission_mode` from `authority_policy`, `sandbox_profile`, and `approval_policy`; shells and providers must not infer execution authority from the mode string alone. It does not store or project the fully rendered model-context text in raw events. It is not part of the chat timeline. If an older ledger entry lacks a context snapshot, the projection must report `snapshot_unavailable` rather than pretending the current runtime state was the historical context.
 
-The first protected inspection transport is `GET /capabilities`. It is part of Readiness/Inspection, not an application registry. It lets authorized shells, desktop apps, or external daemons inspect provider/runtime/ledger status, canonical kernel tool capability names, and a safe skill catalog projection. It must not expose filesystem paths, provider credentials, raw secret refs, skill bodies, or application-specific outbound APIs.
+The first protected inspection transport is `GET /capabilities`. It is part of Readiness/Inspection, not an application registry. It lets authorized shells, desktop apps, or external daemons inspect provider/runtime/ledger status, canonical kernel tool capability names, and a safe skill catalog projection. It must not expose filesystem paths, provider credentials, credential storage refs, skill bodies, or application-specific outbound APIs.
 
 ## Kernel Planes
 
@@ -196,7 +492,7 @@ The first protected inspection transport is `GET /capabilities`. It is part of R
 
 Owns request normalization, session identity, event emission, idempotency, and turn admission. It does not know which shell submitted the request.
 
-Session events are the primary fact stream for turn-scoped execution. Session, turn, operation, work, and memory views are read models derived from ledger events, not separate sources of truth. `GET /sessions/{id}` may retain object projections for ergonomic inspection, but those top-level objects and its ordered `events` list are redacted inspection projections, not raw ledger records. Shells can render or replay the canonical sequence without reassembling facts from unrelated projection arrays, but they must not treat session JSON as the append-only evidence store.
+Session events are the primary fact stream for turn-scoped execution. Session, turn, operation, work, and memory views are read models derived from ledger events, not separate sources of truth. `GET /sessions/{id}` may retain object projections for ergonomic inspection, but those top-level objects and its ordered `events` list are bounded inspection projections, not raw ledger records. Shells can render or replay the canonical sequence without reassembling facts from unrelated projection arrays, but they must not treat session JSON as the append-only evidence store.
 
 Short synchronous tool calls are represented as `tool.call` followed by `tool.result`. The `tool.call` event owns the model-provided tool slot, and `tool.result.tool_result.for_event_id` points back to that event id. Operation events may appear between them as execution evidence for effectful tools. Long-running kernel-owned jobs are separate future events; short tools do not create jobs merely to report a result.
 
@@ -216,7 +512,7 @@ Provider-native usage fields are normalized into kernel-owned final evidence as 
 
 The local binary resolves provider startup from Genesis-owned model gateway configuration by default. The canonical user config root is `~/.genesis/config`; `models.json` selects a role-bound gateway profile, the gateway route, provider protocol, model id, timeout, and either an external provider command or a built-in adapter endpoint. The kernel may expose operator flags to select a profile or config root, but it must not require Codex environment variables or Codex credentials for Genesis live operation.
 
-`provider_command` is the preferred long-lived boundary for provider integrations. Before every provider call, the Model Gateway rebuilds a provider-context projection from the ledger: same-session conversation history, submitted model input fragments, the model-visible tool manifest, and prior model-visible tool call/result rounds. The kernel writes that projection to the configured command's stdin with `protocol=genesis.provider_command`, `session_id`, `turn_id`, `model`, ordered `input_items`, `tool_manifest`, and `tool_rounds`. The command writes one JSON response to stdout with `kind=final` plus final text and optional usage, or `kind=tool_calls` plus canonical model tool calls. Valid tool-call argument JSON is carried in `arguments`; malformed upstream argument text is carried in `raw_arguments` so ToolGateway can return repair feedback. Provider command requests keep provider-visible `tool_call_id` correlation but omit kernel-owned event, operation, lease, permission, checkpoint, and audit identity. The command owns vendor SDKs, provider-native HTTP JSON, account flows, and provider credentials. The kernel owns typed request/response validation, provider error projection, tool-loop continuation, and ledger evidence. Provider commands run with explicit environment variables only; daemon environment variables are not inherited. Explicit provider-command environment entries are for non-sensitive adapter configuration such as profiles or route names. Provider credentials must stay in the credential plane or in the external command's own identity environment; secret-shaped env names or values fail closed instead of becoming Genesis config. Provider command stderr is redacted before any HTTP, event, session, or ledger projection.
+`provider_command` is the preferred long-lived boundary for provider integrations. Before every provider call, the Model Gateway rebuilds a provider-context projection from the ledger: same-session conversation history, submitted model input fragments, the model-visible tool manifest, and prior model-visible tool call/result rounds. The kernel writes that projection to the configured command's stdin with `protocol=genesis.provider_command`, `session_id`, `turn_id`, `model`, ordered `input_items`, `tool_manifest`, and `tool_rounds`. The command writes one JSON response to stdout with `kind=final` plus final text and optional usage, or `kind=tool_calls` plus canonical model tool calls. Valid tool-call argument JSON is carried in `arguments`; malformed upstream argument text is carried in `raw_arguments` so ToolGateway can return repair feedback. Provider command requests keep provider-visible `tool_call_id` correlation but omit kernel-owned event, operation, lease, permission, checkpoint, and audit identity. The command owns vendor SDKs, provider-native HTTP JSON, account flows, and provider credentials. The kernel owns typed request/response validation, provider error projection, tool-loop continuation, and ledger evidence. Provider commands run with explicit environment variables only; daemon environment variables are not inherited. Explicit provider-command environment entries are for adapter configuration such as profiles or route names, not raw provider credentials. Provider credentials must stay in the credential plane or in the external command's own identity environment; secret-shaped env names or values fail closed instead of becoming Genesis config. Provider command stderr becomes bounded provider-diagnostic evidence and must not expose adapter credentials, but this external-adapter safety policy is separate from local user-content fidelity.
 
 The built-in OpenAI-compatible adapter is retained as a local operator convenience and test fixture. It translates the same kernel-owned model request and tool manifest into upstream chat-completions shape, but its provider-native JSON is not the default kernel contract for new providers.
 
@@ -268,7 +564,7 @@ Tool result taxonomy follows a terminal-equivalent boundary:
 - `operation.failed`: the command was accepted and executed, but the command process exited nonzero. The kernel returns `exit_code`, `stdout`, and `stderr` as observed command evidence and does not judge command semantics.
 - `tool_infrastructure_failed`: the shell runtime, ledger, or tool runtime infrastructure failed. This is not represented as command stderr or a normal command exit. Model Gateway provider errors remain provider failures, not tool results.
 
-The local append-only ledger preserves shell operation command/stdout/stderr as observed so restart replay and later audit can distinguish kernel truth from display policy. HTTP responses, session projections, raw event inspection, audit replay, and model-visible tool results consume redacted and bounded projections of that ledger evidence. Redaction is a projection policy; it must not mutate shell operation events before they are appended.
+The local append-only ledger preserves shell operation command/stdout/stderr as observed so restart replay and later audit can distinguish kernel truth from display policy. HTTP responses, session projections, raw event inspection, audit replay, and model-visible tool results consume bounded, audience-specific projections of that ledger evidence. Budget projection may fold, paginate, truncate, or summarize with metadata while preserving an authorized path back to the retained source when that source exists. Explicit external-egress policy may produce a lossy view for an untrusted audience, but local Genesis truth and ordinary authorized local projections must not hide user-owned key-shaped content by default.
 
 Long stdout and stderr are bounded with a head/tail policy. Operation evidence reports `stdout_truncated` or `stderr_truncated`, original byte counts, omitted byte counts, and `output_truncation=head_tail` when truncation occurs. The model-visible stdout or stderr text also includes a visible omission marker such as `[... N bytes omitted ...]` between the preserved head and tail content.
 
@@ -292,9 +588,9 @@ The first explicit recall transport is a read-only observation surface. `memory.
 
 ### Auth/Credential Plane
 
-Owns runtime client authentication, credential refs, redaction, and secret resolution for authorized effects. Provider-specific account setup belongs to shells or external applications unless it becomes a generic credential primitive.
+Owns runtime client authentication, credential refs, local secret protection, and secret resolution for authorized effects. Provider-specific account setup belongs to shells or external applications unless it becomes a generic credential primitive.
 
-The first local credential primitive is the Genesis local secret store. On Windows, `secret://...` refs resolve to same-user DPAPI-protected JSON records under `~/.genesis/credentials`. The kernel can decrypt the selected provider key in memory for the Model Gateway, but it must never expose raw secrets in readiness, events, sessions, logs, docs, tests, or model-visible context. Missing, unreadable, or unsupported credentials fail closed as provider readiness blockers.
+The first local credential primitive is the Genesis local secret store. On Windows, `secret://...` refs resolve to same-user DPAPI-protected JSON records under `~/.genesis/credentials`. The kernel can decrypt the selected provider key in memory for the Model Gateway, but provider and connector credentials must not leak through readiness, events, sessions, logs, docs, tests, or model-visible context. User-authored text that merely resembles a secret is still user content and remains part of the first-party material Genesis owns for that user. External egress policy, credential refs, and storage protection handle safety without corrupting the local content source. Missing, unreadable, or unsupported credentials fail closed as provider readiness blockers.
 
 The operator setup surface may write Genesis-owned model gateway config and `secret://...` local credential records. It is not a shell for turn execution and must not embed provider account workflows, application-specific logic, or Codex credentials into the kernel runtime.
 
