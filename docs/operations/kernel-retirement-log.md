@@ -777,6 +777,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Retired
 
+- `KERNEL-MEMORY-MODEL-CONTEXT-SENSITIVITY-20260625`: retired because approved memory owner truth remains raw while provider-visible approved memory context now redacts credential-shaped material before model requests; fixing commit `ec7cd6a06`, verified by `go test ./internal/kernel -count=1`.
 - `KERNEL-SHELL-ENVIRONMENT-POLICY-20260625`: retired because foreground host shell and local managed jobs now set an explicit kernel-constructed environment, filter credential-shaped daemon variables before spawn, and keep ordinary shell commands usable; fixing commit `618f1f883`, verified by `go test ./internal/kernel -count=1`.
 - `KERNEL-PROVIDER-RETRY-DEGRADATION-CONTRACT-20260625`: retired because Model Gateway now classifies non-streaming provider failures, retries bounded transient failures, fails fast on auth/provider-command shape failures, and records redacted attempt evidence; fixing commit `1dd7f1a3b`, verified by `go test ./internal/kernel -count=1`.
 - `KERNEL-PROVIDER-VISIBLE-FINAL-REPAIR-20260625`: retired because empty/reasoning-only visible finals now trigger a bounded visible-answer repair path and repeated empty finals fail with `provider_visible_final_required`; fixing commit `1dd7f1a3b`, verified by `go test ./internal/kernel -count=1`.
