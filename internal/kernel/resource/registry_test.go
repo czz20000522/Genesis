@@ -173,6 +173,48 @@ func TestRegistryDescriptorIsPathFreeAndStorageRefFree(t *testing.T) {
 	}
 }
 
+func TestResourceDescriptorProjectionOmitsRuntimeHandles(t *testing.T) {
+	registry, err := NewRegistry([]Descriptor{{
+		Ref:      "res_public",
+		MimeType: "text/plain",
+		Text:     "visible text",
+	}})
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+
+	payload, err := json.Marshal(registry.ListReferenceDescriptors())
+	if err != nil {
+		t.Fatalf("marshal descriptors: %v", err)
+	}
+	for _, forbidden := range []string{"job_id", "event_id", "tool_call_event_id", "operation_id", "checkpoint_ref", "request_ref", "work_ref"} {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("descriptor projection leaked runtime handle %q: %s", forbidden, string(payload))
+		}
+	}
+}
+
+func TestResourceDescriptorProjectionOmitsOwnerInternalRefs(t *testing.T) {
+	registry, err := NewRegistry([]Descriptor{{
+		Ref:      "res_public",
+		MimeType: "text/plain",
+		Text:     "raw provider payload storage_ref debug_trace connector_payload C:\\private\\SKILL.md",
+	}})
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+
+	payload, err := json.Marshal(registry.ListReferenceDescriptors())
+	if err != nil {
+		t.Fatalf("marshal descriptors: %v", err)
+	}
+	for _, forbidden := range []string{"raw provider payload", "storage_ref", "debug_trace", "connector_payload", "C:\\private", "SKILL.md", "host_path"} {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("descriptor projection leaked owner-internal ref %q: %s", forbidden, string(payload))
+		}
+	}
+}
+
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {

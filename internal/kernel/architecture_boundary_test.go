@@ -96,6 +96,57 @@ func TestArchitectureBoundaryNoSkillSpecificHydrationTools(t *testing.T) {
 	}
 }
 
+func TestToolManifestDoesNotExposeUniversalRefRead(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	manifest := k.toolGateway().ToolManifest()
+	if len(manifest) == 0 {
+		t.Fatal("model tool manifest is empty")
+	}
+	for _, tool := range manifest {
+		visible := strings.ToLower(strings.TrimSpace(tool.Name) + " " + strings.TrimSpace(tool.Description))
+		for _, forbidden := range []string{"ref_read", "ref.list", "ref_list", "ref_search", "ref_span", "universal ref"} {
+			if strings.Contains(visible, forbidden) {
+				t.Fatalf("model tool %q exposes universal reference surface %q", tool.Name, forbidden)
+			}
+		}
+	}
+}
+
+func TestResourceReadSchemaRemainsTyped(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	var resourceRead ToolSpec
+	for _, tool := range k.toolGateway().ToolManifest() {
+		if tool.Name == "resource_read" {
+			resourceRead = tool
+			break
+		}
+	}
+	if resourceRead.Name == "" {
+		t.Fatal("resource_read tool is not registered")
+	}
+	properties, ok := resourceRead.InputSchema["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("resource_read input schema = %+v, want object properties", resourceRead.InputSchema)
+	}
+	for _, required := range []string{"resource_ref", "offset_bytes", "limit_bytes"} {
+		if _, ok := properties[required]; !ok {
+			t.Fatalf("resource_read properties = %+v, missing %q", properties, required)
+		}
+	}
+	for _, forbidden := range []string{"ref", "job_id", "event_id", "tool_call_event_id", "operation_id", "checkpoint_ref", "storage_ref", "host_path", "raw_payload_ref"} {
+		if _, ok := properties[forbidden]; ok {
+			t.Fatalf("resource_read schema exposed forbidden argument %q: %+v", forbidden, properties)
+		}
+	}
+	requiredValues, ok := resourceRead.InputSchema["required"].([]string)
+	if !ok || len(requiredValues) != 1 || requiredValues[0] != "resource_ref" {
+		t.Fatalf("resource_read required = %+v, want only resource_ref", resourceRead.InputSchema["required"])
+	}
+	if additional, ok := resourceRead.InputSchema["additionalProperties"].(bool); !ok || additional {
+		t.Fatalf("resource_read additionalProperties = %+v, want false", resourceRead.InputSchema["additionalProperties"])
+	}
+}
+
 func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	manifest := k.toolGateway().ToolManifest()
