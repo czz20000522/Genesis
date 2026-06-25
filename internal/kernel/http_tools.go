@@ -61,7 +61,7 @@ func handleExecShell(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		if result.CreatedJob {
 			status = http.StatusAccepted
 		}
-		writeJSON(w, status, redactJobProjection(*result.Job))
+		writeJSON(w, status, cloneJobProjection(*result.Job))
 		return
 	}
 	writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", "shell_exec produced no operation or job")

@@ -63,7 +63,7 @@ func New(config Config) (*Kernel, error) {
 	if err != nil {
 		return nil, err
 	}
-	resourceRegistry, err := resource.NewRegistry(config.Resources, redactEvidenceText)
+	resourceRegistry, err := resource.NewRegistry(config.Resources)
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +414,7 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 	if err != nil {
 		return SessionProjection{}, err
 	}
-	return redactSessionProjection(projection), nil
+	return localSessionProjection(projection), nil
 }
 
 var ErrSessionNotFound = errors.New("session not found")
@@ -598,7 +598,6 @@ func (k *Kernel) appendProviderAttempt(sessionID string, turnID string, eventTyp
 	if strings.TrimSpace(eventType) == "" {
 		eventType = "model.provider_attempt"
 	}
-	attempt.Message = redactEvidenceText(attempt.Message)
 	return k.appendEvent(StoredEvent{
 		EventID:   newID("evt", now),
 		SessionID: sessionID,
@@ -1070,7 +1069,7 @@ func turnFailureFromProviderError(err error) TurnError {
 	}
 	message := failure.Message
 	if message == "" {
-		message = redactEvidenceText(err.Error())
+		message = externalBoundaryDiagnosticText(err.Error())
 	}
 	return TurnError{
 		Code:    code,
@@ -1079,7 +1078,7 @@ func turnFailureFromProviderError(err error) TurnError {
 }
 
 func providerCompleteError(err error) error {
-	message := redactEvidenceText(err.Error())
+	message := externalBoundaryDiagnosticText(err.Error())
 	if errors.Is(err, ErrProviderUnavailable) {
 		return fmt.Errorf("provider complete: %w: %s", ErrProviderUnavailable, message)
 	}

@@ -147,10 +147,13 @@ func TestUITimelineSettledTurnCollapsesProcessingGroupWithFixedDuration(t *testi
 	if err != nil {
 		t.Fatalf("marshal timeline: %v", err)
 	}
-	for _, forbidden := range []string{"tool.call", "tool.result", "for_event_id", "tool_call_event_id", "operation_id", "sk-timeline-settled"} {
+	for _, forbidden := range []string{"tool.call", "tool.result", "for_event_id", "tool_call_event_id", "operation_id"} {
 		if strings.Contains(string(timelineJSON), forbidden) {
 			t.Fatalf("timeline leaked %q: %s", forbidden, string(timelineJSON))
 		}
+	}
+	if !strings.Contains(string(timelineJSON), "sk-timeline-settled") || strings.Contains(string(timelineJSON), "[REDACTED]") {
+		t.Fatalf("timeline should preserve local user content without lossy redaction: %s", string(timelineJSON))
 	}
 }
 
@@ -245,10 +248,13 @@ func TestUITimelineJobTerminalDoesNotSettleTurnBeforeAssistantFinal(t *testing.T
 	if err != nil {
 		t.Fatalf("marshal timeline: %v", err)
 	}
-	for _, forbidden := range []string{"command_preview", "visible_output", "sk-job-secret"} {
+	for _, forbidden := range []string{"command_preview", "visible_output"} {
 		if strings.Contains(string(timelineJSON), forbidden) {
-			t.Fatalf("main timeline leaked job detail-only field or secret %q: %s", forbidden, string(timelineJSON))
+			t.Fatalf("main timeline leaked job detail-only field %q: %s", forbidden, string(timelineJSON))
 		}
+	}
+	if !strings.Contains(string(timelineJSON), "sk-job-secret") || strings.Contains(string(timelineJSON), "[REDACTED]") {
+		t.Fatalf("main timeline should preserve local job output preview without lossy redaction: %s", string(timelineJSON))
 	}
 	detail, err := k.UITimelineDetail(sessionID, operation.ItemID)
 	if err != nil {
@@ -413,10 +419,13 @@ func TestUITimelineDetailProjectionAddsSanitizedOperationDiagnostics(t *testing.
 	if err != nil {
 		t.Fatalf("marshal timeline: %v", err)
 	}
-	for _, forbidden := range []string{"command_preview", "visible_output", "output_truncation", "provider_tool_call_id", "operation_id", "sk-detail-secret"} {
+	for _, forbidden := range []string{"command_preview", "visible_output", "output_truncation", "provider_tool_call_id", "operation_id"} {
 		if strings.Contains(string(timelineJSON), forbidden) {
-			t.Fatalf("main timeline leaked detail-only field or secret %q: %s", forbidden, string(timelineJSON))
+			t.Fatalf("main timeline leaked detail-only field %q: %s", forbidden, string(timelineJSON))
 		}
+	}
+	if !strings.Contains(string(timelineJSON), "sk-detail-secret") || strings.Contains(string(timelineJSON), "[REDACTED]") {
+		t.Fatalf("main timeline should preserve local output preview without lossy redaction: %s", string(timelineJSON))
 	}
 
 	processingDetail, err := k.UITimelineDetail(sessionID, processing.DetailRef)
@@ -460,10 +469,13 @@ func TestUITimelineDetailProjectionAddsSanitizedOperationDiagnostics(t *testing.
 	if got := item["stderr_omitted_bytes"]; got != float64(880) {
 		t.Fatalf("stderr_omitted_bytes = %#v, want 880", got)
 	}
-	for _, forbidden := range []string{"tool.call", "tool.result", "for_event_id", "tool_call_event_id", "provider_tool_call_id", "operation_id", "sk-detail-secret"} {
+	for _, forbidden := range []string{"tool.call", "tool.result", "for_event_id", "tool_call_event_id", "provider_tool_call_id", "operation_id"} {
 		if strings.Contains(string(detailJSON), forbidden) {
 			t.Fatalf("detail leaked %q: %s", forbidden, string(detailJSON))
 		}
+	}
+	if !strings.Contains(string(detailJSON), "sk-detail-secret") || strings.Contains(string(detailJSON), "[REDACTED]") {
+		t.Fatalf("detail should preserve local command/output content without lossy redaction: %s", string(detailJSON))
 	}
 
 	server := httptest.NewServer(Handler(k))
@@ -554,8 +566,8 @@ func TestUITimelineResourceReadResultUsesTextPreview(t *testing.T) {
 	if operation.Tool != "resource_read" || operation.OutputSource != "text" {
 		t.Fatalf("operation detail = %+v, want resource text preview", operation)
 	}
-	if !strings.Contains(operation.OutputPreview, "resource body") || strings.Contains(operation.OutputPreview, "sk-resource-secret") {
-		t.Fatalf("resource preview = %q, want redacted text content", operation.OutputPreview)
+	if !strings.Contains(operation.OutputPreview, "resource body api_key=sk-resource-secret") || strings.Contains(operation.OutputPreview, "[REDACTED]") {
+		t.Fatalf("resource preview = %q, want local text content with budget metadata only", operation.OutputPreview)
 	}
 	if !operation.OutputTruncated || !operation.FullOutputAvailable {
 		t.Fatalf("operation detail = %+v, want truncation and full-output signal", operation)
@@ -588,9 +600,6 @@ func assertStringFieldContains(t *testing.T, fields map[string]any, key string, 
 	got, ok := fields[key].(string)
 	if !ok || !strings.Contains(got, want) {
 		t.Fatalf("%s = %#v, want string containing %q", key, fields[key], want)
-	}
-	if strings.Contains(got, "sk-") {
-		t.Fatalf("%s leaked secret-shaped material: %q", key, got)
 	}
 }
 

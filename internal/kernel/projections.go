@@ -39,11 +39,11 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 				TurnID:            turnID,
 				SessionID:         event.SessionID,
 				Status:            "snapshot_unavailable",
-				InputItems:        redactInputItems(event.Data.InputItems),
+				InputItems:        cloneProjectionInputItems(event.Data.InputItems),
 				ModelInputKinds:   cloneStringSlice(event.Data.ModelInputKinds),
 				ToolManifest:      cloneToolSpecs(nil),
 				SkillCatalog:      cloneSkillCatalogItems(nil),
-				RecalledMemories:  redactMemoryRecalls(event.Data.RecalledMemories),
+				RecalledMemories:  cloneMemoryRecalls(event.Data.RecalledMemories),
 				UnavailableReason: "turn context snapshot was not recorded for this turn",
 			}, nil
 		}
@@ -51,11 +51,11 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 			TurnID:           turnID,
 			SessionID:        event.SessionID,
 			Status:           "ok",
-			InputItems:       redactInputItems(event.Data.InputItems),
+			InputItems:       cloneProjectionInputItems(event.Data.InputItems),
 			ModelInputKinds:  cloneStringSlice(event.Data.ModelInputKinds),
 			ToolManifest:     cloneToolSpecs(event.Data.ToolManifest),
 			SkillCatalog:     cloneSkillCatalogItems(event.Data.SkillCatalog),
-			RecalledMemories: redactMemoryRecalls(event.Data.RecalledMemories),
+			RecalledMemories: cloneMemoryRecalls(event.Data.RecalledMemories),
 			Runtime:          cloneContextRuntimeSnapshot(event.Data.RuntimeContext),
 		}, nil
 	}
@@ -175,7 +175,7 @@ func toolResultPreview(content string) toolPreview {
 }
 
 func boundedTimelinePreview(text string) string {
-	text = redactEvidenceText(strings.TrimSpace(text))
+	text = strings.TrimSpace(text)
 	runes := []rune(text)
 	if len(runes) <= 240 {
 		return text
@@ -183,53 +183,49 @@ func boundedTimelinePreview(text string) string {
 	return string(runes[:240])
 }
 
-func redactInputItems(items []InputItem) []InputItem {
+func cloneProjectionInputItems(items []InputItem) []InputItem {
 	out := make([]InputItem, 0, len(items))
 	for _, item := range items {
-		next := item
-		next.Text = redactEvidenceText(next.Text)
-		out = append(out, next)
+		out = append(out, item)
 	}
 	return out
 }
 
-func redactMemoryRecalls(items []MemoryRecall) []MemoryRecall {
+func cloneMemoryRecalls(items []MemoryRecall) []MemoryRecall {
 	out := make([]MemoryRecall, 0, len(items))
 	for _, item := range items {
-		next := item
-		next.Text = redactEvidenceText(next.Text)
-		out = append(out, next)
+		out = append(out, item)
 	}
 	return out
 }
 
-func redactSessionProjection(projection SessionProjection) SessionProjection {
+func localSessionProjection(projection SessionProjection) SessionProjection {
 	for i := range projection.Turns {
-		projection.Turns[i].InputItems = redactInputItems(projection.Turns[i].InputItems)
-		projection.Turns[i].RecalledMemories = redactMemoryRecalls(projection.Turns[i].RecalledMemories)
-		projection.Turns[i].FinalMessage = redactFinalMessage(projection.Turns[i].FinalMessage)
+		projection.Turns[i].InputItems = cloneProjectionInputItems(projection.Turns[i].InputItems)
+		projection.Turns[i].RecalledMemories = cloneMemoryRecalls(projection.Turns[i].RecalledMemories)
+		projection.Turns[i].FinalMessage = cloneFinalMessage(projection.Turns[i].FinalMessage)
 		if projection.Turns[i].Error != nil {
-			copied := redactTurnError(*projection.Turns[i].Error)
+			copied := cloneTurnError(*projection.Turns[i].Error)
 			projection.Turns[i].Error = &copied
 		}
 	}
 	for i := range projection.Operations {
-		projection.Operations[i] = redactOperationEvidence(projection.Operations[i])
+		projection.Operations[i] = localOperationProjection(projection.Operations[i])
 	}
 	for i := range projection.Jobs {
-		projection.Jobs[i] = redactJobProjection(projection.Jobs[i])
+		projection.Jobs[i] = cloneJobProjection(projection.Jobs[i])
 	}
 	for i := range projection.Approvals {
-		projection.Approvals[i] = redactApprovalProjection(projection.Approvals[i])
+		projection.Approvals[i] = cloneApprovalProjection(projection.Approvals[i])
 	}
 	for i := range projection.SandboxReadiness {
-		projection.SandboxReadiness[i] = redactSandboxReadinessProjection(projection.SandboxReadiness[i])
+		projection.SandboxReadiness[i] = cloneSandboxReadinessProjection(projection.SandboxReadiness[i])
 	}
 	for i := range projection.Works {
-		projection.Works[i] = redactWorkProjection(projection.Works[i])
+		projection.Works[i] = cloneWorkProjection(projection.Works[i])
 	}
 	for i := range projection.MemoryCandidates {
-		projection.MemoryCandidates[i] = redactMemoryCandidateProjection(projection.MemoryCandidates[i])
+		projection.MemoryCandidates[i] = cloneMemoryCandidateProjection(projection.MemoryCandidates[i])
 	}
 	for i := range projection.Events {
 		projection.Events[i].Data = inspectionEventData(projection.Events[i].Data)
@@ -237,60 +233,31 @@ func redactSessionProjection(projection SessionProjection) SessionProjection {
 	return projection
 }
 
-func redactFinalMessage(message FinalMessage) FinalMessage {
-	message.Text = redactEvidenceText(message.Text)
+func cloneFinalMessage(message FinalMessage) FinalMessage {
 	return message
 }
 
-func redactTurnError(turnError TurnError) TurnError {
-	turnError.Message = redactEvidenceText(turnError.Message)
+func cloneTurnError(turnError TurnError) TurnError {
 	return turnError
 }
 
-func redactWorkProjection(work WorkProjection) WorkProjection {
-	work.Title = redactEvidenceText(work.Title)
-	work.SourceRef = redactEvidenceText(work.SourceRef)
-	work.CancelReason = redactEvidenceText(work.CancelReason)
-	work.CancelEvidenceRef = redactEvidenceText(work.CancelEvidenceRef)
+func cloneWorkProjection(work WorkProjection) WorkProjection {
 	return work
 }
 
-func redactJobProjection(job JobProjection) JobProjection {
-	job.CWD = redactEvidenceText(job.CWD)
-	job.Command = redactEvidenceText(job.Command)
-	job.Stdout = redactEvidenceText(job.Stdout)
-	job.Stderr = redactEvidenceText(job.Stderr)
-	job.Receipt = redactEvidenceText(job.Receipt)
-	job.FailureReason = redactEvidenceText(job.FailureReason)
-	job.CancelReason = redactEvidenceText(job.CancelReason)
+func cloneJobProjection(job JobProjection) JobProjection {
 	return job
 }
 
-func redactApprovalProjection(approval ApprovalProjection) ApprovalProjection {
-	approval.PolicySnapshot.WorkspaceRoot = redactEvidenceText(approval.PolicySnapshot.WorkspaceRoot)
-	approval.Effect.CWD = redactEvidenceText(approval.Effect.CWD)
-	approval.Effect.CommandPreview = redactEvidenceText(approval.Effect.CommandPreview)
-	approval.DecisionReason = redactEvidenceText(approval.DecisionReason)
-	approval.DecisionEvidenceRef = redactEvidenceText(approval.DecisionEvidenceRef)
-	approval.BlockedReason = redactEvidenceText(approval.BlockedReason)
+func cloneApprovalProjection(approval ApprovalProjection) ApprovalProjection {
 	return approval
 }
 
-func redactSandboxReadinessProjection(readiness SandboxReadinessProjection) SandboxReadinessProjection {
-	readiness.WorkspaceRoot = redactEvidenceText(readiness.WorkspaceRoot)
-	readiness.UnavailableReason = redactEvidenceText(readiness.UnavailableReason)
+func cloneSandboxReadinessProjection(readiness SandboxReadinessProjection) SandboxReadinessProjection {
 	return readiness
 }
 
-func redactMemoryCandidateProjection(candidate MemoryCandidateProjection) MemoryCandidateProjection {
-	candidate.Text = redactEvidenceText(candidate.Text)
-	candidate.SourceRef = redactEvidenceText(candidate.SourceRef)
-	candidate.ApprovalReason = redactEvidenceText(candidate.ApprovalReason)
-	candidate.ApprovalEvidenceRef = redactEvidenceText(candidate.ApprovalEvidenceRef)
-	candidate.RejectionReason = redactEvidenceText(candidate.RejectionReason)
-	candidate.RejectionEvidenceRef = redactEvidenceText(candidate.RejectionEvidenceRef)
-	candidate.SupersessionReason = redactEvidenceText(candidate.SupersessionReason)
-	candidate.SupersessionEvidenceRef = redactEvidenceText(candidate.SupersessionEvidenceRef)
+func cloneMemoryCandidateProjection(candidate MemoryCandidateProjection) MemoryCandidateProjection {
 	return candidate
 }
 
@@ -347,53 +314,44 @@ func toInspectionEvent(event StoredEvent) Event {
 
 func inspectionEventData(data EventData) EventData {
 	next := data
-	next.InputItems = redactInputItems(data.InputItems)
-	next.RecalledMemories = redactMemoryRecalls(data.RecalledMemories)
+	next.InputItems = cloneProjectionInputItems(data.InputItems)
+	next.RecalledMemories = cloneMemoryRecalls(data.RecalledMemories)
 	if data.ToolCall != nil {
 		copied := *data.ToolCall
 		copied.ProviderToolCallID = redactProviderToolCallID(copied.ProviderToolCallID)
-		copied.Arguments = redactEvidenceText(copied.Arguments)
 		next.ToolCall = &copied
 	}
 	if data.ToolResult != nil {
 		copied := *data.ToolResult
 		copied.ProviderToolCallID = redactProviderToolCallID(copied.ProviderToolCallID)
-		copied.Content = redactEvidenceText(copied.Content)
 		next.ToolResult = &copied
 	}
 	if data.ProviderAttempt != nil {
 		copied := *data.ProviderAttempt
-		copied.Message = redactEvidenceText(copied.Message)
 		next.ProviderAttempt = &copied
 	}
 	if data.Final != nil {
-		copied := redactFinalMessage(*data.Final)
+		copied := cloneFinalMessage(*data.Final)
 		next.Final = &copied
 	}
 	if data.TurnError != nil {
-		copied := redactTurnError(*data.TurnError)
+		copied := cloneTurnError(*data.TurnError)
 		next.TurnError = &copied
 	}
 	if data.Operation != nil {
 		copied := *data.Operation
-		copied.CWD = redactEvidenceText(copied.CWD)
-		copied.Command = redactEvidenceText(copied.Command)
-		copied.Stdout = redactEvidenceText(copied.Stdout)
-		copied.Stderr = redactEvidenceText(copied.Stderr)
-		copied.BlockedReason = redactEvidenceText(copied.BlockedReason)
-		copied.InfrastructureReason = redactEvidenceText(copied.InfrastructureReason)
 		next.Operation = &copied
 	}
 	if data.Job != nil {
-		copied := redactJobProjection(*data.Job)
+		copied := cloneJobProjection(*data.Job)
 		next.Job = &copied
 	}
 	if data.Approval != nil {
-		copied := redactApprovalProjection(*data.Approval)
+		copied := cloneApprovalProjection(*data.Approval)
 		next.Approval = &copied
 	}
 	if data.SandboxReadiness != nil {
-		copied := redactSandboxReadinessProjection(*data.SandboxReadiness)
+		copied := cloneSandboxReadinessProjection(*data.SandboxReadiness)
 		next.SandboxReadiness = &copied
 	}
 	if data.KernelObservationDelivery != nil {
@@ -404,15 +362,15 @@ func inspectionEventData(data EventData) EventData {
 		next.KernelObservationDelivery = &copied
 	}
 	if data.Work != nil {
-		copied := redactWorkProjection(*data.Work)
+		copied := cloneWorkProjection(*data.Work)
 		next.Work = &copied
 	}
 	if data.MemoryCandidate != nil {
-		copied := redactMemoryCandidateProjection(*data.MemoryCandidate)
+		copied := cloneMemoryCandidateProjection(*data.MemoryCandidate)
 		next.MemoryCandidate = &copied
 	}
 	if data.ReplacementMemoryCandidate != nil {
-		copied := redactMemoryCandidateProjection(*data.ReplacementMemoryCandidate)
+		copied := cloneMemoryCandidateProjection(*data.ReplacementMemoryCandidate)
 		next.ReplacementMemoryCandidate = &copied
 	}
 	return next

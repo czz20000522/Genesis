@@ -2,7 +2,7 @@ package kernel
 
 import "regexp"
 
-var evidenceRedactionRules = []struct {
+var credentialShapedTextRules = []struct {
 	pattern     *regexp.Regexp
 	replacement string
 }{
@@ -36,15 +36,21 @@ var evidenceRedactionRules = []struct {
 	},
 }
 
-func redactOperationEvidence(operation OperationProjection) OperationProjection {
-	operation.Command = redactEvidenceText(operation.Command)
-	operation.Stdout = redactEvidenceText(operation.Stdout)
-	operation.Stderr = redactEvidenceText(operation.Stderr)
+func localOperationProjection(operation OperationProjection) OperationProjection {
 	return operation
 }
 
-func redactEvidenceText(text string) string {
-	for _, rule := range evidenceRedactionRules {
+func containsCredentialShapedText(text string) bool {
+	for _, rule := range credentialShapedTextRules {
+		if rule.pattern.MatchString(text) {
+			return true
+		}
+	}
+	return false
+}
+
+func externalBoundaryDiagnosticText(text string) string {
+	for _, rule := range credentialShapedTextRules {
 		text = rule.pattern.ReplaceAllString(text, rule.replacement)
 	}
 	return text

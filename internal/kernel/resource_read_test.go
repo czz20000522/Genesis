@@ -89,8 +89,8 @@ func TestResourceReadUnknownRefReturnsRepairFeedback(t *testing.T) {
 	}
 }
 
-func TestResourceReadModelVisibleResultRedactsSecretShapedText(t *testing.T) {
-	dir := testsupport.ProjectTempDir(t, "resource-read-redaction")
+func TestResourceReadPreservesKeyShapedTextInLocalAndModelInternalProjection(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "resource-read-content")
 	secret := "sk-resource-secret"
 	rawText := "resource body GENESIS_PROVIDER_API_KEY=" + secret + " still useful"
 	args := mustMarshalToolArgs(t, map[string]interface{}{
@@ -102,7 +102,7 @@ func TestResourceReadModelVisibleResultRedactsSecretShapedText(t *testing.T) {
 			Name:       "resource_read",
 			Arguments:  args,
 		}},
-		final: "resource redaction observed",
+		final: "resource content observed",
 	}
 	k, err := New(Config{
 		LedgerPath:   filepath.Join(dir, "events.jsonl"),
@@ -122,14 +122,14 @@ func TestResourceReadModelVisibleResultRedactsSecretShapedText(t *testing.T) {
 	}
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
-		SessionID:  "resource-read-redaction",
+		SessionID:  "resource-read-content",
 		InputItems: []InputItem{{Type: "text", Text: "read secret resource"}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
-	if resp.Final.Text != "resource redaction observed" {
-		t.Fatalf("final text = %q, want resource redaction observed", resp.Final.Text)
+	if resp.Final.Text != "resource content observed" {
+		t.Fatalf("final text = %q, want resource content observed", resp.Final.Text)
 	}
 	requests := provider.Requests()
 	if len(requests) != 2 || len(requests[1].ToolRounds) != 1 || len(requests[1].ToolRounds[0].Results) != 1 {
@@ -138,10 +138,10 @@ func TestResourceReadModelVisibleResultRedactsSecretShapedText(t *testing.T) {
 	result := requests[1].ToolRounds[0].Results[0]
 	payload := decodeJSONMap(t, result.Content)
 	text, _ := payload["text"].(string)
-	if !strings.Contains(text, "resource body") || !strings.Contains(text, "[REDACTED]") {
-		t.Fatalf("resource_read text = %q, want useful redacted projection", text)
+	if !strings.Contains(text, rawText) {
+		t.Fatalf("resource_read text = %q, want original resource body", text)
 	}
-	assertDoesNotContain(t, result.Content, secret, "provider tool result")
+	assertDoesNotContain(t, result.Content, "[REDACTED]", "provider tool result")
 
 	providerContext, err := k.ProviderContextProjection(resp.TurnID)
 	if err != nil {
@@ -151,21 +151,27 @@ func TestResourceReadModelVisibleResultRedactsSecretShapedText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal provider context: %v", err)
 	}
-	assertDoesNotContain(t, string(contextJSON), secret, "provider context")
+	if !strings.Contains(string(contextJSON), secret) || strings.Contains(string(contextJSON), "[REDACTED]") {
+		t.Fatalf("provider context should preserve model-internal resource result without lossy redaction: %s", string(contextJSON))
+	}
 
 	commandRounds, err := json.Marshal(providerCommandModelToolRounds(providerContext.ModelRequest().ToolRounds))
 	if err != nil {
 		t.Fatalf("marshal provider_command rounds: %v", err)
 	}
-	assertDoesNotContain(t, string(commandRounds), secret, "provider_command tool rounds")
+	if !strings.Contains(string(commandRounds), secret) || strings.Contains(string(commandRounds), "[REDACTED]") {
+		t.Fatalf("provider_command tool rounds should preserve resource content without lossy redaction: %s", string(commandRounds))
+	}
 
 	openAIMessages, err := json.Marshal(chatMessagesFromModelRequest(providerContext.ModelRequest()))
 	if err != nil {
 		t.Fatalf("marshal OpenAI-compatible messages: %v", err)
 	}
-	assertDoesNotContain(t, string(openAIMessages), secret, "OpenAI-compatible tool messages")
+	if !strings.Contains(string(openAIMessages), secret) || strings.Contains(string(openAIMessages), "[REDACTED]") {
+		t.Fatalf("OpenAI-compatible tool messages should preserve resource content without lossy redaction: %s", string(openAIMessages))
+	}
 
-	session, err := k.Session("resource-read-redaction")
+	session, err := k.Session("resource-read-content")
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
 	}
@@ -173,9 +179,11 @@ func TestResourceReadModelVisibleResultRedactsSecretShapedText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal session projection: %v", err)
 	}
-	assertDoesNotContain(t, string(sessionJSON), secret, "session projection")
+	if !strings.Contains(string(sessionJSON), secret) || strings.Contains(string(sessionJSON), "[REDACTED]") {
+		t.Fatalf("session projection should preserve resource content without lossy redaction: %s", string(sessionJSON))
+	}
 
-	timeline, err := k.UITimeline("resource-read-redaction")
+	timeline, err := k.UITimeline("resource-read-content")
 	if err != nil {
 		t.Fatalf("UITimeline returned error: %v", err)
 	}
@@ -183,11 +191,13 @@ func TestResourceReadModelVisibleResultRedactsSecretShapedText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal timeline: %v", err)
 	}
-	assertDoesNotContain(t, string(timelineJSON), secret, "UI timeline")
+	if !strings.Contains(string(timelineJSON), secret) || strings.Contains(string(timelineJSON), "[REDACTED]") {
+		t.Fatalf("UI timeline should preserve resource content without lossy redaction: %s", string(timelineJSON))
+	}
 }
 
-func TestResourceReadOffsetCannotExposePartialSecretShapedText(t *testing.T) {
-	dir := testsupport.ProjectTempDir(t, "resource-read-offset-redaction")
+func TestResourceReadOffsetUsesBudgetSliceWithoutCredentialMasking(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "resource-read-offset-budget")
 	secret := "sk-resource-secret"
 	rawText := "prefix GENESIS_PROVIDER_API_KEY=" + secret + " suffix"
 	offset := strings.Index(rawText, "resource-secret")
@@ -220,8 +230,12 @@ func TestResourceReadOffsetCannotExposePartialSecretShapedText(t *testing.T) {
 	}
 	payload := decodeJSONMap(t, result.Content)
 	text, _ := payload["text"].(string)
-	assertDoesNotContain(t, text, secret, "offset resource_read result")
-	assertDoesNotContain(t, text, "resource-secret", "offset resource_read result")
+	if text != "resource-secret" {
+		t.Fatalf("offset resource_read text = %q, want requested byte slice", text)
+	}
+	if strings.Contains(result.Content, "[REDACTED]") {
+		t.Fatalf("offset resource_read should not use lossy redaction: %s", result.Content)
+	}
 }
 
 func TestResourceReadPreparesPureReadAccessPlan(t *testing.T) {

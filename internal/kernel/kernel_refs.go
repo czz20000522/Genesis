@@ -42,7 +42,7 @@ func validateKernelControlToken(field string, value string) error {
 }
 
 func validateKernelTextNotSecret(field string, value string) error {
-	if redactEvidenceText(value) != value {
+	if containsCredentialShapedText(value) {
 		return fmt.Errorf("%s must not contain secret-shaped content", field)
 	}
 	return nil

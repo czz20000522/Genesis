@@ -31,7 +31,7 @@ func newProviderVisibleFinalRequiredError() error {
 func providerFailureFromError(err error) ProviderAttemptProjection {
 	return modelgateway.FailureClassifier{
 		ProviderUnavailable: ErrProviderUnavailable,
-		Redact:              redactEvidenceText,
+		Redact:              externalBoundaryDiagnosticText,
 	}.FromError(err)
 }
 

@@ -556,7 +556,7 @@ func compactionSourceTranscript(previousSummary string, turns []conversationHist
 			}
 			callLines := []string{"[tool call]", "tool: " + tool}
 			if arguments := strings.TrimSpace(exchange.Arguments); arguments != "" {
-				callLines = append(callLines, "arguments: "+redactEvidenceText(arguments))
+				callLines = append(callLines, "arguments: "+arguments)
 			}
 			lines = append(lines, strings.Join(callLines, "\n"))
 			resultLines := []string{"[tool result]"}
@@ -564,7 +564,7 @@ func compactionSourceTranscript(previousSummary string, turns []conversationHist
 				resultLines = append(resultLines, "status: "+status)
 			}
 			if content := strings.TrimSpace(exchange.ResultContent); content != "" {
-				resultLines = append(resultLines, redactEvidenceText(content))
+				resultLines = append(resultLines, content)
 			}
 			lines = append(lines, strings.Join(resultLines, "\n"))
 		}

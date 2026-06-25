@@ -12,8 +12,7 @@ const (
 )
 
 type Registry struct {
-	items  map[string]registeredResource
-	redact func(string) string
+	items map[string]registeredResource
 }
 
 type registeredResource struct {
@@ -28,13 +27,9 @@ type ReadRequest struct {
 	LimitBytes  int
 }
 
-func NewRegistry(items []Descriptor, redactor func(string) string) (*Registry, error) {
-	if redactor == nil {
-		redactor = func(text string) string { return text }
-	}
+func NewRegistry(items []Descriptor) (*Registry, error) {
 	registry := &Registry{
-		items:  map[string]registeredResource{},
-		redact: redactor,
+		items: map[string]registeredResource{},
 	}
 	for _, item := range items {
 		ref, err := NormalizeRef(item.Ref)
@@ -73,7 +68,7 @@ func (r *Registry) Read(req ReadRequest) (ModelReadResult, error) {
 	if !ok {
 		return ModelReadResult{}, errors.New("resource not found")
 	}
-	data := []byte(r.redact(item.text))
+	data := []byte(item.text)
 	offset := req.OffsetBytes
 	if offset > len(data) {
 		offset = len(data)

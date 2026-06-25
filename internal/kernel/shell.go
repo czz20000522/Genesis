@@ -225,7 +225,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		if err := k.requestApprovalForBlockedShellOperation(operation); err != nil {
 			return OperationProjection{}, err
 		}
-		return redactOperationEvidence(operation), nil
+		return localOperationProjection(operation), nil
 	}
 
 	if err := k.appendOperationEvent(operation); err != nil {
@@ -274,7 +274,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 	if err := k.appendOperationEvent(operation); err != nil {
 		return OperationProjection{}, err
 	}
-	return redactOperationEvidence(operation), nil
+	return localOperationProjection(operation), nil
 }
 
 func (k *Kernel) foregroundShellInterruptReason() string {
@@ -344,7 +344,7 @@ func (g ToolGateway) recordBlockedShellOperationWithCWD(req ShellExecRequest, tu
 	if err := k.requestApprovalForBlockedShellOperation(operation); err != nil {
 		return OperationProjection{}, err
 	}
-	return redactOperationEvidence(operation), nil
+	return localOperationProjection(operation), nil
 }
 
 func (k *Kernel) failStaleRunningOperation(operation OperationProjection) (OperationProjection, error) {
@@ -356,7 +356,7 @@ func (k *Kernel) failStaleRunningOperation(operation OperationProjection) (Opera
 	if err := k.appendOperationEvent(operation); err != nil {
 		return OperationProjection{}, err
 	}
-	return redactOperationEvidence(operation), nil
+	return localOperationProjection(operation), nil
 }
 
 func operationElapsedMs(startedAt time.Time, endedAt time.Time) int64 {
@@ -436,7 +436,7 @@ func (k *Kernel) operationByIdempotencyKey(sessionID string, tool string, key st
 	if !found {
 		return OperationProjection{}, false, nil
 	}
-	return redactOperationEvidence(latest), true, nil
+	return localOperationProjection(latest), true, nil
 }
 
 func validateIdempotencyKey(key string) error {

@@ -396,7 +396,7 @@ func blockedToolResultError(reason string) (string, string, string) {
 }
 
 func modelJobControlResult(job JobProjection, cancelRequested bool, visibleOutput string) ModelJobControlResult {
-	job = redactJobProjection(job)
+	job = cloneJobProjection(job)
 	return ModelJobControlResult{
 		Status:          strings.TrimSpace(job.Status),
 		Executed:        true,
@@ -432,7 +432,7 @@ func invalidPreparedModelToolCall(eventID string, providerCallID string, name st
 			Executed: false,
 			Error: ToolRequestError{
 				Code:    code,
-				Message: redactEvidenceText(strings.TrimSpace(message)),
+				Message: strings.TrimSpace(message),
 			},
 		},
 	}

@@ -1116,8 +1116,8 @@ func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
 		t.Fatalf("turn item = %+v, want turn projection", turn)
 	}
 	user := requireTimelineChild(t, turn, "user_message")
-	if !strings.Contains(user.Text, "[REDACTED]") {
-		t.Fatalf("user item = %+v, want redacted user message", user)
+	if !strings.Contains(user.Text, "show timeline api_key=sk-timeline-secret") {
+		t.Fatalf("user item = %+v, want local user content preserved", user)
 	}
 	processing := requireTimelineChild(t, turn, "processing_group")
 	if processing.DefaultOpen || processing.ToolCount != 1 {
@@ -1145,11 +1145,13 @@ func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
 		"for_event_id",
 		"tool.call",
 		"tool.result",
-		"sk-timeline-secret",
 	} {
 		if strings.Contains(string(timelineJSON), forbidden) {
 			t.Fatalf("timeline leaked %q: %s", forbidden, string(timelineJSON))
 		}
+	}
+	if !strings.Contains(string(timelineJSON), "sk-timeline-secret") || strings.Contains(string(timelineJSON), "[REDACTED]") {
+		t.Fatalf("timeline content fidelity broken: %s", string(timelineJSON))
 	}
 
 	server := httptest.NewServer(Handler(restarted))
@@ -1280,10 +1282,13 @@ func TestObservabilityProjectionsSeparateRawAuditAndProviderContext(t *testing.T
 	if err != nil {
 		t.Fatalf("marshal timeline: %v", err)
 	}
-	for _, forbidden := range []string{"tool_call_event_id", "operation_id", "for_event_id", "tool.call", "sk-observe-secret"} {
+	for _, forbidden := range []string{"tool_call_event_id", "operation_id", "for_event_id", "tool.call"} {
 		if strings.Contains(string(timelineJSON), forbidden) {
 			t.Fatalf("timeline leaked %q: %s", forbidden, string(timelineJSON))
 		}
+	}
+	if !strings.Contains(string(timelineJSON), "sk-observe-secret") || strings.Contains(string(timelineJSON), "[REDACTED]") {
+		t.Fatalf("timeline should preserve local assistant/tool content without lossy redaction: %s", string(timelineJSON))
 	}
 
 	rawEvents, err := k.TurnEvents("turn_observe")
@@ -1297,8 +1302,8 @@ func TestObservabilityProjectionsSeparateRawAuditAndProviderContext(t *testing.T
 	if !strings.Contains(string(rawJSON), "tool_call_event_id") || !strings.Contains(string(rawJSON), "operation_id") {
 		t.Fatalf("raw event inspection = %s, want typed ids for debugging", string(rawJSON))
 	}
-	if strings.Contains(string(rawJSON), "sk-observe-secret") {
-		t.Fatalf("raw event inspection leaked secret: %s", string(rawJSON))
+	if !strings.Contains(string(rawJSON), "sk-observe-secret") || strings.Contains(string(rawJSON), "[REDACTED]") {
+		t.Fatalf("raw event inspection should preserve local event content without lossy redaction: %s", string(rawJSON))
 	}
 
 	audit, err := k.AuditReplay("turn_observe")
@@ -1314,8 +1319,8 @@ func TestObservabilityProjectionsSeparateRawAuditAndProviderContext(t *testing.T
 			t.Fatalf("audit replay = %s, want %q", string(auditJSON), want)
 		}
 	}
-	if strings.Contains(string(auditJSON), "sk-observe-secret") {
-		t.Fatalf("audit replay leaked secret: %s", string(auditJSON))
+	if !strings.Contains(string(auditJSON), "sk-observe-secret") || strings.Contains(string(auditJSON), "[REDACTED]") {
+		t.Fatalf("audit replay should preserve local event content without lossy redaction: %s", string(auditJSON))
 	}
 
 	providerContext, err := k.ProviderContextProjection("turn_observe")
@@ -1347,7 +1352,7 @@ func TestObservabilityProjectionsSeparateRawAuditAndProviderContext(t *testing.T
 	}
 }
 
-func TestSessionProjectionRedactsTopLevelReadModels(t *testing.T) {
+func TestSessionProjectionPreservesUserOwnedLocalContent(t *testing.T) {
 	now := time.Date(2026, 6, 22, 7, 0, 0, 0, time.UTC)
 	secret := "sk-proj-sessionsecret123456"
 	jwt := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abcdefghijklmnopqrstuvwx0123456789.ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -1355,8 +1360,8 @@ func TestSessionProjectionRedactsTopLevelReadModels(t *testing.T) {
 	k := &Kernel{ledger: newStaticLedger(
 		StoredEvent{
 			EventID:   "evt_session_submitted",
-			SessionID: "session-redacted",
-			TurnID:    "turn_session_redacted",
+			SessionID: "session-content",
+			TurnID:    "turn_session_content",
 			Type:      "turn.submitted",
 			CreatedAt: now,
 			Data: EventData{
@@ -1366,8 +1371,8 @@ func TestSessionProjectionRedactsTopLevelReadModels(t *testing.T) {
 		},
 		StoredEvent{
 			EventID:   "evt_session_final",
-			SessionID: "session-redacted",
-			TurnID:    "turn_session_redacted",
+			SessionID: "session-content",
+			TurnID:    "turn_session_content",
 			Type:      "model.final",
 			CreatedAt: now.Add(time.Second),
 			Data: EventData{Final: &FinalMessage{
@@ -1377,15 +1382,15 @@ func TestSessionProjectionRedactsTopLevelReadModels(t *testing.T) {
 		},
 		StoredEvent{
 			EventID:     "evt_session_operation",
-			SessionID:   "session-redacted",
-			TurnID:      "turn_session_redacted",
-			OperationID: "op_session_redacted",
+			SessionID:   "session-content",
+			TurnID:      "turn_session_content",
+			OperationID: "op_session_content",
 			Type:        "operation.completed",
 			CreatedAt:   now.Add(2 * time.Second),
 			Data: EventData{Operation: &OperationProjection{
-				OperationID:    "op_session_redacted",
-				SessionID:      "session-redacted",
-				TurnID:         "turn_session_redacted",
+				OperationID:    "op_session_content",
+				SessionID:      "session-content",
+				TurnID:         "turn_session_content",
 				Tool:           "shell_exec",
 				Status:         "completed",
 				PermissionMode: PermissionModeYolo,
@@ -1399,13 +1404,13 @@ func TestSessionProjectionRedactsTopLevelReadModels(t *testing.T) {
 		},
 		StoredEvent{
 			EventID:   "evt_session_work",
-			SessionID: "session-redacted",
-			WorkID:    "work_session_redacted",
+			SessionID: "session-content",
+			WorkID:    "work_session_content",
 			Type:      "work.submitted",
 			CreatedAt: now.Add(3 * time.Second),
 			Data: EventData{Work: &WorkProjection{
-				WorkID:    "work_session_redacted",
-				SessionID: "session-redacted",
+				WorkID:    "work_session_content",
+				SessionID: "session-content",
 				Title:     "work " + secret,
 				SourceRef: "turn:source",
 				Status:    "open",
@@ -1414,13 +1419,13 @@ func TestSessionProjectionRedactsTopLevelReadModels(t *testing.T) {
 		},
 		StoredEvent{
 			EventID:     "evt_session_memory",
-			SessionID:   "session-redacted",
+			SessionID:   "session-content",
 			CandidateID: "mem_session",
 			Type:        "memory.candidate.created",
 			CreatedAt:   now.Add(4 * time.Second),
 			Data: EventData{MemoryCandidate: &MemoryCandidateProjection{
 				CandidateID: "mem_session",
-				SessionID:   "session-redacted",
+				SessionID:   "session-content",
 				Text:        "candidate " + jwt,
 				SourceRef:   "turn:source",
 				Status:      MemoryCandidatePending,
@@ -1429,7 +1434,7 @@ func TestSessionProjectionRedactsTopLevelReadModels(t *testing.T) {
 		},
 	)}
 
-	projection, err := k.Session("session-redacted")
+	projection, err := k.Session("session-content")
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
 	}
@@ -1437,27 +1442,13 @@ func TestSessionProjectionRedactsTopLevelReadModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal session projection: %v", err)
 	}
-	for _, forbidden := range []string{secret, jwt} {
-		if strings.Contains(string(projectionJSON), forbidden) {
-			t.Fatalf("session projection leaked %q: %s", forbidden, string(projectionJSON))
+	for _, want := range []string{secret, jwt} {
+		if !strings.Contains(string(projectionJSON), want) {
+			t.Fatalf("session projection lost local content %q: %s", want, string(projectionJSON))
 		}
 	}
-	if !strings.Contains(string(projectionJSON), "[REDACTED]") {
-		t.Fatalf("session projection missing redaction marker: %s", string(projectionJSON))
-	}
-}
-
-func TestEvidenceRedactionCoversBareProviderKeysAndJWT(t *testing.T) {
-	jwt := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abcdefghijklmnopqrstuvwx0123456789.ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	text := "bare sk-proj-redactionsecret123 and " + jwt
-	redacted := redactEvidenceText(text)
-	for _, forbidden := range []string{"sk-proj-redactionsecret123", jwt} {
-		if strings.Contains(redacted, forbidden) {
-			t.Fatalf("redacted text leaked %q: %s", forbidden, redacted)
-		}
-	}
-	if strings.Count(redacted, "[REDACTED]") != 2 {
-		t.Fatalf("redacted text = %q, want two redaction markers", redacted)
+	if strings.Contains(string(projectionJSON), "[REDACTED]") {
+		t.Fatalf("session projection should not use lossy redaction for local content: %s", string(projectionJSON))
 	}
 }
 
@@ -1519,8 +1510,8 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if inspection.Status != "ok" || inspection.SessionID != "context-inspection-consumer" {
 		t.Fatalf("inspection = %+v, want ok for submitted turn", inspection)
 	}
-	if len(inspection.InputItems) != 1 || !strings.Contains(inspection.InputItems[0].Text, "[REDACTED]") {
-		t.Fatalf("input items = %+v, want redacted user input", inspection.InputItems)
+	if len(inspection.InputItems) != 1 || !strings.Contains(inspection.InputItems[0].Text, "Authorization: Bearer tokentest123456") {
+		t.Fatalf("input items = %+v, want local user input preserved", inspection.InputItems)
 	}
 	if got := strings.Join(inspection.ModelInputKinds, ","); got != strings.Join([]string{ModelInputKindSkillIndexContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}, ",") {
 		t.Fatalf("model input kinds = %v", inspection.ModelInputKinds)
@@ -1553,10 +1544,13 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if err != nil {
 		t.Fatalf("marshal inspection: %v", err)
 	}
-	for _, forbidden := range []string{skillPath, "FULL SKILL BODY", "tokentest123456"} {
+	for _, forbidden := range []string{skillPath, "FULL SKILL BODY"} {
 		if strings.Contains(string(inspectionJSON), forbidden) {
 			t.Fatalf("context inspection leaked %q: %s", forbidden, string(inspectionJSON))
 		}
+	}
+	if !strings.Contains(string(inspectionJSON), "tokentest123456") || strings.Contains(string(inspectionJSON), "[REDACTED]") {
+		t.Fatalf("context inspection should preserve local user content without lossy redaction: %s", string(inspectionJSON))
 	}
 
 	server := httptest.NewServer(Handler(restarted))
@@ -2364,7 +2358,7 @@ func TestExecShellDefaultBlocksRawShellAndEnvironmentAccess(t *testing.T) {
 	}
 }
 
-func TestExecShellRedactsSecretEvidenceInReturnedProjectionButPreservesLedgerTruth(t *testing.T) {
+func TestExecShellPreservesTerminalVisibleContentInLocalProjection(t *testing.T) {
 	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
@@ -2388,15 +2382,15 @@ func TestExecShellRedactsSecretEvidenceInReturnedProjectionButPreservesLedgerTru
 		t.Fatalf("read ledger: %v", err)
 	}
 	for _, leaked := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
-		if strings.Contains(operation.Command, leaked) || strings.Contains(operation.Stdout, leaked) || strings.Contains(operation.Stderr, leaked) {
-			t.Fatalf("operation evidence leaked %q: %+v", leaked, operation)
+		if !strings.Contains(operation.Command+operation.Stdout+operation.Stderr, leaked) {
+			t.Fatalf("operation projection lost terminal-visible content %q: %+v", leaked, operation)
 		}
 		if !strings.Contains(string(ledgerData), leaked) {
 			t.Fatalf("ledger lost raw evidence %q: %s", leaked, string(ledgerData))
 		}
 	}
-	if !strings.Contains(operation.Command+operation.Stdout, "[REDACTED]") {
-		t.Fatalf("redaction marker missing from returned operation evidence")
+	if strings.Contains(operation.Command+operation.Stdout+operation.Stderr, "[REDACTED]") {
+		t.Fatalf("operation projection should use budgeted content, not lossy redaction: %+v", operation)
 	}
 
 	session, err := k.Session("shell-redaction")
@@ -2408,12 +2402,12 @@ func TestExecShellRedactsSecretEvidenceInReturnedProjectionButPreservesLedgerTru
 		t.Fatalf("marshal session projection: %v", err)
 	}
 	for _, leaked := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
-		if strings.Contains(string(sessionJSON), leaked) {
-			t.Fatalf("session projection leaked %q: %s", leaked, string(sessionJSON))
+		if !strings.Contains(string(sessionJSON), leaked) {
+			t.Fatalf("session projection lost shell content %q: %s", leaked, string(sessionJSON))
 		}
 	}
-	if !strings.Contains(string(sessionJSON), "[REDACTED]") {
-		t.Fatalf("redaction marker missing from session projection: %s", string(sessionJSON))
+	if strings.Contains(string(sessionJSON), "[REDACTED]") {
+		t.Fatalf("session projection should not use lossy redaction for shell output: %s", string(sessionJSON))
 	}
 }
 
@@ -2599,7 +2593,7 @@ func TestHTTPShellExecLongTimeoutDoesNotBypassDefaultSandbox(t *testing.T) {
 	}
 }
 
-func TestHTTPShellExecManagedJobRetryRedactsTerminalOutput(t *testing.T) {
+func TestHTTPShellExecManagedJobRetryPreservesTerminalOutputProjection(t *testing.T) {
 	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
@@ -2644,13 +2638,13 @@ func TestHTTPShellExecManagedJobRetryRedactsTerminalOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read retry response: %v", err)
 	}
-	for _, leaked := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
-		if strings.Contains(string(body), leaked) {
-			t.Fatalf("managed job retry leaked %q: %s", leaked, string(body))
+	for _, want := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("managed job retry lost terminal output %q: %s", want, string(body))
 		}
 	}
-	if !strings.Contains(string(body), "[REDACTED]") {
-		t.Fatalf("managed job retry body missing redaction marker: %s", string(body))
+	if strings.Contains(string(body), "[REDACTED]") {
+		t.Fatalf("managed job retry should not use lossy redaction: %s", string(body))
 	}
 }
 
@@ -7387,7 +7381,7 @@ func TestSubmitTurnJobStatusReturnsCompletedJobAfterRestartWithoutOperation(t *t
 	}
 }
 
-func TestSubmitTurnJobStatusRedactsTerminalOutput(t *testing.T) {
+func TestSubmitTurnJobStatusPreservesTerminalOutputProjection(t *testing.T) {
 	workspace := testTempDir(t)
 	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
 	sessionID := "job-status-redaction"
@@ -7446,7 +7440,7 @@ func TestSubmitTurnJobStatusRedactsTerminalOutput(t *testing.T) {
 	}
 	if _, err := reloaded.SubmitTurn(context.Background(), TurnRequest{
 		SessionID:  sessionID,
-		InputItems: []InputItem{{Type: "text", Text: "check redacted job"}},
+		InputItems: []InputItem{{Type: "text", Text: "check job output"}},
 	}); err != nil {
 		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
@@ -7455,13 +7449,13 @@ func TestSubmitTurnJobStatusRedactsTerminalOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	for _, leaked := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
-		if strings.Contains(string(payloadJSON), leaked) {
-			t.Fatalf("job_status payload leaked %q: %s", leaked, string(payloadJSON))
+	for _, want := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
+		if !strings.Contains(string(payloadJSON), want) {
+			t.Fatalf("job_status payload lost terminal output %q: %s", want, string(payloadJSON))
 		}
 	}
-	if !strings.Contains(string(payloadJSON), "[REDACTED]") {
-		t.Fatalf("job_status payload missing redaction marker: %s", string(payloadJSON))
+	if strings.Contains(string(payloadJSON), "[REDACTED]") {
+		t.Fatalf("job_status payload should not use lossy redaction: %s", string(payloadJSON))
 	}
 }
 

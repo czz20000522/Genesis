@@ -119,7 +119,7 @@ func (p *CommandProvider) Complete(ctx context.Context, req ModelRequest) (Model
 		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 			return ModelResponse{}, fmt.Errorf("provider command timed out: %w", runCtx.Err())
 		}
-		stderrText := strings.TrimSpace(redactEvidenceText(stderr.String()))
+		stderrText := strings.TrimSpace(externalBoundaryDiagnosticText(stderr.String()))
 		if stderrText != "" {
 			return ModelResponse{}, fmt.Errorf("provider command failed: %w: %s", err, stderrText)
 		}
@@ -178,7 +178,7 @@ func providerCommandEnvValueLooksSecret(value string) bool {
 	if strings.HasPrefix(lower, "secret://") || strings.Contains(lower, "authorization") {
 		return true
 	}
-	return redactEvidenceText(text) != text
+	return containsCredentialShapedText(text)
 }
 
 func providerCommandExists(command string) bool {

@@ -107,7 +107,7 @@ func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
 			}
 			skills = append(skills, SkillDescriptor{
 				Name:            name,
-				Description:     redactEvidenceText(description),
+				Description:     description,
 				InstructionPath: filepath.Clean(instructionPath),
 			})
 			return nil

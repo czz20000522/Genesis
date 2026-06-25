@@ -41,7 +41,7 @@ func safeInspectionReason(reason string) string {
 
 func safeInspectionToken(value string, fallback string) string {
 	value = strings.TrimSpace(value)
-	if value == "" || len(value) > 120 || redactEvidenceText(value) != value || credentialShapedInspectionTokenPattern.MatchString(value) {
+	if value == "" || len(value) > 120 || containsCredentialShapedText(value) || credentialShapedInspectionTokenPattern.MatchString(value) {
 		return fallback
 	}
 	for _, char := range value {

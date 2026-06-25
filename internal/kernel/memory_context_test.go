@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestApprovedMemoryProviderContextRedactsSensitiveTextWithoutMutatingTruth(t *testing.T) {
+func TestApprovedMemoryProviderContextUsesExplicitEgressBoundaryWithoutMutatingTruth(t *testing.T) {
 	secretMemory := "prefer concise answers; GENESIS_PROVIDER_API_KEY=sk-memory-secret; Authorization: Bearer tokentest123456"
 	provider := &recordingTextProvider{text: "memory context observed"}
 	k, err := New(Config{
@@ -57,8 +57,8 @@ func TestApprovedMemoryProviderContextRedactsSensitiveTextWithoutMutatingTruth(t
 			t.Fatalf("provider request leaked %q: %s", forbidden, requestText)
 		}
 	}
-	if !strings.Contains(requestText, "Approved memories:") || !strings.Contains(requestText, "[REDACTED]") || !strings.Contains(requestText, "prefer concise answers") {
-		t.Fatalf("provider request = %s, want useful redacted approved memory context", requestText)
+	if strings.Contains(requestText, "Approved memories:") || strings.Contains(requestText, "[REDACTED]") {
+		t.Fatalf("provider request = %s, want sensitive memory omitted at egress boundary without lossy replacement", requestText)
 	}
 
 	projection, err := k.Session("memory-context-consumer")
@@ -69,7 +69,14 @@ func TestApprovedMemoryProviderContextRedactsSensitiveTextWithoutMutatingTruth(t
 		t.Fatalf("projection turns = %+v, want one recalled memory", projection.Turns)
 	}
 	projectedRecall := projection.Turns[0].RecalledMemories[0].Text
-	if strings.Contains(projectedRecall, "sk-memory-secret") || strings.Contains(projectedRecall, "tokentest123456") {
-		t.Fatalf("session recall projection leaked secret: %q", projectedRecall)
+	if projectedRecall != secretMemory {
+		t.Fatalf("session recall projection = %q, want owner truth preserved", projectedRecall)
+	}
+	sessionJSON, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatalf("marshal session projection: %v", err)
+	}
+	if strings.Contains(string(sessionJSON), "[REDACTED]") {
+		t.Fatalf("session projection should not use lossy redaction for memory truth: %s", string(sessionJSON))
 	}
 }

@@ -83,7 +83,7 @@ func appendToolExchangeLines(lines []string, exchanges []conversationToolExchang
 		}
 		lines = append(lines, "Tool call: "+tool)
 		if arguments := strings.TrimSpace(exchange.Arguments); arguments != "" {
-			lines = append(lines, "Tool arguments: "+redactEvidenceText(arguments))
+			lines = append(lines, "Tool arguments: "+arguments)
 		}
 		status := strings.TrimSpace(exchange.ResultStatus)
 		content := strings.TrimSpace(exchange.ResultContent)
@@ -94,7 +94,7 @@ func appendToolExchangeLines(lines []string, exchanges []conversationToolExchang
 			}
 			lines = append(lines, resultLine)
 			if content != "" {
-				lines = append(lines, redactEvidenceText(content))
+				lines = append(lines, content)
 			}
 		}
 	}
@@ -154,7 +154,10 @@ func oneLine(text string) string {
 func approvedMemoryContext(memories []MemoryRecall) string {
 	var memoryLines []string
 	for _, memory := range memories {
-		text := strings.TrimSpace(redactEvidenceText(memory.Text))
+		text := strings.TrimSpace(memory.Text)
+		if containsCredentialShapedText(text) {
+			continue
+		}
 		if text != "" {
 			memoryLines = append(memoryLines, "- "+text)
 		}

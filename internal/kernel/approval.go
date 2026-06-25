@@ -68,9 +68,9 @@ func (k *Kernel) DecideApproval(ctx context.Context, req ApprovalDecisionRequest
 			}
 			k.approvalMu.Unlock()
 			if err := k.ensureApprovedApprovalEffect(ctx, approval, operation); err != nil {
-				return redactApprovalProjection(approval), err
+				return cloneApprovalProjection(approval), err
 			}
-			return redactApprovalProjection(approval), nil
+			return cloneApprovalProjection(approval), nil
 		}
 		k.approvalMu.Unlock()
 		return ApprovalProjection{}, fmt.Errorf("%w: approval is already %s", ErrApprovalRejected, approval.Status)
@@ -96,7 +96,7 @@ func (k *Kernel) DecideApproval(ctx context.Context, req ApprovalDecisionRequest
 			return ApprovalProjection{}, err
 		}
 		k.approvalMu.Unlock()
-		return redactApprovalProjection(expired), fmt.Errorf("%w: approval expired", ErrApprovalRejected)
+		return cloneApprovalProjection(expired), fmt.Errorf("%w: approval expired", ErrApprovalRejected)
 	}
 	if !sameApprovalPolicySnapshot(approval.PolicySnapshot, approvalPolicySnapshot(resolveToolPolicy(k.toolPolicy))) {
 		denied := decideApprovalProjection(approval, req, ApprovalStatusDenied, "policy_snapshot_mismatch", now)
@@ -109,7 +109,7 @@ func (k *Kernel) DecideApproval(ctx context.Context, req ApprovalDecisionRequest
 			return ApprovalProjection{}, err
 		}
 		k.approvalMu.Unlock()
-		return redactApprovalProjection(denied), fmt.Errorf("%w: policy snapshot mismatch", ErrApprovalRejected)
+		return cloneApprovalProjection(denied), fmt.Errorf("%w: policy snapshot mismatch", ErrApprovalRejected)
 	}
 	if operation.Status != "blocked" || operation.BlockedReason != "approval_required" {
 		denied := decideApprovalProjection(approval, req, ApprovalStatusDenied, "approval_operation_stale", now)
@@ -122,7 +122,7 @@ func (k *Kernel) DecideApproval(ctx context.Context, req ApprovalDecisionRequest
 			return ApprovalProjection{}, err
 		}
 		k.approvalMu.Unlock()
-		return redactApprovalProjection(denied), fmt.Errorf("%w: approval operation is stale", ErrApprovalRejected)
+		return cloneApprovalProjection(denied), fmt.Errorf("%w: approval operation is stale", ErrApprovalRejected)
 	}
 
 	switch strings.TrimSpace(req.Decision) {
@@ -137,7 +137,7 @@ func (k *Kernel) DecideApproval(ctx context.Context, req ApprovalDecisionRequest
 			return ApprovalProjection{}, err
 		}
 		k.approvalMu.Unlock()
-		return redactApprovalProjection(denied), nil
+		return cloneApprovalProjection(denied), nil
 	case ApprovalDecisionApproved:
 		approved := decideApprovalProjection(approval, req, ApprovalStatusApproved, "", now)
 		if err := k.appendApprovalEvent("approval.approved", approved); err != nil {
@@ -146,9 +146,9 @@ func (k *Kernel) DecideApproval(ctx context.Context, req ApprovalDecisionRequest
 		}
 		k.approvalMu.Unlock()
 		if err := k.ensureApprovedApprovalEffect(ctx, approved, operation); err != nil {
-			return redactApprovalProjection(approved), err
+			return cloneApprovalProjection(approved), err
 		}
-		return redactApprovalProjection(approved), nil
+		return cloneApprovalProjection(approved), nil
 	default:
 		k.approvalMu.Unlock()
 		return ApprovalProjection{}, fmt.Errorf("%w: unknown approval decision", ErrApprovalRejected)
@@ -202,7 +202,7 @@ func (k *Kernel) Approvals(status string) ([]ApprovalProjection, error) {
 		if status != "" && approval.Status != status {
 			continue
 		}
-		items = append(items, redactApprovalProjection(approval))
+		items = append(items, cloneApprovalProjection(approval))
 	}
 	return items, nil
 }

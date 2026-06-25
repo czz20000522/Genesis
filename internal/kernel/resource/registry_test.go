@@ -2,18 +2,13 @@ package resource
 
 import "testing"
 
-func TestRegistryKeepsRawTextWhileReadReturnsRedactedProjection(t *testing.T) {
+func TestRegistryReadReturnsBudgetedRawResourceText(t *testing.T) {
 	rawText := "resource body sk-owner-secret"
 	registry, err := NewRegistry([]Descriptor{{
 		Ref:      "res_secret",
 		MimeType: "text/plain",
 		Text:     rawText,
-	}}, func(text string) string {
-		if text != rawText {
-			t.Fatalf("redactor received %q, want raw owner text", text)
-		}
-		return "resource body [REDACTED]"
-	})
+	}})
 	if err != nil {
 		t.Fatalf("NewRegistry returned error: %v", err)
 	}
@@ -25,7 +20,7 @@ func TestRegistryKeepsRawTextWhileReadReturnsRedactedProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read returned error: %v", err)
 	}
-	if result.Text != "resource body [REDACTED]" {
-		t.Fatalf("read text = %q, want redacted projection", result.Text)
+	if result.Text != rawText {
+		t.Fatalf("read text = %q, want raw resource text", result.Text)
 	}
 }

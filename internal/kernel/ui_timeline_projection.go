@@ -29,7 +29,7 @@ func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UIT
 			if len(event.Data.InputItems) == 0 {
 				continue
 			}
-			turn.appendMessage("user_message", redactEvidenceText(inputItemsText(event.Data.InputItems)), event.CreatedAt)
+			turn.appendMessage("user_message", inputItemsText(event.Data.InputItems), event.CreatedAt)
 		case "tool.call":
 			if event.Data.ToolCall == nil {
 				continue
@@ -50,14 +50,14 @@ func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UIT
 				continue
 			}
 			turn.markTerminal("completed", event.CreatedAt)
-			turn.appendMessage("assistant_message", redactEvidenceText(event.Data.Final.Text), event.CreatedAt)
+			turn.appendMessage("assistant_message", event.Data.Final.Text, event.CreatedAt)
 		case "assistant.interrupted":
 			text := "turn interrupted"
 			if event.Data.TurnInterruption != nil && strings.TrimSpace(event.Data.TurnInterruption.Reason) != "" {
 				text = event.Data.TurnInterruption.Reason
 			}
 			turn.markTerminal("interrupted", event.CreatedAt)
-			turn.appendProcessingNotice("notice", "interrupted", redactEvidenceText(text), event.CreatedAt)
+			turn.appendProcessingNotice("notice", "interrupted", text, event.CreatedAt)
 		case "context.compaction.started":
 			turn.appendCompactionNotice("running", "正在压缩上下文", event.CreatedAt)
 		case "context.compaction.completed":
@@ -75,7 +75,7 @@ func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UIT
 				text = event.Data.TurnError.Message
 			}
 			turn.markTerminal("failed", event.CreatedAt)
-			turn.appendProcessingNotice("notice", "failed", redactEvidenceText(text), event.CreatedAt)
+			turn.appendProcessingNotice("notice", "failed", text, event.CreatedAt)
 		}
 	}
 	items := make([]UITimelineItem, 0, len(turnOrder))
