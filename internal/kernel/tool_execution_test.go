@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -228,6 +229,260 @@ func TestExecuteToolBatchesCommitsOutOfOrderBatchResultsInProviderOrder(t *testi
 		if data.ToolResult.Tool != want {
 			t.Fatalf("events[%d] tool = %q, want provider-order %q", i, data.ToolResult.Tool, want)
 		}
+	}
+}
+
+func TestExecuteToolBatchesCommitsConcurrentPerCallFailureWithSiblingSuccess(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-per-call-failure"), "events.jsonl"))
+	sessionID := "session_tool_execution_parallel_per_call_failure"
+	turnID := "turn_tool_execution_parallel_per_call_failure"
+	toolCallEventIDs := map[string]string{
+		"call_event_a": "evt_call_a",
+		"call_event_b": "evt_call_b",
+	}
+	prepared := []preparedModelToolCall{
+		{
+			eventID:        "call_event_a",
+			providerCallID: "provider_call_a",
+			name:           "resource_read",
+			accessPlan:     pureReadAccessPlan("resource_read"),
+			execute: func(context.Context, string, string) (ModelToolResult, error) {
+				return ModelToolResult{
+					ToolCallID:      "provider_call_a",
+					ToolCallEventID: "call_event_a",
+					Name:            "resource_read",
+					Content:         `{"status":"failed","executed":true,"error":{"code":"resource_missing","message":"resource not found"}}`,
+				}, nil
+			},
+		},
+		{
+			eventID:        "call_event_b",
+			providerCallID: "provider_call_b",
+			name:           "resource_read",
+			accessPlan:     pureReadAccessPlan("resource_read"),
+			execute: func(context.Context, string, string) (ModelToolResult, error) {
+				return ModelToolResult{
+					ToolCallID:      "provider_call_b",
+					ToolCallEventID: "call_event_b",
+					Name:            "resource_read",
+					Content:         `{"status":"completed","resource_ref":"res_b"}`,
+				}, nil
+			},
+		},
+	}
+
+	outcome, err := k.executeToolBatches(context.Background(), k.toolGateway(), sessionID, turnID, prepared, toolCallEventIDs)
+	if err != nil {
+		t.Fatalf("executeToolBatches returned error for per-call failure result: %v", err)
+	}
+	if outcome.Completed {
+		t.Fatalf("executeToolBatches completed turn unexpectedly: %+v", outcome.Response)
+	}
+
+	events, err := k.TurnEvents(turnID)
+	if err != nil {
+		t.Fatalf("TurnEvents returned error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %+v, want two provider-ordered tool.result events", events)
+	}
+	for i, want := range []struct {
+		provider string
+		status   string
+	}{
+		{provider: "provider_call_a", status: "failed"},
+		{provider: "provider_call_b", status: "completed"},
+	} {
+		data, ok := events[i].Data.(EventData)
+		if !ok || data.ToolResult == nil {
+			t.Fatalf("events[%d] = %#v, want tool.result", i, events[i].Data)
+		}
+		if data.ToolResult.ProviderToolCallID != want.provider || data.ToolResult.Status != want.status {
+			t.Fatalf("events[%d] result = %+v, want provider %s status %s", i, data.ToolResult, want.provider, want.status)
+		}
+	}
+}
+
+func TestExecuteToolBatchesRecordsFatalRunnerShapeFailuresWithoutForgingResults(t *testing.T) {
+	cases := []struct {
+		name          string
+		results       []toolCallExecutionResult
+		wantMessage   string
+		wantSessionID string
+		wantTurnID    string
+	}{
+		{
+			name:        "missing result",
+			wantMessage: "no result",
+			results: []toolCallExecutionResult{
+				{
+					CallIndex: 0,
+					Result: ModelToolResult{
+						ToolCallID:      "provider_call_a",
+						ToolCallEventID: "call_event_a",
+						Name:            "resource_read",
+						Content:         `{"status":"completed","resource_ref":"res_a"}`,
+					},
+				},
+			},
+			wantSessionID: "session_tool_execution_parallel_missing_result",
+			wantTurnID:    "turn_tool_execution_parallel_missing_result",
+		},
+		{
+			name:        "duplicate result",
+			wantMessage: "duplicate result",
+			results: []toolCallExecutionResult{
+				{
+					CallIndex: 0,
+					Result: ModelToolResult{
+						ToolCallID:      "provider_call_a",
+						ToolCallEventID: "call_event_a",
+						Name:            "resource_read",
+						Content:         `{"status":"completed","resource_ref":"res_a"}`,
+					},
+				},
+				{
+					CallIndex: 0,
+					Result: ModelToolResult{
+						ToolCallID:      "provider_call_a_duplicate",
+						ToolCallEventID: "call_event_a",
+						Name:            "resource_read",
+						Content:         `{"status":"completed","resource_ref":"res_a_duplicate"}`,
+					},
+				},
+			},
+			wantSessionID: "session_tool_execution_parallel_duplicate_result",
+			wantTurnID:    "turn_tool_execution_parallel_duplicate_result",
+		},
+		{
+			name:        "unexpected result",
+			wantMessage: "unexpected call index",
+			results: []toolCallExecutionResult{
+				{
+					CallIndex: 2,
+					Result: ModelToolResult{
+						ToolCallID:      "provider_call_c",
+						ToolCallEventID: "call_event_c",
+						Name:            "resource_read",
+						Content:         `{"status":"completed","resource_ref":"res_c"}`,
+					},
+				},
+			},
+			wantSessionID: "session_tool_execution_parallel_unexpected_result",
+			wantTurnID:    "turn_tool_execution_parallel_unexpected_result",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-runner-shape-failure"), strings.ReplaceAll(tc.name, " ", "-"), "events.jsonl"))
+			toolCallEventIDs := map[string]string{
+				"call_event_a": "evt_call_a",
+				"call_event_b": "evt_call_b",
+			}
+			prepared := []preparedModelToolCall{
+				{
+					eventID:        "call_event_a",
+					providerCallID: "provider_call_a",
+					name:           "resource_read",
+					accessPlan:     pureReadAccessPlan("resource_read"),
+				},
+				{
+					eventID:        "call_event_b",
+					providerCallID: "provider_call_b",
+					name:           "resource_read",
+					accessPlan:     pureReadAccessPlan("resource_read"),
+				},
+			}
+			runner := func(context.Context, ToolGateway, string, string, []preparedModelToolCall, ToolExecutionBatch) ([]toolCallExecutionResult, error) {
+				return tc.results, nil
+			}
+
+			_, err := k.executeToolBatchesWithRunner(context.Background(), k.toolGateway(), tc.wantSessionID, tc.wantTurnID, prepared, toolCallEventIDs, runner)
+			if err == nil {
+				t.Fatal("executeToolBatchesWithRunner returned nil error, want fatal runner shape error")
+			}
+
+			events, err := k.TurnEvents(tc.wantTurnID)
+			if err != nil {
+				t.Fatalf("TurnEvents returned error: %v", err)
+			}
+			if len(events) != 1 {
+				t.Fatalf("events = %+v, want only turn.failed and no forged tool.result", events)
+			}
+			data, ok := events[0].Data.(EventData)
+			if !ok || data.TurnError == nil {
+				t.Fatalf("event = %#v, want turn.failed data", events[0].Data)
+			}
+			if data.TurnError.Code != "tool_infrastructure_failed" || !strings.Contains(data.TurnError.Message, tc.wantMessage) {
+				t.Fatalf("turn error = %+v, want infrastructure failure containing %q", data.TurnError, tc.wantMessage)
+			}
+		})
+	}
+}
+
+func TestExecuteToolBatchesInterruptedParallelBatchDoesNotForgeSiblingResults(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-interrupted"), "events.jsonl"))
+	sessionID := "session_tool_execution_parallel_interrupted"
+	turnID := "turn_tool_execution_parallel_interrupted"
+	toolCallEventIDs := map[string]string{
+		"call_event_a": "evt_call_a",
+		"call_event_b": "evt_call_b",
+	}
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	started := make(chan string, 2)
+	releaseCancel := make(chan struct{})
+	prepared := []preparedModelToolCall{
+		{
+			eventID:        "call_event_a",
+			providerCallID: "provider_call_a",
+			name:           "resource_read",
+			accessPlan:     pureReadAccessPlan("resource_read"),
+			execute: func(context.Context, string, string) (ModelToolResult, error) {
+				started <- "resource_a"
+				<-releaseCancel
+				cancelRun()
+				return ModelToolResult{}, context.Canceled
+			},
+		},
+		{
+			eventID:        "call_event_b",
+			providerCallID: "provider_call_b",
+			name:           "resource_read",
+			accessPlan:     pureReadAccessPlan("resource_read"),
+			execute: func(ctx context.Context, _ string, _ string) (ModelToolResult, error) {
+				started <- "resource_b"
+				<-ctx.Done()
+				return ModelToolResult{
+					ToolCallID:      "provider_call_b",
+					ToolCallEventID: "call_event_b",
+					Name:            "resource_read",
+					Content:         `{"status":"completed","resource_ref":"res_b"}`,
+				}, nil
+			},
+		},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := k.executeToolBatches(runCtx, k.toolGateway(), sessionID, turnID, prepared, toolCallEventIDs)
+		errCh <- err
+	}()
+
+	waitForToolStarts(t, started, []string{"resource_a", "resource_b"})
+	close(releaseCancel)
+	err := <-errCh
+	if !errors.Is(err, ErrTurnInterrupted) {
+		t.Fatalf("executeToolBatches error = %v, want ErrTurnInterrupted", err)
+	}
+	events, err := k.TurnEvents(turnID)
+	if err != nil {
+		t.Fatalf("TurnEvents returned error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %+v, want only assistant.interrupted and no tool.result", events)
+	}
+	if events[0].Type != "assistant.interrupted" {
+		t.Fatalf("event type = %q, want assistant.interrupted", events[0].Type)
 	}
 }
 

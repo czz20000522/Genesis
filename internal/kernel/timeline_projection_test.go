@@ -164,13 +164,14 @@ func TestUITimelineJobTerminalDoesNotSettleTurnBeforeAssistantFinal(t *testing.T
 		TurnID:          turnID,
 		Tool:            "shell_exec",
 		Status:          "running",
+		Command:         "download --token sk-job-secret",
 		Receipt:         "managed job accepted",
 		StartedAt:       startedAt.Add(2 * time.Second),
 		ToolCallEventID: "evt_job_tool_call",
 	}
 	completed := job
 	completed.Status = "completed"
-	completed.Stdout = "download complete"
+	completed.Stdout = "download complete api_key=sk-job-secret"
 	completed.CompletedAt = startedAt.Add(8 * time.Second)
 	k := &Kernel{
 		ledger: newStaticLedger(
@@ -239,6 +240,36 @@ func TestUITimelineJobTerminalDoesNotSettleTurnBeforeAssistantFinal(t *testing.T
 	operation := requireNestedTimelineChild(t, processing, "operation_detail")
 	if operation.Status != "completed" || !strings.Contains(operation.OutputPreview, "download complete") {
 		t.Fatalf("operation detail = %+v, want completed job detail under running turn", operation)
+	}
+	timelineJSON, err := json.Marshal(timeline)
+	if err != nil {
+		t.Fatalf("marshal timeline: %v", err)
+	}
+	for _, forbidden := range []string{"command_preview", "visible_output", "sk-job-secret"} {
+		if strings.Contains(string(timelineJSON), forbidden) {
+			t.Fatalf("main timeline leaked job detail-only field or secret %q: %s", forbidden, string(timelineJSON))
+		}
+	}
+	detail, err := k.UITimelineDetail(sessionID, operation.ItemID)
+	if err != nil {
+		t.Fatalf("UITimelineDetail returned error: %v", err)
+	}
+	detailJSON, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatalf("marshal job detail: %v", err)
+	}
+	var detailMap map[string]any
+	if err := json.Unmarshal(detailJSON, &detailMap); err != nil {
+		t.Fatalf("unmarshal job detail: %v", err)
+	}
+	item, ok := detailMap["item"].(map[string]any)
+	if !ok {
+		t.Fatalf("job detail item = %#v, want object", detailMap["item"])
+	}
+	assertStringFieldContains(t, item, "command_preview", "download")
+	assertStringFieldContains(t, item, "visible_output", "download complete")
+	if got := item["duration_ms"]; got != float64(6000) {
+		t.Fatalf("job duration_ms = %#v, want 6000", got)
 	}
 	if timelineChild(turn, "assistant_message") != nil {
 		t.Fatalf("turn children = %+v, want no assistant message before final", turn.Children)
@@ -309,7 +340,7 @@ func TestUITimelineApprovalRequiredProjectsUserActionNode(t *testing.T) {
 	}
 }
 
-func TestUITimelineDetailProjectionReturnsSelectedNodeWithoutDiagnostics(t *testing.T) {
+func TestUITimelineDetailProjectionAddsSanitizedOperationDiagnostics(t *testing.T) {
 	startedAt := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
 	sessionID := "timeline-detail-session"
 	turnID := "turn_detail"
@@ -351,7 +382,7 @@ func TestUITimelineDetailProjectionReturnsSelectedNodeWithoutDiagnostics(t *test
 					Tool:               "shell_exec",
 					ForEventID:         "evt_detail_tool_call",
 					Status:             "failed",
-					Content:            `{"status":"failed","executed":true,"exit_code":2,"stderr":"api_key=sk-detail-secret\nmissing argument","stderr_truncated":true}`,
+					Content:            `{"status":"failed","executed":true,"exit_code":2,"elapsed_ms":1400,"stderr":"missing argument api_key=sk-detail-secret","stderr_truncated":true,"stderr_original_bytes":1200,"stderr_omitted_bytes":880,"output_truncation":"head_tail"}`,
 				}},
 			},
 			StoredEvent{
@@ -378,6 +409,15 @@ func TestUITimelineDetailProjectionReturnsSelectedNodeWithoutDiagnostics(t *test
 	turn := requireSingleTimelineTurn(t, timeline, turnID)
 	processing := requireTimelineChild(t, turn, "processing_group")
 	operation := requireNestedTimelineChild(t, processing, "operation_detail")
+	timelineJSON, err := json.Marshal(timeline)
+	if err != nil {
+		t.Fatalf("marshal timeline: %v", err)
+	}
+	for _, forbidden := range []string{"command_preview", "visible_output", "output_truncation", "provider_tool_call_id", "operation_id", "sk-detail-secret"} {
+		if strings.Contains(string(timelineJSON), forbidden) {
+			t.Fatalf("main timeline leaked detail-only field or secret %q: %s", forbidden, string(timelineJSON))
+		}
+	}
 
 	processingDetail, err := k.UITimelineDetail(sessionID, processing.DetailRef)
 	if err != nil {
@@ -397,6 +437,28 @@ func TestUITimelineDetailProjectionReturnsSelectedNodeWithoutDiagnostics(t *test
 	detailJSON, err := json.Marshal(operationDetail)
 	if err != nil {
 		t.Fatalf("marshal detail: %v", err)
+	}
+	var detailMap map[string]any
+	if err := json.Unmarshal(detailJSON, &detailMap); err != nil {
+		t.Fatalf("unmarshal detail json: %v", err)
+	}
+	item, ok := detailMap["item"].(map[string]any)
+	if !ok {
+		t.Fatalf("detail json item = %#v, want object", detailMap["item"])
+	}
+	assertStringFieldContains(t, item, "command_preview", "echo")
+	assertStringFieldContains(t, item, "visible_output", "missing argument")
+	if got := item["duration_ms"]; got != float64(1400) {
+		t.Fatalf("duration_ms = %#v, want 1400", got)
+	}
+	if got := item["output_truncation"]; got != "head_tail" {
+		t.Fatalf("output_truncation = %#v, want head_tail", got)
+	}
+	if got := item["stderr_original_bytes"]; got != float64(1200) {
+		t.Fatalf("stderr_original_bytes = %#v, want 1200", got)
+	}
+	if got := item["stderr_omitted_bytes"]; got != float64(880) {
+		t.Fatalf("stderr_omitted_bytes = %#v, want 880", got)
 	}
 	for _, forbidden := range []string{"tool.call", "tool.result", "for_event_id", "tool_call_event_id", "provider_tool_call_id", "operation_id", "sk-detail-secret"} {
 		if strings.Contains(string(detailJSON), forbidden) {
@@ -497,6 +559,38 @@ func TestUITimelineResourceReadResultUsesTextPreview(t *testing.T) {
 	}
 	if !operation.OutputTruncated || !operation.FullOutputAvailable {
 		t.Fatalf("operation detail = %+v, want truncation and full-output signal", operation)
+	}
+	detail, err := k.UITimelineDetail(sessionID, operation.ItemID)
+	if err != nil {
+		t.Fatalf("UITimelineDetail returned error: %v", err)
+	}
+	detailJSON, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatalf("marshal resource detail: %v", err)
+	}
+	var detailMap map[string]any
+	if err := json.Unmarshal(detailJSON, &detailMap); err != nil {
+		t.Fatalf("unmarshal resource detail: %v", err)
+	}
+	item, ok := detailMap["item"].(map[string]any)
+	if !ok {
+		t.Fatalf("resource detail json item = %#v, want object", detailMap["item"])
+	}
+	assertStringFieldContains(t, item, "command_preview", "res_alpha")
+	assertStringFieldContains(t, item, "visible_output", "resource body")
+	if got := item["original_bytes"]; got != nil {
+		t.Fatalf("original_bytes = %#v, want omitted when source did not report bytes", got)
+	}
+}
+
+func assertStringFieldContains(t *testing.T, fields map[string]any, key string, want string) {
+	t.Helper()
+	got, ok := fields[key].(string)
+	if !ok || !strings.Contains(got, want) {
+		t.Fatalf("%s = %#v, want string containing %q", key, fields[key], want)
+	}
+	if strings.Contains(got, "sk-") {
+		t.Fatalf("%s leaked secret-shaped material: %q", key, got)
 	}
 }
 

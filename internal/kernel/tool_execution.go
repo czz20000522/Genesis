@@ -50,7 +50,7 @@ func (k *Kernel) executeToolBatchesWithGuard(runCtx context.Context, toolGateway
 		}
 		resultByCallIndex, err := indexToolExecutionResults(batch, results)
 		if err != nil {
-			return toolBatchExecutionOutcome{}, err
+			return k.handleToolExecutionError(runCtx, sessionID, turnID, fmt.Errorf("%w: %v", ErrToolInfrastructureFailed, err))
 		}
 		for _, callIndex := range batch.CallIndexes {
 			result, err := observeToolLoopGuardResult(guard, preparedCalls[callIndex], resultByCallIndex[callIndex])

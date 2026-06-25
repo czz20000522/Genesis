@@ -52,9 +52,18 @@ type UITimelineItem struct {
 	Status              string           `json:"status,omitempty"`
 	Text                string           `json:"text,omitempty"`
 	Tool                string           `json:"tool,omitempty"`
+	CommandPreview      string           `json:"command_preview,omitempty"`
 	OutputPreview       string           `json:"output_preview,omitempty"`
+	VisibleOutput       string           `json:"visible_output,omitempty"`
 	OutputSource        string           `json:"output_source,omitempty"`
 	OutputTruncated     bool             `json:"output_truncated,omitempty"`
+	OutputTruncation    string           `json:"output_truncation,omitempty"`
+	StdoutOriginalBytes int              `json:"stdout_original_bytes,omitempty"`
+	StderrOriginalBytes int              `json:"stderr_original_bytes,omitempty"`
+	StdoutOmittedBytes  int              `json:"stdout_omitted_bytes,omitempty"`
+	StderrOmittedBytes  int              `json:"stderr_omitted_bytes,omitempty"`
+	OriginalBytes       int              `json:"original_bytes,omitempty"`
+	ReturnedBytes       int              `json:"returned_bytes,omitempty"`
 	FullOutputAvailable bool             `json:"full_output_available,omitempty"`
 	DefaultOpen         bool             `json:"default_open,omitempty"`
 	DetailRef           string           `json:"detail_ref,omitempty"`

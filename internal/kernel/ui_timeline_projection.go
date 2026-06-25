@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,10 @@ import (
 var ErrTimelineDetailNotFound = errors.New("timeline detail not found")
 
 func (k *Kernel) UITimeline(sessionID string) (UITimelineResponse, error) {
+	return k.buildUITimeline(sessionID, false)
+}
+
+func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UITimelineResponse, error) {
 	session, err := k.Session(sessionID)
 	if err != nil {
 		return UITimelineResponse{}, err
@@ -18,7 +23,7 @@ func (k *Kernel) UITimeline(sessionID string) (UITimelineResponse, error) {
 	turns := map[string]*timelineTurnBuilder{}
 	turnOrder := []string{}
 	for _, event := range session.Events {
-		turn := ensureTimelineTurn(turns, &turnOrder, session.SessionID, event)
+		turn := ensureTimelineTurn(turns, &turnOrder, session.SessionID, event, includeDiagnostics)
 		switch event.Type {
 		case "turn.submitted":
 			if len(event.Data.InputItems) == 0 {
@@ -29,7 +34,7 @@ func (k *Kernel) UITimeline(sessionID string) (UITimelineResponse, error) {
 			if event.Data.ToolCall == nil {
 				continue
 			}
-			turn.addToolCall(event.EventID, event.Data.ToolCall.Tool, event.CreatedAt)
+			turn.addToolCall(event.EventID, event.Data.ToolCall.Tool, event.Data.ToolCall.Arguments, event.CreatedAt)
 		case "tool.result":
 			if event.Data.ToolResult == nil {
 				continue
@@ -87,7 +92,7 @@ func (k *Kernel) UITimelineDetail(sessionID string, detailRef string) (UITimelin
 	if detailRef == "" {
 		return UITimelineDetailResponse{}, errors.New("timeline detail ref is required")
 	}
-	timeline, err := k.UITimeline(sessionID)
+	timeline, err := k.buildUITimeline(sessionID, true)
 	if err != nil {
 		return UITimelineDetailResponse{}, err
 	}
@@ -128,9 +133,10 @@ type timelineTurnBuilder struct {
 	toolGroupByJobID      map[string]int
 	seenJobIDs            map[string]bool
 	pendingAction         bool
+	includeDiagnostics    bool
 }
 
-func ensureTimelineTurn(turns map[string]*timelineTurnBuilder, order *[]string, sessionID string, event EventProjection) *timelineTurnBuilder {
+func ensureTimelineTurn(turns map[string]*timelineTurnBuilder, order *[]string, sessionID string, event EventProjection, includeDiagnostics bool) *timelineTurnBuilder {
 	key := strings.TrimSpace(event.TurnID)
 	if key == "" {
 		key = "session:" + sessionID
@@ -158,6 +164,7 @@ func ensureTimelineTurn(turns map[string]*timelineTurnBuilder, order *[]string, 
 		toolGroupByCallEvent: map[string]int{},
 		toolGroupByJobID:     map[string]int{},
 		seenJobIDs:           map[string]bool{},
+		includeDiagnostics:   includeDiagnostics,
 	}
 	turns[key] = builder
 	*order = append(*order, key)
@@ -198,7 +205,7 @@ func (b *timelineTurnBuilder) processingGroup() *UITimelineItem {
 	return &b.item.Children[b.processingIndex]
 }
 
-func (b *timelineTurnBuilder) addToolCall(callEventID string, tool string, createdAt time.Time) {
+func (b *timelineTurnBuilder) addToolCall(callEventID string, tool string, arguments string, createdAt time.Time) {
 	processing := b.processingGroup()
 	ordinal := b.toolOrdinal
 	group := UITimelineItem{
@@ -219,6 +226,9 @@ func (b *timelineTurnBuilder) addToolCall(callEventID string, tool string, creat
 			DetailAvailable: true,
 			CreatedAt:       createdAt,
 		}},
+	}
+	if b.includeDiagnostics {
+		group.Children[0].CommandPreview = toolArgumentPreview(tool, arguments)
 	}
 	processing.Children = append(processing.Children, group)
 	b.toolGroupByCallEvent[strings.TrimSpace(callEventID)] = len(processing.Children) - 1
@@ -243,6 +253,9 @@ func (b *timelineTurnBuilder) applyToolResult(result ToolResultProjection, creat
 	detail.OutputSource = preview.Source
 	detail.OutputTruncated = preview.Truncated
 	detail.FullOutputAvailable = preview.FullAvailable
+	if b.includeDiagnostics {
+		applyTimelineDetailPreview(detail, preview, createdAt)
+	}
 	detail.UpdatedAt = createdAt
 	if result.Status == "approval_required" {
 		b.pendingAction = true
@@ -255,7 +268,7 @@ func (b *timelineTurnBuilder) toolGroupForCall(callEventID string, tool string, 
 	if idx, ok := b.toolGroupByCallEvent[strings.TrimSpace(callEventID)]; ok {
 		return &processing.Children[idx]
 	}
-	b.addToolCall("", tool, createdAt)
+	b.addToolCall("", tool, "", createdAt)
 	idx := len(processing.Children) - 1
 	if callEventID = strings.TrimSpace(callEventID); callEventID != "" {
 		b.toolGroupByCallEvent[callEventID] = idx
@@ -279,6 +292,11 @@ func (b *timelineTurnBuilder) applyJob(eventType string, job JobProjection, crea
 	detail.OutputSource = "job"
 	detail.OutputTruncated = group.OutputTruncated
 	detail.FullOutputAvailable = group.FullOutputAvailable
+	if b.includeDiagnostics {
+		detail.CommandPreview = boundedTimelinePreview(job.Command)
+		detail.VisibleOutput = group.OutputPreview
+		detail.DurationMs = jobTimelineDurationMs(job, createdAt)
+	}
 	detail.UpdatedAt = createdAt
 }
 
@@ -299,7 +317,7 @@ func (b *timelineTurnBuilder) toolGroupForJob(job JobProjection, createdAt time.
 			return &processing.Children[idx]
 		}
 	}
-	b.addToolCall(strings.TrimSpace(job.ToolCallEventID), job.Tool, createdAt)
+	b.addToolCall(strings.TrimSpace(job.ToolCallEventID), job.Tool, job.Command, createdAt)
 	idx := len(processing.Children) - 1
 	if jobID := strings.TrimSpace(job.JobID); jobID != "" {
 		b.toolGroupByJobID[jobID] = idx
@@ -452,5 +470,88 @@ func formatTimelineDuration(duration time.Duration) string {
 		return fmt.Sprintf("%dm %ds", minutes, seconds)
 	default:
 		return fmt.Sprintf("%ds", seconds)
+	}
+}
+
+func applyTimelineDetailPreview(item *UITimelineItem, preview toolPreview, completedAt time.Time) {
+	item.VisibleOutput = preview.Text
+	item.OutputTruncation = preview.OutputTruncation
+	item.StdoutOriginalBytes = preview.StdoutOriginalBytes
+	item.StderrOriginalBytes = preview.StderrOriginalBytes
+	item.StdoutOmittedBytes = preview.StdoutOmittedBytes
+	item.StderrOmittedBytes = preview.StderrOmittedBytes
+	item.OriginalBytes = preview.OriginalBytes
+	item.ReturnedBytes = preview.ReturnedBytes
+	if preview.ElapsedMs > 0 {
+		item.DurationMs = preview.ElapsedMs
+		return
+	}
+	if !item.CreatedAt.IsZero() && !completedAt.Before(item.CreatedAt) {
+		item.DurationMs = completedAt.Sub(item.CreatedAt).Milliseconds()
+	}
+}
+
+func jobTimelineDurationMs(job JobProjection, observedAt time.Time) int64 {
+	if job.StartedAt.IsZero() {
+		return 0
+	}
+	endedAt := job.CompletedAt
+	if endedAt.IsZero() {
+		endedAt = observedAt
+	}
+	if endedAt.Before(job.StartedAt) {
+		return 0
+	}
+	return endedAt.Sub(job.StartedAt).Milliseconds()
+}
+
+func toolArgumentPreview(tool string, arguments string) string {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(arguments), &payload); err != nil {
+		return ""
+	}
+	for _, key := range toolPreviewArgumentKeys(tool) {
+		value, ok := payload[key]
+		if !ok {
+			continue
+		}
+		if preview := previewScalar(value); preview != "" {
+			return boundedTimelinePreview(preview)
+		}
+	}
+	return ""
+}
+
+func toolPreviewArgumentKeys(tool string) []string {
+	switch tool {
+	case "shell_exec":
+		return []string{"command"}
+	case "resource_read":
+		return []string{"resource_ref"}
+	case "job_status", "job_cancel":
+		return []string{"job_id"}
+	default:
+		return []string{"command", "resource_ref", "path", "query", "url", "text"}
+	}
+}
+
+func previewScalar(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				continue
+			}
+			parts = append(parts, strings.TrimSpace(text))
+		}
+		return strings.Join(parts, ", ")
+	case float64:
+		return fmt.Sprintf("%.0f", typed)
+	default:
+		return ""
 	}
 }

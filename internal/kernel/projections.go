@@ -104,22 +104,38 @@ func inputItemsText(items []InputItem) string {
 }
 
 type toolPreview struct {
-	Text          string
-	Source        string
-	Truncated     bool
-	FullAvailable bool
+	Text                string
+	Source              string
+	Truncated           bool
+	OutputTruncation    string
+	StdoutOriginalBytes int
+	StderrOriginalBytes int
+	StdoutOmittedBytes  int
+	StderrOmittedBytes  int
+	OriginalBytes       int
+	ReturnedBytes       int
+	ElapsedMs           int64
+	FullAvailable       bool
 }
 
 func toolResultPreview(content string) toolPreview {
 	var payload struct {
-		Status          string `json:"status"`
-		Text            string `json:"text"`
-		Stdout          string `json:"stdout"`
-		Stderr          string `json:"stderr"`
-		Truncated       bool   `json:"truncated"`
-		StdoutTruncated bool   `json:"stdout_truncated"`
-		StderrTruncated bool   `json:"stderr_truncated"`
-		Error           struct {
+		Status              string `json:"status"`
+		Text                string `json:"text"`
+		Stdout              string `json:"stdout"`
+		Stderr              string `json:"stderr"`
+		Truncated           bool   `json:"truncated"`
+		StdoutTruncated     bool   `json:"stdout_truncated"`
+		StderrTruncated     bool   `json:"stderr_truncated"`
+		StdoutOriginalBytes int    `json:"stdout_original_bytes"`
+		StderrOriginalBytes int    `json:"stderr_original_bytes"`
+		StdoutOmittedBytes  int    `json:"stdout_omitted_bytes"`
+		StderrOmittedBytes  int    `json:"stderr_omitted_bytes"`
+		OutputTruncation    string `json:"output_truncation"`
+		OriginalBytes       int    `json:"original_bytes"`
+		ReturnedBytes       int    `json:"returned_bytes"`
+		ElapsedMs           int64  `json:"elapsed_ms"`
+		Error               struct {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
@@ -130,6 +146,14 @@ func toolResultPreview(content string) toolPreview {
 		return preview
 	}
 	preview.Truncated = payload.Truncated || payload.StdoutTruncated || payload.StderrTruncated
+	preview.OutputTruncation = strings.TrimSpace(payload.OutputTruncation)
+	preview.StdoutOriginalBytes = payload.StdoutOriginalBytes
+	preview.StderrOriginalBytes = payload.StderrOriginalBytes
+	preview.StdoutOmittedBytes = payload.StdoutOmittedBytes
+	preview.StderrOmittedBytes = payload.StderrOmittedBytes
+	preview.OriginalBytes = payload.OriginalBytes
+	preview.ReturnedBytes = payload.ReturnedBytes
+	preview.ElapsedMs = payload.ElapsedMs
 	switch {
 	case strings.TrimSpace(payload.Stdout) != "":
 		preview.Text = boundedTimelinePreview(payload.Stdout)
