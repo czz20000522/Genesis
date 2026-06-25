@@ -133,6 +133,7 @@ Future attach-capable flow:
 foreground shell running
   -> user/session interrupt
   -> executor attach capability = true
+  -> executor implements foreground attach method
   -> executor detaches foreground wait path
   -> kernel allocates managed job handle and binds ownership
   -> tool.result returns managed-job receipt
@@ -142,6 +143,11 @@ foreground shell running
 Attach result validation belongs to the kernel. The executor can report that it
 has attached a process stream, but it cannot choose job id, session id, turn id,
 tool id, checkpoint refs, permission mode, sandbox profile, or audit refs.
+The capability bit is not authoritative by itself; the kernel treats it as
+false unless the executor also exposes the typed foreground attach method. The
+method receives kernel-owned session, turn, operation, reason, and timestamp
+facts only. Host process ids, signals, terminal handles, and platform-specific
+tokens stay inside the executor.
 
 Attach failure is neither command stderr nor terminal command failure. It is an
 executor/control failure that must produce structured interruption evidence.

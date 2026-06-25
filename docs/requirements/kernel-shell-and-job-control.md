@@ -162,6 +162,13 @@ An attach-capable executor must satisfy:
   or platform-specific control token to model-visible tools or HTTP callers;
 - it can report attach failure distinctly from command failure.
 
+An executor cannot become attach-capable by metadata alone. Its advertised
+foreground-attach capability is ignored unless it also implements the kernel's
+foreground attach method. That method receives only kernel-owned session, turn,
+operation, reason, and timestamp facts. It must not require the model, HTTP
+caller, or UI to supply a host process id, signal, terminal handle, or OS
+process token.
+
 If attach succeeds, the kernel writes managed-job facts and returns a receipt
 tool result for the interrupted tool call. If attach fails or is unsupported,
 the current truthful fallback remains: kill the foreground process and write an

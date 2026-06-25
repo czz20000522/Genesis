@@ -28,6 +28,23 @@ type managedJobExecutorCapabilityReporter interface {
 	Capabilities() ManagedJobExecutorCapabilities
 }
 
+type managedJobForegroundAttachExecutor interface {
+	AttachForeground(ctx context.Context, request ManagedJobForegroundAttachRequest) (ManagedJobForegroundAttachResult, error)
+}
+
+type ManagedJobForegroundAttachRequest struct {
+	SessionID     string
+	TurnID        string
+	OperationID   string
+	Reason        string
+	InterruptedAt time.Time
+}
+
+type ManagedJobForegroundAttachResult struct {
+	Attached      bool
+	FailureReason string
+}
+
 type ManagedJobStartRequest struct {
 	Job      JobProjection
 	Observe  func(JobProjection)
@@ -147,7 +164,13 @@ func managedJobExecutorCapabilities(executor ManagedJobExecutor) ManagedJobExecu
 	if !ok {
 		return ManagedJobExecutorCapabilities{}
 	}
-	return reporter.Capabilities()
+	capabilities := reporter.Capabilities()
+	if capabilities.ForegroundAttach {
+		if _, ok := executor.(managedJobForegroundAttachExecutor); !ok {
+			capabilities.ForegroundAttach = false
+		}
+	}
+	return capabilities
 }
 
 func (e *localManagedJobExecutor) Close() {

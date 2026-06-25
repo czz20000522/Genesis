@@ -206,6 +206,18 @@ func TestLocalManagedJobExecutorDoesNotAdvertiseForegroundAttach(t *testing.T) {
 	}
 }
 
+func TestForegroundAttachCapabilityRequiresAttachMethod(t *testing.T) {
+	capabilities := managedJobExecutorCapabilities(attachAdvertisingManagedJobExecutor{})
+	if capabilities.ForegroundAttach {
+		t.Fatalf("foreground attach capability = %+v, want disabled without an attach method", capabilities)
+	}
+
+	capabilities = managedJobExecutorCapabilities(attachCapableManagedJobExecutor{})
+	if !capabilities.ForegroundAttach {
+		t.Fatalf("foreground attach capability = %+v, want enabled only with an attach method", capabilities)
+	}
+}
+
 func TestForegroundInterruptReasonStaysKillFallbackUntilAttachIsImplemented(t *testing.T) {
 	k, err := New(Config{
 		LedgerPath:  filepath.Join(testTempDir(t), "events.jsonl"),
@@ -332,6 +344,14 @@ func (attachAdvertisingManagedJobExecutor) Cancel(_ string, _ string) (bool, err
 
 func (attachAdvertisingManagedJobExecutor) Capabilities() ManagedJobExecutorCapabilities {
 	return ManagedJobExecutorCapabilities{ForegroundAttach: true}
+}
+
+type attachCapableManagedJobExecutor struct {
+	attachAdvertisingManagedJobExecutor
+}
+
+func (attachCapableManagedJobExecutor) AttachForeground(_ context.Context, _ ManagedJobForegroundAttachRequest) (ManagedJobForegroundAttachResult, error) {
+	return ManagedJobForegroundAttachResult{Attached: false, FailureReason: "test_only"}, nil
 }
 
 func newBlockingManagedJobExecutor() *blockingManagedJobExecutor {
