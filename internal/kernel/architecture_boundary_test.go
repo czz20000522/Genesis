@@ -758,6 +758,34 @@ func TestArchitectureBoundaryModelGatewayOwnerHasSubpackageResilienceSurface(t *
 	}
 }
 
+func TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageSchedulingSurface(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join(kernelPackageDir(t), "..", ".."))
+	toolRuntimeDir := filepath.Join(repoRoot, "internal", "kernel", "toolruntime")
+	gotTypes := kernelTypeDeclarationFiles(t, toolRuntimeDir)
+	for typeName, wantFile := range map[string]string{
+		"AccessPlan":        "scheduling.go",
+		"ExecutionBatch":    "scheduling.go",
+		"PlannedCall":       "scheduling.go",
+		"ResourceFootprint": "scheduling.go",
+		"SchedulingSpec":    "scheduling.go",
+	} {
+		if gotFile := gotTypes[typeName]; gotFile != wantFile {
+			t.Fatalf("toolruntime owner type %s declared in %q, want %q", typeName, gotFile, wantFile)
+		}
+	}
+	gotFunctions := kernelFunctionDeclarationFiles(t, toolRuntimeDir)
+	for functionName, wantFile := range map[string]string{
+		"JobControlSchedulingSpec":   "scheduling.go",
+		"PlanExecutionBatches":       "scheduling.go",
+		"ResourceReadSchedulingSpec": "scheduling.go",
+		"ShellExecSchedulingSpec":    "scheduling.go",
+	} {
+		if gotFile := gotFunctions[functionName]; gotFile != wantFile {
+			t.Fatalf("toolruntime owner function %s declared in %q, want %q", functionName, gotFile, wantFile)
+		}
+	}
+}
+
 func TestArchitectureBoundaryHTTPTransportDoesNotReplayOwnerFacts(t *testing.T) {
 	root := kernelPackageDir(t)
 	entries, err := os.ReadDir(root)

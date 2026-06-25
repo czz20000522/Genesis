@@ -55,6 +55,16 @@ Genesis translation:
   package. Genesis equivalent: `internal/kernel/modelgateway` tests cover
   retryable status classification, fail-fast auth, redacted provider attempt
   projection, capped Retry-After handling, and visible-final repair detection.
+- Reference behavior: tool scheduling policy is a runtime/tool owner concern
+  independent of concrete shell execution. Genesis equivalent:
+  `TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageSchedulingSurface`
+  fails until `internal/kernel/toolruntime` owns access-plan, scheduling, and
+  execution-batch policy.
+- Reference behavior: owner-local scheduling tests protect policy semantics
+  after extraction. Genesis equivalent: `internal/kernel/toolruntime` tests
+  prove only trusted compatible pure reads become parallel, writes and external
+  side effects stay serial, same-handle process I/O is split, and untrusted
+  scheduling metadata is rejected.
 
 ## Phase A: Resource Owner Package
 
@@ -108,10 +118,37 @@ Genesis translation:
     adapter, and provider setup remain root-level Model Gateway files until
     later package slices add their own red tests.
 
+## Phase C: Tool Runtime Scheduling Package
+
+- Deliverable: move tool effect classes, scheduling specs, access plans,
+  execution batch planning, and scheduling DTOs to `internal/kernel/toolruntime`.
+- Red lines:
+  - Do not move `ToolGateway`, tool registry, shell execution, job execution, or
+    tool loop guard in this slice.
+  - Do not infer shell read/write purity from command text.
+  - Do not expose scheduling metadata to the model-visible tool manifest.
+  - Do not make process I/O batches concurrently executable merely because they
+    share the scheduling package.
+- Tests:
+  - Tool Runtime owner structure guard.
+  - Tool Runtime scheduling owner unit tests.
+  - Existing root scheduling, resource-read scheduling, and tool execution
+    tests continue through the root compatibility adapter.
+- Evidence:
+  - `go test ./internal/kernel/toolruntime -count=1`
+  - `go test ./internal/kernel -run "TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageSchedulingSurface|TestPlanToolExecutionBatches|TestToolSchedulingMetadataStaysOutOfModelVisibleManifest|TestNonIdempotentEffectClassesDoNotEnterParallelClass|TestExecuteToolBatches" -count=1`
+  - `go test ./internal/kernel -count=1`
+  - `go test ./... -count=1`
+  - `go build ./...`
+  - `git diff --check`
+- Still short of production:
+  - ToolGateway, registry, real executor concurrency, loop guard, and tool DTO
+    extraction remain later slices with separate red tests.
+
 ## Later Phases
 
 - Provider gateway extraction beyond resilience classification.
-- Tool runtime extraction.
+- Tool runtime extraction beyond scheduling policy.
 - Projection extraction.
 - Resource hydration owner extension.
 

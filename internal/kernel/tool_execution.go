@@ -77,7 +77,7 @@ func canExecuteToolBatchConcurrently(batch ToolExecutionBatch, preparedCalls []p
 		if callIndex < 0 || callIndex >= len(preparedCalls) {
 			return false
 		}
-		if preparedCalls[callIndex].accessPlan.parallelClass() != ToolEffectClassPureRead {
+		if preparedCalls[callIndex].accessPlan.ParallelClass() != ToolEffectClassPureRead {
 			return false
 		}
 	}

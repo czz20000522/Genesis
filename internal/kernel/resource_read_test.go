@@ -248,7 +248,7 @@ func TestResourceReadPreparesPureReadAccessPlan(t *testing.T) {
 		t.Fatalf("PrepareBatch returned error: %v", err)
 	}
 	for i, call := range prepared {
-		if call.accessPlan.EffectClass != ToolEffectClassPureRead || call.accessPlan.ParallelPolicy != ToolParallelPolicyCompatibleLocks || call.accessPlan.parallelClass() != ToolEffectClassPureRead {
+		if call.accessPlan.EffectClass != ToolEffectClassPureRead || call.accessPlan.ParallelPolicy != ToolParallelPolicyCompatibleLocks || call.accessPlan.ParallelClass() != ToolEffectClassPureRead {
 			t.Fatalf("prepared[%d] access plan = %+v, want trusted pure read", i, call.accessPlan)
 		}
 		if len(call.accessPlan.ResourceFootprint.ReadScopes) != 1 || call.accessPlan.ResourceFootprint.ReadScopes[0] == "" {

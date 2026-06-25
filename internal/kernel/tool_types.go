@@ -3,6 +3,8 @@ package kernel
 import (
 	"encoding/json"
 	"time"
+
+	"genesis/internal/kernel/toolruntime"
 )
 
 type ToolSpec struct {
@@ -14,19 +16,8 @@ type ToolSpec struct {
 	Scheduling      ToolSchedulingSpec     `json:"-"`
 }
 
-type ToolSchedulingSpec struct {
-	EffectClass       string                `json:"-"`
-	ResourceFootprint ToolResourceFootprint `json:"-"`
-	ParallelPolicy    string                `json:"-"`
-}
-
-type ToolResourceFootprint struct {
-	ReadScopes      []string `json:"-"`
-	WriteScopes     []string `json:"-"`
-	StateScopes     []string `json:"-"`
-	Handles         []string `json:"-"`
-	ExternalTargets []string `json:"-"`
-}
+type ToolSchedulingSpec = toolruntime.SchedulingSpec
+type ToolResourceFootprint = toolruntime.ResourceFootprint
 
 type ModelToolCall struct {
 	ToolCallID      string          `json:"tool_call_id"`

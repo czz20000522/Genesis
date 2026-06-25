@@ -205,13 +205,13 @@ func TestPrepareBatchAssignsDefaultToolAccessPlans(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareBatch returned error: %v", err)
 	}
-	if prepared[0].accessPlan.EffectClass != ToolEffectClassWorkspaceWrite || prepared[0].accessPlan.parallelClass() != "" {
+	if prepared[0].accessPlan.EffectClass != ToolEffectClassWorkspaceWrite || prepared[0].accessPlan.ParallelClass() != "" {
 		t.Fatalf("shell access plan = %+v, want effectful serial plan", prepared[0].accessPlan)
 	}
 	if prepared[1].accessPlan.EffectClass != ToolEffectClassProcessIO || prepared[1].accessPlan.ResourceFootprint.Handles[0] != "job:job_schedule" {
 		t.Fatalf("job_status access plan = %+v", prepared[1].accessPlan)
 	}
-	if prepared[3].accessPlan.EffectClass != ToolEffectClassPureRead || prepared[3].accessPlan.parallelClass() != ToolEffectClassPureRead {
+	if prepared[3].accessPlan.EffectClass != ToolEffectClassPureRead || prepared[3].accessPlan.ParallelClass() != ToolEffectClassPureRead {
 		t.Fatalf("resource_read access plan = %+v, want trusted pure-read plan", prepared[3].accessPlan)
 	}
 	batches := planToolExecutionBatches(prepared)
@@ -260,7 +260,7 @@ func TestNonIdempotentEffectClassesDoNotEnterParallelClass(t *testing.T) {
 			ParallelPolicy: ToolParallelPolicyCompatibleLocks,
 			Trusted:        true,
 		}
-		if got := plan.parallelClass(); got != "" {
+		if got := plan.ParallelClass(); got != "" {
 			t.Fatalf("%s parallel class = %q, want serial until replay/idempotency contract is proven", effectClass, got)
 		}
 	}
