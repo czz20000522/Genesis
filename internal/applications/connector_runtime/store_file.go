@@ -29,6 +29,8 @@ type OutboxStore interface {
 	RecordDelivery(context.Context, ConnectorOutboxItem, DeliveryReceipt) error
 	RequeueOutboxItem(context.Context, string, string, time.Time) (ConnectorOutboxItem, DeliveryReceipt, error)
 	ResolveRecoveryRequiredOutboxItem(context.Context, string, string, string, string, time.Time) (ConnectorOutboxItem, DeliveryReceipt, error)
+	RecordReconciliationEvidence(context.Context, ReconciliationEvidence) error
+	ListReconciliationEvidence(context.Context, string) ([]ReconciliationEvidence, error)
 	ListOutbox(context.Context) ([]ConnectorOutboxItem, error)
 	ListReceipts(context.Context, string) ([]DeliveryReceipt, error)
 }
@@ -39,12 +41,14 @@ type FileOutboxStore struct {
 	items    map[string]ConnectorOutboxItem
 	byDedupe map[string]string
 	receipts map[string][]DeliveryReceipt
+	probes   map[string][]ReconciliationEvidence
 }
 
 type fileOutboxPayload struct {
-	Items    map[string]ConnectorOutboxItem `json:"items"`
-	ByDedupe map[string]string              `json:"by_dedupe"`
-	Receipts map[string][]DeliveryReceipt   `json:"receipts"`
+	Items    map[string]ConnectorOutboxItem      `json:"items"`
+	ByDedupe map[string]string                   `json:"by_dedupe"`
+	Receipts map[string][]DeliveryReceipt        `json:"receipts"`
+	Probes   map[string][]ReconciliationEvidence `json:"reconciliation_evidence,omitempty"`
 }
 
 func NewFileOutboxStore(path string) (*FileOutboxStore, error) {
@@ -56,6 +60,7 @@ func NewFileOutboxStore(path string) (*FileOutboxStore, error) {
 		items:    make(map[string]ConnectorOutboxItem),
 		byDedupe: make(map[string]string),
 		receipts: make(map[string][]DeliveryReceipt),
+		probes:   make(map[string][]ReconciliationEvidence),
 	}
 	if err := store.load(); err != nil {
 		return nil, err
@@ -314,6 +319,38 @@ func (s *FileOutboxStore) ResolveRecoveryRequiredOutboxItem(ctx context.Context,
 	return item, receipt, err
 }
 
+func (s *FileOutboxStore) RecordReconciliationEvidence(ctx context.Context, evidence ReconciliationEvidence) error {
+	evidence, err := normalizeReconciliationEvidence(evidence)
+	if err != nil {
+		return err
+	}
+	return s.withLockedState(ctx, func() error {
+		if _, ok := s.items[evidence.OutboxID]; !ok {
+			return errors.New("outbox item not found")
+		}
+		s.probes[evidence.OutboxID] = append(s.probes[evidence.OutboxID], evidence)
+		return s.writeLocked()
+	})
+}
+
+func (s *FileOutboxStore) ListReconciliationEvidence(ctx context.Context, outboxID string) ([]ReconciliationEvidence, error) {
+	var evidence []ReconciliationEvidence
+	err := s.withLockedState(ctx, func() error {
+		if outboxID != "" {
+			evidence = append([]ReconciliationEvidence(nil), s.probes[outboxID]...)
+		} else {
+			for _, entries := range s.probes {
+				evidence = append(evidence, entries...)
+			}
+		}
+		sort.Slice(evidence, func(i, j int) bool {
+			return evidence[i].CheckedAt.Before(evidence[j].CheckedAt)
+		})
+		return nil
+	})
+	return evidence, err
+}
+
 func deliveryEligible(item ConnectorOutboxItem, now time.Time) bool {
 	if deliveryLeaseActive(item, now) {
 		return false
@@ -375,6 +412,9 @@ func (s *FileOutboxStore) load() error {
 	if payload.Receipts != nil {
 		s.receipts = payload.Receipts
 	}
+	if payload.Probes != nil {
+		s.probes = payload.Probes
+	}
 	return nil
 }
 
@@ -382,6 +422,7 @@ func (s *FileOutboxStore) reset() {
 	s.items = make(map[string]ConnectorOutboxItem)
 	s.byDedupe = make(map[string]string)
 	s.receipts = make(map[string][]DeliveryReceipt)
+	s.probes = make(map[string][]ReconciliationEvidence)
 }
 
 func (s *FileOutboxStore) withLockedState(ctx context.Context, fn func() error) error {
@@ -406,6 +447,7 @@ func (s *FileOutboxStore) writeLocked() error {
 		Items:    s.items,
 		ByDedupe: s.byDedupe,
 		Receipts: s.receipts,
+		Probes:   s.probes,
 	}
 	content, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

@@ -18,6 +18,29 @@ const (
 	DeliveryStatusAmbiguous           = "ambiguous"
 )
 
+const (
+	ReconciliationLookupActionID           = "action_id"
+	ReconciliationLookupIdempotencyKey     = "idempotency_key"
+	ReconciliationLookupExternalReceiptRef = "external_receipt_ref"
+	ReconciliationLookupExternalActionRef  = "external_action_ref"
+	ReconciliationLookupAdapterExactRef    = "adapter_exact_ref"
+
+	ReconciliationObservedSent             = "sent"
+	ReconciliationObservedNotFound         = "not_found"
+	ReconciliationObservedFailed           = "failed"
+	ReconciliationObservedUnknown          = "unknown"
+	ReconciliationObservedUnavailable      = "unavailable"
+	ReconciliationObservedAmbiguous        = "ambiguous"
+	ReconciliationObservedPermissionDenied = "permission_denied"
+
+	ReconciliationReasonMissingHandle       = "missing_handle"
+	ReconciliationReasonUnsupportedAction   = "unsupported_action"
+	ReconciliationReasonExternalUnavailable = "external_unavailable"
+	ReconciliationReasonNotFound            = "not_found"
+	ReconciliationReasonAmbiguous           = "ambiguous"
+	ReconciliationReasonPermissionDenied    = "permission_denied"
+)
+
 type ExternalThreadRef struct {
 	Connector  string            `json:"connector"`
 	Kind       string            `json:"kind"`
@@ -90,4 +113,36 @@ type DeliveryReceipt struct {
 	Attempt           int       `json:"attempt"`
 	NextAttemptAt     time.Time `json:"next_attempt_at,omitempty"`
 	RecordedAt        time.Time `json:"recorded_at"`
+}
+
+type ReconciliationLookup struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+}
+
+type ReconciliationProbeRequest struct {
+	OutboxID       string               `json:"outbox_id"`
+	Connector      string               `json:"connector"`
+	ActionKind     string               `json:"action_kind"`
+	IdempotencyKey string               `json:"idempotency_key"`
+	Lookup         ReconciliationLookup `json:"lookup"`
+}
+
+type ReconciliationProbeResult struct {
+	ObservedStatus    string `json:"observed_status"`
+	Reason            string `json:"reason,omitempty"`
+	ExternalActionRef string `json:"external_action_ref,omitempty"`
+}
+
+type ReconciliationEvidence struct {
+	ProbeID           string    `json:"probe_id"`
+	OutboxID          string    `json:"outbox_id"`
+	Connector         string    `json:"connector"`
+	ActionKind        string    `json:"action_kind"`
+	LookupKind        string    `json:"lookup_kind"`
+	LookupValue       string    `json:"lookup_value"`
+	ObservedStatus    string    `json:"observed_status"`
+	Reason            string    `json:"reason,omitempty"`
+	ExternalActionRef string    `json:"external_action_ref,omitempty"`
+	CheckedAt         time.Time `json:"checked_at"`
 }

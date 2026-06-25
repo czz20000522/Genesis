@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -668,4 +669,212 @@ func TestConsoleResolveOutboxMutatesOnlyConnectorState(t *testing.T) {
 	if len(receipts) != 2 || receipts[0].Status != connectorruntime.DeliveryStatusAmbiguous || receipts[1].Status != connectorruntime.DeliveryStatusSent {
 		t.Fatalf("receipt history = %+v", receipts)
 	}
+}
+
+func TestConsoleProbeOutboxRecordsEvidenceWithoutResolving(t *testing.T) {
+	ctx := context.Background()
+	outboxPath := filepath.Join(testsupport.ProjectTempDir(t, "genesis-console-probe"), "outbox.json")
+	outboxStore, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		t.Fatalf("NewFileOutboxStore returned error: %v", err)
+	}
+	item, _, err := outboxStore.EnqueueCommand(ctx, connectorruntime.AppCommand{
+		CommandID: "cmd_1",
+		Kind:      "send_message",
+		TargetRef: connectorruntime.ExternalThreadRef{
+			Connector:  "feishu",
+			Kind:       "chat",
+			ExternalID: "oc_123",
+		},
+		Body:      "reply",
+		DedupeKey: "reply_1",
+	}, time.Date(2026, 6, 25, 10, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("EnqueueCommand returned error: %v", err)
+	}
+	item.Status = connectorruntime.OutboxStatusRecoveryRequired
+	item.AttemptCount = 1
+	if err := outboxStore.RecordDelivery(ctx, item, connectorruntime.DeliveryReceipt{
+		ReceiptID:         "receipt_1",
+		OutboxID:          item.OutboxID,
+		Connector:         "feishu",
+		Status:            connectorruntime.DeliveryStatusAmbiguous,
+		Reason:            "external_result_unknown",
+		ExternalActionRef: "om_partial",
+		Attempt:           1,
+		RecordedAt:        time.Date(2026, 6, 25, 10, 0, 1, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("RecordDelivery returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := run(ctx, []string{
+		"probe-outbox",
+		"--outbox-state", outboxPath,
+		"--outbox-id", item.OutboxID,
+		"--lookup-kind", connectorruntime.ReconciliationLookupExternalActionRef,
+		"--lookup-value", "om_partial",
+		"--probe-command", os.Args[0],
+		"--probe-command-arg", "-test.run=TestReconciliationProbeCommandHelper",
+		"--probe-command-arg", "--",
+		"--probe-command-arg", connectorruntime.ReconciliationObservedSent,
+		"--probe-command-arg", "external_confirmed",
+		"--probe-command-arg", "om_confirmed",
+	}, &stdout, io.Discard); err != nil {
+		t.Fatalf("probe-outbox returned error: %v\n%s", err, stdout.String())
+	}
+	var evidence connectorruntime.ReconciliationEvidence
+	if err := json.Unmarshal(stdout.Bytes(), &evidence); err != nil {
+		t.Fatalf("decode evidence: %v\n%s", err, stdout.String())
+	}
+	if evidence.ObservedStatus != connectorruntime.ReconciliationObservedSent || evidence.ExternalActionRef != "om_confirmed" {
+		t.Fatalf("evidence = %+v, want sent confirmation", evidence)
+	}
+
+	reloaded, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		t.Fatalf("reload outbox store: %v", err)
+	}
+	unchanged, err := reloaded.GetOutboxItem(ctx, item.OutboxID)
+	if err != nil {
+		t.Fatalf("GetOutboxItem returned error: %v", err)
+	}
+	if unchanged.Status != connectorruntime.OutboxStatusRecoveryRequired {
+		t.Fatalf("outbox status = %q, want recovery_required after probe", unchanged.Status)
+	}
+	receipts, err := reloaded.ListReceipts(ctx, item.OutboxID)
+	if err != nil {
+		t.Fatalf("ListReceipts returned error: %v", err)
+	}
+	if len(receipts) != 1 || receipts[0].Status != connectorruntime.DeliveryStatusAmbiguous {
+		t.Fatalf("receipts = %+v, want original ambiguous receipt only", receipts)
+	}
+
+	var inspectStdout bytes.Buffer
+	if err := run(ctx, []string{
+		"inspect",
+		"--outbox-state", outboxPath,
+		"--outbox-status", connectorruntime.OutboxStatusRecoveryRequired,
+	}, &inspectStdout, io.Discard); err != nil {
+		t.Fatalf("inspect returned error: %v", err)
+	}
+	var report InspectionReport
+	if err := json.Unmarshal(inspectStdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode inspect report: %v\n%s", inspectStdout.String(), err)
+	}
+	if len(report.ReconciliationEvidence[item.OutboxID]) != 1 || report.ReconciliationEvidence[item.OutboxID][0].ExternalActionRef != "om_confirmed" {
+		t.Fatalf("reconciliation evidence projection = %+v", report.ReconciliationEvidence)
+	}
+}
+
+func TestConsoleProbeOutboxRequiresExactLookup(t *testing.T) {
+	ctx := context.Background()
+	outboxPath := filepath.Join(testsupport.ProjectTempDir(t, "genesis-console-probe-missing-handle"), "outbox.json")
+	outboxStore, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		t.Fatalf("NewFileOutboxStore returned error: %v", err)
+	}
+	item, _, err := outboxStore.EnqueueCommand(ctx, connectorruntime.AppCommand{
+		CommandID: "cmd_1",
+		Kind:      "send_message",
+		TargetRef: connectorruntime.ExternalThreadRef{
+			Connector:  "feishu",
+			Kind:       "chat",
+			ExternalID: "oc_123",
+		},
+		Body:      "reply",
+		DedupeKey: "reply_1",
+	}, time.Date(2026, 6, 25, 11, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("EnqueueCommand returned error: %v", err)
+	}
+	item.Status = connectorruntime.OutboxStatusRecoveryRequired
+	if err := outboxStore.RecordDelivery(ctx, item, connectorruntime.DeliveryReceipt{
+		ReceiptID:  "receipt_1",
+		OutboxID:   item.OutboxID,
+		Connector:  "feishu",
+		Status:     connectorruntime.DeliveryStatusAmbiguous,
+		Reason:     "external_result_unknown",
+		Attempt:    1,
+		RecordedAt: time.Date(2026, 6, 25, 11, 0, 1, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("RecordDelivery returned error: %v", err)
+	}
+
+	if err := run(ctx, []string{
+		"probe-outbox",
+		"--outbox-state", outboxPath,
+		"--outbox-id", item.OutboxID,
+		"--lookup-kind", "message_body",
+		"--lookup-value", "reply",
+		"--probe-command", os.Args[0],
+		"--probe-command-arg", "-test.run=TestReconciliationProbeCommandHelper",
+	}, io.Discard, io.Discard); err == nil {
+		t.Fatal("probe-outbox should reject fuzzy lookup")
+	}
+	reloaded, err := connectorruntime.NewFileOutboxStore(outboxPath)
+	if err != nil {
+		t.Fatalf("reload outbox store: %v", err)
+	}
+	evidence, err := reloaded.ListReconciliationEvidence(ctx, item.OutboxID)
+	if err != nil {
+		t.Fatalf("ListReconciliationEvidence returned error: %v", err)
+	}
+	if len(evidence) != 1 || evidence[0].Reason != connectorruntime.ReconciliationReasonMissingHandle {
+		t.Fatalf("evidence = %+v, want missing_handle failure evidence", evidence)
+	}
+}
+
+func TestReconciliationProbeCommandHelper(t *testing.T) {
+	mode := reconciliationProbeHelperMode()
+	if mode == "" {
+		return
+	}
+	status, reason, externalRef := reconciliationProbeHelperArgs()
+	var request connectorruntime.ReconciliationProbeRequest
+	if err := json.Unmarshal([]byte(os.Args[len(os.Args)-1]), &request); err != nil {
+		t.Fatalf("decode probe request: %v", err)
+	}
+	if request.Lookup.Kind == "" || request.Lookup.Value == "" {
+		t.Fatalf("probe request missing exact lookup: %+v", request)
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(connectorruntime.ReconciliationProbeResult{
+		ObservedStatus:    status,
+		Reason:            reason,
+		ExternalActionRef: externalRef,
+	}); err != nil {
+		t.Fatalf("encode probe result: %v", err)
+	}
+	os.Exit(0)
+}
+
+func reconciliationProbeHelperMode() string {
+	for _, arg := range os.Args {
+		if arg == "--" {
+			return "probe"
+		}
+	}
+	return ""
+}
+
+func reconciliationProbeHelperArgs() (string, string, string) {
+	for i, arg := range os.Args {
+		if arg != "--" {
+			continue
+		}
+		status := connectorruntime.ReconciliationObservedUnknown
+		reason := ""
+		externalRef := ""
+		if i+1 < len(os.Args) {
+			status = os.Args[i+1]
+		}
+		if i+2 < len(os.Args) {
+			reason = os.Args[i+2]
+		}
+		if i+3 < len(os.Args) {
+			externalRef = os.Args[i+3]
+		}
+		return status, reason, externalRef
+	}
+	return connectorruntime.ReconciliationObservedUnknown, "", ""
 }

@@ -17,18 +17,19 @@ import (
 )
 
 type InspectionReport struct {
-	Inbound        []connectorruntime.InboundSubmissionRecord               `json:"inbound"`
-	Outbox         []connectorruntime.ConnectorOutboxItem                   `json:"outbox"`
-	OutboxSummary  []OutboxInspectionSummary                                `json:"outbox_summary"`
-	SourceFailures []connectorruntime.SourceFailureRecord                   `json:"source_failures,omitempty"`
-	SourceRuns     []connectorruntime.SourceRun                             `json:"source_runs,omitempty"`
-	SourceAttempts map[string][]connectorruntime.SourceAttempt              `json:"source_attempts,omitempty"`
-	SourceCursors  []connectorruntime.SourceCursor                          `json:"source_cursors,omitempty"`
-	SourceEvidence []connectorruntime.SourceVerificationEvidence            `json:"source_verification_evidence,omitempty"`
-	SourceActions  map[string][]connectorruntime.SourceOperatorActionRecord `json:"source_operator_actions,omitempty"`
-	Receipts       map[string][]connectorruntime.DeliveryReceipt            `json:"receipts"`
-	KernelSessions map[string]json.RawMessage                               `json:"kernel_sessions,omitempty"`
-	KernelErrors   map[string]string                                        `json:"kernel_errors,omitempty"`
+	Inbound                []connectorruntime.InboundSubmissionRecord               `json:"inbound"`
+	Outbox                 []connectorruntime.ConnectorOutboxItem                   `json:"outbox"`
+	OutboxSummary          []OutboxInspectionSummary                                `json:"outbox_summary"`
+	SourceFailures         []connectorruntime.SourceFailureRecord                   `json:"source_failures,omitempty"`
+	SourceRuns             []connectorruntime.SourceRun                             `json:"source_runs,omitempty"`
+	SourceAttempts         map[string][]connectorruntime.SourceAttempt              `json:"source_attempts,omitempty"`
+	SourceCursors          []connectorruntime.SourceCursor                          `json:"source_cursors,omitempty"`
+	SourceEvidence         []connectorruntime.SourceVerificationEvidence            `json:"source_verification_evidence,omitempty"`
+	SourceActions          map[string][]connectorruntime.SourceOperatorActionRecord `json:"source_operator_actions,omitempty"`
+	Receipts               map[string][]connectorruntime.DeliveryReceipt            `json:"receipts"`
+	ReconciliationEvidence map[string][]connectorruntime.ReconciliationEvidence     `json:"reconciliation_evidence,omitempty"`
+	KernelSessions         map[string]json.RawMessage                               `json:"kernel_sessions,omitempty"`
+	KernelErrors           map[string]string                                        `json:"kernel_errors,omitempty"`
 }
 
 const (
@@ -88,6 +89,8 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return runRequeueOutbox(ctx, args[1:], stdout, stderr)
 	case "resolve-outbox":
 		return runResolveOutbox(ctx, args[1:], stdout, stderr)
+	case "probe-outbox":
+		return runProbeOutbox(ctx, args[1:], stdout, stderr)
 	case "source-clear-blocked":
 		return runSourceClearBlocked(ctx, args[1:], stdout, stderr)
 	case "source-request-restart":
@@ -185,6 +188,46 @@ func runResolveOutbox(ctx context.Context, args []string, stdout io.Writer, stde
 	return nil
 }
 
+func runProbeOutbox(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
+	fs := flag.NewFlagSet("probe-outbox", flag.ContinueOnError)
+	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
+	outboxID := fs.String("outbox-id", "", "connector recovery-required outbox id to probe")
+	lookupKind := fs.String("lookup-kind", "", "exact external lookup handle kind")
+	lookupValue := fs.String("lookup-value", "", "exact external lookup handle value")
+	probeCommand := fs.String("probe-command", "", "connector-specific reconciliation probe executable")
+	var probeCommandArgs stringListFlag
+	fs.Var(&probeCommandArgs, "probe-command-arg", "argument passed to the reconciliation probe executable before the JSON request; repeatable")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	outboxStore, err := connectorruntime.NewFileOutboxStore(*outboxPath)
+	if err != nil {
+		return err
+	}
+	probes := map[string]connectorruntime.ConnectorReconciliationProbe{}
+	if strings.TrimSpace(*probeCommand) != "" {
+		item, err := outboxStore.GetOutboxItem(ctx, strings.TrimSpace(*outboxID))
+		if err != nil {
+			return err
+		}
+		probes[item.Connector] = connectorruntime.ReconciliationCommandAdapter{
+			Executable: strings.TrimSpace(*probeCommand),
+			Args:       append([]string(nil), probeCommandArgs...),
+		}
+	}
+	runtime := connectorruntime.Runtime{Store: outboxStore, ReconciliationProbes: probes}
+	evidence, err := runtime.ProbeRecoveryRequiredOutboxItem(ctx, strings.TrimSpace(*outboxID), connectorruntime.ReconciliationLookup{
+		Kind:  strings.TrimSpace(*lookupKind),
+		Value: strings.TrimSpace(*lookupValue),
+	})
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(evidence)
+}
+
 func runSourceClearBlocked(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
 	fs := flag.NewFlagSet("source-clear-blocked", flag.ContinueOnError)
 	sourceLifecyclePath := fs.String("source-lifecycle-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_LIFECYCLE_STATE", filepath.Join(".genesis_ingress", "source_lifecycle.json")), "connector source lifecycle state file")
@@ -249,6 +292,20 @@ func encodeSourceLifecycleControlResult(stdout io.Writer, result SourceLifecycle
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(result)
+}
+
+type stringListFlag []string
+
+func (f *stringListFlag) String() string {
+	return strings.Join(*f, ",")
+}
+
+func (f *stringListFlag) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		*f = append(*f, value)
+	}
+	return nil
 }
 
 func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath string, sourceFailurePath string, sourceLifecyclePath string, kernelURL string, runtimeToken string, filters InspectFilters) (InspectionReport, error) {
@@ -317,24 +374,33 @@ func inspectConnectorState(ctx context.Context, inboundPath string, outboxPath s
 		}
 	}
 	receipts := make(map[string][]connectorruntime.DeliveryReceipt, len(outbox))
+	reconciliationEvidence := map[string][]connectorruntime.ReconciliationEvidence{}
 	for _, item := range outbox {
 		itemReceipts, err := outboxStore.ListReceipts(ctx, item.OutboxID)
 		if err != nil {
 			return InspectionReport{}, err
 		}
 		receipts[item.OutboxID] = itemReceipts
+		itemEvidence, err := outboxStore.ListReconciliationEvidence(ctx, item.OutboxID)
+		if err != nil {
+			return InspectionReport{}, err
+		}
+		if len(itemEvidence) != 0 {
+			reconciliationEvidence[item.OutboxID] = itemEvidence
+		}
 	}
 	report := InspectionReport{
-		Inbound:        inbound,
-		Outbox:         outbox,
-		OutboxSummary:  summarizeOutbox(outbox, receipts),
-		SourceFailures: sourceFailures,
-		SourceRuns:     sourceRuns,
-		SourceAttempts: sourceAttempts,
-		SourceCursors:  sourceCursors,
-		SourceEvidence: sourceEvidence,
-		SourceActions:  sourceActions,
-		Receipts:       receipts,
+		Inbound:                inbound,
+		Outbox:                 outbox,
+		OutboxSummary:          summarizeOutbox(outbox, receipts),
+		SourceFailures:         sourceFailures,
+		SourceRuns:             sourceRuns,
+		SourceAttempts:         sourceAttempts,
+		SourceCursors:          sourceCursors,
+		SourceEvidence:         sourceEvidence,
+		SourceActions:          sourceActions,
+		Receipts:               receipts,
+		ReconciliationEvidence: reconciliationEvidence,
 	}
 	if strings.TrimSpace(kernelURL) != "" {
 		sessions, errorsBySession := fetchKernelSessionProjections(ctx, kernelURL, runtimeToken, uniqueKernelSessionIDs(inbound))
