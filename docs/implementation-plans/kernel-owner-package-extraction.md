@@ -82,6 +82,10 @@ Genesis translation:
   not session facade DTOs. Genesis equivalent:
   `TestArchitectureBoundaryWorkRegistryOwnerHasSubpackageTypeSurface` fails
   until work DTOs live under `internal/kernel/workregistry`.
+- Reference behavior: managed job and observation delivery records are
+  job-runtime DTOs, not tool or session facade DTOs. Genesis equivalent:
+  `TestArchitectureBoundaryJobRuntimeOwnerHasSubpackageTypeSurface` fails until
+  job and observation delivery DTOs live under `internal/kernel/jobruntime`.
 
 ## Phase A: Resource Owner Package
 
@@ -264,6 +268,32 @@ Genesis translation:
 - Still short of production:
   - Work behavior still lives in root until event append/replay and validation
     ports are introduced with dedicated red tests.
+
+## Phase C5: Job Runtime DTO Package
+
+- Deliverable: move managed job projection DTO and kernel observation delivery
+  DTO to `internal/kernel/jobruntime`.
+- Red lines:
+  - Do not move job lifecycle, managed executor, progress capture, cancellation,
+    terminal observation delivery, or projection redaction behavior.
+  - Do not change job event names, status strings, JSON field names, or
+    provider-visible observation context.
+  - Keep root aliases while event schema, tool results, HTTP, and session
+    projections still depend on root package names.
+- Tests:
+  - Job Runtime owner structure guard.
+  - Job Runtime DTO JSON-shape unit tests.
+  - Existing job/observation/interrupt tests stay green through aliases.
+- Evidence:
+  - `go test ./internal/kernel/jobruntime -count=1`
+  - `go test ./internal/kernel -run "TestArchitectureBoundaryJobRuntimeOwnerHasSubpackageTypeSurface|TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles|TestJob|TestManagedJob|TestKernelObservation|TestInterrupt" -count=1`
+  - `go test ./internal/kernel -count=1`
+  - `go test ./... -count=1`
+  - `go build ./...`
+  - `git diff --check`
+- Still short of production:
+  - Job lifecycle and observation delivery behavior still live in root until
+    executor and replay ports are introduced with dedicated red tests.
 
 ## Later Phases
 

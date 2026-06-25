@@ -855,6 +855,20 @@ func TestArchitectureBoundaryWorkRegistryOwnerHasSubpackageTypeSurface(t *testin
 	}
 }
 
+func TestArchitectureBoundaryJobRuntimeOwnerHasSubpackageTypeSurface(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join(kernelPackageDir(t), "..", ".."))
+	jobRuntimeDir := filepath.Join(repoRoot, "internal", "kernel", "jobruntime")
+	gotTypes := kernelTypeDeclarationFiles(t, jobRuntimeDir)
+	for typeName, wantFile := range map[string]string{
+		"JobProjection":       "types.go",
+		"ObservationDelivery": "types.go",
+	} {
+		if gotFile := gotTypes[typeName]; gotFile != wantFile {
+			t.Fatalf("jobruntime owner type %s declared in %q, want %q", typeName, gotFile, wantFile)
+		}
+	}
+}
+
 func TestArchitectureBoundaryHTTPTransportDoesNotReplayOwnerFacts(t *testing.T) {
 	root := kernelPackageDir(t)
 	entries, err := os.ReadDir(root)
