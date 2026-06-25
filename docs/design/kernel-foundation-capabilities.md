@@ -372,6 +372,31 @@ model tool call
   -> write operation/tool result evidence
 ```
 
+Implementation must land in separate slices:
+
+```text
+SandboxReadinessProbe
+  input: resolved sandbox_profile, workspace root, executor adapter ref
+  output: sandbox.ready / sandbox.unavailable evidence
+  no approval decision, no effect execution
+
+ApprovalOwnerCommandPath
+  input: blocked effect request, resolved policy snapshot, requester summary
+  output: approval.requested / approval.approved / approval.denied / approval.expired
+  no UI ownership, no sandbox creation, no model-authored decision
+
+InteractiveApprovalSurface
+  input: pending approval projection
+  output: approval decision command submitted to kernel
+  no authority decision outside kernel, no tool.result fabrication
+```
+
+The first implementation slice should be the sandbox readiness probe because it
+turns the current `os_workspace` fail-closed behavior into inspectable adapter
+evidence without changing execution authority. The approval owner command path
+comes next. The interactive surface comes last and only calls the owner command
+path.
+
 Approval decision flow:
 
 ```text

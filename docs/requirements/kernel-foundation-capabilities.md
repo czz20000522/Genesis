@@ -310,6 +310,23 @@ runtime executes under the already-resolved policy and sandbox profile. Approval
 does not let a caller broaden permission mode, change workspace root, change
 sandbox profile, select credentials, or inject model-visible control fields.
 
+Next-stage production work is split into three independent slices:
+
+1. Sandbox readiness probe. The kernel can ask an execution adapter whether a
+   requested sandbox profile is enforceable on the current platform and
+   workspace. This slice records profile availability, unavailable reason, and
+   adapter evidence, but it still blocks effects when enforcement is absent.
+2. Approval owner command path. The kernel can create, inspect, approve, deny,
+   expire, and replay approval requests as typed owner facts. This slice records
+   approval evidence and denial outcomes, but it does not require a live UI.
+3. Interactive approval surface. A shell, console, desktop UI, or application
+   can display pending approvals and submit decisions through the kernel command
+   path. This slice owns no authority itself and cannot mint tool results.
+
+These slices must remain separate. Sandbox readiness does not approve a tool.
+Approval does not create a sandbox. A UI decision is not valid unless the
+approval owner accepts it and records decision evidence before execution.
+
 ### Work Registry
 
 - `work.submit` records a kernel-owned work item with session linkage, title, and source ref.
