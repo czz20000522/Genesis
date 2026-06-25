@@ -109,7 +109,7 @@ func planToolExecutionBatches(calls []preparedModelToolCall) []ToolExecutionBatc
 		if len(current.CallIndexes) == 0 {
 			return
 		}
-		current.Parallel = len(current.CallIndexes) > 1
+		current.Parallel = len(current.CallIndexes) > 1 && current.Reason == ToolEffectClassPureRead
 		batches = append(batches, current)
 		current = ToolExecutionBatch{}
 		currentKind = ""

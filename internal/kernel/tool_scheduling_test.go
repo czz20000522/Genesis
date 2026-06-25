@@ -119,7 +119,35 @@ func TestPlanToolExecutionBatchesSerializesSameHandleProcessIO(t *testing.T) {
 		scheduledTestCall("job_cancel_a", jobControlToolAccessPlan("job_cancel", "job_a")),
 	}
 	batches := planToolExecutionBatches(calls)
-	assertToolBatchShape(t, batches, [][]int{{0, 1}, {2}}, []bool{true, false})
+	assertToolBatchShape(t, batches, [][]int{{0, 1}, {2}}, []bool{false, false})
+}
+
+func TestPlanToolExecutionBatchesParallelFlagMatchesConcurrentEligibility(t *testing.T) {
+	pureReads := []preparedModelToolCall{
+		scheduledTestCall("read_a", pureReadAccessPlan("read_a")),
+		scheduledTestCall("read_b", pureReadAccessPlan("read_b")),
+	}
+	pureReadBatch := planToolExecutionBatches(pureReads)[0]
+	if !pureReadBatch.Parallel || !canExecuteToolBatchConcurrently(pureReadBatch, pureReads) {
+		t.Fatalf("pure read batch parallel=%v concurrent=%v, want both true", pureReadBatch.Parallel, canExecuteToolBatchConcurrently(pureReadBatch, pureReads))
+	}
+
+	processIO := []preparedModelToolCall{
+		scheduledTestCall("job_status_a", jobControlToolAccessPlan("job_status", "job_a")),
+		scheduledTestCall("job_status_b", jobControlToolAccessPlan("job_status", "job_b")),
+	}
+	processIOBatch := planToolExecutionBatches(processIO)[0]
+	if processIOBatch.Parallel || canExecuteToolBatchConcurrently(processIOBatch, processIO) {
+		t.Fatalf("process IO batch parallel=%v concurrent=%v, want both false until process-IO executor concurrency exists", processIOBatch.Parallel, canExecuteToolBatchConcurrently(processIOBatch, processIO))
+	}
+
+	singlePureRead := []preparedModelToolCall{
+		scheduledTestCall("read_a", pureReadAccessPlan("read_a")),
+	}
+	singlePureReadBatch := planToolExecutionBatches(singlePureRead)[0]
+	if singlePureReadBatch.Parallel || canExecuteToolBatchConcurrently(singlePureReadBatch, singlePureRead) {
+		t.Fatalf("single pure-read batch parallel=%v concurrent=%v, want both false", singlePureReadBatch.Parallel, canExecuteToolBatchConcurrently(singlePureReadBatch, singlePureRead))
+	}
 }
 
 func TestPlanToolExecutionBatchesKeepsProcessStartAdmissionSerial(t *testing.T) {

@@ -26,52 +26,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-TOOL-BATCH-PARALLEL-SIGNAL-20260625 - P2 - ToolExecutionBatch.Parallel must describe actual execution semantics
-
-- Status: open.
-- Area: Tool Runtime / Tool Scheduling.
-- Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
-- Design: `docs/design/kernel-foundation-capabilities.md`.
-- Gap: `ToolExecutionBatch.Parallel` currently means "this planner batch contains
-  more than one call", not "the kernel will execute this batch concurrently".
-  `planToolExecutionBatches` sets `Parallel=true` for grouped `process_io` calls
-  on different job handles, but `canExecuteToolBatchConcurrently` only permits
-  `pure_read` batches to use the concurrent runner. Existing tests therefore
-  encode a contradictory contract: `TestPlanToolExecutionBatchesSerializesSameHandleProcessIO`
-  expects a process-IO batch with `Parallel=true`, while
-  `TestExecuteToolBatchesKeepsProcessIOBatchSerialByDefault` proves the same
-  class still executes serially by default. This is a projection/diagnostic
-  hazard because future UI, trace, scheduler metrics, or replay code may treat
-  `Parallel=true` as durable evidence of real parallel execution.
-- Next slice: Rename or split the planner fields so compatibility grouping,
-  candidate parallelism, and actual concurrent execution cannot be confused.
-  The simplest fix is to make `ToolExecutionBatch.Parallel` mean actual executor
-  concurrency and keep it false for process-IO until process-IO concurrency is
-  implemented. If the planner still needs a grouping hint, use a separate
-  internal field with a precise name such as `CompatibleGroup` or
-  `ExecutionMode`. Tests should stop asserting `Parallel=true` for a batch that
-  the runtime intentionally executes serially.
-- Evidence: `internal/kernel/tool_scheduling.go` assigns
-  `current.Parallel = len(current.CallIndexes) > 1`; `internal/kernel/tool_execution.go`
-  only invokes `executeToolBatchConcurrently` when
-  `canExecuteToolBatchConcurrently` returns true, and that function currently
-  requires `batch.Reason == pure_read`. `internal/kernel/tool_scheduling_test.go`
-  expects `process_io` calls for `job_a` and `job_b` to share a batch with
-  `Parallel=true`; `internal/kernel/tool_execution_test.go` then proves
-  `process_io` starts serially by default.
-- Verification: Add tests proving `ToolExecutionBatch.Parallel` is true only for
-  batches that can use the concurrent runner in the current implementation.
-  Process-IO same-handle calls remain serial; process-IO different-handle calls
-  either remain explicitly serial for now or gain real per-handle concurrent
-  execution with deterministic provider-order commits. Add a guard that no
-  exported/session/diagnostic projection can report a batch as parallel unless
-  the executor actually used concurrent execution.
-- Reference alignment: Reasonix parallelizes only consecutive known read-only
-  tool calls, and Codex exposes parallel capability through handler/runtime
-  support rather than a misleading batch flag. Genesis can keep its richer
-  effect-class planner, but its facts and diagnostics must not claim parallel
-  execution before the runtime actually performs it.
-
 ### KERNEL-REFERENCE-BEHAVIOR-RED-TEST-MATRIX-20260625 - P1 - Codex/Reasonix kernel behavior tests must be translated into Genesis red-test gates
 
 - Status: open.

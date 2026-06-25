@@ -263,6 +263,12 @@ different order. UI and diagnostics may show live concurrent progress, but they
 must not turn completion order into ledger order, transcript truth, checkpoint
 truth, or provider replay order.
 
+Planner grouping and concurrent execution are separate semantics. A batch may
+group compatible operations for deterministic planning while still executing
+serially. Any `parallel` flag exposed by kernel scheduling facts or diagnostics
+means the current executor can and will use the concurrent runner for that batch,
+not merely that the batch contains more than one call.
+
 The current default shell tool stays conservative. `shell_exec` is an arbitrary
 process primitive and is treated as effectful/serial unless it is routed through
 a future hard read-only sandbox or replaced by a narrower registered read tool

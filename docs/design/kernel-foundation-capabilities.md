@@ -263,6 +263,12 @@ specs and footprints while current `shell_exec` behavior remains serial.
 future hard read-only sandbox or a narrower registered read tool can provide a
 trusted pure-read access plan.
 
+`ToolExecutionBatch.Parallel` is an execution-mode signal, not a batch-size
+signal. It is true only when the current executor path can dispatch that batch
+through the concurrent runner. Compatibility-only grouping, including current
+process-IO grouping across distinct job handles, remains `Parallel=false` until
+the executor and replay semantics are implemented.
+
 ## Tool Loop Control
 
 The tool loop has two production guards with different owners and projections:

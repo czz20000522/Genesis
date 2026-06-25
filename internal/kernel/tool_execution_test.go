@@ -593,7 +593,7 @@ func TestExecuteToolBatchesKeepsProcessIOBatchSerialByDefault(t *testing.T) {
 	}
 
 	batches := planToolExecutionBatches(prepared)
-	assertToolBatchShape(t, batches, [][]int{{0, 1}}, []bool{true})
+	assertToolBatchShape(t, batches, [][]int{{0, 1}}, []bool{false})
 	errCh := make(chan error, 1)
 	go func() {
 		outcome, err := k.executeToolBatches(context.Background(), k.toolGateway(), sessionID, turnID, prepared, toolCallEventIDs)
