@@ -26,20 +26,6 @@ Genesis Kernel. Kernel primitive gaps belong in
 
 ## Active Issues
 
-### APP-CONNECTOR-FILE-STORE-STALE-LOCK-20260625 - P2 - Connector file stores need stale lock recovery before production listener use
-
-- Status: open.
-- Requirement: `docs/applications/application-connector-runtime-requirement.md`; `docs/applications/connector-source-verification-lifecycle-requirement.md`.
-- Design: `docs/applications/application-connector-runtime-design.md`; `docs/applications/connector-source-verification-lifecycle-design.md`.
-- Kernel/owner pressure: connector-owned state durability, outbox/source lifecycle recovery, and operator diagnostics without moving connector state into the kernel.
-- 标题: Connector file stores need stale lock recovery before production listener use.
-- 问题: Connector file-backed stores now serialize load-modify-write across processes with a `.lock` file, which is correct for smoke use. However, `acquireConnectorStateFileLock` creates the lock with `O_CREATE|O_EXCL` and waits until timeout if it already exists. If the process crashes after creating the lock file and before cleanup, later connector operations can fail indefinitely with `connector state lock unavailable` until someone manually deletes the lock. That is acceptable as a lab seam, but it is too fragile for a long-running listener/outbox process.
-- 建议: Add stale-lock recovery semantics to the connector file-store boundary, or explicitly gate production listener/outbox modes away from file stores until a production store exists. The file-store path should at minimum record pid/created_at as it already does, inspect stale locks after a bounded age, verify the recorded pid is no longer alive when possible, remove stale locks only under a safe takeover rule, and emit operator-visible diagnostics when takeover is unsafe. Tests should cover live lock contention, stale lock takeover, unsafe lock retention, and no data loss across recovery.
-- 证据: `internal/applications/connector_runtime/store_file.go::acquireConnectorStateFileLock` writes `pid` and `created_at` into `path+".lock"` but never reads them back. The loop only retries until context timeout, then returns `connector state lock unavailable`. The same lock helper backs `FileOutboxStore`, `FileInboundStore`, `FileSourceFailureStore`, and `FileSourceLifecycleStore`. Existing retirement evidence covers cross-process serialization, but no active test covers crash-left stale locks or operator recovery. Local Codex app-server-daemon has explicit pid/lock stale-reservation tests such as `codex-rs/app-server-daemon/src/backend/pid_tests.rs::unlocked_empty_pid_file_is_treated_as_stale_reservation` and `start_retries_stale_empty_pid_file_under_its_own_lock`.
-- 验证: Add tests that create an old `.lock` file with a dead pid or invalid/empty reservation and verify the store either safely takes over or returns a structured stale-lock diagnostic without corrupting state. Add a contention test proving a genuinely live lock is not stolen. Run `go test ./internal/applications/connector_runtime -run "Test.*File.*Lock|Test.*Outbox|Test.*Source.*Store" -count=1`.
-- 优先级: P2.
-- Reference alignment: Aligned with Codex's daemon pid/lock stale-reservation handling and with our connector-owner rule that adapter/runtime state must be recoverable without kernel truth mutation. Genesis may still treat JSON file stores as a lab seam, but if they remain usable by source listener or outbox commands, their lock failure mode must be deliberate and recoverable.
-
 ### APP-CONNECTOR-FEISHU-LISTENER-20260623 - P2 - Connector source verification and lifecycle gate
 
 - Status: open.

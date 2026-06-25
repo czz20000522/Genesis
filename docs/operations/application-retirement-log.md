@@ -73,3 +73,7 @@ tests, governing requirement/design, or still-active issues.
 ### APP-CONNECTOR-COMMAND-OUTPUT-BOUNDS-20260625 - Bound external connector command output before parsing
 
 - Retired: connector OS command capture, command-template delivery, and the Feishu connector adapter now cap external command output before parsing and return `external_command_output_exceeded` instead of treating oversized raw CLI output as delivery truth. Evidence: commit `ad73f4ee6`.
+
+### APP-CONNECTOR-FILE-STORE-STALE-LOCK-20260625 - Recover stale connector file-store locks
+
+- Retired: connector file-backed stores now inspect crash-left lock records, safely take over stale invalid or dead reservations without losing outbox state, and retain live or unverifiable locks instead of stealing them. Evidence: commit `f02263c47`.
