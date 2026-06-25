@@ -40,7 +40,9 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 				SessionID:         event.SessionID,
 				Status:            "snapshot_unavailable",
 				InputItems:        redactInputItems(event.Data.InputItems),
-				ModelInputKinds:   append([]string(nil), event.Data.ModelInputKinds...),
+				ModelInputKinds:   cloneStringSlice(event.Data.ModelInputKinds),
+				ToolManifest:      cloneToolSpecs(nil),
+				SkillCatalog:      cloneSkillCatalogItems(nil),
 				RecalledMemories:  redactMemoryRecalls(event.Data.RecalledMemories),
 				UnavailableReason: "turn context snapshot was not recorded for this turn",
 			}, nil
@@ -50,7 +52,7 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 			SessionID:        event.SessionID,
 			Status:           "ok",
 			InputItems:       redactInputItems(event.Data.InputItems),
-			ModelInputKinds:  append([]string(nil), event.Data.ModelInputKinds...),
+			ModelInputKinds:  cloneStringSlice(event.Data.ModelInputKinds),
 			ToolManifest:     cloneToolSpecs(event.Data.ToolManifest),
 			SkillCatalog:     cloneSkillCatalogItems(event.Data.SkillCatalog),
 			RecalledMemories: redactMemoryRecalls(event.Data.RecalledMemories),
@@ -262,7 +264,13 @@ func cloneToolSpecs(items []ToolSpec) []ToolSpec {
 }
 
 func cloneSkillCatalogItems(items []SkillCatalogItemProjection) []SkillCatalogItemProjection {
-	return append([]SkillCatalogItemProjection(nil), items...)
+	out := make([]SkillCatalogItemProjection, 0, len(items))
+	return append(out, items...)
+}
+
+func cloneStringSlice(items []string) []string {
+	out := make([]string, 0, len(items))
+	return append(out, items...)
 }
 
 func cloneContextRuntimeSnapshot(snapshot *ContextRuntimeSnapshot) *ContextRuntimeSnapshot {

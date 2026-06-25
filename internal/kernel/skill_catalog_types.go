@@ -10,7 +10,7 @@ type SkillCatalogProjection struct {
 	Status     string                            `json:"status"`
 	Count      int                               `json:"count"`
 	Items      []SkillCatalogItemProjection      `json:"items"`
-	Exclusions []SkillCatalogExclusionProjection `json:"exclusions,omitempty"`
+	Exclusions []SkillCatalogExclusionProjection `json:"exclusions"`
 }
 
 type SkillCatalogItemProjection struct {

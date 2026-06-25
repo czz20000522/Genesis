@@ -508,7 +508,7 @@ func (k *Kernel) recallMemories(items []InputItem) ([]MemoryRecall, error) {
 		return nil, err
 	}
 	query := inputText(items)
-	var recalls []MemoryRecall
+	recalls := []MemoryRecall{}
 	for _, candidate := range candidates {
 		if candidate.Status != MemoryCandidateApproved {
 			continue

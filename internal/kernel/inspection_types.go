@@ -63,7 +63,7 @@ type UITimelineItem struct {
 	ToolCount           int              `json:"tool_count,omitempty"`
 	JobCount            int              `json:"job_count,omitempty"`
 	CompactionCount     int              `json:"compaction_count,omitempty"`
-	Children            []UITimelineItem `json:"children,omitempty"`
+	Children            []UITimelineItem `json:"children"`
 	CreatedAt           time.Time        `json:"created_at"`
 	UpdatedAt           time.Time        `json:"updated_at,omitempty"`
 }
@@ -72,11 +72,11 @@ type ContextInspectionResponse struct {
 	TurnID            string                       `json:"turn_id"`
 	SessionID         string                       `json:"session_id,omitempty"`
 	Status            string                       `json:"status"`
-	InputItems        []InputItem                  `json:"input_items,omitempty"`
-	ModelInputKinds   []string                     `json:"model_input_kinds,omitempty"`
-	ToolManifest      []ToolSpec                   `json:"tool_manifest,omitempty"`
-	SkillCatalog      []SkillCatalogItemProjection `json:"skill_catalog,omitempty"`
-	RecalledMemories  []MemoryRecall               `json:"recalled_memories,omitempty"`
+	InputItems        []InputItem                  `json:"input_items"`
+	ModelInputKinds   []string                     `json:"model_input_kinds"`
+	ToolManifest      []ToolSpec                   `json:"tool_manifest"`
+	SkillCatalog      []SkillCatalogItemProjection `json:"skill_catalog"`
+	RecalledMemories  []MemoryRecall               `json:"recalled_memories"`
 	Runtime           *ContextRuntimeSnapshot      `json:"runtime,omitempty"`
 	UnavailableReason string                       `json:"unavailable_reason,omitempty"`
 }
@@ -97,7 +97,7 @@ type SessionProjection struct {
 	SessionID        string                      `json:"session_id"`
 	Turns            []TurnProjection            `json:"turns"`
 	Operations       []OperationProjection       `json:"operations"`
-	Jobs             []JobProjection             `json:"jobs,omitempty"`
+	Jobs             []JobProjection             `json:"jobs"`
 	Works            []WorkProjection            `json:"works"`
 	MemoryCandidates []MemoryCandidateProjection `json:"memory_candidates"`
 	Events           []EventProjection           `json:"events"`

@@ -73,7 +73,8 @@ func (k *Kernel) skillCatalogProjection() SkillCatalogProjection {
 	if len(items) == 0 {
 		status = "empty"
 	}
-	exclusions := append([]SkillCatalogExclusionProjection(nil), k.skillExclusions...)
+	exclusions := make([]SkillCatalogExclusionProjection, 0, len(k.skillExclusions))
+	exclusions = append(exclusions, k.skillExclusions...)
 	return SkillCatalogProjection{
 		Status:     status,
 		Count:      len(items),

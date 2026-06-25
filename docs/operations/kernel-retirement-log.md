@@ -14,6 +14,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-PROJECTION-ARRAY-SHAPE-CONTRACT-20260625 - P3 - Public projection array shape
+
+- Status: ready_for_acceptance.
+- Conclusion: Public session, timeline, context inspection, audit, capability, memory, and turn-event projection collections now marshal stable non-null JSON arrays, with projection-tree children normalized recursively and the shape rule documented in the foundation design.
+- Fix commit: current Lore commit.
+- Verification: `go test ./internal/kernel -run "Test.*Projection.*Array|Test.*Timeline|Test.*ContextInspection|TestHTTP.*Session|TestHTTP.*Capabilities|TestHTTP.*Memory" -count=1`; `go test ./internal/kernel -count=1`; `go test ./... -count=1`; `go build ./...`; `git diff --check`.
+- Reference alignment: Aligned with Reasonix's frontend-facing non-nil array contract and Codex-style typed protocol/schema shape testing while keeping Genesis projection owners responsible for client-facing DTO shape.
+
 ### KERNEL-RESOURCE-READ-MODEL-RESULT-REDACTION-20260625 - P2 - resource_read model-result redaction
 
 - Status: ready_for_acceptance.

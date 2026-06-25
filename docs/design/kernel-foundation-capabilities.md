@@ -40,6 +40,16 @@ Core conceptual commands and projections:
 
 Kernel-owned control fields stay out of model-visible schemas. Provider adapters translate kernel manifests to provider-native shapes but do not own tool permission, idempotency, execution, or ledger evidence.
 
+Public projection responses keep collection fields stable for shells and
+operator clients. Top-level collection fields that are part of a read-model
+contract serialize as JSON arrays, including the empty case, rather than
+`null` or omitted fields. Projection-tree child collections, capability skill
+catalog collections, context input/tool/skill/memory collections, memory list
+collections, audit item collections, and turn-event item collections follow the
+same rule when clients are expected to iterate them. Optional scalar fields and
+diagnostic-only nested collections may still be omitted when absence is the
+documented meaning.
+
 ## Skill Catalog Projection
 
 Skill packages are user-space assets. The kernel scans configured skill roots only to build a safe metadata index for capability and provider-context projection. Discovery is bounded by recursion depth, candidate count per root, and `SKILL.md` metadata file size before parsing. Exclusions use stable path-free reasons so `/capabilities` can explain skipped metadata without exposing package paths, skill bodies, or heavy file contents.

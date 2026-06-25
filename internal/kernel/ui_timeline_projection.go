@@ -411,7 +411,17 @@ func (b *timelineTurnBuilder) finalize(now time.Time) UITimelineItem {
 	if b.item.UpdatedAt.IsZero() || end.After(b.item.UpdatedAt) {
 		b.item.UpdatedAt = end
 	}
-	return b.item
+	return normalizeUITimelineItemArrays(b.item)
+}
+
+func normalizeUITimelineItemArrays(item UITimelineItem) UITimelineItem {
+	if item.Children == nil {
+		item.Children = []UITimelineItem{}
+	}
+	for i := range item.Children {
+		item.Children[i] = normalizeUITimelineItemArrays(item.Children[i])
+	}
+	return item
 }
 
 func timelineNow(k *Kernel) time.Time {
