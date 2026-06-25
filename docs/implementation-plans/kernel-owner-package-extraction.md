@@ -74,6 +74,10 @@ Genesis translation:
   session facade DTOs. Genesis equivalent:
   `TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageResultSurface` fails
   until model-visible tool result DTOs live under `internal/kernel/toolruntime`.
+- Reference behavior: approval and sandbox readiness records are authority-plane
+  DTOs, not generic root facade DTOs. Genesis equivalent:
+  `TestArchitectureBoundaryAuthorityOwnerHasSubpackageApprovalSurface` fails
+  until approval/readiness DTOs live under `internal/kernel/authority`.
 
 ## Phase A: Resource Owner Package
 
@@ -204,6 +208,32 @@ Genesis translation:
 - Still short of production:
   - ToolGateway and execution context still need a narrow owner port before the
     registry can stop receiving `*Kernel`.
+
+## Phase C3: Authority Approval DTO Package
+
+- Deliverable: move approval, approval decision, approval policy/effect, and
+  sandbox readiness DTOs to `internal/kernel/authority`.
+- Red lines:
+  - Do not move approval owner behavior, sandbox readiness checks, authority
+    admission, HTTP approval routes, or approval execution resume logic.
+  - Do not change approval statuses, decision names, readiness statuses, TTL, or
+    JSON field names.
+  - Keep root aliases while event schema, HTTP, and session projections still
+    depend on root package names.
+- Tests:
+  - Authority owner structure guard.
+  - Authority DTO JSON-shape unit tests.
+  - Existing approval/sandbox owner tests stay green through aliases.
+- Evidence:
+  - `go test ./internal/kernel/authority -count=1`
+  - `go test ./internal/kernel -run "TestArchitectureBoundaryAuthorityOwnerHasSubpackageApprovalSurface|TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles|TestApproval|TestSandbox" -count=1`
+  - `go test ./internal/kernel -count=1`
+  - `go test ./... -count=1`
+  - `go build ./...`
+  - `git diff --check`
+- Still short of production:
+  - Approval owner behavior and sandbox readiness execution still live in root
+    until an authority-plane port is designed and covered by red tests.
 
 ## Later Phases
 

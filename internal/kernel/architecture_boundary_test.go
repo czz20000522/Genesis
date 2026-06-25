@@ -822,6 +822,24 @@ func TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageResultSurface(t *testi
 	}
 }
 
+func TestArchitectureBoundaryAuthorityOwnerHasSubpackageApprovalSurface(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join(kernelPackageDir(t), "..", ".."))
+	authorityDir := filepath.Join(repoRoot, "internal", "kernel", "authority")
+	gotTypes := kernelTypeDeclarationFiles(t, authorityDir)
+	for typeName, wantFile := range map[string]string{
+		"ApprovalListResponse":       "types.go",
+		"ApprovalDecisionRequest":    "types.go",
+		"ApprovalProjection":         "types.go",
+		"ApprovalPolicySnapshot":     "types.go",
+		"ApprovalEffectSummary":      "types.go",
+		"SandboxReadinessProjection": "types.go",
+	} {
+		if gotFile := gotTypes[typeName]; gotFile != wantFile {
+			t.Fatalf("authority owner type %s declared in %q, want %q", typeName, gotFile, wantFile)
+		}
+	}
+}
+
 func TestArchitectureBoundaryHTTPTransportDoesNotReplayOwnerFacts(t *testing.T) {
 	root := kernelPackageDir(t)
 	entries, err := os.ReadDir(root)
