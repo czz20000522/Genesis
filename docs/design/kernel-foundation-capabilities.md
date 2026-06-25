@@ -349,6 +349,32 @@ Reference alignment:
   concrete executor can enforce it; no silent host fallback is allowed for a
   configured stronger profile.
 
+## Memory Context Sensitivity
+
+Accumulation owns raw memory candidate truth, review decisions, and recall
+eligibility. The Model Gateway owns the provider-visible memory fragment derived
+from those facts. These are not the same surface.
+
+The provider-context flow is:
+
+1. Accumulation replays approved candidates and returns recall records with raw
+   candidate text and source refs as owner truth.
+2. Turn admission records the recalled refs on the turn event.
+3. Before building `approved_memory_context`, the Model Gateway applies the
+   model-visible context projection policy.
+4. The projection keeps useful semantic text, but redacts credential-shaped
+   substrings such as provider keys, bearer tokens, authorization headers,
+   passwords, API keys, and connector tokens.
+5. Session, context inspection, timeline, and provider-command projections use
+   the same model-visible redaction boundary or a stricter inspection boundary.
+6. The raw memory candidate remains unchanged inside the Accumulation owner
+   store and review surfaces that are explicitly owner-authorized.
+
+Approval therefore means "eligible for recall," not "safe to replay raw to the
+provider forever." A future sensitivity owner may add explicit grants, scopes,
+or credential handles, but the default projection remains conservative and does
+not rely on prompt instructions telling the model to ignore secrets.
+
 ## Recovery And Observability
 
 The ledger is append-only owner truth. Restart replay rebuilds session, operation, work, memory, timeline, context, audit, and readiness projections from recorded facts.

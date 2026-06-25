@@ -154,7 +154,7 @@ func oneLine(text string) string {
 func approvedMemoryContext(memories []MemoryRecall) string {
 	var memoryLines []string
 	for _, memory := range memories {
-		text := strings.TrimSpace(memory.Text)
+		text := strings.TrimSpace(redactEvidenceText(memory.Text))
 		if text != "" {
 			memoryLines = append(memoryLines, "- "+text)
 		}

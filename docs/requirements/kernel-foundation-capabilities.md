@@ -298,6 +298,9 @@ sandbox profile, select credentials, or inject model-visible control fields.
 - Supersession creates a replacement pending candidate; it is not hidden approval or direct text mutation.
 - `memory.recall` is a read-only observation surface. It does not run a model, append review evidence, or mutate candidates.
 - Turn submission may record recalled approved memory refs on the admitted turn event.
+- Approved memory truth and provider-visible memory context are separate projections. Approval allows recall eligibility; it does not guarantee that raw text is safe to replay to every future provider request.
+- Provider-visible approved memory context is bounded and redacted by default. Secret-shaped tokens, authorization headers, passwords, provider keys, connector tokens, and similar credential material are removed from the model-visible memory fragment without mutating Accumulation owner truth.
+- A future explicit sensitivity or credential-grant owner may define narrower exceptions, but absent that owner the conservative provider projection wins over raw approved text.
 
 ### Readiness And Inspection
 
