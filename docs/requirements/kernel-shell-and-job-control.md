@@ -78,6 +78,16 @@ Application:
 Direct HTTP `POST /tools/shell_exec` follows the same kernel owner path. It returns a foreground operation projection for `timeout_sec` values within the foreground cap, and returns a managed job projection for admitted `timeout_sec>180` requests. It does not create a parallel direct-HTTP lifecycle owner. Because direct HTTP can distinguish an omitted JSON field from an explicit value, omitted `timeout_sec` defaults to 30 seconds while explicit non-positive values are invalid. The current local managed executor requires the resolved host sandbox profile; controlled-workspace/default requests above the cap return a blocked operation until a controlled managed executor exists.
 8. The model-visible schema uses seconds. Internal runtimes may use other units.
 
+### Shell Environment Policy
+
+1. Foreground host shell execution and local managed-job execution must receive an explicit kernel-constructed environment. They must not inherit the Genesis daemon process environment by omission.
+2. The shell environment policy is a Tool Runtime / Authority Plane decision. It is not a model-visible `shell_exec` argument and cannot be selected by provider output, HTTP request fields, or UI state.
+3. The minimal production policy keeps ordinary host shell execution usable by preserving platform execution basics such as path lookup, system root, temporary directory, user home, and locale where needed.
+4. Credential-shaped variables are excluded before process spawn. Names or values shaped like provider keys, bearer tokens, credentials, passwords, secrets, API keys, or connector tokens do not enter the child process environment unless a future explicit credential-grant owner exists.
+5. Projection redaction is not sufficient. The command process must not receive unintended daemon-local secrets in the first place; UI/session redaction only protects already-recorded evidence.
+6. Foreground and managed-job shell paths use the same environment constructor so long-running work cannot bypass the foreground policy.
+7. Provider-command environment remains a separate provider boundary. This policy must not weaken existing provider-command env validation.
+
 ### Terminal-Equivalent Command Results
 
 1. If a command is accepted and executed, the tool result reports the observed process outcome.

@@ -42,6 +42,7 @@ func runShellProcessContextWithOutput(ctx context.Context, cwd string, command s
 	}
 	cmd := platformShellCommand(ctx, command)
 	cmd.Dir = cwd
+	cmd.Env = shellProcessEnvironment()
 	configureShellProcessTermination(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Stdout = stdout

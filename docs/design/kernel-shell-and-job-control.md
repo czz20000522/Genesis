@@ -72,6 +72,30 @@ Job-control commands:
 
 The job handle is a kernel-issued job event id, not a model-created id.
 
+## Shell Environment Policy
+
+The process runtime constructs a child environment before starting any host
+shell process. Foreground `shell_exec` and local managed jobs call the same
+constructor. The executor never leaves `cmd.Env` unset for model-controlled
+host shell work.
+
+The first production policy is deliberately small:
+
+- preserve platform execution basics needed for ordinary commands, such as
+  path lookup, system root, temp directory, user home, and locale variables;
+- drop variables whose names or values are credential-shaped, including API
+  keys, tokens, secrets, passwords, authorization headers, credential refs, and
+  provider or connector keys;
+- keep the policy out of model-visible tool schemas;
+- keep provider-command env validation separate, because provider commands are
+  provider adapters rather than model-controlled shell commands.
+
+This is a process environment boundary, not an output-redaction feature. If a
+variable is excluded, the command must not be able to print it. If a future
+application needs a credential inside a shell command, that must be introduced
+as a credential-grant owner path with typed evidence and explicit authority,
+not by reverting to daemon environment inheritance.
+
 ## Failure Semantics
 
 - Invalid timeout or malformed arguments: no effect, repairable `tool_request_invalid`.
