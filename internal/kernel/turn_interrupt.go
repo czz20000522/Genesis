@@ -24,11 +24,13 @@ func (k *Kernel) InterruptSession(sessionID string, req TurnInterruptRequest) (T
 	active.reason = reason
 	cancel := active.cancel
 	projection := TurnInterruptionProjection{
-		SessionID:     active.sessionID,
-		TurnID:        active.turnID,
-		Status:        "interrupt_requested",
-		Reason:        reason,
-		InterruptedAt: k.clock(),
+		SessionID:       active.sessionID,
+		TurnID:          active.turnID,
+		Phase:           RuntimePhaseEnded,
+		TerminalOutcome: TerminalOutcomeInterrupted,
+		TerminalCause:   TerminalCauseUserCancelled,
+		Reason:          reason,
+		InterruptedAt:   k.clock(),
 	}
 	k.activeTurnMu.Unlock()
 	cancel()
@@ -84,11 +86,13 @@ func (k *Kernel) completeInterruptedTurn(sessionID string, turnID string) (TurnR
 func (k *Kernel) appendTurnInterruption(sessionID string, turnID string) error {
 	interruptedAt := k.clock()
 	interruption := TurnInterruptionProjection{
-		SessionID:     strings.TrimSpace(sessionID),
-		TurnID:        strings.TrimSpace(turnID),
-		Status:        "interrupted",
-		Reason:        k.activeTurnInterruptReason(sessionID, turnID),
-		InterruptedAt: interruptedAt,
+		SessionID:       strings.TrimSpace(sessionID),
+		TurnID:          strings.TrimSpace(turnID),
+		Phase:           RuntimePhaseEnded,
+		TerminalOutcome: TerminalOutcomeInterrupted,
+		TerminalCause:   TerminalCauseUserCancelled,
+		Reason:          k.activeTurnInterruptReason(sessionID, turnID),
+		InterruptedAt:   interruptedAt,
 	}
 	return k.appendEvent(StoredEvent{
 		EventID:   newID("evt", interruptedAt),

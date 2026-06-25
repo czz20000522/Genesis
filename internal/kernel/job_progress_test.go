@@ -70,7 +70,7 @@ func TestJobOutputSnapshotIsDurableButNotProviderObservation(t *testing.T) {
 		t.Fatalf("processing group = %+v, want running open group with one job", processing)
 	}
 	operation := requireNestedTimelineChild(t, processing, "operation_detail")
-	if operation.Tool != "shell_exec" || operation.Status != "running" || !strings.Contains(operation.OutputPreview, "downloaded 43%") {
+	if operation.Tool != "shell_exec" || operation.Phase != RuntimePhaseRunning || !strings.Contains(operation.OutputPreview, "downloaded 43%") {
 		t.Fatalf("operation detail = %+v, want running shell progress output", operation)
 	}
 
@@ -502,7 +502,7 @@ func TestUITimelineFoldsDirectManagedJobEventsByJobID(t *testing.T) {
 		t.Fatalf("processing group = %+v, want one folded direct job", processing)
 	}
 	operation := requireNestedTimelineChild(t, processing, "operation_detail")
-	if operation.Status != "completed" || operation.Tool != "shell_exec" || !strings.Contains(operation.OutputPreview, "direct complete") {
+	if operation.Phase != RuntimePhaseEnded || operation.TerminalOutcome != TerminalOutcomeSucceeded || operation.Tool != "shell_exec" || !strings.Contains(operation.OutputPreview, "direct complete") {
 		t.Fatalf("folded operation detail = %+v, want completed direct job output", operation)
 	}
 }

@@ -56,7 +56,7 @@ func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UITimeline returned error: %v", err)
 	}
-	if timeline.Status != "ok" || len(timeline.Items) != 1 {
+	if timeline.Readiness != ReadinessReady || len(timeline.Items) != 1 {
 		t.Fatalf("timeline = %+v, want one turn item", timeline)
 	}
 	turn := timeline.Items[0]
@@ -72,7 +72,7 @@ func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
 		t.Fatalf("processing group = %+v, want settled collapsed group with one tool", processing)
 	}
 	operation := requireNestedTimelineChild(t, processing, "operation_detail")
-	if operation.Tool != "shell_exec" || operation.Status != "permission_denied" {
+	if operation.Tool != "shell_exec" || operation.Phase != RuntimePhaseEnded || operation.TerminalCause != TerminalCausePermissionDenied {
 		t.Fatalf("operation detail = %+v, want merged permission_denied shell tool", operation)
 	}
 	if !operation.FullOutputAvailable || operation.OutputSource != "error" || !strings.Contains(operation.OutputPreview, "blocked") {
@@ -118,6 +118,84 @@ func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
 	}
 	if len(httpTimeline.Items) != len(timeline.Items) {
 		t.Fatalf("HTTP timeline items = %+v, want %d items", httpTimeline.Items, len(timeline.Items))
+	}
+}
+
+func TestTurnAndInspectionProjectionsUseExplicitStateAxes(t *testing.T) {
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	k := newTestKernel(t, ledgerPath)
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "state-axis-session",
+		InputItems: []InputItem{{Type: "text", Text: "state axis smoke"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	restarted := newTestKernel(t, ledgerPath)
+	session, err := restarted.Session("state-axis-session")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(session.Turns) != 1 {
+		t.Fatalf("turns = %+v, want one turn", session.Turns)
+	}
+	turn := session.Turns[0]
+	if turn.Phase != RuntimePhaseEnded || turn.TerminalOutcome != TerminalOutcomeSucceeded || turn.TerminalCause != "" {
+		t.Fatalf("turn axes = phase:%q outcome:%q cause:%q", turn.Phase, turn.TerminalOutcome, turn.TerminalCause)
+	}
+	turnJSON, err := json.Marshal(turn)
+	if err != nil {
+		t.Fatalf("marshal turn: %v", err)
+	}
+	if strings.Contains(string(turnJSON), `"status"`) {
+		t.Fatalf("turn projection uses generic status: %s", string(turnJSON))
+	}
+
+	timeline, err := restarted.UITimeline("state-axis-session")
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	if timeline.Readiness != ReadinessReady || len(timeline.Items) != 1 {
+		t.Fatalf("timeline = %+v, want ready response with one item", timeline)
+	}
+	timelineTurn := timeline.Items[0]
+	if timelineTurn.Phase != RuntimePhaseEnded || timelineTurn.TerminalOutcome != TerminalOutcomeSucceeded {
+		t.Fatalf("timeline turn axes = %+v, want ended/succeeded", timelineTurn)
+	}
+	timelineJSON, err := json.Marshal(timeline)
+	if err != nil {
+		t.Fatalf("marshal timeline: %v", err)
+	}
+	if strings.Contains(string(timelineJSON), `"status"`) {
+		t.Fatalf("timeline projection uses generic status: %s", string(timelineJSON))
+	}
+
+	inspection, err := restarted.ContextInspection(resp.TurnID)
+	if err != nil {
+		t.Fatalf("ContextInspection returned error: %v", err)
+	}
+	if inspection.Readiness != ReadinessReady {
+		t.Fatalf("context inspection readiness = %q, want ready", inspection.Readiness)
+	}
+	audit, err := restarted.AuditReplay(resp.TurnID)
+	if err != nil {
+		t.Fatalf("AuditReplay returned error: %v", err)
+	}
+	if audit.Readiness != ReadinessReady {
+		t.Fatalf("audit readiness = %q, want ready", audit.Readiness)
+	}
+	for name, payload := range map[string]interface{}{
+		"context": inspection,
+		"audit":   audit,
+	} {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", name, err)
+		}
+		if strings.Contains(string(encoded), `"status"`) {
+			t.Fatalf("%s projection uses generic status: %s", name, string(encoded))
+		}
 	}
 }
 
@@ -455,7 +533,7 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if err != nil {
 		t.Fatalf("ContextInspection returned error: %v", err)
 	}
-	if inspection.Status != "ok" || inspection.SessionID != "context-inspection-consumer" {
+	if inspection.Readiness != ReadinessReady || inspection.SessionID != "context-inspection-consumer" {
 		t.Fatalf("inspection = %+v, want ok for submitted turn", inspection)
 	}
 	if len(inspection.InputItems) != 1 || !strings.Contains(inspection.InputItems[0].Text, "Authorization: Bearer tokentest123456") {
@@ -515,7 +593,7 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if err := json.NewDecoder(resp.Body).Decode(&httpInspection); err != nil {
 		t.Fatalf("decode context inspection: %v", err)
 	}
-	if httpInspection.Status != "ok" || httpInspection.Runtime == nil || httpInspection.Runtime.Permission.PermissionMode != PermissionModeDefault {
+	if httpInspection.Readiness != ReadinessReady || httpInspection.Runtime == nil || httpInspection.Runtime.Permission.PermissionMode != PermissionModeDefault {
 		t.Fatalf("HTTP inspection = %+v, want persisted snapshot", httpInspection)
 	}
 }

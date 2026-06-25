@@ -1169,7 +1169,7 @@ func TestSubmitTurnReturnsRepairFeedbackForUnsupportedModelToolCall(t *testing.T
 	if len(projection.Operations) != 0 {
 		t.Fatalf("operations = %+v, want no executed effects", projection.Operations)
 	}
-	if len(projection.Turns) != 1 || projection.Turns[0].Status != "completed" {
+	if len(projection.Turns) != 1 || projection.Turns[0].Phase != RuntimePhaseEnded || projection.Turns[0].TerminalOutcome != TerminalOutcomeSucceeded {
 		t.Fatalf("turns = %+v, want one completed turn after repair feedback", projection.Turns)
 	}
 	eventTypes := make([]string, 0, len(projection.Events))

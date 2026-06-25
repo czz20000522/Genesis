@@ -48,7 +48,7 @@ func TestUITimelineRunningTurnProjectsOpenProcessingGroup(t *testing.T) {
 	}
 	turn := requireSingleTimelineTurn(t, timeline, "turn_running")
 	processing := requireTimelineChild(t, turn, "processing_group")
-	if processing.Status != "running" || !processing.DefaultOpen {
+	if processing.Phase != RuntimePhaseRunning || !processing.DefaultOpen {
 		t.Fatalf("processing group = %+v, want running and default open", processing)
 	}
 	if processing.Text != "正在处理 45s" {
@@ -123,7 +123,7 @@ func TestUITimelineSettledTurnCollapsesProcessingGroupWithFixedDuration(t *testi
 	}
 	turn := requireSingleTimelineTurn(t, timeline, "turn_settled")
 	processing := requireTimelineChild(t, turn, "processing_group")
-	if processing.Status != "completed" || processing.DefaultOpen {
+	if processing.Phase != RuntimePhaseEnded || processing.TerminalOutcome != TerminalOutcomeSucceeded || processing.DefaultOpen {
 		t.Fatalf("processing group = %+v, want settled and collapsed", processing)
 	}
 	if processing.Text != "已处理 1m 5s" {
@@ -136,7 +136,7 @@ func TestUITimelineSettledTurnCollapsesProcessingGroupWithFixedDuration(t *testi
 		t.Fatalf("turn children = %+v, want no ordinary tool row", turn.Children)
 	}
 	operation := requireNestedTimelineChild(t, processing, "operation_detail")
-	if operation.Status != "failed" || operation.OutputSource != "stderr" || !strings.Contains(operation.OutputPreview, "missing argument") {
+	if operation.Phase != RuntimePhaseEnded || operation.TerminalOutcome != TerminalOutcomeFailed || operation.OutputSource != "stderr" || !strings.Contains(operation.OutputPreview, "missing argument") {
 		t.Fatalf("operation detail = %+v, want failed command stderr in detail", operation)
 	}
 	assistant := requireTimelineChild(t, turn, "assistant_message")
@@ -230,18 +230,18 @@ func TestUITimelineJobTerminalDoesNotSettleTurnBeforeAssistantFinal(t *testing.T
 		t.Fatalf("UITimeline returned error: %v", err)
 	}
 	turn := requireSingleTimelineTurn(t, timeline, turnID)
-	if turn.Status != "running" {
-		t.Fatalf("turn status = %q, want running without assistant final", turn.Status)
+	if turn.Phase != RuntimePhaseRunning {
+		t.Fatalf("turn phase = %q, want running without assistant final", turn.Phase)
 	}
 	processing := requireTimelineChild(t, turn, "processing_group")
-	if processing.Status != "running" || !processing.DefaultOpen {
+	if processing.Phase != RuntimePhaseRunning || !processing.DefaultOpen {
 		t.Fatalf("processing group = %+v, want running and default open after job terminal", processing)
 	}
 	if processing.Text != "正在处理 45s" {
 		t.Fatalf("processing text = %q, want live elapsed instead of fixed job duration", processing.Text)
 	}
 	operation := requireNestedTimelineChild(t, processing, "operation_detail")
-	if operation.Status != "completed" || !strings.Contains(operation.OutputPreview, "download complete") {
+	if operation.Phase != RuntimePhaseEnded || operation.TerminalOutcome != TerminalOutcomeSucceeded || !strings.Contains(operation.OutputPreview, "download complete") {
 		t.Fatalf("operation detail = %+v, want completed job detail under running turn", operation)
 	}
 	timelineJSON, err := json.Marshal(timeline)
@@ -335,7 +335,7 @@ func TestUITimelineApprovalRequiredProjectsUserActionNode(t *testing.T) {
 	}
 	turn := requireSingleTimelineTurn(t, timeline, "turn_approval")
 	action := requireTimelineChild(t, turn, "user_action_request")
-	if action.Status != "approval_required" || action.Tool != "shell_exec" {
+	if action.Phase != RuntimePhaseWaiting || action.WaitReason != WaitReasonApprovalRequired || action.Tool != "shell_exec" {
 		t.Fatalf("user action = %+v, want shell approval request", action)
 	}
 	if timelineChild(turn, "assistant_message") != nil {
@@ -440,7 +440,7 @@ func TestUITimelineDetailProjectionAddsSanitizedOperationDiagnostics(t *testing.
 	if err != nil {
 		t.Fatalf("UITimelineDetail operation returned error: %v", err)
 	}
-	if operationDetail.Item.Kind != "operation_detail" || operationDetail.Item.Status != "failed" || operationDetail.Item.OutputSource != "stderr" {
+	if operationDetail.Item.Kind != "operation_detail" || operationDetail.Item.Phase != RuntimePhaseEnded || operationDetail.Item.TerminalOutcome != TerminalOutcomeFailed || operationDetail.Item.OutputSource != "stderr" {
 		t.Fatalf("operation detail = %+v, want failed stderr operation", operationDetail)
 	}
 	detailJSON, err := json.Marshal(operationDetail)
@@ -492,7 +492,7 @@ func TestUITimelineDetailProjectionAddsSanitizedOperationDiagnostics(t *testing.
 	if err := json.NewDecoder(resp.Body).Decode(&httpDetail); err != nil {
 		t.Fatalf("decode timeline detail: %v", err)
 	}
-	if httpDetail.Item.Kind != "operation_detail" || httpDetail.Item.Status != "failed" {
+	if httpDetail.Item.Kind != "operation_detail" || httpDetail.Item.Phase != RuntimePhaseEnded || httpDetail.Item.TerminalOutcome != TerminalOutcomeFailed {
 		t.Fatalf("http detail = %+v, want operation detail", httpDetail)
 	}
 }
@@ -605,7 +605,7 @@ func assertStringFieldContains(t *testing.T, fields map[string]any, key string, 
 
 func requireSingleTimelineTurn(t *testing.T, timeline UITimelineResponse, turnID string) UITimelineItem {
 	t.Helper()
-	if timeline.Status != "ok" || len(timeline.Items) != 1 {
+	if timeline.Readiness != ReadinessReady || len(timeline.Items) != 1 {
 		t.Fatalf("timeline = %+v, want one turn item", timeline)
 	}
 	turn := timeline.Items[0]

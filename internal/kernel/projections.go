@@ -38,7 +38,8 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 			return ContextInspectionResponse{
 				TurnID:            turnID,
 				SessionID:         event.SessionID,
-				Status:            "snapshot_unavailable",
+				Readiness:         ReadinessNotReady,
+				ReadinessReason:   "snapshot_unavailable",
 				InputItems:        cloneProjectionInputItems(event.Data.InputItems),
 				ModelInputKinds:   cloneStringSlice(event.Data.ModelInputKinds),
 				ToolManifest:      cloneToolSpecs(nil),
@@ -51,7 +52,7 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 		return ContextInspectionResponse{
 			TurnID:           turnID,
 			SessionID:        event.SessionID,
-			Status:           "ok",
+			Readiness:        ReadinessReady,
 			InputItems:       cloneProjectionInputItems(event.Data.InputItems),
 			ModelInputKinds:  cloneStringSlice(event.Data.ModelInputKinds),
 			ToolManifest:     cloneToolSpecs(event.Data.ToolManifest),
@@ -90,7 +91,7 @@ func (k *Kernel) AuditReplay(turnID string) (AuditReplayResponse, error) {
 	return AuditReplayResponse{
 		TurnID:    turnID,
 		SessionID: sessionID,
-		Status:    "ok",
+		Readiness: ReadinessReady,
 		Items:     items,
 	}, nil
 }

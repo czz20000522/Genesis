@@ -40,8 +40,8 @@ func TestSubmitTurnPersistsAndProjectsAfterRestart(t *testing.T) {
 		t.Fatalf("len(Turns) = %d, want 1", len(projection.Turns))
 	}
 	turn := projection.Turns[0]
-	if turn.Status != "completed" {
-		t.Fatalf("turn status = %q, want completed", turn.Status)
+	if turn.Phase != RuntimePhaseEnded || turn.TerminalOutcome != TerminalOutcomeSucceeded {
+		t.Fatalf("turn state = phase %q outcome %q, want completed", turn.Phase, turn.TerminalOutcome)
 	}
 	if turn.FinalMessage.Text != "fake: hello" {
 		t.Fatalf("turn final = %q, want fake: hello", turn.FinalMessage.Text)

@@ -27,17 +27,20 @@ type TurnInterruptRequest struct {
 }
 
 type TurnInterruptionProjection struct {
-	SessionID     string    `json:"session_id"`
-	TurnID        string    `json:"turn_id"`
-	Status        string    `json:"status"`
-	Reason        string    `json:"reason,omitempty"`
-	InterruptedAt time.Time `json:"interrupted_at"`
+	SessionID       string    `json:"session_id"`
+	TurnID          string    `json:"turn_id"`
+	Phase           string    `json:"phase"`
+	TerminalOutcome string    `json:"terminal_outcome"`
+	TerminalCause   string    `json:"terminal_cause,omitempty"`
+	Reason          string    `json:"reason,omitempty"`
+	InterruptedAt   time.Time `json:"interrupted_at"`
 }
 
 type TurnPauseProjection struct {
 	SessionID           string                `json:"session_id"`
 	TurnID              string                `json:"turn_id"`
-	Status              string                `json:"status"`
+	Phase               string                `json:"phase"`
+	WaitReason          string                `json:"wait_reason"`
 	Reason              string                `json:"reason"`
 	RoundBudget         int                   `json:"round_budget"`
 	BudgetLease         BudgetLeaseProjection `json:"budget_lease"`
@@ -58,7 +61,10 @@ type FinalMessage struct {
 type TurnProjection struct {
 	TurnID           string                      `json:"turn_id"`
 	IdempotencyKey   string                      `json:"idempotency_key,omitempty"`
-	Status           string                      `json:"status"`
+	Phase            string                      `json:"phase"`
+	WaitReason       string                      `json:"wait_reason,omitempty"`
+	TerminalOutcome  string                      `json:"terminal_outcome,omitempty"`
+	TerminalCause    string                      `json:"terminal_cause,omitempty"`
 	InputItems       []InputItem                 `json:"input_items"`
 	IngressRisks     []IngressRisk               `json:"ingress_risks,omitempty"`
 	ModelInputKinds  []string                    `json:"model_input_kinds,omitempty"`

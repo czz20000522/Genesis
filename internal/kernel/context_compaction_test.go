@@ -84,7 +84,7 @@ func TestAutoCompactionProjectsSummaryPlusRecentTail(t *testing.T) {
 		if strings.Contains(item.Text, "summary of compacted earlier context") {
 			t.Fatalf("timeline item leaked compaction summary: %+v", item)
 		}
-		if item.Kind == "compaction_notice" && item.Status == "completed" && item.Text != "" {
+		if item.Kind == "compaction_notice" && item.Phase == RuntimePhaseEnded && item.TerminalOutcome == TerminalOutcomeSucceeded && item.Text != "" {
 			noticeCount++
 		}
 		return false

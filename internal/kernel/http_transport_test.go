@@ -258,7 +258,7 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testi
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
 	}
-	if len(projection.Turns) != 1 || projection.Turns[0].Status != "failed" || len(projection.Events) != 3 {
+	if len(projection.Turns) != 1 || projection.Turns[0].Phase != RuntimePhaseEnded || projection.Turns[0].TerminalOutcome != TerminalOutcomeFailed || len(projection.Events) != 3 {
 		t.Fatalf("projection = %+v, want original failed turn only", projection)
 	}
 }

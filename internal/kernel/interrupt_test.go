@@ -74,8 +74,8 @@ func TestInterruptSessionCancelsActiveProviderTurnWithoutCancellingBackgroundJob
 	if err != nil {
 		t.Fatalf("InterruptSession returned error: %v", err)
 	}
-	if interrupt.Status != "interrupt_requested" || interrupt.TurnID == "" {
-		t.Fatalf("interrupt = %+v, want interrupt_requested with active turn id", interrupt)
+	if interrupt.Phase != RuntimePhaseEnded || interrupt.TerminalOutcome != TerminalOutcomeInterrupted || interrupt.TurnID == "" {
+		t.Fatalf("interrupt = %+v, want interrupted runtime axes with active turn id", interrupt)
 	}
 
 	result := waitSubmitTurnResult(t, resultCh)
@@ -109,8 +109,8 @@ func TestInterruptSessionCancelsActiveProviderTurnWithoutCancellingBackgroundJob
 			break
 		}
 	}
-	if interruptedTurn.Status != "interrupted" {
-		t.Fatalf("interrupted turn = %+v, want interrupted status", interruptedTurn)
+	if interruptedTurn.Phase != RuntimePhaseEnded || interruptedTurn.TerminalOutcome != TerminalOutcomeInterrupted {
+		t.Fatalf("interrupted turn = %+v, want ended/interrupted axes", interruptedTurn)
 	}
 }
 
@@ -494,8 +494,8 @@ func TestHTTPInterruptSessionRequestsActiveTurnCancellation(t *testing.T) {
 	if err := json.NewDecoder(interruptResp.Body).Decode(&interrupt); err != nil {
 		t.Fatalf("decode interrupt response: %v", err)
 	}
-	if interrupt.Status != "interrupt_requested" || interrupt.TurnID == "" {
-		t.Fatalf("interrupt = %+v, want interrupt_requested", interrupt)
+	if interrupt.Phase != RuntimePhaseEnded || interrupt.TerminalOutcome != TerminalOutcomeInterrupted || interrupt.TurnID == "" {
+		t.Fatalf("interrupt = %+v, want interrupted runtime axes", interrupt)
 	}
 
 	turnResult := waitHTTPTurnResult(t, turnResultCh)

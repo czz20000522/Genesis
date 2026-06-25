@@ -111,7 +111,7 @@ func TestKernelPressureLongRunningClosedLoop(t *testing.T) {
 		if strings.Contains(item.Text, "pressure compacted summary") {
 			t.Fatalf("timeline leaked compaction summary: %+v", item)
 		}
-		if item.Kind == "compaction_notice" && item.Status == "completed" && item.Text != "" {
+		if item.Kind == "compaction_notice" && item.Phase == RuntimePhaseEnded && item.TerminalOutcome == TerminalOutcomeSucceeded && item.Text != "" {
 			compactionNotice = true
 		}
 		return false
@@ -152,12 +152,12 @@ func assertKernelPressureSession(t *testing.T, session SessionProjection, wantTu
 	if len(session.Turns) != wantTurns {
 		t.Fatalf("turns = %d, want %d", len(session.Turns), wantTurns)
 	}
-	statuses := map[string]int{}
+	terminalOutcomes := map[string]int{}
 	for _, turn := range session.Turns {
-		statuses[turn.Status]++
+		terminalOutcomes[turn.TerminalOutcome]++
 	}
-	if statuses["failed"] != wantFailedTurns || statuses["completed"] != wantTurns-wantFailedTurns {
-		t.Fatalf("turn statuses = %+v, want completed=%d failed=%d", statuses, wantTurns-wantFailedTurns, wantFailedTurns)
+	if terminalOutcomes[TerminalOutcomeFailed] != wantFailedTurns || terminalOutcomes[TerminalOutcomeSucceeded] != wantTurns-wantFailedTurns {
+		t.Fatalf("turn terminal outcomes = %+v, want succeeded=%d failed=%d", terminalOutcomes, wantTurns-wantFailedTurns, wantFailedTurns)
 	}
 	operationStatuses := map[string]int{}
 	for _, operation := range session.Operations {

@@ -3,6 +3,7 @@ package kernel
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 type sessionProjectionBuilder struct {
@@ -137,7 +138,7 @@ func (b *sessionProjectionBuilder) applyTurnEvent(event StoredEvent) {
 		b.projection.Turns = append(b.projection.Turns, TurnProjection{
 			TurnID:           event.TurnID,
 			IdempotencyKey:   event.Data.IdempotencyKey,
-			Status:           "running",
+			Phase:            RuntimePhaseRunning,
 			InputItems:       event.Data.InputItems,
 			IngressRisks:     event.Data.IngressRisks,
 			ModelInputKinds:  event.Data.ModelInputKinds,
@@ -149,7 +150,9 @@ func (b *sessionProjectionBuilder) applyTurnEvent(event StoredEvent) {
 		if !ok {
 			return
 		}
-		b.projection.Turns[idx].Status = "completed"
+		b.projection.Turns[idx].Phase = RuntimePhaseEnded
+		b.projection.Turns[idx].TerminalOutcome = TerminalOutcomeSucceeded
+		b.projection.Turns[idx].TerminalCause = ""
 		if event.Data.Final != nil {
 			b.projection.Turns[idx].FinalMessage = *event.Data.Final
 		}
@@ -159,9 +162,13 @@ func (b *sessionProjectionBuilder) applyTurnEvent(event StoredEvent) {
 		if !ok {
 			return
 		}
-		b.projection.Turns[idx].Status = "paused"
+		b.projection.Turns[idx].Phase = RuntimePhaseWaiting
+		b.projection.Turns[idx].WaitReason = WaitReasonBudgetPause
 		if event.Data.TurnPause != nil {
 			b.projection.Turns[idx].Pause = event.Data.TurnPause
+			if strings.TrimSpace(event.Data.TurnPause.WaitReason) != "" {
+				b.projection.Turns[idx].WaitReason = event.Data.TurnPause.WaitReason
+			}
 		}
 		b.projection.Turns[idx].CompletedAt = event.CreatedAt
 	case "turn.failed":
@@ -169,9 +176,14 @@ func (b *sessionProjectionBuilder) applyTurnEvent(event StoredEvent) {
 		if !ok {
 			return
 		}
-		b.projection.Turns[idx].Status = "failed"
+		b.projection.Turns[idx].Phase = RuntimePhaseEnded
+		b.projection.Turns[idx].TerminalOutcome = TerminalOutcomeFailed
 		if event.Data.TurnError != nil {
 			b.projection.Turns[idx].Error = event.Data.TurnError
+			b.projection.Turns[idx].TerminalCause = event.Data.TurnError.Code
+		}
+		if b.projection.Turns[idx].TerminalCause == "" {
+			b.projection.Turns[idx].TerminalCause = TerminalCauseRuntimeError
 		}
 		b.projection.Turns[idx].CompletedAt = event.CreatedAt
 	case "assistant.interrupted":
@@ -179,7 +191,9 @@ func (b *sessionProjectionBuilder) applyTurnEvent(event StoredEvent) {
 		if !ok {
 			return
 		}
-		b.projection.Turns[idx].Status = "interrupted"
+		b.projection.Turns[idx].Phase = RuntimePhaseEnded
+		b.projection.Turns[idx].TerminalOutcome = TerminalOutcomeInterrupted
+		b.projection.Turns[idx].TerminalCause = TerminalCauseUserCancelled
 		if event.Data.TurnInterruption != nil {
 			b.projection.Turns[idx].Interruption = event.Data.TurnInterruption
 			b.projection.Turns[idx].Error = &TurnError{Code: "turn_interrupted", Message: "turn was interrupted"}

@@ -623,7 +623,7 @@ func TestLiveOpenAICompatibleProviderThroughKernel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
 	}
-	if len(projection.Turns) != 1 || projection.Turns[0].Status != "completed" {
+	if len(projection.Turns) != 1 || projection.Turns[0].Phase != RuntimePhaseEnded || projection.Turns[0].TerminalOutcome != TerminalOutcomeSucceeded {
 		t.Fatalf("projection turns = %+v, want one completed turn", projection.Turns)
 	}
 }
@@ -679,7 +679,7 @@ func TestLiveOpenAICompatibleProviderToolLoopThroughKernel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
 	}
-	if len(projection.Turns) != 1 || projection.Turns[0].Status != "completed" {
+	if len(projection.Turns) != 1 || projection.Turns[0].Phase != RuntimePhaseEnded || projection.Turns[0].TerminalOutcome != TerminalOutcomeSucceeded {
 		t.Fatalf("projection turns = %+v, want one completed turn", projection.Turns)
 	}
 	if len(projection.Operations) != 1 {
@@ -960,8 +960,8 @@ func TestHTTPReportsBlockedProvider(t *testing.T) {
 	if len(projection.Turns) != 1 {
 		t.Fatalf("len(Turns) = %d, want 1", len(projection.Turns))
 	}
-	if projection.Turns[0].Status != "failed" {
-		t.Fatalf("turn status = %q, want failed", projection.Turns[0].Status)
+	if projection.Turns[0].Phase != RuntimePhaseEnded || projection.Turns[0].TerminalOutcome != TerminalOutcomeFailed {
+		t.Fatalf("turn axes = %+v, want ended/failed", projection.Turns[0])
 	}
 	if projection.Turns[0].Error == nil || projection.Turns[0].Error.Code != "provider_unavailable" {
 		t.Fatalf("turn error = %+v, want provider_unavailable", projection.Turns[0].Error)

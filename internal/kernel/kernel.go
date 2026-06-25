@@ -596,7 +596,8 @@ func (k *Kernel) appendToolLoopBudgetPause(sessionID string, turnID string, prov
 	pause := TurnPauseProjection{
 		SessionID:           strings.TrimSpace(sessionID),
 		TurnID:              strings.TrimSpace(turnID),
-		Status:              "paused",
+		Phase:               RuntimePhaseWaiting,
+		WaitReason:          WaitReasonBudgetPause,
 		Reason:              "tool_loop_round_budget_exhausted",
 		RoundBudget:         lease.modelToolRoundBudget,
 		BudgetLease:         lease.projection(),

@@ -3,10 +3,11 @@ package kernel
 import "time"
 
 type AuditReplayResponse struct {
-	TurnID    string            `json:"turn_id"`
-	SessionID string            `json:"session_id,omitempty"`
-	Status    string            `json:"status"`
-	Items     []AuditReplayItem `json:"items"`
+	TurnID          string            `json:"turn_id"`
+	SessionID       string            `json:"session_id,omitempty"`
+	Readiness       string            `json:"readiness"`
+	ReadinessReason string            `json:"readiness_reason,omitempty"`
+	Items           []AuditReplayItem `json:"items"`
 }
 
 type AuditReplayItem struct {
@@ -33,23 +34,28 @@ type AuditReplayItem struct {
 }
 
 type UITimelineResponse struct {
-	SessionID string           `json:"session_id"`
-	Status    string           `json:"status"`
-	Items     []UITimelineItem `json:"items"`
+	SessionID       string           `json:"session_id"`
+	Readiness       string           `json:"readiness"`
+	ReadinessReason string           `json:"readiness_reason,omitempty"`
+	Items           []UITimelineItem `json:"items"`
 }
 
 type UITimelineDetailResponse struct {
-	SessionID string         `json:"session_id"`
-	Status    string         `json:"status"`
-	DetailRef string         `json:"detail_ref"`
-	Item      UITimelineItem `json:"item"`
+	SessionID       string         `json:"session_id"`
+	Readiness       string         `json:"readiness"`
+	ReadinessReason string         `json:"readiness_reason,omitempty"`
+	DetailRef       string         `json:"detail_ref"`
+	Item            UITimelineItem `json:"item"`
 }
 
 type UITimelineItem struct {
 	ItemID              string           `json:"item_id"`
 	TurnID              string           `json:"turn_id"`
 	Kind                string           `json:"kind"`
-	Status              string           `json:"status,omitempty"`
+	Phase               string           `json:"phase,omitempty"`
+	WaitReason          string           `json:"wait_reason,omitempty"`
+	TerminalOutcome     string           `json:"terminal_outcome,omitempty"`
+	TerminalCause       string           `json:"terminal_cause,omitempty"`
 	Text                string           `json:"text,omitempty"`
 	Tool                string           `json:"tool,omitempty"`
 	CommandPreview      string           `json:"command_preview,omitempty"`
@@ -80,7 +86,8 @@ type UITimelineItem struct {
 type ContextInspectionResponse struct {
 	TurnID            string                       `json:"turn_id"`
 	SessionID         string                       `json:"session_id,omitempty"`
-	Status            string                       `json:"status"`
+	Readiness         string                       `json:"readiness"`
+	ReadinessReason   string                       `json:"readiness_reason,omitempty"`
 	InputItems        []InputItem                  `json:"input_items"`
 	ModelInputKinds   []string                     `json:"model_input_kinds"`
 	ToolManifest      []ToolSpec                   `json:"tool_manifest"`

@@ -45,7 +45,7 @@ func TestSubmitTurnPausesToolLoopBudgetWithoutExecutingOverBudgetBatch(t *testin
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
 	}
-	if len(projection.Turns) != 1 || projection.Turns[0].Status != "paused" {
+	if len(projection.Turns) != 1 || projection.Turns[0].Phase != RuntimePhaseWaiting || projection.Turns[0].WaitReason != WaitReasonBudgetPause {
 		t.Fatalf("turns = %+v, want paused turn", projection.Turns)
 	}
 	eventTypes := sessionEventTypes(projection.Events)

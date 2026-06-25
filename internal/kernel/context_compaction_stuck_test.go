@@ -79,7 +79,7 @@ func TestAutoCompactionDefersWhenSuccessfulCompactionsStayAboveLimit(t *testing.
 		t.Fatalf("UITimeline returned error: %v", err)
 	}
 	if !timelineAnyItem(timeline.Items, func(item UITimelineItem) bool {
-		return item.Kind == "compaction_notice" && item.Status == contextCompactionStatusDeferred
+		return item.Kind == "compaction_notice" && item.Phase == RuntimePhaseWaiting && item.WaitReason == WaitReasonBudgetPause
 	}) {
 		t.Fatalf("timeline items = %+v, want deferred compaction notice", timeline.Items)
 	}

@@ -84,7 +84,7 @@ func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UIT
 	}
 	return UITimelineResponse{
 		SessionID: session.SessionID,
-		Status:    "ok",
+		Readiness: ReadinessReady,
 		Items:     items,
 	}, nil
 }
@@ -104,7 +104,7 @@ func (k *Kernel) UITimelineDetail(sessionID string, detailRef string) (UITimelin
 	}
 	return UITimelineDetailResponse{
 		SessionID: timeline.SessionID,
-		Status:    "ok",
+		Readiness: ReadinessReady,
 		DetailRef: detailRef,
 		Item:      item,
 	}, nil
@@ -126,7 +126,7 @@ type timelineTurnBuilder struct {
 	item                  UITimelineItem
 	startedAt             time.Time
 	terminalAt            time.Time
-	terminalStatus        string
+	terminalState         runtimeStateAxes
 	messageOrdinal        int
 	processingIndex       int
 	processingInitialized bool
@@ -158,7 +158,7 @@ func ensureTimelineTurn(turns map[string]*timelineTurnBuilder, order *[]string, 
 			ItemID:    itemID,
 			TurnID:    turnID,
 			Kind:      "turn",
-			Status:    "running",
+			Phase:     RuntimePhaseRunning,
 			CreatedAt: startedAt,
 		},
 		startedAt:            startedAt,
@@ -196,7 +196,7 @@ func (b *timelineTurnBuilder) processingGroup() *UITimelineItem {
 		ItemID:          timelineItemID(b.item.ItemID, "processing", 0),
 		TurnID:          b.item.TurnID,
 		Kind:            "processing_group",
-		Status:          "running",
+		Phase:           RuntimePhaseRunning,
 		DetailRef:       timelineItemID(b.item.ItemID, "processing_detail", 0),
 		DetailAvailable: true,
 		DefaultOpen:     true,
@@ -214,7 +214,7 @@ func (b *timelineTurnBuilder) addToolCall(callEventID string, tool string, argum
 		ItemID:          timelineItemID(b.item.ItemID, "tool_group", ordinal),
 		TurnID:          b.item.TurnID,
 		Kind:            "tool_group",
-		Status:          "running",
+		Phase:           RuntimePhaseRunning,
 		Tool:            tool,
 		DetailRef:       timelineItemID(b.item.ItemID, "tool_detail", ordinal),
 		DetailAvailable: true,
@@ -223,7 +223,7 @@ func (b *timelineTurnBuilder) addToolCall(callEventID string, tool string, argum
 			ItemID:          timelineItemID(b.item.ItemID, "operation_detail", ordinal),
 			TurnID:          b.item.TurnID,
 			Kind:            "operation_detail",
-			Status:          "running",
+			Phase:           RuntimePhaseRunning,
 			Tool:            tool,
 			DetailAvailable: true,
 			CreatedAt:       createdAt,
@@ -241,7 +241,7 @@ func (b *timelineTurnBuilder) addToolCall(callEventID string, tool string, argum
 func (b *timelineTurnBuilder) applyToolResult(result ToolResultProjection, createdAt time.Time) {
 	group := b.toolGroupForCall(result.ForEventID, result.Tool, createdAt)
 	preview := toolResultPreview(result.Content)
-	group.Status = result.Status
+	applyTimelineItemState(group, runtimeAxesFromOwnerOutcome(result.Status))
 	group.Tool = result.Tool
 	group.OutputPreview = preview.Text
 	group.OutputSource = preview.Source
@@ -249,7 +249,7 @@ func (b *timelineTurnBuilder) applyToolResult(result ToolResultProjection, creat
 	group.FullOutputAvailable = preview.FullAvailable
 	group.UpdatedAt = createdAt
 	detail := b.ensureOperationDetail(group, createdAt)
-	detail.Status = result.Status
+	applyTimelineItemState(detail, runtimeAxesFromOwnerOutcome(result.Status))
 	detail.Tool = result.Tool
 	detail.OutputPreview = preview.Text
 	detail.OutputSource = preview.Source
@@ -280,7 +280,7 @@ func (b *timelineTurnBuilder) toolGroupForCall(callEventID string, tool string, 
 
 func (b *timelineTurnBuilder) applyJob(eventType string, job JobProjection, createdAt time.Time) {
 	group := b.toolGroupForJob(job, createdAt)
-	group.Status = job.Status
+	applyTimelineItemState(group, runtimeAxesFromOwnerOutcome(job.Status))
 	group.Tool = job.Tool
 	group.OutputPreview = jobOutputPreview(job)
 	group.OutputSource = "job"
@@ -288,7 +288,7 @@ func (b *timelineTurnBuilder) applyJob(eventType string, job JobProjection, crea
 	group.FullOutputAvailable = strings.TrimSpace(job.Stdout) != "" || strings.TrimSpace(job.Stderr) != "" || strings.TrimSpace(job.Receipt) != "" || strings.TrimSpace(job.FailureReason) != ""
 	group.UpdatedAt = createdAt
 	detail := b.ensureOperationDetail(group, createdAt)
-	detail.Status = job.Status
+	applyTimelineItemState(detail, runtimeAxesFromOwnerOutcome(job.Status))
 	detail.Tool = job.Tool
 	detail.OutputPreview = group.OutputPreview
 	detail.OutputSource = "job"
@@ -347,7 +347,10 @@ func (b *timelineTurnBuilder) ensureOperationDetail(group *UITimelineItem, creat
 		ItemID:          timelineItemID(group.ItemID, "operation_detail", len(group.Children)),
 		TurnID:          b.item.TurnID,
 		Kind:            "operation_detail",
-		Status:          group.Status,
+		Phase:           group.Phase,
+		WaitReason:      group.WaitReason,
+		TerminalOutcome: group.TerminalOutcome,
+		TerminalCause:   group.TerminalCause,
 		Tool:            group.Tool,
 		DetailAvailable: true,
 		CreatedAt:       createdAt,
@@ -357,20 +360,21 @@ func (b *timelineTurnBuilder) ensureOperationDetail(group *UITimelineItem, creat
 
 func (b *timelineTurnBuilder) appendUserActionRequest(status string, tool string, createdAt time.Time) {
 	for _, child := range b.item.Children {
-		if child.Kind == "user_action_request" && child.Status == status && child.Tool == tool {
+		if child.Kind == "user_action_request" && child.WaitReason == WaitReasonApprovalRequired && child.Tool == tool {
 			return
 		}
 	}
-	b.item.Children = append(b.item.Children, UITimelineItem{
+	item := UITimelineItem{
 		ItemID:          timelineItemID(b.item.ItemID, "user_action", b.messageOrdinal),
 		TurnID:          b.item.TurnID,
 		Kind:            "user_action_request",
-		Status:          status,
 		Tool:            tool,
 		Text:            "需要用户批准",
 		DetailAvailable: true,
 		CreatedAt:       createdAt,
-	})
+	}
+	applyTimelineItemState(&item, runtimeAxesFromOwnerOutcome(status))
+	b.item.Children = append(b.item.Children, item)
 	b.messageOrdinal++
 }
 
@@ -382,20 +386,21 @@ func (b *timelineTurnBuilder) appendCompactionNotice(status string, text string,
 
 func (b *timelineTurnBuilder) appendProcessingNotice(kind string, status string, text string, createdAt time.Time) {
 	processing := b.processingGroup()
-	processing.Children = append(processing.Children, UITimelineItem{
+	item := UITimelineItem{
 		ItemID:    timelineItemID(b.item.ItemID, kind, len(processing.Children)),
 		TurnID:    b.item.TurnID,
 		Kind:      kind,
-		Status:    status,
 		Text:      text,
 		CreatedAt: createdAt,
-	})
+	}
+	applyTimelineItemState(&item, runtimeAxesFromOwnerOutcome(status))
+	processing.Children = append(processing.Children, item)
 }
 
 func (b *timelineTurnBuilder) markTerminal(status string, at time.Time) {
 	if b.terminalAt.IsZero() || at.After(b.terminalAt) {
 		b.terminalAt = at
-		b.terminalStatus = status
+		b.terminalState = runtimeAxesFromOwnerOutcome(status)
 	}
 }
 
@@ -403,35 +408,45 @@ func (b *timelineTurnBuilder) finalize(now time.Time) UITimelineItem {
 	processing := b.processingGroup()
 	end := now
 	settled := !b.terminalAt.IsZero()
-	status := "running"
+	state := runtimeStateAxes{Phase: RuntimePhaseRunning}
 	prefix := "正在处理 "
 	if settled {
 		end = b.terminalAt
-		status = b.terminalStatus
-		if status == "" {
-			status = "completed"
+		state = b.terminalState
+		if state.Phase == "" {
+			state = runtimeAxesFromOwnerOutcome("completed")
 		}
 		prefix = "已处理 "
 		processing.DefaultOpen = false
 	} else if b.pendingAction {
-		status = "waiting_for_user"
+		state = runtimeAxesFromOwnerOutcome("waiting_for_user")
 		processing.DefaultOpen = true
 	}
 	if end.Before(b.startedAt) {
 		end = b.startedAt
 	}
 	duration := end.Sub(b.startedAt)
-	processing.Status = status
+	applyTimelineItemState(processing, state)
 	processing.Text = prefix + formatTimelineDuration(duration)
 	processing.DurationMs = duration.Milliseconds()
 	if processing.UpdatedAt.IsZero() || end.After(processing.UpdatedAt) {
 		processing.UpdatedAt = end
 	}
-	b.item.Status = status
+	applyTimelineItemState(&b.item, state)
 	if b.item.UpdatedAt.IsZero() || end.After(b.item.UpdatedAt) {
 		b.item.UpdatedAt = end
 	}
 	return normalizeUITimelineItemArrays(b.item)
+}
+
+func applyTimelineItemState(item *UITimelineItem, state runtimeStateAxes) {
+	if item == nil {
+		return
+	}
+	item.Phase = state.Phase
+	item.WaitReason = state.WaitReason
+	item.TerminalOutcome = state.TerminalOutcome
+	item.TerminalCause = state.TerminalCause
 }
 
 func normalizeUITimelineItemArrays(item UITimelineItem) UITimelineItem {
