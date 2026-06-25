@@ -117,3 +117,9 @@ issues remain in `docs/operations/kernel-issues.md`.
 - `connector-delivery-state-machine-requirement.md`: the production delivery
   state machine for connector outbox retry, leases, dead-letter,
   partial-success recovery, and receipts.
+- `code-intelligence-runtime-requirement.md`: the production boundary for
+  user-space code intelligence adapters, including CodeGraph cache readiness,
+  query shaping, result evidence, and kernel non-ownership.
+- `code-intelligence-runtime-design.md`: the owner split and data flow for
+  `User-space Code Intelligence Runtime -> CodeGraph Adapter -> codegraph
+  CLI/MCP`.

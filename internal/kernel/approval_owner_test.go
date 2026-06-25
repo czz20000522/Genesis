@@ -174,6 +174,103 @@ func TestApprovalApproveExecutesFrozenEffectAfterApprovedFact(t *testing.T) {
 	}
 }
 
+func TestApprovalApprovedCrashWindowReplayExecutesFrozenEffectOnce(t *testing.T) {
+	workspace := testTempDir(t)
+	target := filepath.Join(workspace, "approval-approved-crash-window-runs.txt")
+	k, _ := newApprovalRequiredTurnKernel(t, workspace, target)
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "approval-approved-crash-window",
+		InputItems: []InputItem{{Type: "text", Text: "write after approval"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	approval := requireSinglePendingApproval(t, k, "approval-approved-crash-window")
+	decision := ApprovalDecisionRequest{
+		ApprovalID:          approval.ApprovalID,
+		Decision:            ApprovalDecisionApproved,
+		DecisionAuthority:   "operator:test",
+		DecisionReason:      "approve before crash window replay",
+		DecisionEvidenceRef: "approval:approved-crash-window",
+	}
+	approved := decideApprovalProjection(approval, decision, ApprovalStatusApproved, "", k.clock())
+	if err := k.appendApprovalEvent("approval.approved", approved); err != nil {
+		t.Fatalf("append approval.approved returned error: %v", err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("seeded approval.approved unexpectedly created %q; stat err=%v", target, err)
+	}
+
+	decided, err := k.DecideApproval(context.Background(), decision)
+	if err != nil {
+		t.Fatalf("DecideApproval replay returned error: %v", err)
+	}
+	if decided.Status != ApprovalStatusApproved {
+		t.Fatalf("replayed approval status = %q, want approved", decided.Status)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("crash-window replay did not create %q: %v", target, err)
+	}
+	if _, err := k.DecideApproval(context.Background(), decision); err != nil {
+		t.Fatalf("DecideApproval second replay returned error: %v", err)
+	}
+	projection, err := k.Session("approval-approved-crash-window")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	completed := 0
+	for _, operation := range projection.Operations {
+		if operation.Status == "completed" {
+			completed++
+		}
+	}
+	if completed != 1 {
+		t.Fatalf("completed operations = %d in %+v, want exactly one recovered approved effect", completed, projection.Operations)
+	}
+}
+
+func TestApprovalApprovedCrashWindowReplayFailsClosedOnPolicyMismatch(t *testing.T) {
+	workspace := testTempDir(t)
+	target := filepath.Join(workspace, "approval-approved-crash-window-policy-mismatch.txt")
+	k, _ := newApprovalRequiredTurnKernel(t, workspace, target)
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "approval-approved-crash-window-policy-mismatch",
+		InputItems: []InputItem{{Type: "text", Text: "write after approval"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	approval := requireSinglePendingApproval(t, k, "approval-approved-crash-window-policy-mismatch")
+	decision := ApprovalDecisionRequest{
+		ApprovalID:          approval.ApprovalID,
+		Decision:            ApprovalDecisionApproved,
+		DecisionAuthority:   "operator:test",
+		DecisionReason:      "approve before policy drift",
+		DecisionEvidenceRef: "approval:approved-crash-window-policy-mismatch",
+	}
+	approved := decideApprovalProjection(approval, decision, ApprovalStatusApproved, "", k.clock())
+	if err := k.appendApprovalEvent("approval.approved", approved); err != nil {
+		t.Fatalf("append approval.approved returned error: %v", err)
+	}
+	k.toolPolicy = normalizedToolPolicy(ToolPolicy{
+		PermissionMode: PermissionModeDefault,
+		WorkspaceRoot:  workspace,
+		ApprovalPolicy: ApprovalPolicyOnRequest,
+	})
+
+	if _, err := k.DecideApproval(context.Background(), decision); err != nil {
+		t.Fatalf("DecideApproval replay returned error: %v", err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("policy-mismatched replay created %q; stat err=%v", target, err)
+	}
+	projection, err := k.Session("approval-approved-crash-window-policy-mismatch")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if lastOperationBlockedReason(projection.Operations) != "policy_snapshot_mismatch" {
+		t.Fatalf("operations = %+v, want policy_snapshot_mismatch block", projection.Operations)
+	}
+}
+
 func TestApprovalDenyRecordsTerminalBlockedOutcomeWithoutEffect(t *testing.T) {
 	workspace := testTempDir(t)
 	target := filepath.Join(workspace, "approval-denied-should-not-run.txt")

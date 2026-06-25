@@ -1,6 +1,7 @@
 .genesis/
 .genesis-live/
 .test-tmp/
+.codegraph/
 .idea/
 .vscode/
 bin/
