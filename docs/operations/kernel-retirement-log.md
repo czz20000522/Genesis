@@ -14,6 +14,14 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-TEST-SURFACE-OWNER-SPLIT-20260625 - P3 - Kernel test owner surface
+
+- Status: ready_for_acceptance.
+- Conclusion: `internal/kernel/kernel_test.go` was removed as a behavior-test warehouse; its 152 tests now live in owner/topic files for turn lifecycle, HTTP transport, HTTP shell, shell execution, work registry, memory review/context, provider gateway, tool loop, job control, projection read models, compaction, and content fidelity, while helper-only code moved to `kernel_test_helpers_test.go` and cross-owner pressure scenarios remain in dedicated pressure files.
+- Fix commit: current Lore commit.
+- Verification: `go test ./internal/kernel -count=1`.
+- Reference alignment: Aligned with Codex and Reasonix topic-oriented test suites while rejecting line-count caps as a governance proxy.
+
 ### KERNEL-PROJECTION-ARRAY-SHAPE-CONTRACT-20260625 - P3 - Public projection array shape
 
 - Status: ready_for_acceptance.
