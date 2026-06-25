@@ -18,6 +18,8 @@ const (
 	contextCompactionStatusCompleted = "completed"
 	contextCompactionStatusFailed    = "failed"
 	contextCompactionStatusDeferred  = "deferred"
+
+	contextCompactionDeferredReasonStuckWindow = "auto_compaction_stuck_window"
 )
 
 const contextCompactionPrompt = `You are compacting the earlier part of an assistant conversation to save context.
@@ -110,6 +112,10 @@ func (k *Kernel) runContextCompaction(ctx context.Context, command ContextCompac
 		sourceUsage = &TokenUsage{InputTokens: command.SourceInputTokens}
 	}
 	if deferred, projection := contextCompactionBackoff(events, sessionID, trigger, command.SourceInputTokens, sourceUsage, cacheStability, k.contextPolicy); deferred {
+		_ = k.appendContextCompactionEvent(sessionID, triggeringTurnID, projection)
+		return
+	}
+	if deferred, projection := contextCompactionStuckGuard(events, sessionID, trigger, triggeringTurnID, command.SourceInputTokens, sourceUsage, cacheStability, k.contextPolicy); deferred {
 		_ = k.appendContextCompactionEvent(sessionID, triggeringTurnID, projection)
 		return
 	}
@@ -269,6 +275,90 @@ func contextCompactionBackoff(events []StoredEvent, sessionID string, trigger st
 		projection.PreviousFailureReason = contextCompactionStatusFailed
 	}
 	return true, projection
+}
+
+func contextCompactionStuckGuard(events []StoredEvent, sessionID string, trigger string, triggeringTurnID string, sourceInputTokens int, sourceUsage *TokenUsage, cacheStability *ContextCacheStabilityProjection, policy ContextPolicy) (bool, ContextCompactionProjection) {
+	if trigger != contextCompactionTriggerAuto {
+		return false, ContextCompactionProjection{}
+	}
+	limit := policy.autoCompactLimit()
+	if limit <= 0 || sourceInputTokens < limit {
+		return false, ContextCompactionProjection{}
+	}
+	turns := sameSessionCompletedConversationTurns(events, sessionID, "")
+	turnIndex := completedTurnIndexByID(turns)
+	currentIndex, ok := turnIndex[strings.TrimSpace(triggeringTurnID)]
+	if !ok {
+		return false, ContextCompactionProjection{}
+	}
+	count := consecutiveCompletedAutoCompactionsBefore(events, sessionID, currentIndex, limit, turnIndex)
+	if count < 2 && !previousTurnDeferredAutoCompactionStuck(events, sessionID, currentIndex, turnIndex) {
+		return false, ContextCompactionProjection{}
+	}
+	if count < 2 {
+		count = 2
+	}
+	return true, ContextCompactionProjection{
+		Trigger:                         trigger,
+		Status:                          contextCompactionStatusDeferred,
+		DeferredReason:                  contextCompactionDeferredReasonStuckWindow,
+		SourceInputTokens:               sourceInputTokens,
+		SourceUsage:                     cloneTokenUsage(sourceUsage),
+		CacheStability:                  cacheStability,
+		ConsecutiveCompletedCompactions: count,
+	}
+}
+
+func completedTurnIndexByID(turns []conversationHistoryTurn) map[string]int {
+	index := make(map[string]int, len(turns))
+	for i, turn := range turns {
+		if turn.TurnID != "" {
+			index[turn.TurnID] = i
+		}
+	}
+	return index
+}
+
+func consecutiveCompletedAutoCompactionsBefore(events []StoredEvent, sessionID string, currentTurnIndex int, autoLimit int, turnIndex map[string]int) int {
+	nextExpected := currentTurnIndex - 1
+	count := 0
+	for i := len(events) - 1; i >= 0; i-- {
+		event := events[i]
+		if event.SessionID != sessionID || event.Type != "context.compaction.completed" || event.Data.ContextCompaction == nil {
+			continue
+		}
+		projection := event.Data.ContextCompaction
+		if projection.Trigger != contextCompactionTriggerAuto || projection.SourceInputTokens < autoLimit {
+			continue
+		}
+		index, ok := turnIndex[strings.TrimSpace(event.TurnID)]
+		if !ok || index != nextExpected {
+			return count
+		}
+		count++
+		nextExpected--
+	}
+	return count
+}
+
+func previousTurnDeferredAutoCompactionStuck(events []StoredEvent, sessionID string, currentTurnIndex int, turnIndex map[string]int) bool {
+	previousIndex := currentTurnIndex - 1
+	if previousIndex < 0 {
+		return false
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		event := events[i]
+		if event.SessionID != sessionID || event.Type != "context.compaction.deferred" || event.Data.ContextCompaction == nil {
+			continue
+		}
+		if event.Data.ContextCompaction.Trigger != contextCompactionTriggerAuto ||
+			event.Data.ContextCompaction.DeferredReason != contextCompactionDeferredReasonStuckWindow {
+			continue
+		}
+		index, ok := turnIndex[strings.TrimSpace(event.TurnID)]
+		return ok && index == previousIndex
+	}
+	return false
 }
 
 type contextCompactionFailureEvent struct {

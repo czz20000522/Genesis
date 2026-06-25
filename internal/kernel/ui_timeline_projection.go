@@ -64,6 +64,8 @@ func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UIT
 			turn.appendCompactionNotice("completed", "上下文已压缩", event.CreatedAt)
 		case "context.compaction.failed":
 			turn.appendCompactionNotice("failed", "上下文压缩失败，将在后续消息重试", event.CreatedAt)
+		case "context.compaction.deferred":
+			turn.appendCompactionNotice("deferred", "上下文压缩已暂停", event.CreatedAt)
 		case "turn.failed":
 			if event.Data.TurnError == nil {
 				continue
