@@ -315,6 +315,90 @@ func TestToolLoopRepeatSuccessGuardResetsAfterReadProgress(t *testing.T) {
 	}
 }
 
+func TestToolLoopRepeatSuccessGuardResetsAfterDifferentWriteProgress(t *testing.T) {
+	dir := testTempDir(t)
+	workspace := filepath.Join(dir, "workspace")
+	commandA := writeFileCommand("repeat-after-different-write-a.txt", "A")
+	commandB := writeFileCommand("repeat-after-different-write-b.txt", "B")
+	provider := &scriptedToolProvider{
+		steps: []scriptedToolStep{
+			{name: "shell_exec", args: mustMarshalToolArgs(t, map[string]interface{}{"cwd": workspace, "command": commandA})},
+			{name: "shell_exec", args: mustMarshalToolArgs(t, map[string]interface{}{"cwd": workspace, "command": commandA})},
+			{name: "shell_exec", args: mustMarshalToolArgs(t, map[string]interface{}{"cwd": workspace, "command": commandB})},
+			{name: "shell_exec", args: mustMarshalToolArgs(t, map[string]interface{}{"cwd": workspace, "command": commandA})},
+		},
+		final: "different write reset guard",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "tool-loop-write-different-reset",
+		InputItems: []InputItem{{Type: "text", Text: "make different write progress between repeated writes"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "different write reset guard" {
+		t.Fatalf("final = %q, want different write reset final", resp.Final.Text)
+	}
+	projection, err := k.Session("tool-loop-write-different-reset")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 4 {
+		t.Fatalf("operations = %+v, want fourth write allowed after different write progress", projection.Operations)
+	}
+	if requestContainsLoopGuard(provider.Requests()[len(provider.Requests())-1]) {
+		t.Fatalf("provider requests = %+v, want no loop guard after different write progress", provider.Requests())
+	}
+}
+
+func TestToolLoopGuardStateResetsRepeatedWriteAfterDifferentWriteProgress(t *testing.T) {
+	guard := newToolLoopGuard()
+	callA := preparedModelToolCall{
+		eventID:                "evt_a",
+		providerCallID:         "call_a",
+		name:                   "shell_exec",
+		repeatSuccessSignature: "shell_exec\x00workspace\x00write a",
+	}
+	callB := preparedModelToolCall{
+		eventID:                "evt_b",
+		providerCallID:         "call_b",
+		name:                   "shell_exec",
+		repeatSuccessSignature: "shell_exec\x00workspace\x00write b",
+	}
+	success := ModelToolResult{Name: "shell_exec", Content: `{"status":"completed","executed":true}`}
+
+	for i := 0; i < toolLoopRepeatedSuccessThreshold; i++ {
+		if _, blocked, err := guard.beforeExecute(callA); err != nil || blocked {
+			t.Fatalf("call A before progress blocked on iteration %d: blocked=%v err=%v", i, blocked, err)
+		}
+		if _, err := guard.afterExecute(callA, success); err != nil {
+			t.Fatalf("record call A success %d: %v", i, err)
+		}
+	}
+	if _, blocked, err := guard.beforeExecute(callB); err != nil || blocked {
+		t.Fatalf("different write progress blocked: blocked=%v err=%v", blocked, err)
+	}
+	if _, err := guard.afterExecute(callB, success); err != nil {
+		t.Fatalf("record call B success: %v", err)
+	}
+	if result, blocked, err := guard.beforeExecute(callA); err != nil || blocked {
+		t.Fatalf("call A after different write progress = blocked %v result %+v err %v, want allowed", blocked, result, err)
+	}
+}
+
 type repeatingToolProvider struct {
 	mu       sync.Mutex
 	toolName string

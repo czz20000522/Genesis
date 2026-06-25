@@ -114,7 +114,19 @@ func (g *toolLoopGuard) observeSuccess(call preparedModelToolCall, result ModelT
 		g.repeatedSuccessCount = map[string]int{}
 		return
 	}
+	if !toolLoopSuccessCountsOnlyTrackSignature(g.repeatedSuccessCount, signature) {
+		g.repeatedSuccessCount = map[string]int{}
+	}
 	g.repeatedSuccessCount[signature]++
+}
+
+func toolLoopSuccessCountsOnlyTrackSignature(counts map[string]int, signature string) bool {
+	for tracked := range counts {
+		if tracked != signature {
+			return false
+		}
+	}
+	return true
 }
 
 func shellExecRepeatSuccessSignature(cwd string, command string, timeoutSec int) string {
