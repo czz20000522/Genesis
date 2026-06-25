@@ -13,6 +13,7 @@ import (
 )
 
 var errUnsafeCommandExecutable = errors.New("unsafe connector command executable")
+var errConnectorCommandOutputExceeded = errors.New("connector command output exceeded limit")
 
 type ConsoleAdapter struct {
 	Writer io.Writer
@@ -55,7 +56,60 @@ func (r OSCommandRunner) Run(ctx context.Context, name string, args ...string) (
 	} else {
 		cmd.Env = connectorCommandEnvironment(os.Environ())
 	}
-	return cmd.CombinedOutput()
+	var stdout connectorCommandCappedBuffer
+	var stderr connectorCommandCappedBuffer
+	stdout.limit = maxConnectorCommandOutputBytes
+	stderr.limit = maxConnectorCommandOutputBytes
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	output, truncated := combineConnectorCommandOutput(stdout, stderr)
+	if truncated {
+		return output, errConnectorCommandOutputExceeded
+	}
+	return output, err
+}
+
+func BoundConnectorCommandOutput(output []byte) ([]byte, bool) {
+	if len(output) <= maxConnectorCommandOutputBytes {
+		return append([]byte(nil), output...), false
+	}
+	return append([]byte(nil), output[:maxConnectorCommandOutputBytes]...), true
+}
+
+func boundConnectorCommandOutput(output []byte) ([]byte, error) {
+	bounded, truncated := BoundConnectorCommandOutput(output)
+	if truncated {
+		return bounded, errConnectorCommandOutputExceeded
+	}
+	return bounded, nil
+}
+
+func IsConnectorCommandOutputExceeded(err error) bool {
+	return errors.Is(err, errConnectorCommandOutputExceeded)
+}
+
+func combineConnectorCommandOutput(stdout connectorCommandCappedBuffer, stderr connectorCommandCappedBuffer) ([]byte, bool) {
+	output := make([]byte, 0, maxConnectorCommandOutputBytes)
+	truncated := stdout.truncated || stderr.truncated
+	appendBounded := func(value []byte) {
+		if len(value) == 0 || len(output) >= maxConnectorCommandOutputBytes {
+			if len(value) != 0 {
+				truncated = true
+			}
+			return
+		}
+		remaining := maxConnectorCommandOutputBytes - len(output)
+		if len(value) > remaining {
+			output = append(output, value[:remaining]...)
+			truncated = true
+			return
+		}
+		output = append(output, value...)
+	}
+	appendBounded(stdout.buf.Bytes())
+	appendBounded(stderr.buf.Bytes())
+	return output, truncated
 }
 
 func resolveCommandExecutable(name string) (string, error) {

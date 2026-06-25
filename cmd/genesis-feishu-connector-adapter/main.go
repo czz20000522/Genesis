@@ -59,12 +59,16 @@ func execute(ctx context.Context, args []string, stdin io.Reader, runner connect
 		"--text", strings.TrimSpace(action.Payload["body"]),
 		"--idempotency-key", strings.TrimSpace(action.IdempotencyKey),
 	)
+	boundedOutput, outputTruncated := connectorruntime.BoundConnectorCommandOutput(output)
+	if outputTruncated || connectorruntime.IsConnectorCommandOutputExceeded(err) {
+		return failed("external_command_output_exceeded")
+	}
 	if err != nil {
 		return failed("external_command_failed")
 	}
 	return connectorruntime.ConnectorActionResult{
 		Status:            connectorruntime.DeliveryStatusSent,
-		ExternalActionRef: firstSafeExternalActionRef(output, "data.message_id", "message_id"),
+		ExternalActionRef: firstSafeExternalActionRef(boundedOutput, "data.message_id", "message_id"),
 	}
 }
 

@@ -107,6 +107,28 @@ func TestFeishuConnectorAdapterDoesNotExposeRawCLIOutputOnFailure(t *testing.T) 
 	}
 }
 
+func TestFeishuConnectorAdapterRejectsOversizedCLIOutput(t *testing.T) {
+	runner := &recordingRunner{
+		output: []byte(`{"data":{"message_id":"om_oversized"}}` + strings.Repeat("x", 128*1024)),
+	}
+	var stdin bytes.Buffer
+	if err := json.NewEncoder(&stdin).Encode(testSendAction()); err != nil {
+		t.Fatalf("encode action: %v", err)
+	}
+	var stdout bytes.Buffer
+
+	if err := run(context.Background(), []string{"--profile", "genesis"}, &stdin, &stdout, runner); err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	var result connectorruntime.ConnectorActionResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\n%s", err, stdout.String())
+	}
+	if result.Status != connectorruntime.DeliveryStatusFailed || result.Reason != "external_command_output_exceeded" {
+		t.Fatalf("result = %+v, want failed external_command_output_exceeded", result)
+	}
+}
+
 func testSendAction() connectorruntime.ConnectorAction {
 	return connectorruntime.ConnectorAction{
 		OutboxID:       "outbox_1",

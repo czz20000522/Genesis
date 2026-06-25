@@ -31,14 +31,21 @@ func (d CommandTemplateDriver) Execute(ctx context.Context, action ConnectorActi
 		runner = OSCommandRunner{}
 	}
 	output, err := runner.Run(ctx, executable, args...)
+	boundedOutput, outputErr := boundConnectorCommandOutput(output)
+	if outputErr != nil {
+		return ConnectorActionResult{Status: DeliveryStatusFailed, Reason: "external_command_output_exceeded"}, outputErr
+	}
 	if err != nil {
 		if errors.Is(err, errUnsafeCommandExecutable) {
 			return ConnectorActionResult{Status: DeliveryStatusFailed, Reason: "invalid_command_template"}, err
 		}
+		if errors.Is(err, errConnectorCommandOutputExceeded) {
+			return ConnectorActionResult{Status: DeliveryStatusFailed, Reason: "external_command_output_exceeded"}, err
+		}
 		return ConnectorActionResult{Status: DeliveryStatusFailed, Reason: "external_command_failed"}, err
 	}
 	return ConnectorActionResult{
-		ExternalActionRef: firstStringAtJSONPath(output, templateAction.ExternalActionRefJSONPaths),
+		ExternalActionRef: firstStringAtJSONPath(boundedOutput, templateAction.ExternalActionRefJSONPaths),
 		Status:            DeliveryStatusSent,
 	}, nil
 }

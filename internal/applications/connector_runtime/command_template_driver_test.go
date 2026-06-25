@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -235,6 +236,36 @@ func TestCommandTemplateDriverMapsFailureWithoutRawOutput(t *testing.T) {
 	}
 }
 
+func TestCommandTemplateDriverRejectsOversizedRunnerOutputBeforeParsing(t *testing.T) {
+	runner := &recordingRunner{
+		output: []byte(`{"message_id":"om_oversized"}` + strings.Repeat("x", maxConnectorCommandOutputBytes+1)),
+	}
+	driver := testFeishuCommandTemplateDriver("genesis", runner)
+
+	result, err := driver.Execute(context.Background(), testConnectorSendAction())
+	if err == nil {
+		t.Fatal("Execute should reject oversized runner output")
+	}
+	if result.Status != DeliveryStatusFailed || result.Reason != "external_command_output_exceeded" {
+		t.Fatalf("result = %+v, want failed external_command_output_exceeded", result)
+	}
+}
+
+func TestOSCommandRunnerBoundsOversizedStderrOnFailure(t *testing.T) {
+	env := append(connectorCommandEnvironment(os.Environ()),
+		"GENESIS_COMMAND_TEMPLATE_DRIVER_HELPER=oversized-stderr-failure",
+	)
+	runner := OSCommandRunner{Env: env}
+
+	output, err := runner.Run(context.Background(), os.Args[0], "-test.run=TestCommandTemplateDriverOutputHelper")
+	if !errors.Is(err, errConnectorCommandOutputExceeded) {
+		t.Fatalf("Run error = %v, want errConnectorCommandOutputExceeded", err)
+	}
+	if len(output) > maxConnectorCommandOutputBytes {
+		t.Fatalf("captured output = %d bytes, want <= %d", len(output), maxConnectorCommandOutputBytes)
+	}
+}
+
 func TestCommandTemplateDriverMapsUnsafeExecutableToInvalidTemplate(t *testing.T) {
 	runner := &recordingRunner{
 		err: fmt.Errorf("%w: lark-cli.cmd", errUnsafeCommandExecutable),
@@ -303,6 +334,18 @@ func TestUnsafeResolvedCommandExecutableRejectsScriptWrappers(t *testing.T) {
 				t.Fatalf("expected %q to be rejected as a script wrapper", executable)
 			}
 		})
+	}
+}
+
+func TestCommandTemplateDriverOutputHelper(t *testing.T) {
+	switch os.Getenv("GENESIS_COMMAND_TEMPLATE_DRIVER_HELPER") {
+	case "":
+		return
+	case "oversized-stderr-failure":
+		_, _ = os.Stderr.WriteString(strings.Repeat("Authorization: Bearer sk-secret\n", maxConnectorCommandOutputBytes/8))
+		os.Exit(42)
+	default:
+		t.Fatalf("unknown command template driver helper mode %q", os.Getenv("GENESIS_COMMAND_TEMPLATE_DRIVER_HELPER"))
 	}
 }
 
