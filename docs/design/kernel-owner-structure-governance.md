@@ -28,7 +28,7 @@ still allowed to extract gradually.
 | Config and readiness state | `config_types.go`, `capabilities.go`, `budget_lease.go` | Config is still cross-cutting kernel setup. Budget leases are kernel control policy, not model-visible tool input. |
 | Ledger and event schema | `ledger.go`, `event_types.go` | Event envelope and durable schema stay central until owner event contracts have stable exported ports. |
 | Interface and turn admission | `turn_types.go`, `turn_interrupt.go`, `ingress_security.go` | Turn request/response, interruption, and ingress security are kernel entry semantics. |
-| Model Gateway and provider boundary | `provider.go`, `provider_command.go`, `openai_compatible.go`, `provider_resilience.go`, `provider_resilience_types.go`, `provider_setup.go`, `model_config.go`, `model_context.go`, `provider_accounting_types.go`, related provider tests | This owner translates provider/runtime behavior into Genesis model responses, usage evidence, retry/repair evidence, and provider-visible context. |
+| Model Gateway and provider boundary | `provider.go`, `provider_command.go`, `openai_compatible.go`, `provider_resilience.go`, `provider_resilience_types.go`, `provider_setup.go`, `model_config.go`, `model_context.go`, `provider_accounting_types.go`, `modelgateway/resilience.go`, related provider tests | This owner translates provider/runtime behavior into Genesis model responses, usage evidence, retry/repair evidence, and provider-visible context. The first extracted slice is provider retry/repair classification under `internal/kernel/modelgateway`. |
 | Tool Runtime | `tool_types.go`, `tool_registry.go`, `model_tools.go`, `tool_scheduling.go`, `tool_execution.go`, `tool_loop_guard.go`, related tool tests | This owner validates, schedules, authorizes, executes, and projects generic kernel tools. It must not become an application tool catalog. |
 | Authority, sandbox, and approval | `authority_gate.go`, `sandbox_readiness.go`, `approval.go`, `approval_types.go`, `approval_owner_test.go` | This owner resolves permission, sandbox readiness, approval requests, decisions, and frozen-effect admission. |
 | Shell and process execution | `shell.go`, `controlled_shell.go`, `controlled_shell_links_*.go`, `shell_environment.go`, `process_runtime.go`, `process_termination_*.go`, `managed_job_executor.go`, related shell/process tests | Shell is a generic execution primitive. It is not a place for app-specific CLI protocols. |
@@ -74,7 +74,7 @@ contract tests before moving callers.
 
 | Target package | Current source area | Extraction condition |
 | --- | --- | --- |
-| `internal/kernel/modelgateway` | provider, provider command, OpenAI-compatible adapter, model context, usage accounting, retry/repair | Provider request/response types and context projection ports can be moved without changing `SubmitTurn` semantics. |
+| `internal/kernel/modelgateway` | provider resilience first; later provider, provider command, OpenAI-compatible adapter, model context, usage accounting, retry/repair | Provider request/response types and context projection ports can be moved without changing `SubmitTurn` semantics. |
 | `internal/kernel/toolruntime` | tool registry, gateway, scheduling, execution, loop guard, tool DTOs | Tool invocation context is narrow enough that tools no longer need unrelated `Kernel` authority. |
 | `internal/kernel/projection` | session, UI timeline, detail, audit/context projection helpers | Projections can compose owner read models without reimplementing owner replay. |
 | `internal/kernel/resource` | resource registry, resource read, future generic context hydration | Resource refs, bounded reads, grants, and hydration facts have a stable owner API. Phase A has moved descriptor/result types and registry/read logic here while the root package keeps compatibility aliases. |
@@ -89,8 +89,10 @@ contract tests before moving callers.
 1. Provider gateway.
    - Why: provider retry/repair, provider-command strictness, model config,
      context projection, and usage accounting already form a coherent boundary.
-   - First port: `BuildProviderContext`, `CallProvider`, `ClassifyProviderError`,
-     and usage/attempt evidence append hooks.
+   - First completed port: provider retry/repair classification and attempt
+     projection under `internal/kernel/modelgateway`.
+   - Next ports: `BuildProviderContext`, `CallProvider`, provider command
+     transport, context projection, and usage/attempt evidence append hooks.
 
 2. Tool runtime.
    - Why: registry, scheduling, execution, storm guard, and tool result taxonomy

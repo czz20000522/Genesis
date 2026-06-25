@@ -731,6 +731,33 @@ func TestArchitectureBoundaryResourceOwnerHasSubpackageTypes(t *testing.T) {
 	}
 }
 
+func TestArchitectureBoundaryModelGatewayOwnerHasSubpackageResilienceSurface(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join(kernelPackageDir(t), "..", ".."))
+	modelGatewayDir := filepath.Join(repoRoot, "internal", "kernel", "modelgateway")
+	gotTypes := kernelTypeDeclarationFiles(t, modelGatewayDir)
+	for typeName, wantFile := range map[string]string{
+		"AttemptProjection": "resilience.go",
+		"ClassifiedError":   "resilience.go",
+		"FailureClassifier": "resilience.go",
+	} {
+		if gotFile := gotTypes[typeName]; gotFile != wantFile {
+			t.Fatalf("modelgateway owner type %s declared in %q, want %q", typeName, gotFile, wantFile)
+		}
+	}
+	gotFunctions := kernelFunctionDeclarationFiles(t, modelGatewayDir)
+	for functionName, wantFile := range map[string]string{
+		"NewStatusError":               "resilience.go",
+		"NewTransportError":            "resilience.go",
+		"NewVisibleFinalRequiredError": "resilience.go",
+		"RetryDelay":                   "resilience.go",
+		"NeedsVisibleFinalRepair":      "resilience.go",
+	} {
+		if gotFile := gotFunctions[functionName]; gotFile != wantFile {
+			t.Fatalf("modelgateway owner function %s declared in %q, want %q", functionName, gotFile, wantFile)
+		}
+	}
+}
+
 func TestArchitectureBoundaryHTTPTransportDoesNotReplayOwnerFacts(t *testing.T) {
 	root := kernelPackageDir(t)
 	entries, err := os.ReadDir(root)

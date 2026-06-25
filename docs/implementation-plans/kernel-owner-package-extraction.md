@@ -29,6 +29,9 @@ Genesis translation:
 - Start with `resource` because it has a small DTO/registry surface and already
   has behavior tests around bounded read, redaction, pure-read scheduling, and
   provider-visible projection.
+- Continue with provider resilience before the full provider gateway because
+  retry classification, visible-final repair policy, and attempt projection are
+  a small Model Gateway slice with direct Codex/Reasonix analogues.
 
 ## Reference Behavior Red Tests
 
@@ -44,6 +47,14 @@ Genesis translation:
   for `ResourceDescriptor` and `ModelResourceReadResult` during this slice so
   `Config` and existing callers do not change while implementation ownership
   moves.
+- Reference behavior: provider retry/recovery policy lives near provider
+  boundary code, not in the root turn facade. Genesis equivalent:
+  `TestArchitectureBoundaryModelGatewayOwnerHasSubpackageResilienceSurface`
+  fails until `internal/kernel/modelgateway` owns resilience types and functions.
+- Reference behavior: retry classification remains behavior-tested at the owner
+  package. Genesis equivalent: `internal/kernel/modelgateway` tests cover
+  retryable status classification, fail-fast auth, redacted provider attempt
+  projection, capped Retry-After handling, and visible-final repair detection.
 
 ## Phase A: Resource Owner Package
 
@@ -69,9 +80,37 @@ Genesis translation:
   - Root aliases can be removed only after `Config` and external tests depend
     on the resource owner port directly.
 
+## Phase B: Model Gateway Resilience Package
+
+- Deliverable: move provider retry/repair classification, classified error
+  types, retry-delay policy, and provider-attempt projection type to
+  `internal/kernel/modelgateway`.
+- Red lines:
+  - Do not move `SubmitTurn`, `ProviderContextProjection`, `provider_command`,
+    OpenAI wire adapters, `Config`, or ledger event schema in this slice.
+  - Do not make provider adapters own retry loops; Model Gateway policy remains
+    the owner of retry/repair semantics.
+  - Do not duplicate redaction logic inside the modelgateway package; inject the
+    kernel projection redactor at the root adaptation point.
+- Tests:
+  - Model Gateway owner structure guard.
+  - Model Gateway resilience owner unit tests.
+  - Existing provider retry/final repair tests.
+- Evidence:
+  - `go test ./internal/kernel/modelgateway -count=1`
+  - `go test ./internal/kernel -run "TestArchitectureBoundaryModelGatewayOwnerHasSubpackageResilienceSurface|TestOpenAICompatibleProviderRetriesTransientStatusBeforeTurnFailure|TestSubmitTurnRepairsEmptyVisibleFinalBeforeCompleting|TestProviderCommandAdapterShapeFailureDoesNotRetry" -count=1`
+  - `go test ./internal/kernel -count=1`
+  - `go test ./... -count=1`
+  - `go build ./...`
+  - `git diff --check`
+- Still short of production:
+  - `ProviderContextProjection`, provider command transport, built-in OpenAI
+    adapter, and provider setup remain root-level Model Gateway files until
+    later package slices add their own red tests.
+
 ## Later Phases
 
-- Provider gateway extraction.
+- Provider gateway extraction beyond resilience classification.
 - Tool runtime extraction.
 - Projection extraction.
 - Resource hydration owner extension.
