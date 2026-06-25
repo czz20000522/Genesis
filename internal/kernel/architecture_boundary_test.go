@@ -76,6 +76,26 @@ func TestArchitectureBoundaryModelVisibleToolsStayGeneric(t *testing.T) {
 	}
 }
 
+func TestArchitectureBoundaryNoSkillSpecificHydrationTools(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	manifest := k.toolGateway().ToolManifest()
+	if len(manifest) == 0 {
+		t.Fatal("model tool manifest is empty")
+	}
+	for _, tool := range manifest {
+		name := strings.ToLower(strings.TrimSpace(tool.Name))
+		description := strings.ToLower(strings.TrimSpace(tool.Description))
+		for _, forbidden := range []string{"skill.read", "read_skill", "skill_read"} {
+			if strings.Contains(name, forbidden) || strings.Contains(description, forbidden) {
+				t.Fatalf("model tool %q exposes forbidden skill-specific hydration surface %q", tool.Name, forbidden)
+			}
+		}
+		if strings.Contains(name, "skill") || strings.Contains(description, "skill body") || strings.Contains(description, "skill package") {
+			t.Fatalf("model tool %q is skill-specific; hydration must go through generic resource/context admission", tool.Name)
+		}
+	}
+}
+
 func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
 	manifest := k.toolGateway().ToolManifest()

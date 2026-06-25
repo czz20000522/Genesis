@@ -72,6 +72,24 @@ Production context hydration must satisfy:
 - repeated turns must be able to rebuild, compact, or omit hydrated content
   deterministically from owner facts rather than shell-local memory.
 
+The production admission contract is:
+
+- an application, connector, skill loader, or future resource intake path may
+  request hydration only by submitting a generic resource/context handle plus
+  source evidence; it cannot submit a caller-built prompt fragment;
+- the resource/context owner validates scope, grant, content type, size,
+  freshness, sensitivity, and derivation evidence before any provider context
+  is assembled;
+- accepted hydration becomes a kernel-owned fact bound to a session, turn, task,
+  or checkpoint scope, with a stable context handle, bounded projection limits,
+  input kind, and derivation refs;
+- rejected hydration is a structured owner refusal and must not silently fall
+  back to raw prompt splicing, filesystem reads, connector payload paths, or
+  package-specific tools;
+- the Model Gateway renders only accepted hydrated fragments and records enough
+  context-inspection evidence to explain which handles were included without
+  making the full provider prompt canonical truth.
+
 Skill packages are one possible source of hydrated context, not a special
 kernel feature. The skill catalog remains metadata-only by default. If a future
 turn needs a full `SKILL.md` body, a skill or application owner must first admit
@@ -100,10 +118,12 @@ skill-specific kernel tool such as `read_skill` or `skill.read`.
 - Phase D: allow real executor-pool parallelism only for registered
   `pure_read` resource reads whose footprints are compatible and whose replay
   semantics are proven.
-- Phase E: implement generic context hydration on top of admitted resource or
-  context handles. Skill-body hydration, connector attachment hydration, and
-  application-provided long instructions must all use this generic path rather
-  than package-specific tools.
+- Phase E: implement the generic context hydration owner contract on top of
+  admitted resource or context handles. Skill-body hydration, connector
+  attachment hydration, and application-provided long instructions must all use
+  this generic path rather than package-specific tools. The first Phase E slice
+  is the admission contract and tests that keep skill bodies absent by default;
+  later slices may add durable body storage and selection policy.
 
 ## Acceptance Criteria
 

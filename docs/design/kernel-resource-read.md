@@ -82,6 +82,54 @@ handle. The model consumes the bounded hydrated text only after the kernel has
 selected it for the current provider request or after a generic resource read
 has returned terminal-equivalent text.
 
+### Hydration Admission Owner Contract
+
+The stable boundary is a context admission command, not a package-specific
+reader. The exact transport can be HTTP, console, connector, or an internal
+owner call, but it must normalize into the same owner contract:
+
+```text
+context.admit_resource({
+  session_id / turn_id / task_ref,
+  source_owner,
+  resource_ref or context_source_ref,
+  intended_input_kind,
+  max_visible_bytes,
+  freshness,
+  derivation_refs,
+  sensitivity,
+  reason
+})
+```
+
+The resource/context owner validates that the source is admitted, text-like,
+bounded, scoped to the target session or task, and safe for model-visible
+projection. It then writes one of two facts:
+
+```text
+context.hydration.accepted
+context.hydration.rejected
+```
+
+Accepted facts include the generated context handle, source owner, derivation
+refs, visible byte cap, content type, truncation policy, model input kind, and
+scope. They do not include filesystem paths, connector credentials, package
+roots, raw payloads, or full provider prompt text. Rejected facts include a
+reason code and safe diagnostic summary; they do not cause fallback prompt
+splicing.
+
+The Model Gateway consumes accepted hydration facts while building provider
+context. It records context-inspection evidence such as included context handles,
+input kinds, source owner, derivation refs, byte counts, and truncation status.
+It does not treat hydration as transcript, memory truth, tool permission, or
+connector delivery state.
+
+Until `context.hydration.accepted` exists, provider context may include only the
+metadata-only skill index, approved memory projection, conversation history,
+kernel observations, repair context, and ordinary user text. Full skill bodies,
+connector attachment text, and long application instructions remain absent by
+default.
+
 ## Tool Contract
 
 Model-visible tool:
