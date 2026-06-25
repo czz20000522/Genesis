@@ -1,6 +1,7 @@
 package connectorruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,14 +9,16 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	fileConnectorStoreLockTimeout = 10 * time.Second
-	fileConnectorStoreLockPoll    = 10 * time.Millisecond
+	fileConnectorStoreLockTimeout  = 10 * time.Second
+	fileConnectorStoreLockPoll     = 10 * time.Millisecond
+	fileConnectorStoreLockStaleAge = 2 * time.Minute
 )
 
 type OutboxStore interface {
@@ -453,6 +456,13 @@ func acquireConnectorStateFileLock(ctx context.Context, path string) (func(), er
 		if !errors.Is(err, os.ErrExist) {
 			return nil, err
 		}
+		recovered, recoverErr := recoverStaleConnectorStateFileLock(path, time.Now())
+		if recoverErr != nil {
+			return nil, recoverErr
+		}
+		if recovered {
+			continue
+		}
 		timer := time.NewTimer(fileConnectorStoreLockPoll)
 		select {
 		case <-ctx.Done():
@@ -461,4 +471,80 @@ func acquireConnectorStateFileLock(ctx context.Context, path string) (func(), er
 		case <-timer.C:
 		}
 	}
+}
+
+type connectorStateFileLockRecord struct {
+	PID       int
+	CreatedAt time.Time
+}
+
+func recoverStaleConnectorStateFileLock(path string, now time.Time) (bool, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	record := parseConnectorStateFileLockRecord(content)
+	createdAt := record.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = info.ModTime()
+	}
+	if createdAt.IsZero() || now.Sub(createdAt) < fileConnectorStoreLockStaleAge {
+		return false, nil
+	}
+	if record.PID > 0 {
+		live, known := connectorProcessLiveness(record.PID)
+		if !known || live {
+			return false, nil
+		}
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !bytes.Equal(content, current) {
+		return false, nil
+	}
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func parseConnectorStateFileLockRecord(content []byte) connectorStateFileLockRecord {
+	var record connectorStateFileLockRecord
+	for _, line := range strings.Split(string(content), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(key) {
+		case "pid":
+			pid, err := strconv.Atoi(strings.TrimSpace(value))
+			if err == nil {
+				record.PID = pid
+			}
+		case "created_at":
+			createdAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
+			if err == nil {
+				record.CreatedAt = createdAt
+			}
+		}
+	}
+	return record
 }
