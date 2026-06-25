@@ -91,6 +91,14 @@ When future streaming provider support exists, the stream reconnect rule is
 stricter: retry is allowed only before visible assistant output or tool calls
 have been accepted into the kernel fact trail.
 
+Genesis-owned provider command responses are strict typed protocol messages.
+The provider command boundary rejects unknown top-level response fields,
+unknown tool-call fields, and hidden control-plane fields before the model tool
+batch can be admitted. This strictness does not apply to vendor-native provider
+JSON before translation; built-in OpenAI-compatible adapters may tolerate
+irrelevant upstream fields while producing the same Genesis `ModelResponse`
+shape.
+
 ## Skill Catalog Projection
 
 Skill packages are user-space assets. The kernel scans configured skill roots only to build a safe metadata index for capability and provider-context projection. Discovery is bounded by recursion depth, candidate count per root, and `SKILL.md` metadata file size before parsing. Exclusions use stable path-free reasons so `/capabilities` can explain skipped metadata without exposing package paths, skill bodies, or heavy file contents.

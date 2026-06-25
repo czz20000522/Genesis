@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,8 +129,8 @@ func (p *CommandProvider) Complete(ctx context.Context, req ModelRequest) (Model
 	if captured.Truncated {
 		return ModelResponse{}, fmt.Errorf("provider command stdout exceeded %d bytes", maxProviderCommandOutputBytes)
 	}
-	var response providerCommandResponse
-	if err := json.Unmarshal([]byte(captured.Text), &response); err != nil {
+	response, err := decodeProviderCommandResponse([]byte(captured.Text))
+	if err != nil {
 		return ModelResponse{}, fmt.Errorf("decode provider command response: %w", err)
 	}
 	return response.toModelResponse(p.model)
@@ -239,6 +240,57 @@ type providerCommandResponse struct {
 	Text      string          `json:"text,omitempty"`
 	ToolCalls []ModelToolCall `json:"tool_calls,omitempty"`
 	Usage     *TokenUsage     `json:"usage,omitempty"`
+}
+
+type providerCommandResponsePayload struct {
+	Kind      string                           `json:"kind"`
+	Model     string                           `json:"model,omitempty"`
+	Text      string                           `json:"text,omitempty"`
+	ToolCalls []providerCommandToolCallPayload `json:"tool_calls,omitempty"`
+	Usage     *TokenUsage                      `json:"usage,omitempty"`
+}
+
+type providerCommandToolCallPayload struct {
+	ToolCallID   string           `json:"tool_call_id"`
+	Name         string           `json:"name"`
+	Arguments    *json.RawMessage `json:"arguments,omitempty"`
+	RawArguments *string          `json:"raw_arguments,omitempty"`
+}
+
+func decodeProviderCommandResponse(data []byte) (providerCommandResponse, error) {
+	var payload providerCommandResponsePayload
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return providerCommandResponse{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return providerCommandResponse{}, errors.New("provider command response contains trailing data")
+	}
+	toolCalls := make([]ModelToolCall, 0, len(payload.ToolCalls))
+	for _, call := range payload.ToolCalls {
+		if call.Arguments != nil && call.RawArguments != nil {
+			return providerCommandResponse{}, errors.New("provider command tool call cannot set both arguments and raw_arguments")
+		}
+		next := ModelToolCall{
+			ToolCallID: strings.TrimSpace(call.ToolCallID),
+			Name:       strings.TrimSpace(call.Name),
+		}
+		switch {
+		case call.RawArguments != nil:
+			next.Arguments = json.RawMessage(*call.RawArguments)
+		case call.Arguments != nil:
+			next.Arguments = append(json.RawMessage(nil), (*call.Arguments)...)
+		}
+		toolCalls = append(toolCalls, next)
+	}
+	return providerCommandResponse{
+		Kind:      payload.Kind,
+		Model:     payload.Model,
+		Text:      payload.Text,
+		ToolCalls: toolCalls,
+		Usage:     payload.Usage,
+	}, nil
 }
 
 func (r providerCommandResponse) toModelResponse(defaultModel string) (ModelResponse, error) {

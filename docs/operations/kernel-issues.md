@@ -26,54 +26,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-PROVIDER-COMMAND-STRICT-RESPONSE-20260625 - P2 - Provider command responses must reject unknown Genesis protocol fields
-
-- Status: open.
-- Area: Model Gateway / Provider Command Adapter.
-- Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
-- Design: `docs/design/kernel-foundation-capabilities.md`.
-- Gap: Model-visible tool argument schemas now reject hidden control-plane fields
-  before any effect, but the Genesis-owned `provider_command` response envelope
-  is still decoded with ordinary `json.Unmarshal`. Unknown response fields on
-  `providerCommandResponse` or nested `ModelToolCall` values are silently
-  dropped unless they happen to map to an existing Go field such as
-  `tool_call_event_id`. This makes provider-command adapter drift hard to see
-  and weakens the approved rule that model/adapter supplied fields outside the
-  visible contract should produce structured repair or adapter-shape failure
-  instead of being silently ignored.
-- Next slice: Add strict decoding for the Genesis `provider_command` protocol
-  boundary. The command adapter should fail closed on unknown top-level response
-  fields, unknown tool-call envelope fields, and hidden control-plane fields such
-  as `lease_id`, `budget_lease_id`, `event_id`, `operation_id`,
-  `tool_call_event_id`, `permission_mode`, `sandbox_profile`, and
-  `approval_policy`. Keep vendor-native OpenAI-compatible response decoding
-  tolerant of provider-native extra fields; strictness belongs to Genesis-owned
-  typed protocols and model-visible function arguments, not arbitrary upstream
-  JSON that the adapter translates.
-- Evidence: `internal/kernel/provider_command.go` decodes stdout into
-  `providerCommandResponse` via `json.Unmarshal`, and `internal/kernel/tool_types.go`
-  defines `ModelToolCall.UnmarshalJSON` with ordinary `json.Unmarshal`.
-  `validateProviderToolCallBatch` rejects populated `ToolCallEventID`, but
-  unknown fields that do not map to the struct are dropped before validation.
-  Existing tests cover bad JSON, unknown response `kind`, missing final text,
-  missing tool name, malformed tool arguments, hidden IDs omitted from
-  provider-command requests, and unknown fields inside shell tool arguments; they
-  do not cover unknown provider-command response envelope fields.
-- Verification: Add behavior tests where a provider command returns a final
-  response with an extra field, a tool call with `lease_id`, a tool call with
-  `budget_lease_id`, and a tool call with an arbitrary unknown field. Each must
-  fail as adapter/protocol shape failure before `tool.call` events or tool
-  effects. Add a positive test proving valid `provider_command` final and
-  tool-call responses still work. Add a negative test proving the OpenAI-compatible
-  adapter can still tolerate irrelevant vendor-native fields while strict tool
-  argument validation remains enforced.
-- Reference alignment: Codex and Reasonix keep their internal event/tool
-  protocols typed and owner-controlled, while provider/vendor wire shapes are
-  translated behind adapters. Genesis should preserve the same split: tolerate
-  upstream vendor extras at the adapter boundary when needed, but fail closed for
-  unknown fields in the Genesis-owned `provider_command` protocol so control
-  plane fields cannot silently become inert or ambiguous adapter drift.
-
 ### KERNEL-TOOL-BATCH-PARALLEL-SIGNAL-20260625 - P2 - ToolExecutionBatch.Parallel must describe actual execution semantics
 
 - Status: open.

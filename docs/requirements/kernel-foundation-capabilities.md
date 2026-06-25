@@ -145,6 +145,11 @@ Every production store or schema proposal must answer:
 
 - Provider integrations use a typed boundary. External provider commands own vendor SDKs, HTTP payloads, account flows, and provider credentials.
 - Built-in provider adapters are local operator conveniences, not the default contract for new providers.
+- Genesis-owned provider command responses are strict protocol payloads: unknown
+  top-level fields, unknown tool-call fields, and adapter-supplied
+  control-plane fields fail as provider protocol shape errors before tool-call
+  admission. Vendor-native upstream JSON may remain tolerant inside provider
+  adapters that translate it into Genesis-owned model responses.
 - Provider requests contain ordered input fragments, model-visible tool manifests, and prior model-visible tool rounds.
 - Provider requests omit kernel-owned event ids, operation ids, leases, permission profile internals, checkpoints, and audit refs.
 - Provider-native usage is normalized into kernel evidence when upstream fields are present: input tokens, output tokens, total tokens, cache hit tokens, cache miss tokens, and provider-backed processed input tokens.
