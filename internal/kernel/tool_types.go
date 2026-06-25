@@ -18,6 +18,12 @@ type ToolSpec struct {
 
 type ToolSchedulingSpec = toolruntime.SchedulingSpec
 type ToolResourceFootprint = toolruntime.ResourceFootprint
+type ToolRequestInvalidProjection = toolruntime.RequestInvalidProjection
+type ToolRequestError = toolruntime.RequestError
+type ToolCapabilityProjection = toolruntime.CapabilityProjection
+type ModelOperationResult = toolruntime.OperationResult
+type ModelManagedJobResult = toolruntime.ManagedJobResult
+type ModelJobControlResult = toolruntime.JobControlResult
 
 type ModelToolCall struct {
 	ToolCallID      string          `json:"tool_call_id"`
@@ -85,25 +91,6 @@ type ModelToolResult struct {
 	Name            string         `json:"name"`
 	Content         string         `json:"content"`
 	PendingJobStart *JobProjection `json:"-"`
-}
-
-type ToolRequestInvalidProjection struct {
-	Status   string           `json:"status"`
-	Tool     string           `json:"tool"`
-	Executed bool             `json:"executed"`
-	Error    ToolRequestError `json:"error"`
-}
-
-type ToolRequestError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-type ToolCapabilityProjection struct {
-	Name            string `json:"name"`
-	SideEffectLevel string `json:"side_effect_level"`
-	ExecutionKind   string `json:"execution_kind"`
-	Status          string `json:"status"`
 }
 
 type ShellExecRequest struct {
@@ -176,47 +163,6 @@ type JobProjection struct {
 type KernelObservationDeliveryProjection struct {
 	ObservationEventIDs []string `json:"observation_event_ids,omitempty"`
 	ModelInputKind      string   `json:"model_input_kind,omitempty"`
-}
-
-type ModelOperationResult struct {
-	Status              string `json:"status"`
-	Executed            bool   `json:"executed"`
-	ExitCode            *int   `json:"exit_code,omitempty"`
-	TimedOut            bool   `json:"timed_out,omitempty"`
-	TimeoutReason       string `json:"timeout_reason,omitempty"`
-	Interrupted         bool   `json:"interrupted,omitempty"`
-	InterruptReason     string `json:"interrupt_reason,omitempty"`
-	ElapsedMs           int64  `json:"elapsed_ms,omitempty"`
-	Stdout              string `json:"stdout,omitempty"`
-	Stderr              string `json:"stderr,omitempty"`
-	StdoutTruncated     bool   `json:"stdout_truncated,omitempty"`
-	StderrTruncated     bool   `json:"stderr_truncated,omitempty"`
-	StdoutOriginalBytes int    `json:"stdout_original_bytes,omitempty"`
-	StderrOriginalBytes int    `json:"stderr_original_bytes,omitempty"`
-	StdoutOmittedBytes  int    `json:"stdout_omitted_bytes,omitempty"`
-	StderrOmittedBytes  int    `json:"stderr_omitted_bytes,omitempty"`
-	OutputTruncation    string `json:"output_truncation,omitempty"`
-}
-
-type ModelManagedJobResult struct {
-	Status        string `json:"status"`
-	Executed      bool   `json:"executed"`
-	JobID         string `json:"job_id"`
-	VisibleOutput string `json:"visible_output"`
-}
-
-type ModelJobControlResult struct {
-	Status          string `json:"status"`
-	Executed        bool   `json:"executed"`
-	JobID           string `json:"job_id"`
-	Tool            string `json:"tool,omitempty"`
-	CancelRequested bool   `json:"cancel_requested,omitempty"`
-	VisibleOutput   string `json:"visible_output,omitempty"`
-	ExitCode        *int   `json:"exit_code,omitempty"`
-	Stdout          string `json:"stdout,omitempty"`
-	Stderr          string `json:"stderr,omitempty"`
-	StdoutTruncated bool   `json:"stdout_truncated,omitempty"`
-	StderrTruncated bool   `json:"stderr_truncated,omitempty"`
 }
 
 type ToolCallProjection struct {

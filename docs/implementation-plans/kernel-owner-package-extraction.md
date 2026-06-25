@@ -70,6 +70,10 @@ Genesis translation:
   prove only trusted compatible pure reads become parallel, writes and external
   side effects stay serial, same-handle process I/O is split, and untrusted
   scheduling metadata is rejected.
+- Reference behavior: tool output/result payloads are runtime/context DTOs, not
+  session facade DTOs. Genesis equivalent:
+  `TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageResultSurface` fails
+  until model-visible tool result DTOs live under `internal/kernel/toolruntime`.
 
 ## Phase A: Resource Owner Package
 
@@ -174,6 +178,32 @@ Genesis translation:
 - Still short of production:
   - ToolGateway, registry, real executor concurrency, loop guard, and tool DTO
     extraction remain later slices with separate red tests.
+
+## Phase C2: Tool Runtime Result DTO Package
+
+- Deliverable: move model-visible tool request/error/capability/result DTOs to
+  `internal/kernel/toolruntime`.
+- Red lines:
+  - Do not move `ToolSpec`, provider tool-call correlation DTOs, operation/job
+    projection facts, ToolGateway, execution loops, or job owner state.
+  - Do not change JSON field names or result taxonomy semantics.
+  - Keep root aliases while event schema and HTTP/session projections still
+    depend on root package names.
+- Tests:
+  - Tool Runtime result structure guard.
+  - Tool Runtime result JSON-shape unit tests.
+  - Existing tool execution and root DTO placement tests stay green through
+    aliases.
+- Evidence:
+  - `go test ./internal/kernel/toolruntime -count=1`
+  - `go test ./internal/kernel -run "TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageResultSurface|TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles|TestExecuteToolBatches|TestModelTool|TestTool" -count=1`
+  - `go test ./internal/kernel -count=1`
+  - `go test ./... -count=1`
+  - `go build ./...`
+  - `git diff --check`
+- Still short of production:
+  - ToolGateway and execution context still need a narrow owner port before the
+    registry can stop receiving `*Kernel`.
 
 ## Later Phases
 

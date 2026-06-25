@@ -804,6 +804,24 @@ func TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageSchedulingSurface(t *t
 	}
 }
 
+func TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageResultSurface(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join(kernelPackageDir(t), "..", ".."))
+	toolRuntimeDir := filepath.Join(repoRoot, "internal", "kernel", "toolruntime")
+	gotTypes := kernelTypeDeclarationFiles(t, toolRuntimeDir)
+	for typeName, wantFile := range map[string]string{
+		"RequestInvalidProjection": "results.go",
+		"RequestError":             "results.go",
+		"CapabilityProjection":     "results.go",
+		"OperationResult":          "results.go",
+		"ManagedJobResult":         "results.go",
+		"JobControlResult":         "results.go",
+	} {
+		if gotFile := gotTypes[typeName]; gotFile != wantFile {
+			t.Fatalf("toolruntime owner result type %s declared in %q, want %q", typeName, gotFile, wantFile)
+		}
+	}
+}
+
 func TestArchitectureBoundaryHTTPTransportDoesNotReplayOwnerFacts(t *testing.T) {
 	root := kernelPackageDir(t)
 	entries, err := os.ReadDir(root)
