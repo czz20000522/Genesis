@@ -30,8 +30,8 @@ func TestForegroundShellTimeoutTerminatesDescendantProcessTree(t *testing.T) {
 	operation, err := k.ExecShell(context.Background(), ShellExecRequest{
 		SessionID:  "foreground-timeout-process-tree",
 		CWD:        workspace,
-		Command:    descendantMarkerCommand(marker, ready, 3),
-		TimeoutSec: 1,
+		Command:    descendantMarkerCommand(marker, ready, 6),
+		TimeoutSec: 3,
 	})
 	if err != nil {
 		t.Fatalf("ExecShell returned error: %v", err)
@@ -42,7 +42,7 @@ func TestForegroundShellTimeoutTerminatesDescendantProcessTree(t *testing.T) {
 	if !fileExists(ready) {
 		t.Fatalf("ready marker %q missing; test command did not launch descendant before timeout", ready)
 	}
-	assertFileDoesNotAppear(t, marker, 4*time.Second)
+	assertFileDoesNotAppear(t, marker, 7*time.Second)
 }
 
 func TestForegroundShellInterruptTerminatesDescendantProcessTree(t *testing.T) {
