@@ -28,20 +28,29 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, 
 	return nil
 }
 
-func execute(ctx context.Context, args []string, stdin io.Reader, runner connectorruntime.CommandRunner) connectorruntime.ConnectorActionResult {
+func execute(ctx context.Context, args []string, stdin io.Reader, runner connectorruntime.CommandRunner) any {
 	fs := flag.NewFlagSet("genesis-feishu-connector-adapter", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	profile := fs.String("profile", "", "explicit lark-cli profile for Feishu outbound delivery")
+	profileReadiness := fs.String("profile-readiness", "ok", "connector-local Feishu profile readiness posture: ok, missing_profile, profile_expired, permission_denied, or refresh_required")
 	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable")
 	identity := fs.String("as", "bot", "Feishu send identity: bot or user")
+	manifest := fs.Bool("manifest", false, "emit the Feishu connector adapter manifest without sending")
+	probe := fs.Bool("probe", false, "emit a Feishu connector adapter readiness report without sending")
 	if err := fs.Parse(args); err != nil {
 		return failed("invalid_adapter_config")
 	}
-	if strings.TrimSpace(*profile) == "" {
-		return failed("missing_profile")
+	if *manifest {
+		return feishuConnectorAdapterManifest()
+	}
+	if *probe {
+		return feishuConnectorAdapterProbe(*profile, *profileReadiness, *larkCLI)
 	}
 	if *identity != "bot" && *identity != "user" {
 		return failed("invalid_adapter_config")
+	}
+	if reason := feishuProfileReadinessReason(*profile, *profileReadiness); reason != "" {
+		return failed(reason)
 	}
 	var action connectorruntime.ConnectorAction
 	if err := json.NewDecoder(stdin).Decode(&action); err != nil {
@@ -93,6 +102,80 @@ func validateFeishuSendMessageAction(action connectorruntime.ConnectorAction) er
 	default:
 		return nil
 	}
+}
+
+type feishuAdapterManifest struct {
+	Connector        string   `json:"connector"`
+	SupportedActions []string `json:"supported_actions"`
+	RequiredProfile  bool     `json:"required_profile"`
+	EnvAllowlist     []string `json:"env_allowlist"`
+	ProbeModes       []string `json:"probe_modes"`
+	ResultStatuses   []string `json:"result_statuses"`
+	ResultRefs       []string `json:"external_action_ref_json_paths"`
+}
+
+type feishuAdapterProbe struct {
+	Connector        string   `json:"connector"`
+	Ready            bool     `json:"ready"`
+	Status           string   `json:"status"`
+	Reason           string   `json:"reason,omitempty"`
+	Profile          string   `json:"profile,omitempty"`
+	Executable       string   `json:"executable,omitempty"`
+	SupportedActions []string `json:"supported_actions"`
+	SendsMessage     bool     `json:"sends_message"`
+}
+
+func feishuConnectorAdapterManifest() feishuAdapterManifest {
+	return feishuAdapterManifest{
+		Connector:        "feishu",
+		SupportedActions: []string{"send_message"},
+		RequiredProfile:  true,
+		EnvAllowlist:     connectorruntime.ConnectorCommandEnvironmentAllowlist(),
+		ProbeModes:       []string{"manifest", "readiness"},
+		ResultStatuses: []string{
+			connectorruntime.DeliveryStatusSent,
+			connectorruntime.DeliveryStatusFailed,
+		},
+		ResultRefs: []string{"data.message_id", "message_id"},
+	}
+}
+
+func feishuConnectorAdapterProbe(profile string, profileReadiness string, larkCLI string) feishuAdapterProbe {
+	report := feishuAdapterProbe{
+		Connector:        "feishu",
+		Status:           connectorruntime.ProbeStatusFailed,
+		Profile:          strings.TrimSpace(profile),
+		SupportedActions: []string{"send_message"},
+		SendsMessage:     false,
+	}
+	if reason := feishuProfileReadinessReason(profile, profileReadiness); reason != "" {
+		report.Reason = reason
+		return report
+	}
+	executable := connectorruntime.SelectFeishuCLIExecutable(larkCLI, connectorruntime.InstalledOfficialLarkCLIExecutable())
+	resolved, err := connectorruntime.ResolveDirectCommandExecutable(executable)
+	if err != nil {
+		report.Reason = "external_command_missing"
+		return report
+	}
+	report.Ready = true
+	report.Status = connectorruntime.ProbeStatusOK
+	report.Executable = resolved
+	return report
+}
+
+func feishuProfileReadinessReason(profile string, readiness string) string {
+	if strings.TrimSpace(profile) == "" {
+		return connectorruntime.SourceReadinessReasonMissingProfile
+	}
+	readiness = strings.TrimSpace(readiness)
+	if readiness == "" || readiness == "ok" {
+		return ""
+	}
+	if !connectorruntime.ValidSourceReadinessReasonCode(readiness) {
+		return "invalid_adapter_config"
+	}
+	return readiness
 }
 
 func failed(reason string) connectorruntime.ConnectorActionResult {

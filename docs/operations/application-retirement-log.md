@@ -10,6 +10,10 @@ tests, governing requirement/design, or still-active issues.
 
 ## Retired Issues
 
+### APP-CONNECTOR-FEISHU-ADAPTER-DRIVER-BOUNDARY-20260625 - Add Feishu connector adapter manifest and readiness probe
+
+- Retired: `genesis-feishu-connector-adapter` now exposes a stable manifest/readiness probe, requires explicit profile posture before delivery, classifies unsupported actions and profile failures without running `lark-cli`, and keeps Feishu argv inside the adapter process behind typed `ConnectorAction` / `ConnectorActionResult`. Evidence: retiring Lore commit.
+
 ### APP-CODE-INTELLIGENCE-RUNTIME-READINESS-20260625 - Add CodeGraph readiness and advisory query projection
 
 - Retired: CodeGraph now sits behind a user-space code intelligence runtime that classifies executable/cache/worktree/staleness/telemetry readiness, blocks unsafe queries by default, projects affected-tests as advisory hints, and keeps CodeGraph out of kernel core. Evidence: retiring Lore commit.

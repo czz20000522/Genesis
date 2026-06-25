@@ -90,14 +90,7 @@ func (a ConnectorCommandAdapter) resolveExecutable() (string, error) {
 	if executable == "" || invalidCommandTemplateExecutable(executable) {
 		return "", fmt.Errorf("connector command executable must be a direct executable")
 	}
-	resolved, err := resolveCommandExecutable(executable)
-	if err != nil {
-		return "", err
-	}
-	if unsafeResolvedCommandExecutable(resolved) {
-		return "", fmt.Errorf("%w: %q is not a direct binary", errUnsafeCommandExecutable, resolved)
-	}
-	return resolved, nil
+	return ResolveDirectCommandExecutable(executable)
 }
 
 func (a ConnectorCommandAdapter) environment() ([]string, error) {

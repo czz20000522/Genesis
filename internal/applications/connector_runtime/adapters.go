@@ -15,6 +15,20 @@ import (
 var errUnsafeCommandExecutable = errors.New("unsafe connector command executable")
 var errConnectorCommandOutputExceeded = errors.New("connector command output exceeded limit")
 
+var connectorCommandEnvironmentAllowlist = []string{
+	"APPDATA",
+	"HOME",
+	"LOCALAPPDATA",
+	"PATH",
+	"PATHEXT",
+	"PROGRAMDATA",
+	"SYSTEMROOT",
+	"TEMP",
+	"TMP",
+	"USERPROFILE",
+	"WINDIR",
+}
+
 type ConsoleAdapter struct {
 	Writer io.Writer
 }
@@ -116,19 +130,25 @@ func resolveCommandExecutable(name string) (string, error) {
 	return exec.LookPath(name)
 }
 
+func ResolveDirectCommandExecutable(name string) (string, error) {
+	resolved, err := resolveCommandExecutable(name)
+	if err != nil {
+		return "", err
+	}
+	if unsafeResolvedCommandExecutable(resolved) {
+		return "", fmt.Errorf("%w: %q is not a direct binary", errUnsafeCommandExecutable, resolved)
+	}
+	return resolved, nil
+}
+
+func ConnectorCommandEnvironmentAllowlist() []string {
+	return append([]string(nil), connectorCommandEnvironmentAllowlist...)
+}
+
 func connectorCommandEnvironment(hostEnv []string) []string {
-	allowed := map[string]struct{}{
-		"APPDATA":      {},
-		"HOME":         {},
-		"LOCALAPPDATA": {},
-		"PATH":         {},
-		"PATHEXT":      {},
-		"PROGRAMDATA":  {},
-		"SYSTEMROOT":   {},
-		"TEMP":         {},
-		"TMP":          {},
-		"USERPROFILE":  {},
-		"WINDIR":       {},
+	allowed := map[string]struct{}{}
+	for _, key := range connectorCommandEnvironmentAllowlist {
+		allowed[key] = struct{}{}
 	}
 	env := make([]string, 0, len(allowed))
 	seen := map[string]struct{}{}
