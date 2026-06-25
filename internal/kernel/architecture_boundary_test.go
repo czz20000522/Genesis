@@ -714,6 +714,23 @@ func TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles(t *testing.T) {
 	}
 }
 
+func TestArchitectureBoundaryResourceOwnerHasSubpackageTypes(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join(kernelPackageDir(t), "..", ".."))
+	resourceDir := filepath.Join(repoRoot, "internal", "kernel", "resource")
+	got := kernelTypeDeclarationFiles(t, resourceDir)
+	for typeName, wantFile := range map[string]string{
+		"Descriptor":         "types.go",
+		"ModelReadResult":    "types.go",
+		"Registry":           "registry.go",
+		"ReadRequest":        "registry.go",
+		"registeredResource": "registry.go",
+	} {
+		if gotFile := got[typeName]; gotFile != wantFile {
+			t.Fatalf("resource owner type %s declared in %q, want %q", typeName, gotFile, wantFile)
+		}
+	}
+}
+
 func TestArchitectureBoundaryHTTPTransportDoesNotReplayOwnerFacts(t *testing.T) {
 	root := kernelPackageDir(t)
 	entries, err := os.ReadDir(root)

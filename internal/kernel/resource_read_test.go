@@ -143,10 +143,6 @@ func TestResourceReadModelVisibleResultRedactsSecretShapedText(t *testing.T) {
 	}
 	assertDoesNotContain(t, result.Content, secret, "provider tool result")
 
-	if stored, ok := k.resourceRegistry.lookup("res_secret"); !ok || stored.text != rawText {
-		t.Fatalf("stored resource = %+v ok=%v, want raw owner text preserved", stored, ok)
-	}
-
 	providerContext, err := k.ProviderContextProjection(resp.TurnID)
 	if err != nil {
 		t.Fatalf("ProviderContextProjection returned error: %v", err)

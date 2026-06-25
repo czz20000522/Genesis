@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"genesis/internal/kernel/resource"
 )
 
 var ErrModelToolCallRejected = errors.New("model tool call rejected")
@@ -214,26 +216,26 @@ func (k *Kernel) prepareResourceReadToolCall(eventID string, providerCallID stri
 	if err := decodeStrictModelToolArguments("resource_read", arguments, &args); err != nil {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
 	}
-	req, code, err := normalizeResourceReadRequest(args.ResourceRef, args.OffsetBytes, args.LimitBytes)
+	req, code, err := resource.NormalizeReadRequest(args.ResourceRef, args.OffsetBytes, args.LimitBytes)
 	if err != nil {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, code, fmt.Sprintf("invalid resource_read request: %v", err)), nil
 	}
-	if _, ok := k.resourceRegistry.lookup(req.resourceRef); !ok {
-		return invalidPreparedModelToolCall(eventID, providerCallID, name, "unknown_resource_ref", fmt.Sprintf("unknown resource ref %q", req.resourceRef)), nil
+	if !k.resourceRegistry.Has(req.ResourceRef) {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "unknown_resource_ref", fmt.Sprintf("unknown resource ref %q", req.ResourceRef)), nil
 	}
 	return preparedModelToolCall{
 		eventID:        eventID,
 		providerCallID: providerCallID,
 		name:           name,
-		accessPlan:     resourceReadToolAccessPlan(name, req.resourceRef),
+		accessPlan:     resourceReadToolAccessPlan(name, req.ResourceRef),
 		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
 			return k.resourceReadModelToolResult(eventID, providerCallID, name, req)
 		},
 	}, nil
 }
 
-func (k *Kernel) resourceReadModelToolResult(eventID string, providerCallID string, name string, req resourceReadRequest) (ModelToolResult, error) {
-	result, err := k.resourceRegistry.read(req)
+func (k *Kernel) resourceReadModelToolResult(eventID string, providerCallID string, name string, req resource.ReadRequest) (ModelToolResult, error) {
+	result, err := k.resourceRegistry.Read(req)
 	if err != nil {
 		return ModelToolResult{}, fmt.Errorf("%w: resource_read failed: %v", ErrToolInfrastructureFailed, err)
 	}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"genesis/internal/kernel/resource"
 )
 
 type Kernel struct {
@@ -19,7 +21,7 @@ type Kernel struct {
 	contextPolicy    ContextPolicy
 	budgetPolicy     BudgetPolicy
 	toolRegistry     *ToolRegistry
-	resourceRegistry *resourceRegistry
+	resourceRegistry *resource.Registry
 	skillCatalog     []SkillDescriptor
 	skillExclusions  []SkillCatalogExclusionProjection
 	clock            func() time.Time
@@ -60,7 +62,7 @@ func New(config Config) (*Kernel, error) {
 	if err != nil {
 		return nil, err
 	}
-	resourceRegistry, err := newResourceRegistry(config.Resources)
+	resourceRegistry, err := resource.NewRegistry(config.Resources, redactEvidenceText)
 	if err != nil {
 		return nil, err
 	}
