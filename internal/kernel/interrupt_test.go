@@ -114,7 +114,7 @@ func TestInterruptSessionCancelsActiveProviderTurnWithoutCancellingBackgroundJob
 	}
 }
 
-func TestInterruptSessionDuringForegroundShellWritesInterruptedToolResult(t *testing.T) {
+func TestInterruptSessionDuringForegroundShellWritesManagedJobReceipt(t *testing.T) {
 	workspace := testTempDir(t)
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
@@ -166,7 +166,7 @@ func TestInterruptSessionDuringForegroundShellWritesInterruptedToolResult(t *tes
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
 	}
-	for _, want := range []string{"tool.call", "operation.running", "operation.interrupted", "tool.result", "assistant.interrupted"} {
+	for _, want := range []string{"tool.call", "operation.running", "job.started", "operation.interrupted", "tool.result", "assistant.interrupted"} {
 		if got := countSessionEventType(projection.Events, want); got != 1 {
 			t.Fatalf("%s count = %d, want 1; events=%+v", want, got, projection.Events)
 		}
@@ -189,14 +189,14 @@ func TestInterruptSessionDuringForegroundShellWritesInterruptedToolResult(t *tes
 		t.Fatal("tool.result projection missing")
 	}
 	payload := decodeJSONMap(t, toolResult.Content)
-	if payload["status"] != "interrupted" || payload["executed"] != true {
-		t.Fatalf("tool result payload = %+v, want interrupted executed result", payload)
+	if payload["status"] != "managed_job_started" || payload["executed"] != true {
+		t.Fatalf("tool result payload = %+v, want managed job receipt", payload)
 	}
-	if payload["interrupt_reason"] != foregroundAttachUnavailableKilledReason {
-		t.Fatalf("tool result payload = %+v, want foreground attach unavailable kill reason", payload)
+	if strings.TrimSpace(fmt.Sprint(payload["job_id"])) == "" || !strings.Contains(fmt.Sprint(payload["visible_output"]), "continued as managed job") {
+		t.Fatalf("tool result payload = %+v, want managed job id and continuation receipt", payload)
 	}
-	if got := countSessionEventType(projection.Events, "job.started"); got != 0 {
-		t.Fatalf("job.started count = %d, want no managed job when foreground attach is unavailable", got)
+	if len(projection.Jobs) != 1 || projection.Jobs[0].Status != "running" {
+		t.Fatalf("jobs = %+v, want running managed job after foreground handoff", projection.Jobs)
 	}
 }
 
@@ -418,10 +418,10 @@ func TestAttachedJobProgressDoesNotBecomeProviderContextByDefault(t *testing.T) 
 	}
 }
 
-func TestLocalManagedJobExecutorDoesNotAdvertiseForegroundAttach(t *testing.T) {
+func TestLocalManagedJobExecutorAdvertisesForegroundAttach(t *testing.T) {
 	capabilities := managedJobExecutorCapabilities(newLocalManagedJobExecutor())
-	if capabilities.ForegroundAttach {
-		t.Fatalf("local managed executor capabilities = %+v, want no foreground attach support", capabilities)
+	if !capabilities.ForegroundAttach {
+		t.Fatalf("local managed executor capabilities = %+v, want foreground attach support", capabilities)
 	}
 }
 
@@ -432,12 +432,17 @@ func TestForegroundAttachCapabilityRequiresAttachMethod(t *testing.T) {
 	}
 
 	capabilities = managedJobExecutorCapabilities(attachCapableManagedJobExecutor{})
+	if capabilities.ForegroundAttach {
+		t.Fatalf("foreground attach capability = %+v, want disabled without foreground runner ownership", capabilities)
+	}
+
+	capabilities = managedJobExecutorCapabilities(fullAttachCapableManagedJobExecutor{})
 	if !capabilities.ForegroundAttach {
-		t.Fatalf("foreground attach capability = %+v, want enabled only with an attach method", capabilities)
+		t.Fatalf("foreground attach capability = %+v, want enabled only with runner, attach, and kill methods", capabilities)
 	}
 }
 
-func TestForegroundInterruptReasonStaysKillFallbackUntilAttachIsImplemented(t *testing.T) {
+func TestForegroundInterruptReasonUsesExecutorCapabilities(t *testing.T) {
 	k, err := New(Config{
 		LedgerPath:  filepath.Join(testTempDir(t), "events.jsonl"),
 		JobExecutor: attachAdvertisingManagedJobExecutor{},
@@ -573,6 +578,18 @@ func (attachCapableManagedJobExecutor) AttachForeground(_ context.Context, _ Man
 	return ManagedJobForegroundAttachResult{Attached: false, FailureReason: "test_only"}, nil
 }
 
+type fullAttachCapableManagedJobExecutor struct {
+	attachCapableManagedJobExecutor
+}
+
+func (fullAttachCapableManagedJobExecutor) RunForeground(_ context.Context, _ ManagedShellForegroundRequest) (ManagedShellForegroundResult, error) {
+	return ManagedShellForegroundResult{Interrupted: true}, nil
+}
+
+func (fullAttachCapableManagedJobExecutor) KillForeground(_ string, _ string) bool {
+	return true
+}
+
 type foregroundAttachTestExecutor struct {
 	attachAdvertisingManagedJobExecutor
 
@@ -584,6 +601,15 @@ type foregroundAttachTestExecutor struct {
 	observe      JobProjection
 	complete     *JobProjection
 	hostHandle   string
+}
+
+func (e *foregroundAttachTestExecutor) RunForeground(ctx context.Context, _ ManagedShellForegroundRequest) (ManagedShellForegroundResult, error) {
+	<-ctx.Done()
+	return ManagedShellForegroundResult{Interrupted: true}, nil
+}
+
+func (e *foregroundAttachTestExecutor) KillForeground(_ string, _ string) bool {
+	return true
 }
 
 func (e *foregroundAttachTestExecutor) AttachForeground(_ context.Context, request ManagedJobForegroundAttachRequest) (ManagedJobForegroundAttachResult, error) {

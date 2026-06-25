@@ -52,6 +52,7 @@ type JobControlResult struct {
 	JobID           string `json:"job_id"`
 	Tool            string `json:"tool,omitempty"`
 	CancelRequested bool   `json:"cancel_requested,omitempty"`
+	TimedOut        bool   `json:"timed_out,omitempty"`
 	VisibleOutput   string `json:"visible_output,omitempty"`
 	ExitCode        *int   `json:"exit_code,omitempty"`
 	Stdout          string `json:"stdout,omitempty"`

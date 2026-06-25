@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -96,8 +97,12 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 	for _, event := range replayed.Events {
 		replayedTypes = append(replayedTypes, event.Type)
 	}
-	if strings.Join(replayedTypes, ",") != strings.Join(wantTypes, ",") {
-		t.Fatalf("replayed event types = %v, want %v", replayedTypes, wantTypes)
+	wantReloadedTypes := append(append([]string{}, wantTypes...), "job.failed")
+	if strings.Join(replayedTypes, ",") != strings.Join(wantReloadedTypes, ",") {
+		t.Fatalf("replayed event types = %v, want %v", replayedTypes, wantReloadedTypes)
+	}
+	if len(replayed.Jobs) != 1 || replayed.Jobs[0].Status != "failed" || replayed.Jobs[0].FailureReason != "managed_job_lost_ownership" {
+		t.Fatalf("replayed jobs = %+v, want truthful lost ownership terminal fact", replayed.Jobs)
 	}
 }
 
@@ -559,7 +564,7 @@ func TestSubmitTurnProjectsGenericJobControlToolManifest(t *testing.T) {
 		t.Fatalf("provider requests = %d, want 1", len(requests))
 	}
 	names := toolSpecNames(requests[0].ToolManifest)
-	for _, want := range []string{"shell_exec", "job_status", "job_cancel"} {
+	for _, want := range []string{"shell_exec", "job_status", "job_wait", "job_cancel"} {
 		if !containsString(names, want) {
 			t.Fatalf("tool manifest names = %v, want %s", names, want)
 		}
@@ -807,6 +812,181 @@ func TestSubmitTurnJobStatusReturnsRepairFeedbackForUnknownJob(t *testing.T) {
 	errorPayload, ok := payload["error"].(map[string]interface{})
 	if !ok || errorPayload["code"] != "job_not_found" {
 		t.Fatalf("job_status error = %+v, want job_not_found", payload["error"])
+	}
+}
+
+func TestSubmitTurnJobWaitReturnsTerminalJobBeforeTimeout(t *testing.T) {
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	sessionID := "job-wait-terminal"
+	jobID := "job_wait_terminal"
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	started := JobProjection{
+		JobID:      jobID,
+		SessionID:  sessionID,
+		TurnID:     "turn_job_wait",
+		Tool:       "shell_exec",
+		Status:     "running",
+		CWD:        workspace,
+		Command:    longRunningShellCommand(30),
+		TimeoutSec: 600,
+		Receipt:    "Command was accepted as managed job " + jobID + ".",
+		StartedAt:  time.Now().UTC(),
+	}
+	if err := k.appendJobEvent("job.started", started); err != nil {
+		t.Fatalf("append started returned error: %v", err)
+	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		completed := started
+		completed.Status = "completed"
+		completed.Stdout = "waited complete"
+		_ = k.appendTerminalJobEvent(completed)
+	}()
+
+	waitArgs, err := json.Marshal(map[string]interface{}{"job_id": jobID, "timeout_sec": 2})
+	if err != nil {
+		t.Fatalf("marshal job_wait args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_job_wait_terminal", Name: "job_wait", Arguments: json.RawMessage(waitArgs)},
+		},
+		final: "job wait observed",
+	}
+	k.provider = provider
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "wait for job"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "completed" || payload["job_id"] != jobID || !strings.Contains(fmt.Sprint(payload["stdout"]), "waited complete") {
+		t.Fatalf("job_wait payload = %+v, want completed job output", payload)
+	}
+	projection, err := k.Session(sessionID)
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 0 {
+		t.Fatalf("operations = %+v, want job_wait to create no operations", projection.Operations)
+	}
+}
+
+func TestSubmitTurnJobWaitReturnsRunningAfterBoundedTimeout(t *testing.T) {
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	sessionID := "job-wait-timeout"
+	jobID := "job_wait_timeout"
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if err := k.appendJobEvent("job.started", JobProjection{
+		JobID:      jobID,
+		SessionID:  sessionID,
+		TurnID:     "turn_job_wait_timeout",
+		Tool:       "shell_exec",
+		Status:     "running",
+		CWD:        workspace,
+		Command:    longRunningShellCommand(30),
+		TimeoutSec: 600,
+		Receipt:    "Command was accepted as managed job " + jobID + ".",
+		StartedAt:  time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("append started returned error: %v", err)
+	}
+	waitArgs, err := json.Marshal(map[string]interface{}{"job_id": jobID, "timeout_sec": 1})
+	if err != nil {
+		t.Fatalf("marshal job_wait args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_job_wait_timeout", Name: "job_wait", Arguments: json.RawMessage(waitArgs)},
+		},
+		final: "job wait timeout observed",
+	}
+	k.provider = provider
+	startedAt := time.Now()
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "wait for running job"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 3*time.Second {
+		t.Fatalf("job_wait elapsed %s, want bounded timeout", elapsed)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "running" || payload["timed_out"] != true {
+		t.Fatalf("job_wait payload = %+v, want running timed_out observation", payload)
+	}
+}
+
+func TestJobWaitDeadlineReloadDoesNotMarkTerminalJobTimedOut(t *testing.T) {
+	workspace := testTempDir(t)
+	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	sessionID := "job-wait-terminal-deadline"
+	jobID := "job_wait_terminal_deadline"
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	started := JobProjection{
+		JobID:      jobID,
+		SessionID:  sessionID,
+		TurnID:     "turn_job_wait_terminal_deadline",
+		Tool:       "shell_exec",
+		Status:     "running",
+		CWD:        workspace,
+		Command:    longRunningShellCommand(30),
+		TimeoutSec: 600,
+		StartedAt:  time.Now().UTC(),
+	}
+	if err := k.appendJobEvent("job.started", started); err != nil {
+		t.Fatalf("append started returned error: %v", err)
+	}
+	completed := started
+	completed.Status = "completed"
+	completed.Stdout = "completed before deadline return"
+	if err := k.appendTerminalJobEvent(completed); err != nil {
+		t.Fatalf("append completed returned error: %v", err)
+	}
+	result, err := k.jobWaitModelToolResult(context.Background(), sessionID, "evt_wait_deadline", "call_wait_deadline", "job_wait", jobID, 1)
+	if err != nil {
+		t.Fatalf("jobWaitModelToolResult returned error: %v", err)
+	}
+	payload := decodeJSONMap(t, result.Content)
+	if payload["status"] != "completed" {
+		t.Fatalf("job_wait payload = %+v, want completed", payload)
+	}
+	if payload["timed_out"] == true {
+		t.Fatalf("job_wait payload = %+v, terminal job must not be marked timed_out", payload)
 	}
 }
 

@@ -84,7 +84,7 @@ Direct HTTP `POST /tools/shell_exec` follows the same kernel owner path. It retu
 2. The shell environment policy is a Tool Runtime / Authority Plane decision. It is not a model-visible `shell_exec` argument and cannot be selected by provider output, HTTP request fields, or UI state.
 3. The minimal production policy keeps ordinary host shell execution usable by preserving platform execution basics such as path lookup, system root, temporary directory, user home, and locale where needed.
 4. Credential-shaped variables are excluded before process spawn. Names or values shaped like provider keys, bearer tokens, credentials, passwords, secrets, API keys, or connector tokens do not enter the child process environment unless a future explicit credential-grant owner exists.
-5. Projection redaction is not sufficient. The command process must not receive unintended daemon-local secrets in the first place; UI/session redaction only protects already-recorded evidence.
+5. Display filtering is not security. The command process must not receive unintended daemon-local secrets in the first place. UI/session projections protect readability and budget, but they must not be the only barrier for credential safety and must not corrupt user-owned shell evidence.
 6. Foreground and managed-job shell paths use the same environment constructor so long-running work cannot bypass the foreground policy.
 7. Provider-command environment remains a separate provider boundary. This policy must not weaken existing provider-command env validation.
 
@@ -140,20 +140,23 @@ Checkpoints are control-plane state. The model does not fabricate checkpoint ref
 
 1. Interrupting provider streaming cancels the provider step, writes `assistant.interrupted`, and returns the session to a resumable checkpoint.
 2. Interrupting an already-managed background job does not cancel it.
-3. Interrupting foreground shell execution attempts to detach or attach it as a managed job when the executor supports that capability.
-4. If the executor cannot attach foreground shell work as a managed job, the kernel kills the process and writes an interrupted tool result with structured evidence such as `interrupt_reason=foreground_attach_unavailable_killed`.
-5. Explicit job cancellation is a separate control path. It may be invoked by a user control command or a model-visible job-control tool after permission validation.
-6. Job cancellation writes cancellation request and terminal cancellation evidence. It is not represented as an ordinary nonzero command exit.
+3. Foreground shell execution is also launched by the managed runner; foreground mode is only a bounded wait over a kernel-owned process.
+4. Interrupting foreground shell execution detaches the foreground wait and hands the already-owned process to the managed job owner when the executor supports the typed handoff method. The operation terminal fact is the handoff receipt; later lifecycle facts are only `job.*`.
+5. If an injected executor cannot hand off foreground shell work as a managed job, the kernel kills the process and writes an interrupted tool result with structured evidence such as `interrupt_reason=foreground_attach_unavailable_killed`; it must not forge job facts.
+6. Explicit job cancellation is a separate control path. It may be invoked by a user control command or a model-visible job-control tool after permission validation.
+7. Job cancellation writes cancellation request and terminal cancellation evidence. It is not represented as an ordinary nonzero command exit.
 
 ### Attach-Capable Executor Contract
 
-Foreground attach is an executor capability, not a kernel assumption. The
+Foreground handoff is an executor capability, not a pid-attach assumption. The
 kernel may convert interrupted foreground shell work into a managed job only
-when the active executor explicitly advertises attach support and returns a
-kernel-validated attachment result for the running process.
+when the process was launched by the active managed runner from the start and
+the executor returns a kernel-validated handoff result for that running process.
 
 An attach-capable executor must satisfy:
 
+- it starts foreground and background shell work through the same managed process runner;
+- it reserves the kernel-owned job or foreground operation slot before starting the real subprocess, so duplicate admission fails before any second process effect can occur;
 - it can detach the foreground wait path without killing the process;
 - it can transfer lifecycle observation to the managed job owner;
 - it reports bounded output state without replaying unbounded live chunks;
@@ -169,9 +172,9 @@ operation, reason, and timestamp facts. It must not require the model, HTTP
 caller, or UI to supply a host process id, signal, terminal handle, or OS
 process token.
 
-If attach succeeds, the kernel writes managed-job facts and returns a receipt
-tool result for the interrupted tool call. If attach fails or is unsupported,
-the current truthful fallback remains: kill the foreground process and write an
+If handoff succeeds, the kernel writes managed-job facts and returns a receipt
+tool result for the interrupted tool call. If handoff fails or is unsupported,
+the truthful fallback remains: kill the foreground process and write an
 interrupted tool result with `foreground_attach_unavailable_killed` or another
 executor-reported attach failure reason. The kernel must not forge
 `job.started`, `job.attached`, or running-job projections for a process it did
@@ -180,12 +183,16 @@ not successfully take ownership of.
 Replay must not duplicate the process effect. Once a foreground command has
 started, restart or retry can only return recorded operation/job/interruption
 facts; it must not re-run the command to recreate a missing attach fact.
+After restart, local managed jobs whose process ownership was lost are marked
+with truthful terminal evidence such as `managed_job_lost_ownership`; the kernel
+must not pretend it can still observe or cancel a host process it no longer owns.
 
 ### Job Control
 
 Required eventual generic controls:
 
 - `job_status`: inspect a managed job's current state and relevant bounded output.
+- `job_wait`: wait briefly for a managed job to reach a terminal state, with a bounded timeout and no unbounded provider-loop blocking.
 - `job_cancel`: request cancellation of a managed job.
 
 Job-control semantics:
@@ -193,6 +200,7 @@ Job-control semantics:
 - job-control tools validate that the referenced handle is a kernel-owned job handle;
 - job-control tools do not let the model select permission mode, sandbox, owner, workspace root, or ledger ids;
 - `job_status` can return running, cancel-requested, completed, failed, or cancelled states as bounded observation; an unknown handle returns repair feedback instead of a synthetic job state;
+- `job_wait` returns terminal job evidence when it arrives before the wait budget, otherwise returns the current bounded running observation with `timed_out=true`;
 - `job_cancel` requires kernel authority through ToolGateway policy, records an explicit cancellation request when admitted, and records terminal cancellation evidence only when the executor confirms cancellation;
 - model-visible job control arguments contain semantic fields only, currently a kernel-issued `job_id` and optional cancellation reason; authority, event ids, process ids, signals, and audit evidence are kernel-owned facts;
 - application-specific retries remain outside the kernel unless reduced to generic job or resource primitives.
@@ -241,8 +249,8 @@ Phase D: observation delivery.
 
 Phase E: interrupt behavior.
 
-- Proves: assistant interruption, foreground shell kill fallback when attach is unavailable, background job survival, explicit cancellation, and separate audit facts for interruption versus cancellation.
-- Still short of production until complete: true foreground attach remains constrained by executor capability.
+- Proves: assistant interruption, foreground shell wait-detach through the local managed runner, background job survival, explicit cancellation, bounded `job_wait`, lost-ownership recovery evidence, and separate audit facts for interruption versus cancellation.
+- Still short of production until complete: richer interactive PTY support and OS sandbox integration remain separate future capabilities.
 
 ## Acceptance Criteria
 
@@ -255,6 +263,7 @@ Positive cases:
 - direct HTTP shell transport returns a job receipt/projection for admitted values above the policy threshold, or a blocked operation when policy/profile admission rejects the managed executor;
 - model-requested managed job writes `tool.call`, `job.started`, receipt `tool.result`, and terminal job event;
 - job status and cancellation use generic job controls;
+- `job_wait` has an explicit timeout budget and never blocks the provider loop indefinitely;
 - completed job observations can enter the next provider context through kernel delivery.
 - executor-reported `job.output` snapshots are durable session/UI facts and are not injected as provider observations by default.
 

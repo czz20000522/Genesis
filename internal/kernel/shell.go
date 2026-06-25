@@ -245,7 +245,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 		code = exitCode
 		applyOperationOutputCapture(&operation, stdout, stderr)
 	} else {
-		stdout, stderr, exitCode, timedOut, interrupted, err := runShellProcess(ctx, operation.CWD, rawCommand, time.Duration(timeoutSec)*time.Second)
+		stdout, stderr, exitCode, timedOut, interrupted, err := k.runForegroundShellProcess(ctx, operation, time.Duration(timeoutSec)*time.Second)
 		code = exitCode
 		if timedOut {
 			code = foregroundTimeoutExitCode
@@ -256,6 +256,9 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 			operation.Interrupted = true
 			_, interruptReason, attachErr := k.attachInterruptedForegroundShell(ctx, operation, k.activeTurnInterruptReason(operation.SessionID, operation.TurnID))
 			if attachErr != nil {
+				if killer, ok := k.jobExecutor.(managedShellForegroundKiller); ok {
+					killer.KillForeground(operation.OperationID, foregroundAttachUnavailableKilledReason)
+				}
 				operation.EndedAt = k.clock()
 				operation.ElapsedMs = operationElapsedMs(operation.StartedAt, operation.EndedAt)
 				operation.Status = "tool_infrastructure_failed"
@@ -264,6 +267,11 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 					return OperationProjection{}, appendErr
 				}
 				return OperationProjection{}, fmt.Errorf("%w: foreground attach failed: %v", ErrToolInfrastructureFailed, attachErr)
+			}
+			if interruptReason == foregroundAttachUnavailableKilledReason {
+				if killer, ok := k.jobExecutor.(managedShellForegroundKiller); ok {
+					killer.KillForeground(operation.OperationID, foregroundAttachUnavailableKilledReason)
+				}
 			}
 			operation.InterruptReason = interruptReason
 		}
@@ -281,13 +289,15 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 	}
 	operation.EndedAt = k.clock()
 	operation.ElapsedMs = operationElapsedMs(operation.StartedAt, operation.EndedAt)
-	operation.ExitCode = &code
 	if operation.Interrupted {
 		operation.Status = "interrupted"
+		operation.ExitCode = nil
 	} else if code == 0 {
 		operation.Status = "completed"
+		operation.ExitCode = &code
 	} else {
 		operation.Status = "failed"
+		operation.ExitCode = &code
 	}
 	if err := k.appendOperationEvent(operation); err != nil {
 		return OperationProjection{}, err
@@ -296,7 +306,23 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 }
 
 func (k *Kernel) foregroundShellInterruptReason() string {
+	if managedJobExecutorCapabilities(k.jobExecutor).ForegroundAttach {
+		return foregroundAttachedManagedJobReason
+	}
 	return foregroundAttachUnavailableKilledReason
+}
+
+func (k *Kernel) runForegroundShellProcess(ctx context.Context, operation OperationProjection, timeout time.Duration) (capturedOutput, capturedOutput, int, bool, bool, error) {
+	if runner, ok := k.jobExecutor.(managedShellForegroundRunner); ok {
+		result, err := runner.RunForeground(ctx, ManagedShellForegroundRequest{
+			OperationID: operation.OperationID,
+			CWD:         operation.CWD,
+			Command:     operation.Command,
+			Timeout:     timeout,
+		})
+		return result.Stdout, result.Stderr, result.ExitCode, result.TimedOut, result.Interrupted, err
+	}
+	return runShellProcess(ctx, operation.CWD, operation.Command, timeout)
 }
 
 func (g ToolGateway) lookupShellEffectByIdempotencyKey(sessionID string, key string) (shellInvokeResult, bool, error) {

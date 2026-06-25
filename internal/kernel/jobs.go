@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+const (
+	defaultJobWaitTimeoutSec     = 1
+	maxJobWaitTimeoutSec         = 30
+	localManagedShellExecutorRef = "local_managed_shell"
+)
+
 func (k *Kernel) prepareManagedShellJob(req ShellExecRequest, turnID string, toolCallEventID string) (JobProjection, bool, error) {
 	if err := validateShellRequest(req); err != nil {
 		return JobProjection{}, false, err
@@ -41,6 +47,7 @@ func (k *Kernel) prepareManagedShellJob(req ShellExecRequest, turnID string, too
 		TurnID:          strings.TrimSpace(turnID),
 		Tool:            "shell_exec",
 		IdempotencyKey:  idempotencyKey,
+		ExecutorRef:     k.managedJobExecutorRef(),
 		Status:          "running",
 		CWD:             strings.TrimSpace(req.CWD),
 		Command:         strings.TrimSpace(req.Command),
@@ -75,19 +82,28 @@ func (k *Kernel) prepareForegroundAttachedShellJob(operation OperationProjection
 	jobID := newID("job", startedAt)
 	receipt := fmt.Sprintf("Foreground command continued as managed job %s after interruption. Terminal job evidence is recorded in the session events.", jobID)
 	return JobProjection{
-		JobID:           jobID,
-		SessionID:       sessionID,
-		TurnID:          strings.TrimSpace(operation.TurnID),
-		Tool:            "shell_exec",
-		IdempotencyKey:  idempotencyKey,
-		Status:          "running",
-		CWD:             strings.TrimSpace(operation.CWD),
-		Command:         strings.TrimSpace(operation.Command),
-		TimeoutSec:      operation.TimeoutSec,
-		Receipt:         receipt,
-		StartedAt:       startedAt,
-		ToolCallEventID: idempotencyKey,
+		JobID:             jobID,
+		SessionID:         sessionID,
+		TurnID:            strings.TrimSpace(operation.TurnID),
+		Tool:              "shell_exec",
+		IdempotencyKey:    idempotencyKey,
+		SourceOperationID: strings.TrimSpace(operation.OperationID),
+		ExecutorRef:       k.managedJobExecutorRef(),
+		Status:            "running",
+		CWD:               strings.TrimSpace(operation.CWD),
+		Command:           strings.TrimSpace(operation.Command),
+		TimeoutSec:        operation.TimeoutSec,
+		Receipt:           receipt,
+		StartedAt:         startedAt,
+		ToolCallEventID:   idempotencyKey,
 	}, true, nil
+}
+
+func (k *Kernel) managedJobExecutorRef() string {
+	if _, ok := k.jobExecutor.(*localManagedJobExecutor); ok {
+		return localManagedShellExecutorRef
+	}
+	return ""
 }
 
 func (k *Kernel) appendJobStartedIfAbsent(job JobProjection) (JobProjection, bool, error) {
@@ -279,6 +295,44 @@ func (k *Kernel) appendTerminalJobEvent(job JobProjection) error {
 	}
 }
 
+func (k *Kernel) recoverLostLocalManagedJobs() error {
+	events, err := k.loadEvents()
+	if err != nil {
+		return err
+	}
+	latestByKey := map[string]JobProjection{}
+	for _, event := range events {
+		if event.Data.Job == nil || !isJobFactEvent(event.Type) {
+			continue
+		}
+		job := *event.Data.Job
+		if strings.TrimSpace(job.JobID) == "" {
+			job.JobID = strings.TrimSpace(event.JobID)
+		}
+		if strings.TrimSpace(job.JobID) == "" && event.Type == "job.started" {
+			job.JobID = strings.TrimSpace(event.EventID)
+		}
+		key := strings.TrimSpace(job.SessionID) + "\x00" + strings.TrimSpace(job.JobID)
+		if strings.TrimSpace(job.SessionID) == "" || strings.TrimSpace(job.JobID) == "" {
+			continue
+		}
+		latestByKey[key] = job
+	}
+	for _, job := range latestByKey {
+		if strings.TrimSpace(job.ExecutorRef) != localManagedShellExecutorRef || isTerminalJobStatus(job.Status) {
+			continue
+		}
+		lost := job
+		lost.Status = "failed"
+		lost.FailureReason = "managed_job_lost_ownership"
+		lost.CompletedAt = k.clock()
+		if err := k.appendTerminalJobEvent(lost); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func mergeJobOutputSnapshot(latest JobProjection, snapshot JobProjection) JobProjection {
 	stdout := snapshot.Stdout
 	stderr := snapshot.Stderr
@@ -290,6 +344,8 @@ func mergeJobOutputSnapshot(latest JobProjection, snapshot JobProjection) JobPro
 	snapshot.JobID = latest.JobID
 	snapshot.Tool = latest.Tool
 	snapshot.IdempotencyKey = latest.IdempotencyKey
+	snapshot.SourceOperationID = latest.SourceOperationID
+	snapshot.ExecutorRef = latest.ExecutorRef
 	if strings.TrimSpace(latest.Status) != "" {
 		snapshot.Status = latest.Status
 	} else {
@@ -364,6 +420,77 @@ func (k *Kernel) jobStatusModelToolResult(sessionID string, toolCallEventID stri
 		Name:            strings.TrimSpace(toolName),
 		Content:         string(content),
 	}, nil
+}
+
+func (k *Kernel) jobWaitModelToolResult(ctx context.Context, sessionID string, toolCallEventID string, providerCallID string, toolName string, jobID string, timeoutSec int) (ModelToolResult, error) {
+	job, ok, err := k.lookupSessionJob(sessionID, jobID)
+	if err != nil {
+		return ModelToolResult{}, err
+	}
+	if !ok {
+		return invalidModelToolResult(toolCallEventID, providerCallID, toolName, "job_not_found", fmt.Sprintf("job %q was not found", jobID))
+	}
+	if isTerminalJobStatus(job.Status) {
+		return k.jobWaitResult(toolCallEventID, providerCallID, toolName, job, false), nil
+	}
+	if timeoutSec <= 0 {
+		timeoutSec = defaultJobWaitTimeoutSec
+	}
+	if timeoutSec > maxJobWaitTimeoutSec {
+		timeoutSec = maxJobWaitTimeoutSec
+	}
+	deadline := time.NewTimer(time.Duration(timeoutSec) * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ModelToolResult{}, ctx.Err()
+		case <-deadline.C:
+			latest, ok, err := k.lookupSessionJob(sessionID, jobID)
+			if err != nil {
+				return ModelToolResult{}, err
+			}
+			if ok {
+				job = latest
+			}
+			if isTerminalJobStatus(job.Status) {
+				return k.jobWaitResult(toolCallEventID, providerCallID, toolName, job, false), nil
+			}
+			return k.jobWaitResult(toolCallEventID, providerCallID, toolName, job, true), nil
+		case <-ticker.C:
+			latest, ok, err := k.lookupSessionJob(sessionID, jobID)
+			if err != nil {
+				return ModelToolResult{}, err
+			}
+			if !ok {
+				continue
+			}
+			job = latest
+			if isTerminalJobStatus(job.Status) {
+				return k.jobWaitResult(toolCallEventID, providerCallID, toolName, job, false), nil
+			}
+		}
+	}
+}
+
+func (k *Kernel) jobWaitResult(toolCallEventID string, providerCallID string, toolName string, job JobProjection, timedOut bool) ModelToolResult {
+	content, err := json.Marshal(modelJobControlResultWithTimeout(job, false, timedOut, jobWaitVisibleOutput(job, timedOut)))
+	if err != nil {
+		return ModelToolResult{
+			ToolCallID:      strings.TrimSpace(providerCallID),
+			ToolCallEventID: strings.TrimSpace(toolCallEventID),
+			Name:            strings.TrimSpace(toolName),
+			Content:         fmt.Sprintf(`{"status":"tool_infrastructure_failed","executed":false,"error":{"code":"marshal_failed","message":%q}}`, err.Error()),
+		}
+	}
+	return ModelToolResult{
+		ToolCallID:      strings.TrimSpace(providerCallID),
+		ToolCallEventID: strings.TrimSpace(toolCallEventID),
+		Name:            strings.TrimSpace(toolName),
+		Content:         string(content),
+	}
 }
 
 func (k *Kernel) cancelJobModelToolResult(sessionID string, turnID string, toolCallEventID string, providerCallID string, toolName string, jobID string, reason string) (ModelToolResult, error) {
@@ -525,6 +652,15 @@ func jobStatusVisibleOutput(job JobProjection) string {
 		return fmt.Sprintf("job %s is %s.", jobID, status)
 	}
 	return fmt.Sprintf("job %s is %s for tool %s.", jobID, status, tool)
+}
+
+func jobWaitVisibleOutput(job JobProjection, timedOut bool) string {
+	jobID := strings.TrimSpace(job.JobID)
+	status := strings.TrimSpace(job.Status)
+	if timedOut && !isTerminalJobStatus(status) {
+		return fmt.Sprintf("job %s is still %s after the bounded wait. Use job_wait again or job_status to inspect progress.", jobID, status)
+	}
+	return jobStatusVisibleOutput(job)
 }
 
 func jobCancelVisibleOutput(job JobProjection, cancelRequested bool) string {

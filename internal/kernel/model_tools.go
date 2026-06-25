@@ -31,6 +31,11 @@ type jobStatusToolArguments struct {
 	JobID string `json:"job_id"`
 }
 
+type jobWaitToolArguments struct {
+	JobID      string `json:"job_id"`
+	TimeoutSec *int   `json:"timeout_sec,omitempty"`
+}
+
 type jobCancelToolArguments struct {
 	JobID  string `json:"job_id"`
 	Reason string `json:"reason,omitempty"`
@@ -285,6 +290,33 @@ func (k *Kernel) prepareJobStatusToolCall(eventID string, providerCallID string,
 	}, nil
 }
 
+func (k *Kernel) prepareJobWaitToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args jobWaitToolArguments
+	if err := decodeStrictModelToolArguments("job_wait", arguments, &args); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+	}
+	jobID, err := validateJobControlRequest("job_wait", args.JobID)
+	if err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_job_control_request", err.Error()), nil
+	}
+	timeoutSec := defaultJobWaitTimeoutSec
+	if args.TimeoutSec != nil {
+		timeoutSec = *args.TimeoutSec
+	}
+	if timeoutSec <= 0 || timeoutSec > maxJobWaitTimeoutSec {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_job_wait_request", fmt.Sprintf("invalid job_wait request: timeout_sec must be between 1 and %d", maxJobWaitTimeoutSec)), nil
+	}
+	return preparedModelToolCall{
+		eventID:        eventID,
+		providerCallID: providerCallID,
+		name:           name,
+		accessPlan:     jobControlToolAccessPlan(name, jobID),
+		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			return k.jobWaitModelToolResult(ctx, sessionID, eventID, providerCallID, name, jobID, timeoutSec)
+		},
+	}, nil
+}
+
 func (k *Kernel) prepareJobCancelToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 	var args jobCancelToolArguments
 	if err := decodeStrictModelToolArguments("job_cancel", arguments, &args); err != nil {
@@ -410,6 +442,10 @@ func blockedToolResultError(reason string) (string, string, string) {
 }
 
 func modelJobControlResult(job JobProjection, cancelRequested bool, visibleOutput string) ModelJobControlResult {
+	return modelJobControlResultWithTimeout(job, cancelRequested, false, visibleOutput)
+}
+
+func modelJobControlResultWithTimeout(job JobProjection, cancelRequested bool, timedOut bool, visibleOutput string) ModelJobControlResult {
 	job = cloneJobProjection(job)
 	return ModelJobControlResult{
 		Status:          strings.TrimSpace(job.Status),
@@ -417,6 +453,7 @@ func modelJobControlResult(job JobProjection, cancelRequested bool, visibleOutpu
 		JobID:           strings.TrimSpace(job.JobID),
 		Tool:            strings.TrimSpace(job.Tool),
 		CancelRequested: cancelRequested,
+		TimedOut:        timedOut,
 		VisibleOutput:   strings.TrimSpace(visibleOutput),
 		ExitCode:        job.ExitCode,
 		Stdout:          job.Stdout,

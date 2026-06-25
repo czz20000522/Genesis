@@ -70,7 +70,7 @@ func New(config Config) (*Kernel, error) {
 		return nil, err
 	}
 	skillCatalog := loadSkillCatalogWithDiagnostics(config.SkillRoots)
-	return &Kernel{
+	k := &Kernel{
 		ledger:             NewJSONLLedger(config.LedgerPath),
 		provider:           provider,
 		jobExecutor:        jobExecutor,
@@ -85,7 +85,9 @@ func New(config Config) (*Kernel, error) {
 		skillExclusions:    skillCatalog.Exclusions,
 		clock:              clock,
 		activeTurns:        map[string]*activeTurn{},
-	}, nil
+	}
+	_ = k.recoverLostLocalManagedJobs()
+	return k, nil
 }
 
 func (k *Kernel) Close() {

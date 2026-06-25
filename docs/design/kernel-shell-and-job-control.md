@@ -107,38 +107,32 @@ not by reverting to daemon environment inheritance.
 - Cancellation: explicit job-control fact; not an ordinary command exit.
 - Interruption: session/control fact; distinct from cancellation.
 
-Foreground shell interruption is capability-gated. If the active executor cannot attach foreground shell work into a managed job, the kernel cancels the foreground process and returns an interrupted tool result with `interrupt_reason=foreground_attach_unavailable_killed`. That fallback records the absence of attach support without exposing process ids, signals, or host process handles to the model or transport callers.
+Foreground shell work is launched by the same managed runner as background shell work. Foreground mode is a wait policy, not a separate process-start path. If the active executor cannot hand off foreground shell work into a managed job, the kernel cancels the foreground process and returns an interrupted tool result with `interrupt_reason=foreground_attach_unavailable_killed`. That fallback records the absence of handoff support without exposing process ids, signals, or host process handles to the model or transport callers.
 
 ## Foreground Attach Design
 
-Foreground attach is a future executor seam. The kernel must not infer attach
-support from the operating system or from a process id. It asks the active
-executor whether foreground attach is supported for the already-admitted
-operation.
+Foreground handoff is an executor seam. The kernel must not infer attach support
+from the operating system or from a process id, and it must not adopt arbitrary
+host processes. A foreground command can become a managed job only because it was
+started under the managed runner from the beginning.
 
-Current flow:
-
-```text
-foreground shell running
-  -> user/session interrupt
-  -> executor attach capability = false
-  -> kill foreground process
-  -> write interrupted operation/tool result
-  -> no managed job facts are forged
-```
-
-Future attach-capable flow:
+Current local managed-runner flow:
 
 ```text
 foreground shell running
   -> user/session interrupt
-  -> executor attach capability = true
-  -> executor implements foreground attach method
-  -> executor detaches foreground wait path
+  -> managed runner detaches foreground wait path
   -> kernel allocates managed job handle and binds ownership
   -> tool.result returns managed-job receipt
-  -> executor reports later job.output and terminal job facts
+  -> operation terminal fact is interrupted / handoff receipt
+  -> later lifecycle is expressed only by job.output and terminal job facts
 ```
+
+For both direct managed-job admission and foreground waits, the local runner
+reserves the kernel-owned job or operation slot before it starts the host
+subprocess. A duplicate `job_id` or `operation_id` fails before process start;
+the kernel must not rely on cancelling an already-started duplicate process as
+proof that no side effect occurred.
 
 Attach result validation belongs to the kernel. The executor can report that it
 has attached a process stream, but it cannot choose job id, session id, turn id,
@@ -155,6 +149,19 @@ If the failure leaves process ownership uncertain, the kernel must prefer a
 blocked or interrupted state with operator-visible diagnostics over pretending a
 managed job exists.
 
+Timeout and interruption are intentionally different. Foreground timeout kills
+the managed process tree and writes a timeout operation outcome. Foreground
+interruption detaches the wait path when possible and returns a managed-job
+receipt. A command-level `&` or platform-specific background syntax is not a
+kernel-managed background job; the runner must still own the process group,
+stdout/stderr capture, timeout, cancellation, and terminal evidence, or the
+command must be blocked by policy.
+
+After restart, the local runner cannot regain host process handles. Any
+non-terminal local managed job discovered without live ownership is closed with
+truthful lost-ownership evidence instead of being re-run or projected as still
+observable.
+
 Reference alignment:
 
 - Codex has background terminal/session controls where long work can continue
@@ -163,15 +170,15 @@ Reference alignment:
 - Reasonix wires a session-scoped job manager so background jobs can outlive a
   turn and be cancelled by controller lifecycle. It treats background work as a
   runtime-managed resource, not as prompt text.
-- Genesis keeps the current local executor explicit: it does not advertise
-  foreground attach, so the kill fallback remains the only truthful behavior
-  until an attach-capable executor is introduced.
+- Genesis now follows the same ownership shape: the local managed runner owns
+  process start, foreground wait, handoff, output snapshots, cancellation, and
+  terminal facts; process handles never become model or HTTP authority.
 
 ## Permission And Authority
 
 Timeout and command arguments do not select permission mode, sandbox profile, workspace root, approval policy, or credential authority.
 
-Job status and cancellation validate kernel-issued handles and apply kernel policy before revealing output or cancelling work.
+Job status, bounded wait, and cancellation validate kernel-issued handles and apply kernel policy before revealing output, waiting for terminal facts, or cancelling work. `job_wait` has an explicit timeout budget and returns the current job observation with `timed_out=true` when the job does not finish within that budget.
 
 ## Recovery And Observability
 

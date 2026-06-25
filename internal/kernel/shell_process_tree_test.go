@@ -45,7 +45,7 @@ func TestForegroundShellTimeoutTerminatesDescendantProcessTree(t *testing.T) {
 	assertFileDoesNotAppear(t, marker, 7*time.Second)
 }
 
-func TestForegroundShellInterruptTerminatesDescendantProcessTree(t *testing.T) {
+func TestForegroundShellInterruptHandsOffDescendantProcessTree(t *testing.T) {
 	requireProcessTreeShellSupport(t)
 	workspace := testTempDir(t)
 	marker := filepath.Join(workspace, "interrupt-descendant-survived.txt")
@@ -98,7 +98,20 @@ func TestForegroundShellInterruptTerminatesDescendantProcessTree(t *testing.T) {
 	if !errors.Is(result.err, ErrTurnInterrupted) {
 		t.Fatalf("SubmitTurn error = %v, want ErrTurnInterrupted", result.err)
 	}
-	assertFileDoesNotAppear(t, marker, 5*time.Second)
+	waitForFile(t, marker, 5*time.Second)
+	projection, err := k.Session("foreground-interrupt-process-tree")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if got := countSessionEventType(projection.Events, "job.started"); got != 1 {
+		t.Fatalf("job.started count = %d, want handoff managed job; events=%+v", got, projection.Events)
+	}
+	if got := countSessionEventType(projection.Events, "operation.completed"); got != 0 {
+		t.Fatalf("operation.completed count = %d, handoff must not double-write operation terminal", got)
+	}
+	if len(projection.Operations) != 1 || projection.Operations[0].InterruptReason != foregroundAttachedManagedJobReason {
+		t.Fatalf("operations = %+v, want foreground attached operation", projection.Operations)
+	}
 }
 
 func descendantMarkerCommand(markerPath string, readyPath string, childDelaySeconds int) string {

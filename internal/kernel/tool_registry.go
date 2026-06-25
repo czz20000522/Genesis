@@ -24,6 +24,7 @@ type toolInvocationContext interface {
 	prepareShellExecToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareResourceReadToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobStatusToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	prepareJobWaitToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobCancelToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 }
 
@@ -147,6 +148,35 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			},
 			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 				return ctx.prepareJobStatusToolCall(eventID, providerCallID, name, arguments)
+			},
+		},
+		{
+			Spec: ToolSpec{
+				Name:        "job_wait",
+				Description: "Wait briefly for a Genesis-managed job to reach a terminal state without blocking indefinitely.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"job_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Kernel-issued job id returned by a prior managed job receipt.",
+						},
+						"timeout_sec": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     1,
+							"maximum":     maxJobWaitTimeoutSec,
+							"description": "Maximum seconds to wait. Omit for a short bounded wait.",
+						},
+					},
+					"required":             []string{"job_id"},
+					"additionalProperties": false,
+				},
+				SideEffectLevel: ToolSideEffectRead,
+				ExecutionKind:   ToolExecutionKindKernelControl,
+				Scheduling:      jobControlToolSchedulingSpec(),
+			},
+			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+				return ctx.prepareJobWaitToolCall(eventID, providerCallID, name, arguments)
 			},
 		},
 		{

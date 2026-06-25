@@ -14,6 +14,22 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Local managed shell job handoff
+
+- Status: ready_for_acceptance.
+- Conclusion: Local shell execution now uses a managed runner for foreground and background paths; interrupted foreground waits hand off to kernel-owned managed jobs with bounded output, cancellation, lost-ownership recovery, `job_wait` budgeted inspection, and no pid/signal/process-handle projection.
+- Fix commit: current Lore commit.
+- Verification: `go test ./internal/kernel -run "TestLocalForeground|TestRestartMarksLocalManagedJobLostOwnershipWithoutRerun|TestSubmitTurnJobWait" -count=1`; `go test ./internal/kernel -count=1`.
+- Reference alignment: Aligned with Codex process-manager ownership and Reasonix session-scoped jobs while rejecting shell `&` and arbitrary pid attach as kernel backgrounding.
+
+### KERNEL-MANAGED-PROCESS-ADMISSION-RACE-20260625 - P1 - Managed process admission ownership
+
+- Status: ready_for_acceptance.
+- Conclusion: Local managed job and foreground shell admission now reserve the kernel-owned job/operation slot before starting the real subprocess, so duplicate admission fails before a second process can produce effects.
+- Fix commit: current Lore commit.
+- Verification: `go test ./internal/kernel -run "ManagedProcess|ManagedJob|Foreground|LostOwnership|Interrupt" -count=1`.
+- Reference alignment: Aligned with Codex/Reasonix process ownership as a pre-effect admission boundary rather than best-effort cancellation after duplicate effects begin.
+
 ### KERNEL-TEST-SURFACE-OWNER-SPLIT-20260625 - P3 - Kernel test owner surface
 
 - Status: ready_for_acceptance.
@@ -89,7 +105,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: `InterruptSession` is now the kernel-owned typed control command for active turn cancellation. `POST /sessions/{id}/interrupt` is a thin transport delegate that returns `202 Accepted` for an active turn. Provider-step cancellation writes `assistant.interrupted`, returns `ErrTurnInterrupted`, projects the turn as `interrupted`, and does not write `turn.failed`. Foreground shell context cancellation writes `operation.interrupted`, appends a paired `tool.result(status=interrupted)`, and stops before a final provider step. Tests prove interrupting a later active provider turn does not cancel an existing managed background job.
 - Verification: `D:\software\Go\bin\go.exe test ./internal/kernel -run 'TestInterruptSession|TestHTTPInterruptSession' -count=1`; `D:\software\Go\bin\go.exe test ./internal/kernel -run 'TestArchitectureBoundary|TestSubmitTurn.*Job|TestSubmitTurn.*Shell|TestHTTP.*Shell|TestHTTPInterruptSession|TestInterruptSession' -count=1`; `D:\software\Go\bin\go.exe test ./internal/kernel -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `git diff --check`.
 - Acceptance condition: reviewer confirms user-space shells can interrupt an active turn without cancelling existing managed jobs, and foreground shell interruption is projected as interrupted tool evidence rather than ordinary command failure.
-- Residual risk: managed job progress snapshots, idle continuation policy, and attach-capable foreground shell executor behavior remain active under `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`; stronger sandbox and approval policy are now tracked by the retired `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` entry.
+- Residual risk: foreground handoff and idle continuation are now covered by the `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623` ready-for-acceptance entry; richer PTY and sandbox enforcement remain separate future work.
 
 ### KERNEL-OWNER-SESSION-PROJECTION-20260623 - P1 - Session projection delegates owner replay
 
@@ -154,7 +170,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: Foreground shell timeout now records `operation.failed` with `timed_out=true`, `timeout_reason=foreground_timeout`, positive `elapsed_ms`, exit code evidence, and available bounded stdout/stderr. The model-visible `shell_exec` tool result carries the same timeout metadata and captured output, while `infrastructure_reason` stays empty for ordinary runtime timeout. Timeout remains separate from malformed request feedback and managed-job routing.
 - Verification: `TestSubmitTurnForegroundShellTimeoutRecordsTerminalOutcome`; focused timeout/direct-shell/job routing suite; `D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `git diff --check`.
 - Acceptance condition: reviewer confirms foreground shell timeout is model-visible command evidence, not `tool_request_invalid`, not `tool_infrastructure_failed`, and not a managed-job receipt.
-- Residual risk: managed job progress snapshots, idle continuation policy, and attach-capable foreground shell executor behavior remain active under `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`; stronger sandbox and approval policy are now tracked by the retired `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` entry.
+- Residual risk: foreground handoff and idle continuation are now covered by the `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623` ready-for-acceptance entry; richer PTY and sandbox enforcement remain separate future work.
 
 ### KERNEL-DIRECT-SHELL-MANAGED-JOB-PARITY-20260623 - P2 - Direct shell transport shares managed-job routing
 
@@ -167,7 +183,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: Direct `POST /tools/shell_exec` now distinguishes omitted `timeout_sec` from explicit invalid values, rejects explicit non-positive timeout before effects, delegates foreground and managed routing to ToolGateway, returns foreground `OperationProjection` for foreground-valid requests, returns HTTP 202 with a redacted `JobProjection` receipt for an admitted host-sandbox long job, and returns the existing operation or job projection on idempotent retry without executing a second effect. Controlled-workspace/default long shell requests are blocked until a controlled managed executor exists. Direct HTTP long jobs do not forge provider-loop `tool.call` or `tool.result` events.
 - Verification: `TestHTTPShellExecLongTimeoutReturnsManagedJobReceipt`; `TestHTTPShellExecRejectsExplicitZeroTimeout`; `TestHTTPShellExecLongTimeoutDoesNotBypassDefaultSandbox`; `TestHTTPShellExecManagedJobRetryRedactsTerminalOutput`; `TestHTTPShellExecIdempotencyKeyDoesNotCrossFromOperationToJob`; `TestHTTPShellExecIdempotencyKeyDoesNotCrossFromJobToOperation`; focused HTTP shell and job-control kernel tests; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`; `git diff --check`.
 - Acceptance condition: reviewer confirms direct shell transport no longer has a parallel long-running shell lifecycle and that direct HTTP job receipts are job projections, not ordinary operation projections or fake provider tool results.
-- Residual risk: managed job progress snapshots, idle continuation policy, and attach-capable foreground shell executor behavior remain active under `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`; stronger sandbox and approval policy are now tracked by the retired `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` entry.
+- Residual risk: foreground handoff and idle continuation are now covered by the `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623` ready-for-acceptance entry; richer PTY and sandbox enforcement remain separate future work.
 
 ### KERNEL-OBSERVATION-DELIVERY-20260623 - P1 - Kernel observation queue and delivery checkpoints
 
@@ -190,10 +206,10 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`.
 - Design: `docs/design/kernel-shell-and-job-control.md`.
 - Reference alignment: Aligned with Codex-style process control boundaries: the model receives a typed tool result for a kernel-owned handle, while process mechanics stay behind the runtime. Genesis intentionally exposes `job_status` and `job_cancel`, not process ids, signals, or a `job_terminate` tool.
-- Evidence: The model-visible manifest now includes `shell_exec`, `job_status`, and `job_cancel`. `job_status` replays current job state from the session ledger without creating operations and redacts terminal output before returning model-visible JSON. `job_cancel` records semantic `job.cancel_requested` for a non-terminal job and does not forge terminal cancellation before executor confirmation. Terminal jobs return the current terminal state without writing competing facts. Unknown job ids and model-supplied process/control-plane fields return structured repair feedback.
+- Evidence: The model-visible manifest now includes `shell_exec`, `job_status`, `job_wait`, and `job_cancel`. `job_status` replays current job state from the session ledger without creating operations, `job_wait` uses an explicit timeout budget, and `job_cancel` records semantic `job.cancel_requested` for a non-terminal job without forging terminal cancellation before executor confirmation. Terminal jobs return the current terminal state without writing competing facts. Unknown job ids and model-supplied process/control-plane fields return structured repair feedback.
 - Verification: `TestSubmitTurnProjectsGenericJobControlToolManifest`; `TestSubmitTurnJobStatusReturnsCompletedJobAfterRestartWithoutOperation`; `TestSubmitTurnJobStatusRedactsTerminalOutput`; `TestSubmitTurnJobStatusReturnsRepairFeedbackForUnknownJob`; `TestSubmitTurnRejectsJobControlToolControlPlaneFields`; `TestSubmitTurnJobCancelTerminalJobReturnsCurrentStateWithoutCompetingTerminalEvent`; `TestSubmitTurnJobCancelLedgerOnlyRunningJobRecordsRequestWithoutForgingTerminalFact`; `TestSubmitTurnJobCancelReachesLiveManagedExecutor`; focused job-control suite; `D:\software\Go\bin\go.exe test ./internal/kernel -count=1`; `D:\software\Go\bin\go.exe test ./...`; `D:\software\Go\bin\go.exe build ./...`; `git diff --check`.
 - Acceptance condition: reviewer confirms job control is a generic kernel primitive, model-visible schema stays free of process mechanics, and terminal job cancellation does not rewrite or duplicate ledger truth.
-- Residual risk: job control now reaches the minimal managed shell executor, but foreground attach/kill behavior, progress snapshots, provider-stream interruption, and stronger sandbox/approval integration remain active issues.
+- Residual risk: job control now reaches the managed shell executor; richer PTY and sandbox/approval enforcement remain separate future work.
 
 ### KERNEL-SHELL-TIMEOUT-CAP-20260623 - P1 - Foreground shell timeout policy and cap
 
@@ -206,7 +222,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: `shell_exec` now exposes `timeout_sec` in the model-visible tool schema. Omitted timeout records 30 seconds; `timeout_sec=1` and `timeout_sec=180` run as foreground shell attempts; invalid zero, negative, string, and fractional values return repairable `tool_request_invalid` feedback and create no operation. Requests above the foreground cap route to managed-job admission instead of being treated as validation errors; the current local managed executor admits only host-sandbox jobs and blocks controlled-workspace/default long requests.
 - Verification: `TestSubmitTurnAcceptsForegroundShellTimeoutSeconds`; `TestSubmitTurnDefaultsShellTimeoutToThirtySeconds`; `TestSubmitTurnReturnsRepairFeedbackForInvalidShellTimeoutSeconds`; `TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt`; `TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext`; focused timeout suite; `D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1`; forbidden marker scan; `git diff --check`; `D:\software\Go\bin\go.exe test ./... -count=1`; `D:\software\Go\bin\go.exe build ./...`; `D:\software\Go\bin\go.exe test -race ./internal/kernel -count=1`.
 - Acceptance condition: reviewer confirms `timeout_sec > 180` is a valid long-task intent, not an error, and ordinary foreground shell execution is capped by the approved 1 through 180 second contract.
-- Residual risk: direct `/tools/shell_exec` managed-job routing is covered by `KERNEL-DIRECT-SHELL-MANAGED-JOB-PARITY-20260623`; foreground timeout outcome metadata is covered by `KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623`. Managed job progress snapshots, idle continuation policy, and attach-capable foreground shell executor behavior remain active under `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`.
+- Residual risk: direct `/tools/shell_exec` managed-job routing is covered by `KERNEL-DIRECT-SHELL-MANAGED-JOB-PARITY-20260623`; foreground timeout outcome metadata is covered by `KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623`; foreground handoff and idle continuation are now covered by `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`.
 
 ### KERNEL-MANAGED-JOB-FOUNDATION-20260623 - P1 - Minimal managed job event model
 
