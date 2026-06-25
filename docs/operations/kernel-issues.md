@@ -25,22 +25,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-CONTEXT-COMPACTION-STUCK-GUARD-20260625 - P2 - Auto compaction needs a stuck/cache-thrash guard for too-small windows
-
-- Status: open.
-- Area: Model Gateway / Context Compaction / Provider Context Projection / Test Governance.
-- Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
-- Design: `docs/design/kernel-foundation-capabilities.md`.
-- 标题: Auto compaction needs a stuck/cache-thrash guard for too-small windows.
-- 问题: Genesis currently has successful compaction, summarizer failure recording, failure backoff, provider-backed recent-tail accounting, and cache-stability evidence. It does not yet have an executable guard for the production case where compaction succeeds but does not reclaim enough effective context, causing every subsequent turn to compact again and repeatedly break prompt-cache locality. Failure backoff does not cover this case because the summarizer returns success.
-- 建议: Add a compaction stuck guard owned by the kernel compaction runner. The first slice should be a requirement/design and behavior-test update: when a too-small context window or huge retained recent tail causes repeated consecutive successful compactions without effective headroom/cache recovery, the runner should pause/defer auto-compaction with typed evidence and a user/inspection notice. Manual compaction can remain available, but auto compaction should not thrash every turn.
-- 证据: Genesis `internal/kernel/context_compaction.go` triggers auto compaction whenever provider-reported `InputTokens` crosses the limit, and `contextCompactionBackoff` only defers after `context.compaction.failed`. `TestAutoCompactionBacksOffAfterSummarizerFailure` covers failure retry/backoff, while `TestAutoCompactionRecordsUsageEconomicsAndCacheStability` records cache facts but does not assert that cache collapse or consecutive successful compactions pause future auto compaction. Local Reasonix has `internal/agent/compact_loop_e2e_test.go::TestCompactionPausesWhenWindowTooSmall` and `TestCompactionHealthyWindowNeverLoops`, plus `internal/agent/cachehit_e2e_test.go::TestCacheHitSurvivesTooSmallWindow`, proving the reference behavior: cap repeated compactions, emit an auto-compaction-paused notice, and preserve cache stability in misconfigured windows.
-- 验证: Add focused tests that drive a long tool-heavy session with a context window too small for the retained tail. The tests should fail if auto compaction runs on many consecutive turns or keeps collapsing cache after successful compactions; they should pass only when the runner emits a `context.compaction.deferred` or equivalent paused evidence with a clear reason and leaves later provider context append-only until enough new evidence justifies retry. Companion tests should prove a healthy window still compacts when needed and does not pause.
-- 优先级: P2.
-- Gap: This is a production reliability and cost-control guard gap for the existing auto-compaction feature. It should not be solved in WebUI, provider adapters, or external shells; the kernel compaction runner owns the decision because it owns provider usage accounting, compaction state, and provider context projection.
-- Next slice: Define the stuck criteria before implementing executor behavior. Candidate signals include consecutive successful auto compactions, compacted-region size versus retained-tail size, repeated compaction within the retry window, and cache-stability trend. Keep the first implementation conservative: prefer pausing auto compaction with typed evidence over trying to locally estimate token savings.
-- Reference alignment: Aligned with Reasonix's stuck guard for too-small windows and cache-hit preservation tests. Codex also treats compaction as a lifecycle with analytics/status and replacement-history semantics rather than an unbounded loop. Genesis can keep its simpler provider-backed accounting model, but it should not intentionally drift into repeated successful compactions that provide no effective recovery.
-
 ### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Local managed job streaming and attach capability
 
 - Status: open.
