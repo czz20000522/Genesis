@@ -6,11 +6,6 @@ import (
 	"strings"
 )
 
-const (
-	WorkStatusOpen     = "open"
-	WorkStatusCanceled = "canceled"
-)
-
 var ErrWorkNotFound = errors.New("work not found")
 
 func (k *Kernel) SubmitWork(req WorkSubmitRequest) (WorkProjection, error) {

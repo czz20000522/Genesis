@@ -78,6 +78,10 @@ Genesis translation:
   DTOs, not generic root facade DTOs. Genesis equivalent:
   `TestArchitectureBoundaryAuthorityOwnerHasSubpackageApprovalSurface` fails
   until approval/readiness DTOs live under `internal/kernel/authority`.
+- Reference behavior: work request and projection records are Work Registry DTOs,
+  not session facade DTOs. Genesis equivalent:
+  `TestArchitectureBoundaryWorkRegistryOwnerHasSubpackageTypeSurface` fails
+  until work DTOs live under `internal/kernel/workregistry`.
 
 ## Phase A: Resource Owner Package
 
@@ -234,6 +238,32 @@ Genesis translation:
 - Still short of production:
   - Approval owner behavior and sandbox readiness execution still live in root
     until an authority-plane port is designed and covered by red tests.
+
+## Phase C4: Work Registry DTO Package
+
+- Deliverable: move work submit/cancel request DTOs, work projection DTO, and
+  work status constants to `internal/kernel/workregistry`.
+- Red lines:
+  - Do not move work submission/cancellation behavior, event append/replay,
+    idempotency lookup, validation, or merge conflict detection.
+  - Do not change status strings, JSON field names, or HTTP/session projection
+    behavior.
+  - Keep root aliases while event schema, HTTP, and session projections still
+    depend on root package names.
+- Tests:
+  - Work Registry owner structure guard.
+  - Work Registry DTO JSON-shape unit tests.
+  - Existing work owner tests stay green through aliases.
+- Evidence:
+  - `go test ./internal/kernel/workregistry -count=1`
+  - `go test ./internal/kernel -run "TestArchitectureBoundaryWorkRegistryOwnerHasSubpackageTypeSurface|TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles|TestWork|TestSubmitWork|TestCancelWork|TestHTTPWork" -count=1`
+  - `go test ./internal/kernel -count=1`
+  - `go test ./... -count=1`
+  - `go build ./...`
+  - `git diff --check`
+- Still short of production:
+  - Work behavior still lives in root until event append/replay and validation
+    ports are introduced with dedicated red tests.
 
 ## Later Phases
 

@@ -35,7 +35,7 @@ still allowed to extract gradually.
 | Job and observation owner | `jobs.go`, `observations.go`, `job_progress_test.go`, `interrupt_test.go` | Jobs and observations own managed job status, sparse output facts, terminal observations, and delivery to later turns. |
 | Resource and skill metadata | `resource/registry.go`, `resource/types.go`, `resource/registry_test.go`, root aliases in `resource_types.go`, `resource_read_test.go`, `skill_catalog.go`, `skill_catalog_types.go`, `skill_catalog_test.go` | Resource read is a generic primitive. Skill catalog exposes bounded metadata only; skill bodies remain user-space assets unless admitted through a generic resource/context contract. |
 | Accumulation and memory | `memory.go`, `memory_types.go`, `memory_context_test.go` | Memory owner owns candidates, review decisions, recall eligibility, and model-visible safe projection. |
-| Work Registry | `work.go`, `work_types.go` | Work owner records generic work state and cancellation, not application task semantics. |
+| Work Registry | `work.go`, `work_types.go`, `workregistry/types.go` | Work owner records generic work state and cancellation, not application task semantics. The first extracted slice is work DTOs under `internal/kernel/workregistry`. |
 | Context compaction | `context_compaction.go`, `context_compaction_types.go`, `context_compaction_stuck_test.go` | Compaction runner is kernel-owned context control. Triggers submit kernel commands; shells and apps do not summarize history. |
 | Projection and inspection | `session_projection.go`, `projections.go`, `ui_timeline_projection.go`, `inspection_types.go`, `evidence_redaction.go`, `timeline_projection_test.go`, `projection_shape_test.go` | These files build safe read models. UI shells must consume projections, not reinterpret raw events. |
 | HTTP transport | `http.go`, `http_turn.go`, `http_tools.go`, `http_work.go`, `http_memory.go`, `http_inspection.go`, `http_approvals.go` | HTTP files are transport adapters: auth, decode, route, delegate, encode. They do not own lifecycle or truth. |
@@ -81,7 +81,7 @@ contract tests before moving callers.
 | `internal/kernel/authority` | approval/readiness DTOs first; later authority gate, sandbox readiness, approval owner | Approval/sandbox command path is stable enough to expose an authority-plane port. |
 | `internal/kernel/jobruntime` | managed jobs, observations, process executor integration | Attach/detach, progress snapshots, cancellation, and observation delivery have stable replay semantics. |
 | `internal/kernel/accumulation` | memory candidate/review/recall | Memory owner has a stable store and projection port independent of session projection. |
-| `internal/kernel/workregistry` | work records and cancellation | Work owner needs no direct access to `Kernel` internals beyond event append/replay ports. |
+| `internal/kernel/workregistry` | work DTOs first; later work records and cancellation behavior | Work owner needs no direct access to `Kernel` internals beyond event append/replay ports. |
 | `internal/kernel/transport/http` | HTTP route files | Route handlers can import owner ports without creating an import cycle or duplicating owner policy. |
 
 ## First Relocation Candidates
