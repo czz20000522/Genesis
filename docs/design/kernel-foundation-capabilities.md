@@ -50,6 +50,47 @@ same rule when clients are expected to iterate them. Optional scalar fields and
 diagnostic-only nested collections may still be omitted when absence is the
 documented meaning.
 
+## Model Gateway Resilience
+
+Provider reliability belongs to the Model Gateway, not to shells,
+applications, provider commands, or connector adapters. The gateway classifies
+provider failures before it decides whether a turn may continue.
+
+For the current non-streaming provider surface, the retry planner is:
+
+1. Build the provider request from ledger-backed context.
+2. Call the provider once.
+3. If the failure is a pre-output transient transport or status failure, such
+   as HTTP 408, 429, or 5xx, record `model.provider_attempt` evidence and retry
+   within the bounded attempt budget. `Retry-After` may delay the retry within
+   the kernel cap.
+4. If the failure is authentication, authorization, quota/billing,
+   configuration, request-shape, provider-command process failure, or
+   provider-command response-shape failure, fail fast with a typed
+   `turn.failed` reason and do not retry.
+5. If the provider response has tool calls, pass them to ToolGateway through
+   the ordinary tool loop.
+6. If the provider response has a visible final answer, record the final answer
+   and complete the turn.
+7. If the provider response has no visible final answer and no tool calls,
+   record `model.provider_repair` evidence and issue a bounded repair request
+   asking only for a visible final answer. Hidden reasoning is not replayed.
+8. If the repair budget is exhausted, fail with a typed visible-final-required
+   reason.
+
+Retry and repair evidence is inspection and audit material, not transcript
+content. It may include attempt number, max attempts, status, reason code,
+retryability, repair kind, and redacted diagnostic text. It must not include
+provider raw payloads, credentials, authorization headers, hidden reasoning, or
+provider-native request bodies.
+
+Provider retry does not re-execute already admitted tools. Once a provider step
+has produced accepted tool calls or visible output, the next failure is handled
+at the next provider boundary; it is not a reason to replay previous effects.
+When future streaming provider support exists, the stream reconnect rule is
+stricter: retry is allowed only before visible assistant output or tool calls
+have been accepted into the kernel fact trail.
+
 ## Skill Catalog Projection
 
 Skill packages are user-space assets. The kernel scans configured skill roots only to build a safe metadata index for capability and provider-context projection. Discovery is bounded by recursion depth, candidate count per root, and `SKILL.md` metadata file size before parsing. Exclusions use stable path-free reasons so `/capabilities` can explain skipped metadata without exposing package paths, skill bodies, or heavy file contents.

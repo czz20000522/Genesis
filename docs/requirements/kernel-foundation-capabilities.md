@@ -150,6 +150,10 @@ Every production store or schema proposal must answer:
 - Provider-native usage is normalized into kernel evidence when upstream fields are present: input tokens, output tokens, total tokens, cache hit tokens, cache miss tokens, and provider-backed processed input tokens.
 - Token accounting belongs to the Model Gateway. Compaction selectors consume provider-backed accounting and do not fall back to local text token estimates.
 - Provider failures become structured model/provider failures. They are not command stderr and are not disguised as tool results.
+- Provider retry is a Model Gateway contract. Non-streaming provider calls may retry only pre-output transient failures such as temporary transport errors, HTTP 408, 429, and 5xx. Authentication, authorization, billing/quota, configuration, request-shape, provider-command process, and provider-command response-shape failures fail fast with typed reasons.
+- Provider retry evidence is durable and bounded. Each retry, repair, and final failure records attempt status, reason code, retryability, and a redacted message without storing raw provider payloads or credentials.
+- A provider response that is syntactically valid but lacks a visible final answer is repairable only through a bounded Model Gateway visible-final repair step. The repair prompt may ask for a visible answer; it must not replay hidden reasoning. Repeated empty visible finals fail with a typed provider-visible-final reason.
+- Future streaming provider reconnects must preserve the no-replay-after-visible-output rule: a stream may be retried only before visible assistant output or tool calls have been accepted into the kernel fact trail.
 - Context compaction is executed by a kernel compaction runner. Triggers submit typed kernel commands; shells, adapters, provider commands, and daemons do not summarize, truncate, or rewrite history.
 
 ### Tool Runtime

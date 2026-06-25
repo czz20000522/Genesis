@@ -161,7 +161,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		if err != nil {
 			return TurnResponse{}, err
 		}
-		modelResp, err := k.provider.Complete(runCtx, providerContext.ModelRequest())
+		modelResp, err := k.completeProviderStep(runCtx, sessionID, turnID, roundIndex, providerContext)
 		if err != nil {
 			if isTurnContextInterrupted(runCtx, err) {
 				return k.completeInterruptedTurn(sessionID, turnID)
@@ -284,6 +284,92 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 		return nil, nil, err
 	}
 	return recalledMemories, modelInputs, nil
+}
+
+func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, turnID string, roundIndex int, providerContext ProviderContextProjection) (ModelResponse, error) {
+	baseRequest := providerContext.ModelRequest()
+	transientAttempt := 1
+	visibleRepairCount := 0
+	for {
+		request := cloneModelRequest(baseRequest)
+		if visibleRepairCount > 0 {
+			request.InputItems = append(request.InputItems, ModelInputItem{
+				Kind: ModelInputKindProviderRepairContext,
+				Text: providerVisibleFinalRepairPrompt,
+			})
+		}
+		modelResp, err := k.provider.Complete(ctx, request)
+		if err == nil && modelResponseNeedsVisibleFinalRepair(modelResp) {
+			err = newProviderVisibleFinalRequiredError()
+		}
+		if err == nil {
+			return modelResp, nil
+		}
+		if isTurnContextInterrupted(ctx, err) {
+			return ModelResponse{}, err
+		}
+		if errors.Is(err, ErrProviderVisibleFinalRequired) && visibleRepairCount < maxProviderVisibleFinalRepairs {
+			visibleRepairCount++
+			if appendErr := k.appendProviderAttempt(sessionID, turnID, "model.provider_repair", ProviderAttemptProjection{
+				RoundIndex:  roundIndex,
+				Attempt:     visibleRepairCount,
+				MaxAttempts: maxProviderVisibleFinalRepairs,
+				Status:      "repairing",
+				ReasonCode:  "provider_visible_final_required",
+				Message:     "provider returned no visible assistant content",
+				RepairKind:  "visible_final",
+			}); appendErr != nil {
+				return ModelResponse{}, appendErr
+			}
+			continue
+		}
+		failure := providerFailureFromError(err)
+		if failure.Retryable && transientAttempt < maxProviderTransientAttempts {
+			if appendErr := k.appendProviderAttempt(sessionID, turnID, "model.provider_attempt", ProviderAttemptProjection{
+				RoundIndex:  roundIndex,
+				Attempt:     transientAttempt,
+				MaxAttempts: maxProviderTransientAttempts,
+				Status:      "retrying",
+				ReasonCode:  failure.ReasonCode,
+				Message:     failure.Message,
+				Retryable:   true,
+			}); appendErr != nil {
+				return ModelResponse{}, appendErr
+			}
+			if delay := providerRetryDelay(err); delay > 0 {
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return ModelResponse{}, ctx.Err()
+				case <-timer.C:
+				}
+			}
+			transientAttempt++
+			continue
+		}
+		failure.RoundIndex = roundIndex
+		failure.Attempt = transientAttempt
+		failure.MaxAttempts = maxProviderTransientAttempts
+		if errors.Is(err, ErrProviderVisibleFinalRequired) {
+			failure.Attempt = visibleRepairCount + 1
+			failure.MaxAttempts = maxProviderVisibleFinalRepairs + 1
+		}
+		if appendErr := k.appendProviderAttempt(sessionID, turnID, "model.provider_attempt", failure); appendErr != nil {
+			return ModelResponse{}, appendErr
+		}
+		return ModelResponse{}, err
+	}
+}
+
+func cloneModelRequest(req ModelRequest) ModelRequest {
+	return ModelRequest{
+		SessionID:    req.SessionID,
+		TurnID:       req.TurnID,
+		InputItems:   cloneModelInputItems(req.InputItems),
+		ToolManifest: cloneToolSpecs(req.ToolManifest),
+		ToolRounds:   cloneModelToolRounds(req.ToolRounds),
+	}
 }
 
 func (k *Kernel) contextRuntimeSnapshot() *ContextRuntimeSnapshot {
@@ -447,6 +533,24 @@ func (k *Kernel) appendTurnFailure(sessionID string, turnID string, failure Turn
 		CreatedAt: failedAt,
 		Data: EventData{
 			TurnError: &failure,
+		},
+	})
+}
+
+func (k *Kernel) appendProviderAttempt(sessionID string, turnID string, eventType string, attempt ProviderAttemptProjection) error {
+	now := k.clock()
+	if strings.TrimSpace(eventType) == "" {
+		eventType = "model.provider_attempt"
+	}
+	attempt.Message = redactEvidenceText(attempt.Message)
+	return k.appendEvent(StoredEvent{
+		EventID:   newID("evt", now),
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      eventType,
+		CreatedAt: now,
+		Data: EventData{
+			ProviderAttempt: &attempt,
 		},
 	})
 }
@@ -881,13 +985,18 @@ func validateTurnRequest(req TurnRequest) error {
 }
 
 func turnFailureFromProviderError(err error) TurnError {
-	code := "provider_error"
-	if errors.Is(err, ErrProviderUnavailable) {
-		code = "provider_unavailable"
+	failure := providerFailureFromError(err)
+	code := failure.ReasonCode
+	if code == "" {
+		code = "provider_error"
+	}
+	message := failure.Message
+	if message == "" {
+		message = redactEvidenceText(err.Error())
 	}
 	return TurnError{
 		Code:    code,
-		Message: redactEvidenceText(err.Error()),
+		Message: message,
 	}
 }
 

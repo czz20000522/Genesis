@@ -893,12 +893,16 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testi
 		t.Fatalf("retry error = %#v, want provider_unavailable turn error", retry["error"])
 	}
 	retryEvents, ok := retry["events"].([]interface{})
-	if !ok || len(retryEvents) != 2 {
-		t.Fatalf("retry events = %#v, want original submitted and failed events", retry["events"])
+	if !ok || len(retryEvents) != 3 {
+		t.Fatalf("retry events = %#v, want original submitted, provider attempt, and failed events", retry["events"])
 	}
-	lastEvent, ok := retryEvents[1].(map[string]interface{})
+	attemptEvent, ok := retryEvents[1].(map[string]interface{})
+	if !ok || attemptEvent["type"] != "model.provider_attempt" {
+		t.Fatalf("retry attempt event = %#v, want model.provider_attempt", retryEvents[1])
+	}
+	lastEvent, ok := retryEvents[2].(map[string]interface{})
 	if !ok || lastEvent["type"] != "turn.failed" {
-		t.Fatalf("retry last event = %#v, want turn.failed", retryEvents[1])
+		t.Fatalf("retry last event = %#v, want turn.failed", retryEvents[2])
 	}
 	if retryProvider.Calls() != 0 {
 		t.Fatalf("retry provider calls = %d, want 0", retryProvider.Calls())
@@ -907,7 +911,7 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testi
 	if err != nil {
 		t.Fatalf("Session returned error: %v", err)
 	}
-	if len(projection.Turns) != 1 || projection.Turns[0].Status != "failed" || len(projection.Events) != 2 {
+	if len(projection.Turns) != 1 || projection.Turns[0].Status != "failed" || len(projection.Events) != 3 {
 		t.Fatalf("projection = %+v, want original failed turn only", projection)
 	}
 }
@@ -4936,8 +4940,8 @@ func TestHTTPReportsBlockedProvider(t *testing.T) {
 	if projection.Turns[0].Error == nil || projection.Turns[0].Error.Code != "provider_unavailable" {
 		t.Fatalf("turn error = %+v, want provider_unavailable", projection.Turns[0].Error)
 	}
-	if len(projection.Events) != 2 || projection.Events[0].Type != "turn.submitted" || projection.Events[1].Type != "turn.failed" {
-		t.Fatalf("events = %+v, want submitted then failed", projection.Events)
+	if len(projection.Events) != 3 || projection.Events[0].Type != "turn.submitted" || projection.Events[1].Type != "model.provider_attempt" || projection.Events[2].Type != "turn.failed" {
+		t.Fatalf("events = %+v, want submitted, provider attempt, then failed", projection.Events)
 	}
 }
 
@@ -7304,7 +7308,7 @@ func TestSubmitTurnLiveManagedExecutorRecordsCompletedOutput(t *testing.T) {
 }
 
 func TestSubmitTurnProjectsGenericJobControlToolManifest(t *testing.T) {
-	provider := &toolFeedbackProvider{final: "manifest observed"}
+	provider := &recordingTextProvider{text: "manifest observed"}
 	k, err := New(Config{
 		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
 		Provider:     provider,

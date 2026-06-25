@@ -51,6 +51,7 @@ type EventData struct {
 	RecalledMemories           []MemoryRecall                       `json:"recalled_memories,omitempty"`
 	ToolCall                   *ToolCallProjection                  `json:"tool_call,omitempty"`
 	ToolResult                 *ToolResultProjection                `json:"tool_result,omitempty"`
+	ProviderAttempt            *ProviderAttemptProjection           `json:"provider_attempt,omitempty"`
 	ModelContextAccounting     *ModelContextAccountingProjection    `json:"model_context_accounting,omitempty"`
 	ContextCompaction          *ContextCompactionProjection         `json:"context_compaction,omitempty"`
 	Final                      *FinalMessage                        `json:"final,omitempty"`

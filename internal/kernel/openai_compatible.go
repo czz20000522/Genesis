@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -91,16 +92,20 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
-		return ModelResponse{}, err
+		if ctx.Err() != nil {
+			return ModelResponse{}, err
+		}
+		return ModelResponse{}, newProviderTransportError(err)
 	}
 	defer resp.Body.Close()
 
+	retryAfter := parseProviderRetryAfter(resp)
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
 	if err != nil {
 		return ModelResponse{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ModelResponse{}, fmt.Errorf("provider returned status %d", resp.StatusCode)
+		return ModelResponse{}, newProviderStatusError(resp.StatusCode, string(body), retryAfter)
 	}
 	var decoded chatCompletionResponse
 	if err := json.Unmarshal(body, &decoded); err != nil {
@@ -126,13 +131,28 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 		}, nil
 	}
 	if strings.TrimSpace(message.Content) == "" {
-		return ModelResponse{}, errors.New("provider returned no assistant content")
+		return ModelResponse{}, newProviderVisibleFinalRequiredError()
 	}
 	return ModelResponse{
 		Text:  message.Content,
 		Model: model,
 		Usage: tokenUsageFromChatUsage(decoded.Usage),
 	}, nil
+}
+
+func parseProviderRetryAfter(resp *http.Response) time.Duration {
+	if resp == nil {
+		return 0
+	}
+	value := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	if value == "" {
+		return 0
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < 0 {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func chatMessagesFromModelRequest(req ModelRequest) []chatMessage {

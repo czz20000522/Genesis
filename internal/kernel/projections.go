@@ -313,6 +313,11 @@ func inspectionEventData(data EventData) EventData {
 		copied.Content = redactEvidenceText(copied.Content)
 		next.ToolResult = &copied
 	}
+	if data.ProviderAttempt != nil {
+		copied := *data.ProviderAttempt
+		copied.Message = redactEvidenceText(copied.Message)
+		next.ProviderAttempt = &copied
+	}
 	if data.Final != nil {
 		copied := redactFinalMessage(*data.Final)
 		next.Final = &copied
@@ -418,6 +423,13 @@ func auditReplayItem(event StoredEvent) AuditReplayItem {
 		if data.KernelObservationDelivery != nil {
 			item.ToolStatus = "delivered"
 			item.OutputPreview = boundedTimelinePreview(strings.Join(data.KernelObservationDelivery.ObservationEventIDs, "\n"))
+		}
+	case "model.provider_attempt", "model.provider_repair":
+		if data.ProviderAttempt != nil {
+			item.ToolStatus = data.ProviderAttempt.Status
+			item.ErrorCode = data.ProviderAttempt.ReasonCode
+			item.ErrorMessage = data.ProviderAttempt.Message
+			item.OutputPreview = boundedTimelinePreview(data.ProviderAttempt.RepairKind)
 		}
 	case "model.final":
 		if data.Final != nil {
