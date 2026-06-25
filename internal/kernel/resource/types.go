@@ -1,9 +1,32 @@
 package resource
 
+const (
+	ReferenceVisibilityPublic        = "public_reference"
+	ReferenceVisibilityRuntimeHandle = "runtime_handle"
+	ReferenceVisibilityOwnerInternal = "owner_internal_ref"
+
+	ReferenceKindTextResource = "text_resource"
+
+	ReferenceOperationReadText = "read_text"
+
+	ReferenceOwnerKernelResource = "kernel.resource"
+)
+
 type Descriptor struct {
 	Ref      string
 	MimeType string
 	Text     string
+}
+
+type ReferenceDescriptor struct {
+	Ref                 string            `json:"ref"`
+	RefKind             string            `json:"ref_kind"`
+	Owner               string            `json:"owner"`
+	DisplayLabel        string            `json:"display_label,omitempty"`
+	AvailableOperations []string          `json:"available_operations"`
+	Scope               string            `json:"scope,omitempty"`
+	Provenance          string            `json:"provenance,omitempty"`
+	PublicMetadata      map[string]string `json:"public_metadata,omitempty"`
 }
 
 type Metadata struct {
