@@ -7,7 +7,12 @@ import (
 )
 
 func handleListApprovals(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	items, err := k.Approvals(strings.TrimSpace(r.URL.Query().Get("status")))
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	if !validApprovalStatusFilter(status) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "status must be pending, approved, denied, or expired")
+		return
+	}
+	items, err := k.Approvals(status)
 	if writeKernelUnavailable(w, err) {
 		return
 	}
@@ -16,6 +21,15 @@ func handleListApprovals(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ApprovalListResponse{Items: items})
+}
+
+func validApprovalStatusFilter(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "", ApprovalStatusPending, ApprovalStatusApproved, ApprovalStatusDenied, ApprovalStatusExpired:
+		return true
+	default:
+		return false
+	}
 }
 
 func isApprovalDecisionPath(path string) bool {

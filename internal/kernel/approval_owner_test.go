@@ -431,6 +431,43 @@ func TestApprovalHTTPSurfaceListsPendingAndSubmitsDecisionCommand(t *testing.T) 
 	if _, err := os.Stat(target); err != nil {
 		t.Fatalf("HTTP-approved command did not create %q: %v", target, err)
 	}
+
+	retryResp, err := postJSONWithAuth(server.URL+"/approvals/"+approvalID+"/decision", []byte(`{"decision":"approved","decision_authority":"operator:test","decision_reason":"retry approve exact frozen request","decision_evidence_ref":"approval:http-approve-retry"}`))
+	if err != nil {
+		t.Fatalf("POST retry approve decision returned error: %v", err)
+	}
+	defer retryResp.Body.Close()
+	if retryResp.StatusCode != http.StatusOK {
+		t.Fatalf("retry approve status = %d, want 200 idempotent replay", retryResp.StatusCode)
+	}
+	projection, err := k.Session("approval-http-surface")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	completed := 0
+	for _, operation := range projection.Operations {
+		if operation.Status == "completed" {
+			completed++
+		}
+	}
+	if completed != 1 {
+		t.Fatalf("completed operations = %d in %+v, want one approved effect after retry", completed, projection.Operations)
+	}
+}
+
+func TestApprovalHTTPListRejectsUnknownStatusFilter(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	server := httptest.NewServer(Handler(k))
+	t.Cleanup(server.Close)
+
+	resp, err := getWithAuth(server.URL + "/approvals?status=maybe")
+	if err != nil {
+		t.Fatalf("GET /approvals returned error: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("GET /approvals unknown status = %d, want 400", resp.StatusCode)
+	}
 }
 
 func newApprovalRequiredTurnKernel(t *testing.T, workspace string, target string) (*Kernel, *toolFeedbackProvider) {

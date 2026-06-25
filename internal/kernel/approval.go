@@ -56,6 +56,22 @@ func (k *Kernel) DecideApproval(ctx context.Context, req ApprovalDecisionRequest
 		return ApprovalProjection{}, fmt.Errorf("%w: approval not found", ErrApprovalRejected)
 	}
 	if approval.Status != ApprovalStatusPending {
+		if approval.Status == ApprovalStatusApproved && strings.TrimSpace(req.Decision) == ApprovalDecisionApproved {
+			operation, ok, err := k.rawOperationByID(approval.SessionID, approval.OperationID)
+			if err != nil {
+				k.approvalMu.Unlock()
+				return ApprovalProjection{}, err
+			}
+			if !ok {
+				k.approvalMu.Unlock()
+				return ApprovalProjection{}, fmt.Errorf("%w: approval operation evidence is missing", ErrApprovalRejected)
+			}
+			k.approvalMu.Unlock()
+			if err := k.ensureApprovedApprovalEffect(ctx, approval, operation); err != nil {
+				return redactApprovalProjection(approval), err
+			}
+			return redactApprovalProjection(approval), nil
+		}
 		k.approvalMu.Unlock()
 		return ApprovalProjection{}, fmt.Errorf("%w: approval is already %s", ErrApprovalRejected, approval.Status)
 	}
@@ -129,21 +145,7 @@ func (k *Kernel) DecideApproval(ctx context.Context, req ApprovalDecisionRequest
 			return ApprovalProjection{}, err
 		}
 		k.approvalMu.Unlock()
-		execReq := ShellExecRequest{
-			SessionID:      operation.SessionID,
-			CWD:            operation.CWD,
-			Command:        operation.Command,
-			TimeoutSec:     operation.TimeoutSec,
-			IdempotencyKey: "approval:" + approval.ApprovalID,
-			approvedByID:   approval.ApprovalID,
-		}
-		if normalizedShellTimeoutSec(operation.TimeoutSec) > maxForegroundShellTimeoutSec {
-			if _, err := k.toolGateway().InvokeShell(ctx, execReq, operation.TurnID, "", true); err != nil {
-				return redactApprovalProjection(approved), err
-			}
-			return redactApprovalProjection(approved), nil
-		}
-		if _, err := k.toolGateway().ExecShell(ctx, execReq, operation.TurnID); err != nil {
+		if err := k.ensureApprovedApprovalEffect(ctx, approved, operation); err != nil {
 			return redactApprovalProjection(approved), err
 		}
 		return redactApprovalProjection(approved), nil
@@ -151,6 +153,23 @@ func (k *Kernel) DecideApproval(ctx context.Context, req ApprovalDecisionRequest
 		k.approvalMu.Unlock()
 		return ApprovalProjection{}, fmt.Errorf("%w: unknown approval decision", ErrApprovalRejected)
 	}
+}
+
+func (k *Kernel) ensureApprovedApprovalEffect(ctx context.Context, approval ApprovalProjection, operation OperationProjection) error {
+	execReq := ShellExecRequest{
+		SessionID:      operation.SessionID,
+		CWD:            operation.CWD,
+		Command:        operation.Command,
+		TimeoutSec:     operation.TimeoutSec,
+		IdempotencyKey: "approval:" + approval.ApprovalID,
+		approvedByID:   approval.ApprovalID,
+	}
+	if normalizedShellTimeoutSec(operation.TimeoutSec) > maxForegroundShellTimeoutSec {
+		_, err := k.toolGateway().InvokeShell(ctx, execReq, operation.TurnID, "", true)
+		return err
+	}
+	_, err := k.toolGateway().ExecShell(ctx, execReq, operation.TurnID)
+	return err
 }
 
 func (k *Kernel) Approvals(status string) ([]ApprovalProjection, error) {

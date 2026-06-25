@@ -343,17 +343,18 @@ Current profile semantics:
 - `plan` resolves to read-only authority and a read-only sandbox profile.
 - `default` resolves to workspace-write authority and `controlled_workspace`; this is an adapter-level workspace write gate, not an OS sandbox claim.
 - `yolo` resolves to full-access authority and host execution.
-- `on_request` approval blocks write-side effects at admission until an approval owner exists; it returns model-repairable `approval_required` feedback and records blocked operation evidence.
+- `on_request` approval creates a kernel-owned pending approval for the frozen write-side effect after sandbox/workspace admission checks pass; it returns model-repairable `approval_required` feedback and records blocked operation plus approval evidence without executing the effect.
 - unavailable stronger sandbox profiles fail closed before execution and return model-repairable sandbox feedback. They must not degrade to host execution.
 
 Approval UI, prompts, or shell transports can request or display approval state, but they cannot decide authority, mint tool results, or mark a blocked operation as executed. Future interactive approval must be introduced as typed control-plane state owned by the kernel.
 
 ### Future Sandbox / Approval Flow
 
-The current kernel blocks `approval_policy=on_request` write effects because no
-interactive approval owner exists yet. A production approval path must extend
-the same Authority Plane instead of adding a shell-local prompt or transport
-shortcut.
+The current kernel has a minimal approval owner command path and HTTP/console
+inspection-command surface for approving or denying frozen effect requests. A
+full product UI and stronger OS sandbox executor remain separate future work.
+Any future surface must keep extending the same Authority Plane instead of
+adding a shell-local prompt or transport shortcut.
 
 Future flow:
 
