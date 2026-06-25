@@ -55,6 +55,11 @@ Genesis translation:
   package. Genesis equivalent: `internal/kernel/modelgateway` tests cover
   retryable status classification, fail-fast auth, redacted provider attempt
   projection, capped Retry-After handling, and visible-final repair detection.
+- Reference behavior: provider usage/accounting DTOs belong to the model
+  gateway boundary rather than the root facade. Genesis equivalent:
+  `TestArchitectureBoundaryModelGatewayOwnerHasSubpackageAccountingSurface`
+  fails until token usage and context accounting projection live under
+  `internal/kernel/modelgateway`.
 - Reference behavior: tool scheduling policy is a runtime/tool owner concern
   independent of concrete shell execution. Genesis equivalent:
   `TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageSchedulingSurface`
@@ -117,6 +122,31 @@ Genesis translation:
   - `ProviderContextProjection`, provider command transport, built-in OpenAI
     adapter, and provider setup remain root-level Model Gateway files until
     later package slices add their own red tests.
+
+## Phase B2: Model Gateway Accounting DTO Package
+
+- Deliverable: move token usage, context accounting projection DTOs, and token
+  usage copy helper to `internal/kernel/modelgateway`.
+- Red lines:
+  - Do not move provider context projection, OpenAI usage wire parsing, context
+    compaction selection, or ledger event schema in this slice.
+  - Do not change provider-backed token semantics; this is package ownership
+    only.
+- Tests:
+  - Model Gateway accounting structure guard.
+  - Model Gateway accounting owner unit tests.
+  - Existing context accounting and compaction tests continue through root
+    compatibility aliases.
+- Evidence:
+  - `go test ./internal/kernel/modelgateway -count=1`
+  - `go test ./internal/kernel -run "TestArchitectureBoundaryModelGatewayOwnerHasSubpackageAccountingSurface|TestModelGatewayAccounts|TestAutoCompaction|TestCompaction" -count=1`
+  - `go test ./internal/kernel -count=1`
+  - `go test ./... -count=1`
+  - `go build ./...`
+  - `git diff --check`
+- Still short of production:
+  - Provider usage wire parsing, provider context projection, and compaction
+    policy remain later slices with separate red tests.
 
 ## Phase C: Tool Runtime Scheduling Package
 

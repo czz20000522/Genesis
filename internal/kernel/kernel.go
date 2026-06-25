@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"genesis/internal/kernel/modelgateway"
 	"genesis/internal/kernel/resource"
 )
 
@@ -764,11 +765,7 @@ func modelToolRoundCounts(rounds []ModelToolRound) (int, int, int) {
 }
 
 func cloneTokenUsage(usage *TokenUsage) *TokenUsage {
-	if usage == nil {
-		return nil
-	}
-	cloned := *usage
-	return &cloned
+	return modelgateway.CloneTokenUsage(usage)
 }
 
 func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID string, policy ContextPolicy) (ProviderContextProjection, bool) {

@@ -758,6 +758,24 @@ func TestArchitectureBoundaryModelGatewayOwnerHasSubpackageResilienceSurface(t *
 	}
 }
 
+func TestArchitectureBoundaryModelGatewayOwnerHasSubpackageAccountingSurface(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join(kernelPackageDir(t), "..", ".."))
+	modelGatewayDir := filepath.Join(repoRoot, "internal", "kernel", "modelgateway")
+	gotTypes := kernelTypeDeclarationFiles(t, modelGatewayDir)
+	for typeName, wantFile := range map[string]string{
+		"ContextAccountingProjection": "accounting.go",
+		"TokenUsage":                  "accounting.go",
+	} {
+		if gotFile := gotTypes[typeName]; gotFile != wantFile {
+			t.Fatalf("modelgateway owner accounting type %s declared in %q, want %q", typeName, gotFile, wantFile)
+		}
+	}
+	gotFunctions := kernelFunctionDeclarationFiles(t, modelGatewayDir)
+	if gotFile := gotFunctions["CloneTokenUsage"]; gotFile != "accounting.go" {
+		t.Fatalf("modelgateway owner function CloneTokenUsage declared in %q, want accounting.go", gotFile)
+	}
+}
+
 func TestArchitectureBoundaryToolRuntimeOwnerHasSubpackageSchedulingSurface(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join(kernelPackageDir(t), "..", ".."))
 	toolRuntimeDir := filepath.Join(repoRoot, "internal", "kernel", "toolruntime")
