@@ -2,6 +2,7 @@ package resource
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -90,4 +91,93 @@ func TestReferenceDescriptorDoesNotExposeInternalRefs(t *testing.T) {
 			t.Fatalf("descriptor leaked internal ref marker %q: %s", forbidden, string(payload))
 		}
 	}
+}
+
+func TestRegistryDescribeKnownTextResource(t *testing.T) {
+	registry, err := NewRegistry([]Descriptor{{
+		Ref:      "res_alpha",
+		MimeType: "text/plain",
+		Text:     "alpha text",
+	}})
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+
+	descriptor, ok := registry.DescribeReference("res_alpha")
+	if !ok {
+		t.Fatal("DescribeReference(res_alpha) returned ok=false")
+	}
+	if descriptor.Ref != "res_alpha" || descriptor.RefKind != ReferenceKindTextResource || descriptor.Owner != ReferenceOwnerKernelResource {
+		t.Fatalf("descriptor = %+v, want kernel text resource descriptor", descriptor)
+	}
+	if !reflect.DeepEqual(descriptor.AvailableOperations, []string{ReferenceOperationReadText}) {
+		t.Fatalf("available operations = %v, want read_text", descriptor.AvailableOperations)
+	}
+	if descriptor.PublicMetadata["mime_type"] != "text/plain" || descriptor.PublicMetadata["original_bytes"] == "" || descriptor.PublicMetadata["resource_hash"] == "" {
+		t.Fatalf("public metadata = %+v, want mime/size/hash", descriptor.PublicMetadata)
+	}
+}
+
+func TestRegistryDescribeUnknownResource(t *testing.T) {
+	registry, err := NewRegistry([]Descriptor{{
+		Ref:      "res_alpha",
+		MimeType: "text/plain",
+		Text:     "alpha text",
+	}})
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	if descriptor, ok := registry.DescribeReference("res_missing"); ok {
+		t.Fatalf("DescribeReference(res_missing) = %+v, true; want no descriptor", descriptor)
+	}
+}
+
+func TestRegistryDescribeNonTextResourceHasNoReadTextOperation(t *testing.T) {
+	registry, err := NewRegistry([]Descriptor{{
+		Ref:      "res_json",
+		MimeType: "application/json",
+		Text:     `{"body":"not text"}`,
+	}})
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+
+	descriptor, ok := registry.DescribeReference("res_json")
+	if ok && containsString(descriptor.AvailableOperations, ReferenceOperationReadText) {
+		t.Fatalf("non-text descriptor = %+v, must not expose read_text", descriptor)
+	}
+}
+
+func TestRegistryDescriptorIsPathFreeAndStorageRefFree(t *testing.T) {
+	registry, err := NewRegistry([]Descriptor{{
+		Ref:      "res_alpha",
+		MimeType: "text/plain",
+		Text:     "body with storage_ref and C:\\private\\file.txt in local resource text",
+	}})
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+
+	descriptor, ok := registry.DescribeReference("res_alpha")
+	if !ok {
+		t.Fatal("DescribeReference(res_alpha) returned ok=false")
+	}
+	payload, err := json.Marshal(descriptor)
+	if err != nil {
+		t.Fatalf("marshal descriptor: %v", err)
+	}
+	for _, forbidden := range []string{"body with", "storage_ref", "C:\\private", "/tmp/", "raw_payload", "SKILL.md"} {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("descriptor leaked non-public metadata %q: %s", forbidden, string(payload))
+		}
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

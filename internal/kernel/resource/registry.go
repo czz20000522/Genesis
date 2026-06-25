@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -80,6 +82,33 @@ func (r *Registry) Metadata(ref string) (Metadata, error) {
 		ResourceHash:  "sha256:" + hex.EncodeToString(sum[:]),
 		TextReadable:  isTextMimeType(item.mimeType),
 	}, nil
+}
+
+func (r *Registry) DescribeReference(ref string) (ReferenceDescriptor, bool) {
+	metadata, err := r.Metadata(ref)
+	if err != nil || !metadata.TextReadable {
+		return ReferenceDescriptor{}, false
+	}
+	return referenceDescriptorFromMetadata(metadata), true
+}
+
+func (r *Registry) ListReferenceDescriptors() []ReferenceDescriptor {
+	if r == nil {
+		return nil
+	}
+	refs := make([]string, 0, len(r.items))
+	for ref := range r.items {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	descriptors := make([]ReferenceDescriptor, 0, len(refs))
+	for _, ref := range refs {
+		descriptor, ok := r.DescribeReference(ref)
+		if ok {
+			descriptors = append(descriptors, descriptor)
+		}
+	}
+	return descriptors
 }
 
 func (r *Registry) Read(req ReadRequest) (ModelReadResult, error) {
@@ -170,6 +199,23 @@ func NormalizeRef(ref string) (string, error) {
 		}
 	}
 	return ref, nil
+}
+
+func referenceDescriptorFromMetadata(metadata Metadata) ReferenceDescriptor {
+	return ReferenceDescriptor{
+		Ref:                 metadata.Ref,
+		RefKind:             ReferenceKindTextResource,
+		Owner:               ReferenceOwnerKernelResource,
+		DisplayLabel:        metadata.Ref,
+		AvailableOperations: []string{ReferenceOperationReadText},
+		Scope:               "session",
+		Provenance:          "kernel_resource_registry",
+		PublicMetadata: map[string]string{
+			"mime_type":      metadata.MimeType,
+			"original_bytes": strconv.Itoa(metadata.OriginalBytes),
+			"resource_hash":  metadata.ResourceHash,
+		},
+	}
 }
 
 func normalizedMimeType(mimeType string) string {
