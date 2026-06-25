@@ -10,8 +10,6 @@ import (
 	"strings"
 )
 
-const maxModelToolRounds = 4
-
 var ErrModelToolCallRejected = errors.New("model tool call rejected")
 var ErrToolInfrastructureFailed = errors.New("tool infrastructure failed")
 

@@ -91,8 +91,9 @@ type ContextInspectionResponse struct {
 }
 
 type ContextRuntimeSnapshot struct {
-	Provider   ProviderStatus       `json:"provider"`
-	Permission PermissionInspection `json:"permission"`
+	Provider    ProviderStatus        `json:"provider"`
+	BudgetLease BudgetLeaseProjection `json:"budget_lease"`
+	Permission  PermissionInspection  `json:"permission"`
 }
 
 type PermissionInspection struct {

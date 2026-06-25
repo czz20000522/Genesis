@@ -35,13 +35,14 @@ type TurnInterruptionProjection struct {
 }
 
 type TurnPauseProjection struct {
-	SessionID           string    `json:"session_id"`
-	TurnID              string    `json:"turn_id"`
-	Status              string    `json:"status"`
-	Reason              string    `json:"reason"`
-	RoundBudget         int       `json:"round_budget"`
-	CompletedToolRounds int       `json:"completed_tool_rounds"`
-	PausedAt            time.Time `json:"paused_at"`
+	SessionID           string                `json:"session_id"`
+	TurnID              string                `json:"turn_id"`
+	Status              string                `json:"status"`
+	Reason              string                `json:"reason"`
+	RoundBudget         int                   `json:"round_budget"`
+	BudgetLease         BudgetLeaseProjection `json:"budget_lease"`
+	CompletedToolRounds int                   `json:"completed_tool_rounds"`
+	PausedAt            time.Time             `json:"paused_at"`
 }
 
 type TurnEventsResponse struct {

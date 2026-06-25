@@ -14,6 +14,7 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Every active `KERNEL-*` issue must include a `Reference alignment` field that compares the issue to Codex, Reasonix, or an explicitly rejected drift risk.
 - Reference alignment uses local reference checkouts only. Do not cite Genesis GitHub repositories, remote issues, releases, or pull requests as authority for this local kernel line unless the user explicitly asks for external publishing context.
 - Before a non-trivial implementation slice starts, the related implementation plan or issue must include a Codex/Reasonix reference scan. The scan should identify inspected references, learned control-plane semantics, intentional differences, and remaining drift risks.
+- Reference scans must translate relevant Codex/Reasonix behavior tests into Genesis same-semantics red tests or explicitly reject them with a reason. A prose-only reference note is not enough for kernel primitives.
 - Issues record the current gap between approved requirements/designs and the implementation. They must not carry raw requirements, design discussion, or the full production acceptance contract.
 - Every active issue must cite an approved requirement and design unless it is an obvious bug or test gap. If an issue uses that exception, state the exception explicitly.
 - Prefer `Gap`, `Next slice`, `Evidence`, and `Verification` over broad `Problem` or `Suggestion` text when adding new issues.
@@ -24,6 +25,152 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Periodic governance review checks architecture, feature behavior, directory structure, and document lifetime together. Completed plans and stale documents should be deleted or condensed instead of spawning issues that only preserve old notes.
 
 ## Active Issues
+
+### KERNEL-PROVIDER-COMMAND-STRICT-RESPONSE-20260625 - P2 - Provider command responses must reject unknown Genesis protocol fields
+
+- Status: open.
+- Area: Model Gateway / Provider Command Adapter.
+- Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
+- Design: `docs/design/kernel-foundation-capabilities.md`.
+- Gap: Model-visible tool argument schemas now reject hidden control-plane fields
+  before any effect, but the Genesis-owned `provider_command` response envelope
+  is still decoded with ordinary `json.Unmarshal`. Unknown response fields on
+  `providerCommandResponse` or nested `ModelToolCall` values are silently
+  dropped unless they happen to map to an existing Go field such as
+  `tool_call_event_id`. This makes provider-command adapter drift hard to see
+  and weakens the approved rule that model/adapter supplied fields outside the
+  visible contract should produce structured repair or adapter-shape failure
+  instead of being silently ignored.
+- Next slice: Add strict decoding for the Genesis `provider_command` protocol
+  boundary. The command adapter should fail closed on unknown top-level response
+  fields, unknown tool-call envelope fields, and hidden control-plane fields such
+  as `lease_id`, `budget_lease_id`, `event_id`, `operation_id`,
+  `tool_call_event_id`, `permission_mode`, `sandbox_profile`, and
+  `approval_policy`. Keep vendor-native OpenAI-compatible response decoding
+  tolerant of provider-native extra fields; strictness belongs to Genesis-owned
+  typed protocols and model-visible function arguments, not arbitrary upstream
+  JSON that the adapter translates.
+- Evidence: `internal/kernel/provider_command.go` decodes stdout into
+  `providerCommandResponse` via `json.Unmarshal`, and `internal/kernel/tool_types.go`
+  defines `ModelToolCall.UnmarshalJSON` with ordinary `json.Unmarshal`.
+  `validateProviderToolCallBatch` rejects populated `ToolCallEventID`, but
+  unknown fields that do not map to the struct are dropped before validation.
+  Existing tests cover bad JSON, unknown response `kind`, missing final text,
+  missing tool name, malformed tool arguments, hidden IDs omitted from
+  provider-command requests, and unknown fields inside shell tool arguments; they
+  do not cover unknown provider-command response envelope fields.
+- Verification: Add behavior tests where a provider command returns a final
+  response with an extra field, a tool call with `lease_id`, a tool call with
+  `budget_lease_id`, and a tool call with an arbitrary unknown field. Each must
+  fail as adapter/protocol shape failure before `tool.call` events or tool
+  effects. Add a positive test proving valid `provider_command` final and
+  tool-call responses still work. Add a negative test proving the OpenAI-compatible
+  adapter can still tolerate irrelevant vendor-native fields while strict tool
+  argument validation remains enforced.
+- Reference alignment: Codex and Reasonix keep their internal event/tool
+  protocols typed and owner-controlled, while provider/vendor wire shapes are
+  translated behind adapters. Genesis should preserve the same split: tolerate
+  upstream vendor extras at the adapter boundary when needed, but fail closed for
+  unknown fields in the Genesis-owned `provider_command` protocol so control
+  plane fields cannot silently become inert or ambiguous adapter drift.
+
+### KERNEL-TOOL-BATCH-PARALLEL-SIGNAL-20260625 - P2 - ToolExecutionBatch.Parallel must describe actual execution semantics
+
+- Status: open.
+- Area: Tool Runtime / Tool Scheduling.
+- Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
+- Design: `docs/design/kernel-foundation-capabilities.md`.
+- Gap: `ToolExecutionBatch.Parallel` currently means "this planner batch contains
+  more than one call", not "the kernel will execute this batch concurrently".
+  `planToolExecutionBatches` sets `Parallel=true` for grouped `process_io` calls
+  on different job handles, but `canExecuteToolBatchConcurrently` only permits
+  `pure_read` batches to use the concurrent runner. Existing tests therefore
+  encode a contradictory contract: `TestPlanToolExecutionBatchesSerializesSameHandleProcessIO`
+  expects a process-IO batch with `Parallel=true`, while
+  `TestExecuteToolBatchesKeepsProcessIOBatchSerialByDefault` proves the same
+  class still executes serially by default. This is a projection/diagnostic
+  hazard because future UI, trace, scheduler metrics, or replay code may treat
+  `Parallel=true` as durable evidence of real parallel execution.
+- Next slice: Rename or split the planner fields so compatibility grouping,
+  candidate parallelism, and actual concurrent execution cannot be confused.
+  The simplest fix is to make `ToolExecutionBatch.Parallel` mean actual executor
+  concurrency and keep it false for process-IO until process-IO concurrency is
+  implemented. If the planner still needs a grouping hint, use a separate
+  internal field with a precise name such as `CompatibleGroup` or
+  `ExecutionMode`. Tests should stop asserting `Parallel=true` for a batch that
+  the runtime intentionally executes serially.
+- Evidence: `internal/kernel/tool_scheduling.go` assigns
+  `current.Parallel = len(current.CallIndexes) > 1`; `internal/kernel/tool_execution.go`
+  only invokes `executeToolBatchConcurrently` when
+  `canExecuteToolBatchConcurrently` returns true, and that function currently
+  requires `batch.Reason == pure_read`. `internal/kernel/tool_scheduling_test.go`
+  expects `process_io` calls for `job_a` and `job_b` to share a batch with
+  `Parallel=true`; `internal/kernel/tool_execution_test.go` then proves
+  `process_io` starts serially by default.
+- Verification: Add tests proving `ToolExecutionBatch.Parallel` is true only for
+  batches that can use the concurrent runner in the current implementation.
+  Process-IO same-handle calls remain serial; process-IO different-handle calls
+  either remain explicitly serial for now or gain real per-handle concurrent
+  execution with deterministic provider-order commits. Add a guard that no
+  exported/session/diagnostic projection can report a batch as parallel unless
+  the executor actually used concurrent execution.
+- Reference alignment: Reasonix parallelizes only consecutive known read-only
+  tool calls, and Codex exposes parallel capability through handler/runtime
+  support rather than a misleading batch flag. Genesis can keep its richer
+  effect-class planner, but its facts and diagnostics must not claim parallel
+  execution before the runtime actually performs it.
+
+### KERNEL-REFERENCE-BEHAVIOR-RED-TEST-MATRIX-20260625 - P1 - Codex/Reasonix kernel behavior tests must be translated into Genesis red-test gates
+
+- Status: open.
+- Area: Architecture Governance / Test Governance / Kernel Foundation.
+- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
+- Design: `docs/design/kernel-owner-structure-governance.md`.
+- Gap: Active issues require a Codex/Reasonix reference alignment field, but the
+  implementation process does not yet require those reference findings to become
+  Genesis same-semantics red tests. This allowed review to miss production-class
+  gaps that the reference projects already encode as behavior: runtime budgets
+  as configured harness limits rather than hidden constants, parallel execution
+  signals matching actual executor behavior, typed internal protocols rejecting
+  drift, approval/replay crash windows, provider context projection boundaries,
+  and tool/result taxonomy. A prose reference scan can say "aligned" while no
+  failing Genesis test proves the equivalent behavior.
+- Next slice: Add a lightweight reference behavior test matrix requirement to
+  the kernel implementation workflow. For each non-trivial kernel issue or
+  production slice, the implementation plan must list: reference project/file or
+  test behavior inspected, Genesis semantic equivalent, intended Genesis test
+  file, initial red condition, accepted intentional differences, and remaining
+  drift risk. The matrix should be small and local to the slice; do not copy
+  upstream test suites wholesale and do not create permanent tests that only
+  assert upstream names. The first pass should backfill current active kernel
+  areas: BudgetLease/tool-loop control, provider_command strict protocol shape,
+  tool scheduling/parallel execution, approval replay, provider context
+  projection, resource_read/context hydration, managed job observation, and UI
+  timeline/detail projection.
+- Evidence: `KERNEL-BUDGET-LEASE-20260625` was found only after user challenge
+  despite Reasonix exposing `agent.max_steps` / `planner_max_steps` as
+  configured harness-loop limits and Codex separating output caps from runtime
+  execution authority. `KERNEL-TOOL-BATCH-PARALLEL-SIGNAL-20260625` was found
+  only after comparing the implemented planner/executor split with Reasonix's
+  read-only parallel-dispatch semantics and Codex handler runtime support. The
+  existing ledger rule requires reference alignment prose, but not a red-test
+  translation table or proof that the reference behavior has a Genesis
+  equivalent.
+- Verification: Add or update the owner-structure/test-governance requirement
+  and design so every non-trivial kernel implementation plan must include a
+  `Reference behavior red tests` section. Add a small contract/governance test or
+  review script that checks active implementation plans for this section when
+  they claim Codex/Reasonix reference alignment. Backfill the section for current
+  active implementation plans without blocking builds on subjective prose. For at
+  least BudgetLease, provider_command strict response, and tool batch parallel
+  signal, ensure the production fix lands with failing-first behavior tests that
+  directly encode the translated reference semantics.
+- Reference alignment: Reasonix and Codex do not rely on architectural prose
+  alone for core agent/kernel behavior; their confidence comes from behavior
+  suites around max steps, read-only parallel dispatch, approval/sandbox
+  boundaries, provider/tool protocol translation, event projection, and replay.
+  Genesis should translate those semantics into its own owner vocabulary instead
+  of treating local review memory as the gate.
 
 ### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Local managed job streaming and attach capability
 

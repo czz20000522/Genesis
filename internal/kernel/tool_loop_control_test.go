@@ -55,13 +55,13 @@ func TestSubmitTurnPausesToolLoopBudgetWithoutExecutingOverBudgetBatch(t *testin
 	if !containsString(eventTypes, "turn.paused") {
 		t.Fatalf("event types = %v, want turn.paused", eventTypes)
 	}
-	if got := countSessionEventType(projection.Events, "tool.result"); got != maxModelToolRounds {
-		t.Fatalf("tool.result count = %d, want %d committed rounds before pause", got, maxModelToolRounds)
+	if got := countSessionEventType(projection.Events, "tool.result"); got != defaultModelToolRoundBudget {
+		t.Fatalf("tool.result count = %d, want %d committed rounds before pause", got, defaultModelToolRoundBudget)
 	}
-	if got := countSessionEventType(projection.Events, "tool.call"); got != maxModelToolRounds {
+	if got := countSessionEventType(projection.Events, "tool.call"); got != defaultModelToolRoundBudget {
 		t.Fatalf("tool.call count = %d, want no admitted over-budget tool call", got)
 	}
-	if got := provider.CallCount(); got != maxModelToolRounds+1 {
+	if got := provider.CallCount(); got != defaultModelToolRoundBudget+1 {
 		t.Fatalf("provider calls = %d, want budget plus over-budget detection step", got)
 	}
 
@@ -71,6 +71,161 @@ func TestSubmitTurnPausesToolLoopBudgetWithoutExecutingOverBudgetBatch(t *testin
 	}
 	if replayed.TurnID != resp.TurnID || countEventType(replayed.Events, "turn.paused") != 1 {
 		t.Fatalf("replayed response = %+v, want original paused turn evidence", replayed)
+	}
+}
+
+func TestSubmitTurnUsesConfiguredBudgetLeaseForToolRounds(t *testing.T) {
+	dir := testTempDir(t)
+	steps := make([]scriptedToolStep, 0, 5)
+	for i := 0; i < 5; i++ {
+		steps = append(steps, scriptedToolStep{
+			name: "resource_read",
+			args: mustMarshalToolArgs(t, map[string]interface{}{
+				"resource_ref": "cf:tool-loop-lease",
+				"limit_bytes":  64,
+			}),
+		})
+	}
+	provider := &scriptedToolProvider{
+		steps: steps,
+		final: "finished after configured lease",
+	}
+	k := newTestKernelWithBudgetAndResources(t, filepath.Join(dir, "events.jsonl"), BudgetPolicy{
+		ModelToolRoundBudget: 6,
+	}, []ResourceDescriptor{{
+		Ref:      "cf:tool-loop-lease",
+		MimeType: "text/plain",
+		Text:     "LEASED RESOURCE VALUE",
+	}})
+	k.provider = provider
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:      "tool-loop-lease",
+		IdempotencyKey: "configured-budget",
+		InputItems:     []InputItem{{Type: "text", Text: "read five times then answer"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "finished after configured lease" || resp.Pause != nil {
+		t.Fatalf("response = %+v, want final answer without pause", resp)
+	}
+	projection, err := k.Session("tool-loop-lease")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if got := countSessionEventType(projection.Events, "tool.result"); got != 5 {
+		t.Fatalf("tool.result count = %d, want 5 committed rounds", got)
+	}
+	if containsString(sessionEventTypes(projection.Events), "turn.paused") {
+		t.Fatalf("events = %+v, want no turn.paused before configured lease is exhausted", projection.Events)
+	}
+}
+
+func TestSubmitTurnNormalizesZeroBudgetLeaseToDefault(t *testing.T) {
+	dir := testTempDir(t)
+	provider := &repeatingToolProvider{
+		toolName: "resource_read",
+		args: func(round int) json.RawMessage {
+			return mustMarshalToolArgs(t, map[string]interface{}{
+				"resource_ref": "cf:tool-loop-default-lease",
+				"limit_bytes":  64,
+			})
+		},
+	}
+	k := newTestKernelWithBudgetAndResources(t, filepath.Join(dir, "events.jsonl"), BudgetPolicy{
+		ModelToolRoundBudget: 0,
+	}, []ResourceDescriptor{{
+		Ref:      "cf:tool-loop-default-lease",
+		MimeType: "text/plain",
+		Text:     "DEFAULT LEASE RESOURCE",
+	}})
+	k.provider = provider
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "tool-loop-default-lease",
+		InputItems: []InputItem{{Type: "text", Text: "keep reading until default pause"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v, want paused response", err)
+	}
+	if resp.Pause == nil {
+		t.Fatalf("response = %+v, want pause", resp)
+	}
+	if resp.Pause.RoundBudget != defaultModelToolRoundBudget {
+		t.Fatalf("pause round budget = %d, want default %d", resp.Pause.RoundBudget, defaultModelToolRoundBudget)
+	}
+	if got := provider.CallCount(); got != defaultModelToolRoundBudget+1 {
+		t.Fatalf("provider calls = %d, want default budget plus over-budget detection step", got)
+	}
+}
+
+func TestBudgetLeaseIsInspectableButNotModelVisible(t *testing.T) {
+	dir := testTempDir(t)
+	k := newTestKernelWithBudgetAndResources(t, filepath.Join(dir, "events.jsonl"), BudgetPolicy{
+		ModelToolRoundBudget:  7,
+		ModelToolRoundCeiling: 9,
+	}, nil)
+
+	capabilities := k.Capabilities()
+	if capabilities.BudgetLease.ModelToolRoundBudget != 7 || capabilities.BudgetLease.ModelToolRoundCeiling != 9 {
+		t.Fatalf("capabilities budget lease = %+v, want configured effective lease", capabilities.BudgetLease)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "budget-lease-inspection",
+		InputItems: []InputItem{{Type: "text", Text: "inspect lease"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	inspection, err := k.ContextInspection(resp.TurnID)
+	if err != nil {
+		t.Fatalf("ContextInspection returned error: %v", err)
+	}
+	if inspection.Runtime == nil || inspection.Runtime.BudgetLease.ModelToolRoundBudget != 7 {
+		t.Fatalf("context runtime = %+v, want budget lease projection", inspection.Runtime)
+	}
+
+	payload, err := json.Marshal(k.toolGateway().ToolManifest())
+	if err != nil {
+		t.Fatalf("marshal tool manifest: %v", err)
+	}
+	manifest := strings.ToLower(string(payload))
+	for _, forbidden := range []string{"budget", "lease", "round_budget", "model_tool_round"} {
+		if strings.Contains(manifest, forbidden) {
+			t.Fatalf("model-visible tool manifest exposes budget control %q: %s", forbidden, manifest)
+		}
+	}
+}
+
+func TestBudgetLeaseClampsConfiguredBudgetToCeiling(t *testing.T) {
+	k := newTestKernelWithBudgetAndResources(t, filepath.Join(testTempDir(t), "events.jsonl"), BudgetPolicy{
+		ModelToolRoundBudget:  50,
+		ModelToolRoundCeiling: 6,
+	}, nil)
+
+	capabilities := k.Capabilities()
+	if capabilities.BudgetLease.ModelToolRoundBudget != 6 || capabilities.BudgetLease.ModelToolRoundCeiling != 6 {
+		t.Fatalf("capabilities budget lease = %+v, want configured budget clamped to ceiling", capabilities.BudgetLease)
+	}
+}
+
+func TestBudgetDocsSeparateExecutionLeasesFromHardSafetyCaps(t *testing.T) {
+	for _, path := range []string{
+		filepath.Join("..", "..", "docs", "requirements", "kernel-foundation-capabilities.md"),
+		filepath.Join("..", "..", "docs", "design", "kernel-foundation-capabilities.md"),
+	} {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		text := strings.ToLower(strings.Join(strings.Fields(string(body)), " "))
+		for _, want := range []string{"budgetlease", "execution budget", "hard safety"} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s missing budget classification phrase %q", path, want)
+			}
+		}
 	}
 }
 
@@ -431,6 +586,22 @@ func (p *repeatingToolProvider) CallCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.requests)
+}
+
+func newTestKernelWithBudgetAndResources(t *testing.T, ledgerPath string, budget BudgetPolicy, resources []ResourceDescriptor) *Kernel {
+	t.Helper()
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     FakeProvider{},
+		RuntimeToken: testRuntimeToken,
+		BudgetPolicy: budget,
+		ToolPolicy:   ToolPolicy{PermissionMode: PermissionModePlan},
+		Resources:    resources,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	return k
 }
 
 type scriptedToolStep struct {

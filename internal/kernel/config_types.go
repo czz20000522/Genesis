@@ -9,6 +9,7 @@ type Config struct {
 	RuntimeToken  string
 	ToolPolicy    ToolPolicy
 	ContextPolicy ContextPolicy
+	BudgetPolicy  BudgetPolicy
 	SkillRoots    []string
 	Resources     []ResourceDescriptor
 	Clock         func() time.Time
@@ -30,6 +31,16 @@ type ContextPolicy struct {
 	RetryBackoffTurns   int
 }
 
+type BudgetPolicy struct {
+	ModelToolRoundBudget  int
+	ModelToolRoundCeiling int
+}
+
+type BudgetLeaseProjection struct {
+	ModelToolRoundBudget  int `json:"model_tool_round_budget"`
+	ModelToolRoundCeiling int `json:"model_tool_round_ceiling"`
+}
+
 type ReadyResponse struct {
 	Status      string         `json:"status"`
 	Provider    ProviderStatus `json:"provider"`
@@ -42,6 +53,7 @@ type CapabilitiesResponse struct {
 	Provider     ProviderStatus             `json:"provider"`
 	RuntimeAuth  ReadyCheck                 `json:"runtime_auth"`
 	Ledger       ReadyCheck                 `json:"ledger"`
+	BudgetLease  BudgetLeaseProjection      `json:"budget_lease"`
 	Tools        []ToolCapabilityProjection `json:"tools"`
 	SkillCatalog SkillCatalogProjection     `json:"skill_catalog"`
 }

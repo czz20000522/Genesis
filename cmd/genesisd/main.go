@@ -38,6 +38,8 @@ func main() {
 	compactRecentTurns := flag.Int("compact-recent-turns", envIntOrDefault("GENESIS_COMPACT_RECENT_TURNS", 0), "recent completed turns to keep verbatim after compaction; default 2 when compaction is enabled")
 	compactRecentTailTokens := flag.Int("compact-recent-tail-tokens", envIntOrDefault("GENESIS_COMPACT_RECENT_TAIL_TOKENS", 0), "provider-backed processed input token budget for recent completed turns kept verbatim after compaction; 0 keeps compact-recent-turns only")
 	skillIndexChars := flag.Int("skill-index-chars", envIntOrDefault("GENESIS_SKILL_INDEX_CHARS", 0), "maximum characters of model-visible external skill index; 0 uses kernel default, negative disables")
+	modelToolRoundBudget := flag.Int("model-tool-round-budget", envIntOrDefault("GENESIS_MODEL_TOOL_ROUND_BUDGET", 0), "model tool-round execution budget per turn; 0 uses kernel default")
+	modelToolRoundCeiling := flag.Int("model-tool-round-ceiling", envIntOrDefault("GENESIS_MODEL_TOOL_ROUND_CEILING", 0), "maximum allowed model tool-round execution budget; 0 uses kernel default ceiling")
 	skillRoots := pathListFlag(defaultSkillRoots())
 	flag.Var(&skillRoots, "skill-root", "external skill root to scan for SKILL.md metadata; repeatable")
 	flag.Parse()
@@ -72,6 +74,10 @@ func main() {
 			RecentTurnLimit:     *compactRecentTurns,
 			RecentTailTokens:    *compactRecentTailTokens,
 			SkillIndexChars:     *skillIndexChars,
+		},
+		BudgetPolicy: kernel.BudgetPolicy{
+			ModelToolRoundBudget:  *modelToolRoundBudget,
+			ModelToolRoundCeiling: *modelToolRoundCeiling,
 		},
 		SkillRoots: skillRoots.Values(),
 	})

@@ -172,11 +172,17 @@ Every production store or schema proposal must answer:
 - Long output is presented with bounded head/tail text, truncation flags, original byte counts, omitted byte counts, and a visible omission marker.
 - Redaction is projection policy. It must not mutate append-only operation evidence before it is recorded.
 - Tool-loop budget exhaustion is a recoverable control stop, not a provider
-  failure and not a tool failure. When the model requests another tool batch
-  after the configured round budget is exhausted, the kernel stops before
+  failure and not a tool failure. The configured round budget is owned by a
+  kernel-minted `BudgetLease`, not by hidden package constants and not by
+  model-visible tool arguments. When the model requests another tool batch
+  after the effective execution budget is exhausted, the kernel stops before
   executing that batch, records `turn.paused` with reason
   `tool_loop_round_budget_exhausted`, preserves already committed tool rounds,
   and returns a paused turn projection through the normal turn response.
+- Execution budgets are product/user-tunable control-plane policy. Hard safety
+  caps such as output byte truncation, HTTP request size, provider response
+  body size, shell foreground timeout ceilings, and debug trace quotas remain
+  separate owner-specific guardrails and are not leased to the model.
 - Continuing paused work uses ordinary `turn.submit` in the same session. Shells
   and applications do not get a separate resume owner. The kernel-owned
   provider-context projection must expose prior committed user, assistant,

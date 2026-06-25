@@ -17,6 +17,7 @@ type Kernel struct {
 	runtimeToken     string
 	toolPolicy       ToolPolicy
 	contextPolicy    ContextPolicy
+	budgetPolicy     BudgetPolicy
 	toolRegistry     *ToolRegistry
 	resourceRegistry *resourceRegistry
 	skillCatalog     []SkillDescriptor
@@ -71,6 +72,7 @@ func New(config Config) (*Kernel, error) {
 		runtimeToken:     strings.TrimSpace(config.RuntimeToken),
 		toolPolicy:       normalizedToolPolicy(config.ToolPolicy),
 		contextPolicy:    normalizedContextPolicy(config.ContextPolicy),
+		budgetPolicy:     normalizedBudgetPolicy(config.BudgetPolicy),
 		toolRegistry:     toolRegistry,
 		resourceRegistry: resourceRegistry,
 		skillCatalog:     skillCatalog.Items,
@@ -112,6 +114,7 @@ func (k *Kernel) Capabilities() CapabilitiesResponse {
 		Provider:     safeProviderStatusForInspection(ready.Provider),
 		RuntimeAuth:  ready.RuntimeAuth,
 		Ledger:       ready.Ledger,
+		BudgetLease:  k.budgetLeaseProjection(),
 		Tools:        k.toolCapabilityProjections(),
 		SkillCatalog: k.skillCatalogProjection(),
 	}
@@ -158,7 +161,8 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 
 	toolGateway := k.toolGateway()
 	loopGuard := newToolLoopGuard()
-	for roundIndex := 0; roundIndex <= maxModelToolRounds; roundIndex++ {
+	budgetLease := k.newTurnBudgetLease()
+	for roundIndex := 0; ; roundIndex++ {
 		providerContext, err := k.ProviderContextProjection(turnID)
 		if err != nil {
 			return TurnResponse{}, err
@@ -208,8 +212,8 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 				Final:     final,
 			}, nil
 		}
-		if roundIndex == maxModelToolRounds {
-			pause, err := k.appendToolLoopBudgetPause(sessionID, turnID, providerContext)
+		if !budgetLease.allowModelToolRound(roundIndex) {
+			pause, err := k.appendToolLoopBudgetPause(sessionID, turnID, providerContext, budgetLease)
 			if err != nil {
 				return TurnResponse{}, err
 			}
@@ -383,7 +387,8 @@ func cloneModelRequest(req ModelRequest) ModelRequest {
 func (k *Kernel) contextRuntimeSnapshot() *ContextRuntimeSnapshot {
 	policy := resolveToolPolicy(k.toolPolicy)
 	return &ContextRuntimeSnapshot{
-		Provider: safeProviderStatusForInspection(k.provider.Ready()),
+		Provider:    safeProviderStatusForInspection(k.provider.Ready()),
+		BudgetLease: k.budgetLeaseProjection(),
 		Permission: PermissionInspection{
 			PermissionMode:  policy.PermissionMode,
 			AuthorityPolicy: policy.AuthorityPolicy,
@@ -559,7 +564,7 @@ func (k *Kernel) appendTurnFailure(sessionID string, turnID string, failure Turn
 	})
 }
 
-func (k *Kernel) appendToolLoopBudgetPause(sessionID string, turnID string, providerContext ProviderContextProjection) (TurnPauseProjection, error) {
+func (k *Kernel) appendToolLoopBudgetPause(sessionID string, turnID string, providerContext ProviderContextProjection, lease budgetLease) (TurnPauseProjection, error) {
 	pausedAt := k.clock()
 	completedRounds, _, _ := modelToolRoundCounts(providerContext.ToolRounds)
 	pause := TurnPauseProjection{
@@ -567,7 +572,8 @@ func (k *Kernel) appendToolLoopBudgetPause(sessionID string, turnID string, prov
 		TurnID:              strings.TrimSpace(turnID),
 		Status:              "paused",
 		Reason:              "tool_loop_round_budget_exhausted",
-		RoundBudget:         maxModelToolRounds,
+		RoundBudget:         lease.modelToolRoundBudget,
+		BudgetLease:         lease.projection(),
 		CompletedToolRounds: completedRounds,
 		PausedAt:            pausedAt,
 	}

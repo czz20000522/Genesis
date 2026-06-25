@@ -609,6 +609,8 @@ func TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles(t *testing.T) {
 		"Config":                              "config_types.go",
 		"ToolPolicy":                          "config_types.go",
 		"ContextPolicy":                       "config_types.go",
+		"BudgetPolicy":                        "config_types.go",
+		"BudgetLeaseProjection":               "config_types.go",
 		"ReadyResponse":                       "config_types.go",
 		"CapabilitiesResponse":                "config_types.go",
 		"ProviderStatus":                      "config_types.go",
