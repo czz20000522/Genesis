@@ -489,6 +489,30 @@ func TestArchitectureBoundaryKernelIssuesRequireReferenceAlignment(t *testing.T)
 	}
 }
 
+func TestArchitectureBoundaryKernelImplementationPlansNameReferenceBehaviorRedTests(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join(kernelPackageDir(t), "..", ".."))
+	files, err := filepath.Glob(filepath.Join(repoRoot, "docs", "implementation-plans", "kernel-*.md"))
+	if err != nil {
+		t.Fatalf("glob kernel implementation plans: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no kernel implementation plans found")
+	}
+	for _, file := range files {
+		contentBytes, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		content := string(contentBytes)
+		if !strings.Contains(content, "## Reference Scan") {
+			continue
+		}
+		if !strings.Contains(content, "## Reference Behavior Red Tests") {
+			t.Fatalf("%s has a Reference Scan but no Reference Behavior Red Tests section", filepath.ToSlash(file))
+		}
+	}
+}
+
 func TestArchitectureBoundaryToolRegistryDoesNotBindWholeKernel(t *testing.T) {
 	root := kernelPackageDir(t)
 	content := readRepoText(t, root, "tool_registry.go")

@@ -151,8 +151,9 @@ test counts, names, or product-specific workflows. The goal is to translate the
 control-plane risks those projects test into Genesis's own owner, event,
 permission, recovery, and projection contracts.
 
-The implementation plan must name the reference-inspired test shape before code
-starts. At minimum, choose the relevant cases from this checklist:
+The implementation plan must include a `Reference Behavior Red Tests` section
+that names the reference-inspired test shape before code starts. At minimum,
+choose the relevant cases from this checklist:
 
 - happy-path behavior that proves the owner contract is executable;
 - invalid model or adapter input that fails before side effects;

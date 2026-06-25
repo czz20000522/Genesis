@@ -6,6 +6,16 @@
 - Codex exposes shell output budgets such as `max_output_tokens` in tool schemas because those are output projection limits, not turn authority budgets.
 - Genesis keeps a different contract: tool-loop exhaustion is `turn.paused` evidence owned by the kernel, and model-visible schemas must not let the model raise or forge the turn execution budget.
 
+## Reference Behavior Red Tests
+
+- Reasonix configured harness-loop limit becomes Genesis tests proving the
+  tool-round budget is configurable, normalized, capped, and reported in
+  `turn.paused` evidence.
+- Codex model-visible output-budget schema becomes Genesis tests proving
+  execution budget fields are absent from model-visible tool schemas.
+- The initial red condition was the hidden package constant controlling
+  tool-loop admission without an inspectable `BudgetLease` projection.
+
 ## Scope
 
 Phase A makes `BudgetLease` own the model tool-round budget used by `SubmitTurn`.

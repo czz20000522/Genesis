@@ -20,6 +20,20 @@
 - Intentional differences: Genesis keeps a small single-package Go kernel for the current phase rather than copying Codex's Rust crate layout or Reasonix's app-oriented controller shape.
 - Drift risks or follow-up issues: central session projection, global DTO file, HTTP route aggregation, and broad tool executor authority are tracked as active issues.
 
+## Reference Behavior Red Tests
+
+- Codex typed tool runtime boundaries become Genesis architecture tests proving
+  the tool registry cannot bind registered tools to broad `*Kernel` authority.
+- Codex and Reasonix topic-oriented behavior suites become Genesis governance
+  tests and incremental test moves that keep owner contracts out of one central
+  test surface.
+- Reasonix dependency-direction and controller/tool separation become Genesis
+  tests proving active kernel issues retain reference alignment and central
+  kernel files do not absorb new owner replay branches.
+- The accepted intentional difference is that Genesis can keep a single Go
+  package during this phase; the tests check owner-visible structure and narrow
+  authority, not crate/package parity.
+
 ## Phase A
 
 - Deliverable: Requirement, design, implementation plan, BDD examples, active issues, and architecture guards.

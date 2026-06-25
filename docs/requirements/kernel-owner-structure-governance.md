@@ -28,6 +28,7 @@ The LLM does not see this governance surface. It affects only kernel implementat
 - HTTP transport stays a protocol adapter. It must not decide owner state transitions, replay owner facts, or duplicate owner policy.
 - Tool registration must move toward narrow invocation authority. A registered tool should not receive `*Kernel` unless a specific owner decision records a temporary exception.
 - Document lifetime is part of architecture governance. Requirements stay few and stable; design docs live with boundaries; implementation plans are phase-local; completed issues leave the active ledger; stale docs are deleted or condensed.
+- Implementation plans for non-trivial kernel work translate Codex/Reasonix reference behavior into Genesis red-test gates before code starts. A reference scan without a named same-semantics test shape is governance drift.
 
 ## Non-Goals
 
@@ -53,6 +54,7 @@ Phase D narrows `ToolRegistry` executor binding so registered tools receive only
 - HTTP handler files contain transport logic only: auth, content-type checks, route parsing, decode, owner API call, error mapping, and encode.
 - A registered tool cannot grow by reaching into unrelated kernel owner fields through `*Kernel` without an active issue or design exception.
 - Periodic governance review includes architecture, feature behavior, directory structure, and document lifetime. Obsolete documents are deleted or condensed rather than kept as active contracts.
+- Kernel implementation plans that include a reference scan also include a `Reference Behavior Red Tests` section or an explicit requirement-owned no-comparable-reference explanation with negative-test coverage.
 
 ## Relationship To Existing Issues
 

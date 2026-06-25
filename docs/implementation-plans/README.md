@@ -26,6 +26,14 @@ Link the approved requirement and design documents.
 - Intentional differences:
 - Drift risks or follow-up issues:
 
+## Reference Behavior Red Tests
+
+- Reference behavior:
+- Genesis equivalent:
+- Test file or guard:
+- Initial red condition:
+- Accepted intentional difference:
+
 ## Phase A
 
 - Deliverable:

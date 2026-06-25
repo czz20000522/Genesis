@@ -41,6 +41,8 @@ No runtime protocol is added. The protocol is an executable governance contract:
 - architecture tests keep DTO ownership visible through file placement;
 - active issues must cite this requirement and design;
 - implementation plans record the local Codex/Reasonix reference scan;
+- implementation plans record `Reference Behavior Red Tests` that translate
+  reference behavior into Genesis same-semantics red conditions before code;
 - closing gates compare code, docs, issues, and BDD examples before commit.
 
 ## Failure Semantics

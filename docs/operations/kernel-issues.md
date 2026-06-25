@@ -26,58 +26,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-REFERENCE-BEHAVIOR-RED-TEST-MATRIX-20260625 - P1 - Codex/Reasonix kernel behavior tests must be translated into Genesis red-test gates
-
-- Status: open.
-- Area: Architecture Governance / Test Governance / Kernel Foundation.
-- Requirement: `docs/requirements/kernel-owner-structure-governance.md`.
-- Design: `docs/design/kernel-owner-structure-governance.md`.
-- Gap: Active issues require a Codex/Reasonix reference alignment field, but the
-  implementation process does not yet require those reference findings to become
-  Genesis same-semantics red tests. This allowed review to miss production-class
-  gaps that the reference projects already encode as behavior: runtime budgets
-  as configured harness limits rather than hidden constants, parallel execution
-  signals matching actual executor behavior, typed internal protocols rejecting
-  drift, approval/replay crash windows, provider context projection boundaries,
-  and tool/result taxonomy. A prose reference scan can say "aligned" while no
-  failing Genesis test proves the equivalent behavior.
-- Next slice: Add a lightweight reference behavior test matrix requirement to
-  the kernel implementation workflow. For each non-trivial kernel issue or
-  production slice, the implementation plan must list: reference project/file or
-  test behavior inspected, Genesis semantic equivalent, intended Genesis test
-  file, initial red condition, accepted intentional differences, and remaining
-  drift risk. The matrix should be small and local to the slice; do not copy
-  upstream test suites wholesale and do not create permanent tests that only
-  assert upstream names. The first pass should backfill current active kernel
-  areas: BudgetLease/tool-loop control, provider_command strict protocol shape,
-  tool scheduling/parallel execution, approval replay, provider context
-  projection, resource_read/context hydration, managed job observation, and UI
-  timeline/detail projection.
-- Evidence: `KERNEL-BUDGET-LEASE-20260625` was found only after user challenge
-  despite Reasonix exposing `agent.max_steps` / `planner_max_steps` as
-  configured harness-loop limits and Codex separating output caps from runtime
-  execution authority. `KERNEL-TOOL-BATCH-PARALLEL-SIGNAL-20260625` was found
-  only after comparing the implemented planner/executor split with Reasonix's
-  read-only parallel-dispatch semantics and Codex handler runtime support. The
-  existing ledger rule requires reference alignment prose, but not a red-test
-  translation table or proof that the reference behavior has a Genesis
-  equivalent.
-- Verification: Add or update the owner-structure/test-governance requirement
-  and design so every non-trivial kernel implementation plan must include a
-  `Reference behavior red tests` section. Add a small contract/governance test or
-  review script that checks active implementation plans for this section when
-  they claim Codex/Reasonix reference alignment. Backfill the section for current
-  active implementation plans without blocking builds on subjective prose. For at
-  least BudgetLease, provider_command strict response, and tool batch parallel
-  signal, ensure the production fix lands with failing-first behavior tests that
-  directly encode the translated reference semantics.
-- Reference alignment: Reasonix and Codex do not rely on architectural prose
-  alone for core agent/kernel behavior; their confidence comes from behavior
-  suites around max steps, read-only parallel dispatch, approval/sandbox
-  boundaries, provider/tool protocol translation, event projection, and replay.
-  Genesis should translate those semantics into its own owner vocabulary instead
-  of treating local review memory as the gate.
-
 ### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Local managed job streaming and attach capability
 
 - Status: open.
