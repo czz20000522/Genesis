@@ -195,12 +195,17 @@ option-heavy response. Tools stay typed by owner capability:
 resource_read        -> text-like admitted resources
 source_tree          -> source snapshot/container listing
 source_read          -> source file text/range
-source_search        -> source snapshot search
-source_span          -> source span/citation projection
-artifact_list        -> artifact bundle listing
-artifact_preview     -> artifact preview
 job_status/job_cancel -> runtime job handles, not resources
 ```
+
+`source_tree` and `source_read` are intentionally the minimal material-intake
+bridge for local or uploaded source snapshots. They must not grow into a kernel
+code browser. Large package exploration should first use governed `shell_exec`
+with `rg`/language tooling, or a user-space code-intelligence adapter such as
+CodeGraph, before adding another model-visible kernel tool. Any new default
+tool must come with a separate owner decision proving why shell, resource,
+skill, connector, or user-space adapter paths do not cover the production use
+case.
 
 Generic `ref_stat` or `reference.describe` may exist as a descriptor surface, but
 it must not imply that any operation is authorized. Every operation still goes

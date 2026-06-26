@@ -438,6 +438,24 @@ func TestArchitectureBoundaryToolRegistryRejectsIncompleteSpecs(t *testing.T) {
 	}
 }
 
+func TestArchitectureBoundaryMaterialToolsStayMinimal(t *testing.T) {
+	registry, err := defaultToolRegistry(ShellTimeoutPolicy{})
+	if err != nil {
+		t.Fatalf("defaultToolRegistry returned error: %v", err)
+	}
+	forbidden := map[string]string{
+		"source_search":    "large code exploration should use shell/rg or a user-space code intelligence adapter first",
+		"source_span":      "citation/span projection needs a separate owner decision",
+		"artifact_list":    "artifact browsing is not part of the default kernel tool surface",
+		"artifact_preview": "artifact preview is not part of the default kernel tool surface",
+	}
+	for _, tool := range registry.Manifest() {
+		if reason, ok := forbidden[tool.Name]; ok {
+			t.Fatalf("default tool registry exposes %q; %s", tool.Name, reason)
+		}
+	}
+}
+
 func TestArchitectureBoundaryControlledShellAllowlistStaysSmall(t *testing.T) {
 	got := controlledDefaultCommandNames()
 	want := []string{"cat", "echo", "get-content", "printf", "pwd", "set-content", "type", "write-output"}

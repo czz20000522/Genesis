@@ -90,16 +90,19 @@ Resource read uses an operation-level grant:
 operation = read_text
 ```
 
-Future source and artifact tools may share the same reference descriptor and
-resolver foundation, but they must keep typed tools and typed result schemas:
+Material source tools may share the same reference descriptor and resolver
+foundation, but the approved kernel surface remains narrow:
 
 ```text
 source_tree   ~= list_children on a source snapshot/container
 source_read   ~= read_text on a source file
-source_search ~= search on a source snapshot
-source_span   ~= read_span on a source span/citation ref
-artifact_list / artifact_preview remain artifact-owner tools
 ```
+
+Search, span/citation, artifact listing, binary preview, and domain-specific
+file handling are not approved default kernel tools. Large source exploration
+must first use governed shell/rg/language tooling or a user-space
+code-intelligence adapter. A new model-visible kernel tool requires a separate
+owner decision proving those generic paths are insufficient.
 
 Genesis must not introduce a universal `ref_read(any_ref)` result full of
 optional fields for text, directories, media, artifacts, spans, and debug data.

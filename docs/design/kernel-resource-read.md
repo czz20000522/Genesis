@@ -87,17 +87,18 @@ Examples:
   payload refs, debug trace paths, connector raw payload ids, and skill package
   paths are owner-internal refs.
 
-Future source and artifact capabilities may share the descriptor and resolver
-foundation, but they stay typed:
+Material snapshot tools are deliberately narrow:
 
 ```text
 source_tree   -> source snapshot/container listing
 source_read   -> source file/range text
-source_search -> source snapshot search
-source_span   -> source span/citation projection
-artifact_list -> artifact bundle listing
-artifact_preview -> artifact preview
 ```
+
+They are not a seed for one kernel tool per content shape. Richer codebase
+exploration should go through governed `shell_exec` with `rg`/language tools or
+a user-space code-intelligence adapter. Adding another model-visible kernel tool
+requires a new owner decision that explains why shell, resource, connector,
+skill, or adapter paths are insufficient.
 
 The rejected shape is a universal `ref_read(any_ref)` tool with a large
 option-heavy result. That would force callers to infer whether the response was
