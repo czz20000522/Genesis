@@ -2,7 +2,7 @@
 
 This document records field meanings that are easy to confuse across provider responses, Genesis normalized evidence, and kernel control-plane projections.
 
-Last verified: 2026-06-23.
+Last verified: 2026-06-26.
 
 ## Rules
 
@@ -11,6 +11,7 @@ Last verified: 2026-06-23.
 - Kernel compaction is executed by the kernel compaction runner. Model Gateway provides provider context and usage/accounting evidence; shells, app servers, daemons, and provider adapters must not perform compaction themselves.
 - Context cache is a provider optimization, not conversation memory. The caller still sends the prompt/context it wants the model to see.
 - Realtime chunks are transport, not canonical facts. They become durable only after an owner reduces them to a transcript item, tool result, job fact, checkpoint, or failure evidence.
+- Runtime data is not stored by default. It can be promoted to a durable fact only after a named consumer, owner, timing, decision/action, and failure consequence are identified.
 
 ## Persistence Layers
 
@@ -23,6 +24,55 @@ Last verified: 2026-06-23.
 | Debug trace | Only when explicitly enabled. | Provider projection summaries, response summaries, internal spans, chunk-level diagnostics, gateway decisions. | Canonical replay, memory truth, audit decisions. |
 
 Long-term fact admission is based on meaning, not log level. A normal `model.final` can be durable because it is transcript. A routine HTTP success info line should not be durable. A failure can be durable when it changes state, blocks work, or explains recovery.
+
+## Persistence Promotion Gate
+
+Runtime data is a signal until it passes this gate. "Maybe useful later",
+"convenient for debugging", and "keep it just in case" are not consumers.
+
+Any new field, table, ledger event, sidecar file, projection cache, or long-term
+debug artifact must answer these questions before entering durable storage:
+
+1. Would losing it change the user-visible history?
+2. Would losing it make resume, recovery, replay, or checkpoint restoration impossible?
+3. Does it change permission, resource, state, lifecycle, budget, or authority?
+4. Will a later owner depend on it to make a decision?
+5. Is it only for a smoother live UI experience?
+6. Is it large, high-frequency, or shape-unstable?
+7. Is it only diagnostic?
+8. Does it affect idempotency, compensation, or reconciliation for an external side effect?
+9. Who is the owner, and what are the retention, TTL, deletion, archive, and compaction rules?
+
+The consumer answer must be concrete:
+
+- which owner, workflow, operator, reviewer, or human role consumes it;
+- when that consumer reads it;
+- what decision or action it drives;
+- what incorrect behavior occurs if the field is absent.
+
+If these answers are missing, the data remains runtime transport, in-memory
+state, or a short-lived diagnostic signal.
+
+Promotion target is chosen by meaning:
+
+| Consumer need | Durable surface |
+| --- | --- |
+| User-visible conversation history or model-visible completed exchange | Session transcript |
+| State, lifecycle, recovery, checkpoint, idempotency, or owner decision | Owner fact |
+| Permission, risk, credential, governance, or authority evidence | Audit/control fact |
+| External side-effect delivery, retry, compensation, or reconciliation | Outbox fact or delivery receipt |
+| Large body, artifact, upload, export package, checkpoint body, or debug bundle | Resource/object store with DB ref/hash/summary |
+| Fast UI/search/list/preview read that can be rebuilt | Projection/read-model cache |
+| Diagnostic-only investigation | Debug trace with explicit enablement, TTL, quota, and access boundary |
+| Aggregate health or capacity trend | Aggregate metrics, not canonical replay |
+
+Rejected shortcuts:
+
+- Do not persist a complete runtime event only because one field inside it is useful.
+- Do not create a table for a field whose consumer is only hypothetical.
+- Do not mix transcript, audit, owner truth, projection cache, and debug trace in one ledger row.
+- Do not use debug trace as replay, audit, memory truth, provider context, or user history.
+- Do not store large or high-frequency chunks in a database table when an object ref, summary, or settled projection is enough.
 
 ## Provider Context Snapshot Fields
 

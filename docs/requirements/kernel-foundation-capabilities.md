@@ -127,6 +127,15 @@ Genesis separates runtime output into five layers:
 
 A runtime event can enter long-term facts only when it is user-visible or model-visible, required for replay/recovery/idempotency/checkpointing, changes kernel-owned state, records a permission or risk decision, records failure or abnormal termination, or feeds provider context, compaction, memory recall, or observation delivery. Otherwise it stays in realtime transport, debug trace, or aggregate metrics.
 
+Any new field, table, ledger event, sidecar file, projection cache, or long-term
+debug artifact must pass the Persistence Promotion Gate in
+`docs/field-reference.md` before it becomes durable. The default is not stored.
+Promotion requires a concrete consumer: which owner, workflow, operator,
+reviewer, or human role reads it; when it is read; what decision or action it
+drives; and what incorrect behavior occurs if it is absent. "May be useful
+later", "convenient for debugging", and "keep it just in case" are rejected
+reasons.
+
 Database storage follows the same owner boundary. A database is not an owner; it
 is a persistence backend selected by an owner. Each table must name its owner and
 class before it exists: canonical truth, read model/projection, audit, metrics,
@@ -168,6 +177,7 @@ allowed.
 
 Every production store or schema proposal must answer:
 
+- Persistence Promotion Gate answers and the named consumer;
 - owner and owner public API;
 - table class;
 - reason the data needs a database instead of object/file storage or a rebuilt projection;

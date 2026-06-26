@@ -553,6 +553,14 @@ The ledger is append-only owner truth. Restart replay rebuilds session, operatio
 
 Durable storage is not a copy of every runtime signal. The Interface Kernel and owner subsystems write sparse facts. Streaming tokens, stdout chunks, heartbeats, and progress frames are realtime transport unless an owner reduces them to a transcript item, tool result, terminal job fact, checkpoint, or failure event.
 
+Persistence promotion follows `docs/field-reference.md`. Runtime data defaults
+to signal, not storage. Before a runtime value becomes transcript, owner fact,
+audit/control fact, outbox receipt, resource/object ref, projection cache, debug
+trace, or metric, the owning design must name the concrete consumer, read
+timing, decision/action, failure consequence, retention, and deletion rule.
+Without that answer, the value remains live transport, in-memory state, or
+short-lived diagnostics.
+
 Observability is split by audience:
 
 - timeline for ordinary user-facing events;
