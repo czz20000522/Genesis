@@ -25,3 +25,45 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Periodic governance review checks architecture, feature behavior, directory structure, and document lifetime together. Completed plans and stale documents should be deleted or condensed instead of spawning issues that only preserve old notes.
 
 ## Active Issues
+
+### KERNEL-PROVIDER-FAKE-PRODUCTION-GUARD-20260626 - P0 - Fake provider must not be a production-ready provider
+
+- Status: open.
+- Requirement: obvious production-safety bug; related production target in
+  `docs/requirements/kernel-foundation-capabilities.md` and live provider
+  acceptance in `docs/operations/live-llm-first-run-acceptance.md`.
+- Design: no separate design needed before the first fix; this is a provider
+  readiness/admission hardening issue.
+- Gap: `cmd/genesisd` currently maps `-provider fake` and an explicitly empty
+  provider name to `kernel.FakeProvider{}`. A running `genesisd` then reports the
+  fake provider as `ready`. Fake provider is valid only as a deterministic
+  lab/test fixture for proving HTTP, ledger, session, projection, and tool-loop
+  plumbing. In a production or user-facing daemon, fake provider readiness would
+  be a severe misconfiguration because it can make the system look usable while
+  no real model is connected.
+- Next slice: Make fake provider opt-in as lab/test mode rather than a normal
+  production provider. Production-facing startup should prefer `genesis-config`
+  and should not silently fall back to fake when provider config is empty,
+  missing, invalid, or credential-blocked. A fake provider, if explicitly allowed
+  for local smoke tests, must be visibly marked as lab-only in readiness and must
+  be rejected by live-provider acceptance gates.
+- Evidence: Pressure smoke on 2026-06-26 verified that a fake `genesisd` can
+  return `provider.readiness=ready` and complete multi-turn HTTP requests. The
+  same smoke verified that `openai-compatible` without `GENESIS_PROVIDER_API_KEY`
+  already returns structured `/ready` state:
+  `readiness=not_ready`, `readiness_reason=provider_not_ready`,
+  `provider.readiness=not_ready`, and
+  `provider.readiness_reason=provider_api_key_missing`. The issue is therefore
+  not missing structured not-ready behavior for real provider credentials; the
+  issue is that fake can still be admitted as a ready provider on the daemon
+  production surface.
+- Verification: Add red tests proving `genesisd` does not treat fake as a
+  production-ready provider by default, an explicitly empty provider name does
+  not select fake, missing real-provider credentials remain structured
+  `not_ready`, and live-provider acceptance fails if `/ready` or `/turn` uses a
+  fake provider. Keep existing deterministic unit tests able to inject
+  `FakeProvider` directly as a test fixture without changing kernel semantics.
+- Priority: P0.
+- Reference alignment: Codex and Reasonix use fake/stub model paths for tests
+  and local deterministic harnesses, but production-facing runtime readiness is
+  not allowed to present a fake model backend as an ordinary connected provider.
