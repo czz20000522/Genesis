@@ -36,6 +36,5 @@ type ContextHydrationProjection struct {
 	Reason             string    `json:"reason,omitempty"`
 	RefusalReasonClass string    `json:"refusal_reason_class,omitempty"`
 	DerivationRefs     []string  `json:"derivation_refs,omitempty"`
-	VisibleText        string    `json:"visible_text,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 }

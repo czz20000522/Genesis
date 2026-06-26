@@ -181,15 +181,18 @@ context.hydration.refused
 Admitted facts include the generated context handle, source owner, derivation
 refs, visible byte cap, content type, truncation policy, model input kind, and
 scope. They do not include filesystem paths, connector credentials, package
-roots, raw payloads, or full provider prompt text. Refused facts include
-`admission_result=refused`, a `refusal_reason_class`, and safe diagnostic
-summary; they do not cause fallback prompt splicing.
+roots, raw payloads, full provider prompt text, or provider-visible resource
+bodies. Refused facts include `admission_result=refused`, a
+`refusal_reason_class`, and safe diagnostic summary; they do not cause fallback
+prompt splicing.
 
 The Model Gateway consumes admitted hydration facts while building provider
-context. It records context-inspection evidence such as included context handles,
-input kinds, source owner, derivation refs, byte counts, and truncation status.
-It does not treat hydration as transcript, memory truth, tool permission, or
-connector delivery state.
+context. It retrieves bounded text through the resource/context owner, constructs
+a provider-only hydrated fragment for that request, and records
+context-inspection evidence such as included context handles, input kinds,
+source owner, derivation refs, byte counts, and truncation status. It does not
+persist the provider-only fragment as transcript, memory truth, tool permission,
+connector delivery state, or raw ledger data.
 
 The current implementation intentionally supports only session-scoped pending
 hydration: `context.admit_resource` may admit a bounded text resource without a

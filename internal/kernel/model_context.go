@@ -26,7 +26,7 @@ func modelInputItemsWithHistory(userItems []InputItem, memories []MemoryRecall, 
 	return modelInputItemsWithHistoryAndHydration(userItems, memories, skills, nil, skillIndexBudget, historyContext, "")
 }
 
-func modelInputItemsWithHistoryAndHydration(userItems []InputItem, memories []MemoryRecall, skills []SkillCatalogItemProjection, hydratedContexts []ContextHydrationProjection, skillIndexBudget int, historyContext string, observationContext string) []ModelInputItem {
+func modelInputItemsWithHistoryAndHydration(userItems []InputItem, memories []MemoryRecall, skills []SkillCatalogItemProjection, hydratedContexts []providerHydratedContextFragment, skillIndexBudget int, historyContext string, observationContext string) []ModelInputItem {
 	skillContext := skillIndexContext(skills, skillIndexBudget)
 	memoryContext := approvedMemoryContext(memories)
 	withContext := make([]ModelInputItem, 0, len(userItems)+4+len(hydratedContexts))
@@ -51,9 +51,9 @@ func modelInputItemsWithHistoryAndHydration(userItems []InputItem, memories []Me
 	return withContext
 }
 
-func appendHydratedContextItems(items []ModelInputItem, hydratedContexts []ContextHydrationProjection) []ModelInputItem {
+func appendHydratedContextItems(items []ModelInputItem, hydratedContexts []providerHydratedContextFragment) []ModelInputItem {
 	for _, context := range hydratedContexts {
-		if context.AdmissionResult != contextHydrationAdmissionAdmitted || context.InputKind != ModelInputKindHydratedContext {
+		if context.InputKind != ModelInputKindHydratedContext {
 			continue
 		}
 		if text := strings.TrimSpace(context.VisibleText); text != "" {

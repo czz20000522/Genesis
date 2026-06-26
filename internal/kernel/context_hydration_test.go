@@ -48,9 +48,8 @@ func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing
 	if admitted.ResourceHash == "" || admitted.OriginalBytes != len([]byte(body)) || admitted.VisibleBytes != len([]byte(body)) || admitted.Truncated {
 		t.Fatalf("admitted evidence = %+v, want hash and byte accounting without truncation", admitted)
 	}
-	if admitted.VisibleText != body || strings.Contains(admitted.VisibleText, "[REDACTED]") {
-		t.Fatalf("visible text = %q, want original content inside budget", admitted.VisibleText)
-	}
+	assertProjectionOmitsVisibleTextField(t, "admitted hydration", admitted)
+	assertNoLedgerBodyInHydrationFacts(t, k, body)
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
 		SessionID:  "hydration-session",
@@ -62,6 +61,8 @@ func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing
 	if resp.Final.Text != "hydrated answer" {
 		t.Fatalf("final text = %q, want provider response", resp.Final.Text)
 	}
+	assertSessionProjectionOmitsHydratedBody(t, k, "hydration-session", body)
+	assertTurnEventProjectionOmitsHydratedBody(t, k, resp.TurnID, body)
 	hydratedText, ok := modelInputTextByKind(provider.inputItems, ModelInputKindHydratedContext)
 	if !ok {
 		t.Fatalf("provider input kinds = %v, want hydrated context", provider.InputKinds())
@@ -69,6 +70,7 @@ func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing
 	if hydratedText != body || strings.Contains(hydratedText, "[REDACTED]") {
 		t.Fatalf("hydrated provider text = %q, want unredacted bounded body", hydratedText)
 	}
+	assertNoLedgerBodyInHydrationFacts(t, k, body)
 	if providerText := provider.InputText(); strings.Contains(providerText, filepath.Clean(dir)) || strings.Contains(providerText, "SKILL.md") {
 		t.Fatalf("provider context leaked path/package detail: %q", providerText)
 	}
@@ -89,6 +91,14 @@ func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing
 	}
 	if evidence.OriginalBytes != len([]byte(body)) || evidence.VisibleBytes != len([]byte(body)) || evidence.InputKind != ModelInputKindHydratedContext {
 		t.Fatalf("hydration byte/input evidence = %+v", evidence)
+	}
+	assertProjectionOmitsVisibleTextField(t, "context inspection hydration evidence", evidence)
+	inspectionJSON, err := json.Marshal(inspection)
+	if err != nil {
+		t.Fatalf("marshal context inspection: %v", err)
+	}
+	if strings.Contains(string(inspectionJSON), body) {
+		t.Fatalf("context inspection persisted hydrated provider body: %s", string(inspectionJSON))
 	}
 
 	timeline, err := k.UITimeline("hydration-session")
@@ -114,6 +124,7 @@ func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing
 	if _, ok := modelInputTextByKind(provider.inputItems, ModelInputKindHydratedContext); ok {
 		t.Fatalf("provider input items = %+v, unscoped hydration must be consumed once", provider.inputItems)
 	}
+	assertNoLedgerBodyInHydrationFacts(t, k, body)
 }
 
 func TestContextHydrationRefusesResourcesWithoutPromptSplicing(t *testing.T) {
@@ -197,9 +208,10 @@ func TestContextHydrationRefusesResourcesWithoutPromptSplicing(t *testing.T) {
 			if err != nil {
 				t.Fatalf("AdmitContextResource returned error: %v", err)
 			}
-			if refused.AdmissionResult != "refused" || refused.RefusalReasonClass != tc.wantReason || refused.VisibleText != "" {
+			if refused.AdmissionResult != "refused" || refused.RefusalReasonClass != tc.wantReason {
 				t.Fatalf("refused hydration = %+v, want %s without visible text", refused, tc.wantReason)
 			}
+			assertProjectionOmitsVisibleTextField(t, "refused hydration", refused)
 		})
 	}
 
@@ -256,9 +268,10 @@ func TestContextHydrationRefusesScopeMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AdmitContextResource returned error: %v", err)
 	}
-	if refused.AdmissionResult != "refused" || refused.RefusalReasonClass != "scope_violation" || refused.VisibleText != "" {
+	if refused.AdmissionResult != "refused" || refused.RefusalReasonClass != "scope_violation" {
 		t.Fatalf("scope mismatch projection = %+v, want refused scope_violation without text", refused)
 	}
+	assertProjectionOmitsVisibleTextField(t, "scope mismatch hydration", refused)
 }
 
 func TestContextHydrationRefusesTurnScopedAdmissionUntilProjectionCanConsumeIt(t *testing.T) {
@@ -295,9 +308,10 @@ func TestContextHydrationRefusesTurnScopedAdmissionUntilProjectionCanConsumeIt(t
 	if err != nil {
 		t.Fatalf("AdmitContextResource returned error: %v", err)
 	}
-	if refused.AdmissionResult != "refused" || refused.RefusalReasonClass != "scope_violation" || refused.VisibleText != "" {
+	if refused.AdmissionResult != "refused" || refused.RefusalReasonClass != "scope_violation" {
 		t.Fatalf("turn-scoped hydration = %+v, want refused scope_violation without visible text", refused)
 	}
+	assertProjectionOmitsVisibleTextField(t, "turn-scoped hydration", refused)
 	assertNoEventTypes(t, k, "context.hydration.admitted", "tool.call", "tool.result")
 }
 
@@ -413,5 +427,66 @@ func assertNoEventTypes(t *testing.T, k *Kernel, forbidden ...string) {
 				t.Fatalf("event %s present: %+v", eventType, event)
 			}
 		}
+	}
+}
+
+func assertNoLedgerBodyInHydrationFacts(t *testing.T, k *Kernel, body string) {
+	t.Helper()
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	for _, event := range events {
+		if event.Type != "context.hydration.admitted" && event.Type != "turn.submitted" {
+			continue
+		}
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			t.Fatalf("marshal %s event: %v", event.Type, err)
+		}
+		if strings.Contains(string(encoded), body) {
+			t.Fatalf("%s event persisted hydrated body: %s", event.Type, string(encoded))
+		}
+	}
+}
+
+func assertProjectionOmitsVisibleTextField(t *testing.T, name string, payload interface{}) {
+	t.Helper()
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", name, err)
+	}
+	if strings.Contains(string(encoded), "visible_text") {
+		t.Fatalf("%s exposed provider-only visible_text field: %s", name, string(encoded))
+	}
+}
+
+func assertSessionProjectionOmitsHydratedBody(t *testing.T, k *Kernel, sessionID string, body string) {
+	t.Helper()
+	session, err := k.Session(sessionID)
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	encoded, err := json.Marshal(session)
+	if err != nil {
+		t.Fatalf("marshal session projection: %v", err)
+	}
+	if strings.Contains(string(encoded), body) {
+		t.Fatalf("session projection persisted hydrated provider body: %s", string(encoded))
+	}
+}
+
+func assertTurnEventProjectionOmitsHydratedBody(t *testing.T, k *Kernel, turnID string, body string) {
+	t.Helper()
+	events, err := k.TurnEvents(turnID)
+	if err != nil {
+		t.Fatalf("TurnEvents returned error: %v", err)
+	}
+	encoded, err := json.Marshal(events)
+	if err != nil {
+		t.Fatalf("marshal turn event projection: %v", err)
+	}
+	if strings.Contains(string(encoded), body) {
+		t.Fatalf("turn event projection persisted hydrated provider body: %s", string(encoded))
 	}
 }

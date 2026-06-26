@@ -297,7 +297,8 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 	historyContext := sameSessionConversationHistoryContext(events, sessionID, "")
 	skillIndex := k.skillCatalogProjection().Items
 	hydratedContexts := pendingContextHydrationsForNewTurn(events, sessionID, turnID)
-	modelInputs := modelInputItemsWithHistoryAndHydration(req.InputItems, recalledMemories, skillIndex, hydratedContexts, k.contextPolicy.SkillIndexChars, historyContext, "")
+	providerHydratedContexts := k.providerHydratedContextFragments(hydratedContexts)
+	modelInputs := modelInputItemsWithHistoryAndHydration(req.InputItems, recalledMemories, skillIndex, providerHydratedContexts, k.contextPolicy.SkillIndexChars, historyContext, "")
 	submitted := StoredEvent{
 		EventID:   newID("evt", now),
 		SessionID: sessionID,
@@ -735,7 +736,7 @@ func (k *Kernel) ProviderContextProjection(turnID string) (ProviderContextProjec
 	if err != nil {
 		return ProviderContextProjection{}, err
 	}
-	projection, ok := providerContextProjectionFromStoredEvents(events, turnID, k.contextPolicy)
+	projection, ok := k.providerContextProjectionFromStoredEvents(events, turnID, k.contextPolicy)
 	if !ok {
 		return ProviderContextProjection{}, ErrTurnNotFound
 	}
@@ -791,7 +792,7 @@ func cloneTokenUsage(usage *TokenUsage) *TokenUsage {
 	return modelgateway.CloneTokenUsage(usage)
 }
 
-func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID string, policy ContextPolicy) (ProviderContextProjection, bool) {
+func (k *Kernel) providerContextProjectionFromStoredEvents(events []StoredEvent, turnID string, policy ContextPolicy) (ProviderContextProjection, bool) {
 	projection := ProviderContextProjection{TurnID: turnID}
 	found := false
 	var submitted EventData
@@ -810,7 +811,7 @@ func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID stri
 	}
 	history := sameSessionConversationHistoryProjection(events, projection.SessionID, turnID)
 	observations := pendingKernelObservations(events, projection.SessionID)
-	projection.InputItems = modelInputItemsFromSubmittedEvent(submitted, history.Text, policy.SkillIndexChars, kernelObservationContext(observations))
+	projection.InputItems = k.modelInputItemsFromSubmittedEvent(submitted, history.Text, policy.SkillIndexChars, kernelObservationContext(observations))
 	projection.KernelObservationEventIDs = kernelObservationEventIDs(observations)
 	projection.ToolRounds = modelToolRoundsFromStoredEvents(events, turnID)
 	projection.HistoryTurnIDs = history.TurnIDs()
@@ -818,8 +819,8 @@ func providerContextProjectionFromStoredEvents(events []StoredEvent, turnID stri
 	return projection, true
 }
 
-func modelInputItemsFromSubmittedEvent(data EventData, historyContext string, skillIndexBudget int, observationContext string) []ModelInputItem {
-	return modelInputItemsWithHistoryAndHydration(data.InputItems, data.RecalledMemories, data.SkillCatalog, data.HydratedContexts, skillIndexBudget, historyContext, observationContext)
+func (k *Kernel) modelInputItemsFromSubmittedEvent(data EventData, historyContext string, skillIndexBudget int, observationContext string) []ModelInputItem {
+	return modelInputItemsWithHistoryAndHydration(data.InputItems, data.RecalledMemories, data.SkillCatalog, k.providerHydratedContextFragments(data.HydratedContexts), skillIndexBudget, historyContext, observationContext)
 }
 
 func sameSessionConversationHistoryContext(events []StoredEvent, sessionID string, beforeTurnID string) string {

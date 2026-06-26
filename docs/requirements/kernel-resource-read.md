@@ -156,8 +156,12 @@ The production admission contract is:
 The current implementation supports session-scoped pending hydration only.
 `context.admit_resource` records `context.hydration.admitted` for an admitted
 bounded text resource with no `turn_id`; the next submitted turn consumes that
-fact exactly once as a `hydrated_context` model input. A non-empty `turn_id` is
-currently refused with `admission_result=refused` and
+fact exactly once as a `hydrated_context` model input. The admitted fact stores
+resource identity, hash, byte cap, visible byte count, truncation, input kind,
+scope, and derivation evidence; it does not persist the provider-visible body.
+The Model Gateway retrieves the bounded body through the resource owner while
+assembling the next provider request. A non-empty `turn_id` is currently refused
+with `admission_result=refused` and
 `refusal_reason_class=scope_violation` because post-submit turn-scoped
 hydration is not yet consumable by provider projection.
 

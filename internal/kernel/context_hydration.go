@@ -121,11 +121,37 @@ func (k *Kernel) evaluateContextHydrationAdmission(req ContextHydrationAdmission
 	}
 	projection.AdmissionResult = contextHydrationAdmissionAdmitted
 	projection.HydrationID = newID("hydration", now)
-	projection.VisibleText = result.Text
 	projection.VisibleBytes = result.ReturnedBytes
 	projection.Truncated = result.Truncated
 	projection.RefusalReasonClass = ""
 	return projection
+}
+
+type providerHydratedContextFragment struct {
+	InputKind   string
+	VisibleText string
+}
+
+func (k *Kernel) providerHydratedContextFragments(hydratedContexts []ContextHydrationProjection) []providerHydratedContextFragment {
+	out := make([]providerHydratedContextFragment, 0, len(hydratedContexts))
+	for _, hydration := range hydratedContexts {
+		if hydration.AdmissionResult != contextHydrationAdmissionAdmitted || hydration.InputKind != ModelInputKindHydratedContext || hydration.VisibleBytes <= 0 {
+			continue
+		}
+		readReq, _, err := resource.NormalizeReadRequest(hydration.ResourceRef, nil, &hydration.VisibleBytes)
+		if err != nil {
+			continue
+		}
+		result, err := k.resourceRegistry.Read(readReq)
+		if err != nil {
+			continue
+		}
+		out = append(out, providerHydratedContextFragment{
+			InputKind:   hydration.InputKind,
+			VisibleText: result.Text,
+		})
+	}
+	return out
 }
 
 func normalizedHydrationDerivationRefs(refs []string) []string {
