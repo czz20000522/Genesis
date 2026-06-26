@@ -24,6 +24,7 @@ type sourceSnapshot struct {
 	purpose      string
 	sessionID    string
 	displayLabel string
+	policy       SourceSnapshotPolicy
 }
 
 type sourceFileHandle struct {
@@ -78,7 +79,8 @@ func (r *Registry) RegisterLocalZipSnapshot(localPath string, options SourceSnap
 		purpose = SourcePurposeAnalysis
 	}
 	ref := sourceSnapshotRefFor(localPath, info.Size(), info.ModTime().UnixNano(), purpose)
-	entries, totalBytes, diagnostics, err := parseZipSourceEntries(localPath, ref)
+	policy := r.SourceSnapshotPolicy()
+	entries, totalBytes, diagnostics, err := parseZipSourceEntries(localPath, ref, policy)
 	if err != nil {
 		return SourceSnapshotDescriptor{}, err
 	}
@@ -92,7 +94,10 @@ func (r *Registry) RegisterLocalZipSnapshot(localPath string, options SourceSnap
 		purpose:      purpose,
 		sessionID:    strings.TrimSpace(options.SessionID),
 		displayLabel: displayLabel,
+		policy:       policy,
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.sources == nil {
 		r.sources = map[string]sourceSnapshot{}
 	}
@@ -117,6 +122,7 @@ func (r *Registry) ListSourceSnapshotDescriptors(sessionID string) []SourceSnaps
 		return nil
 	}
 	sessionID = strings.TrimSpace(sessionID)
+	r.mu.RLock()
 	refs := make([]string, 0, len(r.sources))
 	for ref, snapshot := range r.sources {
 		if snapshot.sessionID != "" && snapshot.sessionID != sessionID {
@@ -125,10 +131,14 @@ func (r *Registry) ListSourceSnapshotDescriptors(sessionID string) []SourceSnaps
 		refs = append(refs, ref)
 	}
 	sort.Strings(refs)
-	descriptors := make([]SourceSnapshotDescriptor, 0, len(refs))
+	snapshots := make([]sourceSnapshot, 0, len(refs))
 	for _, ref := range refs {
-		snapshot := r.sources[ref]
-		entries, totalBytes, diagnostics, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref)
+		snapshots = append(snapshots, r.sources[ref])
+	}
+	r.mu.RUnlock()
+	descriptors := make([]SourceSnapshotDescriptor, 0, len(refs))
+	for _, snapshot := range snapshots {
+		entries, totalBytes, diagnostics, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref, snapshot.policy)
 		if err != nil {
 			descriptors = append(descriptors, SourceSnapshotDescriptor{
 				SourceSnapshotRef:   snapshot.ref,
@@ -143,6 +153,8 @@ func (r *Registry) ListSourceSnapshotDescriptors(sessionID string) []SourceSnaps
 			})
 			continue
 		}
+		entries = r.filterAdmittedSourceEntries(snapshot.ref, entries)
+		totalBytes = sourceEntriesTotalBytes(entries)
 		descriptors = append(descriptors, sourceSnapshotDescriptor(snapshot, entries, totalBytes, diagnostics))
 	}
 	return descriptors
@@ -158,50 +170,53 @@ func (r *Registry) AdmitSourceTree(ref string, maxEntries *int) (SourceTreeReque
 	if err != nil {
 		return SourceTreeRequest{}, SourceSnapshotDescriptor{}, "invalid_source_snapshot_ref", err
 	}
+	r.mu.RLock()
 	snapshot, ok := r.sources[normalized]
+	r.mu.RUnlock()
 	if !ok {
 		return SourceTreeRequest{}, SourceSnapshotDescriptor{}, "unknown_source_snapshot_ref", fmt.Errorf("unknown source snapshot ref %q", normalized)
 	}
-	limit := DefaultSourceTreeEntryLimit
+	policy := NormalizeSourceSnapshotPolicy(snapshot.policy)
+	limit := policy.DefaultTreeEntries
 	if maxEntries != nil {
 		limit = *maxEntries
 	}
 	if limit <= 0 {
 		return SourceTreeRequest{}, SourceSnapshotDescriptor{}, "invalid_source_tree_request", errors.New("max_entries must be greater than zero")
 	}
-	if limit > DefaultSourceTreeMaxEntryLimit {
-		return SourceTreeRequest{}, SourceSnapshotDescriptor{}, "invalid_source_tree_request", fmt.Errorf("max_entries must be %d or fewer", DefaultSourceTreeMaxEntryLimit)
+	if limit > policy.MaxTreeEntries {
+		return SourceTreeRequest{}, SourceSnapshotDescriptor{}, "invalid_source_tree_request", fmt.Errorf("max_entries must be %d or fewer", policy.MaxTreeEntries)
 	}
-	entries, totalBytes, diagnostics, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref)
+	entries, totalBytes, diagnostics, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref, policy)
 	if err != nil {
 		return SourceTreeRequest{}, SourceSnapshotDescriptor{}, SourceErrorReason(err), err
 	}
+	entries = r.filterAdmittedSourceEntries(snapshot.ref, entries)
+	totalBytes = sourceEntriesTotalBytes(entries)
 	descriptor := sourceSnapshotDescriptor(snapshot, entries, totalBytes, diagnostics)
 	return SourceTreeRequest{SourceSnapshotRef: normalized, MaxEntries: limit}, descriptor, "", nil
 }
 
 func (r *Registry) SourceTree(req SourceTreeRequest) (SourceTreeResult, error) {
+	r.mu.RLock()
 	snapshot, ok := r.sources[strings.TrimSpace(req.SourceSnapshotRef)]
+	r.mu.RUnlock()
 	if !ok {
 		return SourceTreeResult{}, sourceError("unknown_source_snapshot_ref", "unknown source snapshot ref")
 	}
-	entries, _, diagnostics, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref)
+	policy := NormalizeSourceSnapshotPolicy(snapshot.policy)
+	entries, _, diagnostics, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref, policy)
 	if err != nil {
 		return SourceTreeResult{}, err
 	}
+	entries = r.filterAdmittedSourceEntries(snapshot.ref, entries)
 	limit := req.MaxEntries
-	if limit <= 0 || limit > DefaultSourceTreeMaxEntryLimit {
-		limit = DefaultSourceTreeEntryLimit
+	if limit <= 0 || limit > policy.MaxTreeEntries {
+		limit = policy.DefaultTreeEntries
 	}
 	descriptors := make([]SourceFileDescriptor, 0, len(entries))
 	for _, entry := range entries {
 		descriptors = append(descriptors, entry.descriptor)
-		if entry.descriptor.Kind == "file" {
-			r.sourceFiles[entry.descriptor.SourceFileRef] = sourceFileHandle{
-				snapshotRef: snapshot.ref,
-				path:        entry.descriptor.Path,
-			}
-		}
 	}
 	truncated := len(descriptors) > limit
 	if truncated {
@@ -218,6 +233,52 @@ func (r *Registry) SourceTree(req SourceTreeRequest) (SourceTreeResult, error) {
 	}, nil
 }
 
+func (r *Registry) filterAdmittedSourceEntries(snapshotRef string, entries []sourceEntry) []sourceEntry {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	admittedFiles := map[string]string{}
+	for ref, handle := range r.sourceFiles {
+		if handle.snapshotRef != snapshotRef {
+			continue
+		}
+		admittedFiles[ref] = handle.path
+	}
+	r.mu.RUnlock()
+	if len(admittedFiles) == 0 {
+		return nil
+	}
+	filtered := make([]sourceEntry, 0, len(entries))
+	for _, entry := range entries {
+		descriptor := entry.descriptor
+		if descriptor.Kind == "file" {
+			if _, ok := admittedFiles[descriptor.SourceFileRef]; ok {
+				filtered = append(filtered, entry)
+			}
+			continue
+		}
+		prefix := strings.TrimSuffix(descriptor.Path, "/") + "/"
+		for _, admittedPath := range admittedFiles {
+			if strings.HasPrefix(admittedPath, prefix) {
+				filtered = append(filtered, entry)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+func sourceEntriesTotalBytes(entries []sourceEntry) int64 {
+	var total int64
+	for _, entry := range entries {
+		if entry.descriptor.Kind == "file" {
+			total += entry.descriptor.SizeBytes
+		}
+	}
+	return total
+}
+
 func (r *Registry) AdmitSourceRead(ref string, offsetBytes *int, limitBytes *int) (SourceReadRequest, SourceFileDescriptor, string, error) {
 	if classify := ClassifyReference(ref); classify == ReferenceVisibilityOwnerInternal {
 		return SourceReadRequest{}, SourceFileDescriptor{}, "owner_internal_ref_not_source_file", errors.New("source_file_ref is an owner-internal ref, not a source file")
@@ -228,15 +289,19 @@ func (r *Registry) AdmitSourceRead(ref string, offsetBytes *int, limitBytes *int
 	if err != nil {
 		return SourceReadRequest{}, SourceFileDescriptor{}, "invalid_source_file_ref", err
 	}
+	r.mu.RLock()
 	handle, ok := r.sourceFiles[normalized]
 	if !ok {
+		r.mu.RUnlock()
 		return SourceReadRequest{}, SourceFileDescriptor{}, "unknown_source_file_ref", fmt.Errorf("unknown source file ref %q", normalized)
 	}
 	snapshot, ok := r.sources[handle.snapshotRef]
+	r.mu.RUnlock()
 	if !ok {
 		return SourceReadRequest{}, SourceFileDescriptor{}, "unknown_source_snapshot_ref", fmt.Errorf("unknown source snapshot ref %q", handle.snapshotRef)
 	}
-	entries, _, _, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref)
+	policy := NormalizeSourceSnapshotPolicy(snapshot.policy)
+	entries, _, _, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref, policy)
 	if err != nil {
 		return SourceReadRequest{}, SourceFileDescriptor{}, SourceErrorReason(err), err
 	}
@@ -260,29 +325,32 @@ func (r *Registry) AdmitSourceRead(ref string, offsetBytes *int, limitBytes *int
 	if offset < 0 {
 		return SourceReadRequest{}, SourceFileDescriptor{}, "invalid_source_read_request", errors.New("offset_bytes must be zero or greater")
 	}
-	limit := DefaultSourceReadLimitBytes
+	limit := policy.DefaultReadBytes
 	if limitBytes != nil {
 		limit = *limitBytes
 	}
 	if limit <= 0 {
 		return SourceReadRequest{}, SourceFileDescriptor{}, "invalid_source_read_request", errors.New("limit_bytes must be greater than zero")
 	}
-	if limit > DefaultSourceReadMaxLimitBytes {
-		return SourceReadRequest{}, SourceFileDescriptor{}, "invalid_source_read_request", fmt.Errorf("limit_bytes must be %d or fewer", DefaultSourceReadMaxLimitBytes)
+	if limit > policy.MaxReadBytes {
+		return SourceReadRequest{}, SourceFileDescriptor{}, "invalid_source_read_request", fmt.Errorf("limit_bytes must be %d or fewer", policy.MaxReadBytes)
 	}
 	return SourceReadRequest{SourceFileRef: normalized, OffsetBytes: offset, LimitBytes: limit}, descriptor, "", nil
 }
 
 func (r *Registry) SourceRead(req SourceReadRequest) (ModelSourceReadResult, error) {
+	r.mu.RLock()
 	handle, ok := r.sourceFiles[strings.TrimSpace(req.SourceFileRef)]
 	if !ok {
+		r.mu.RUnlock()
 		return ModelSourceReadResult{}, sourceError("unknown_source_file_ref", "unknown source file ref")
 	}
 	snapshot, ok := r.sources[handle.snapshotRef]
+	r.mu.RUnlock()
 	if !ok {
 		return ModelSourceReadResult{}, sourceError("unknown_source_snapshot_ref", "unknown source snapshot ref")
 	}
-	text, descriptor, err := readZipSourceText(snapshot.localPath, handle.path)
+	text, descriptor, err := readZipSourceText(snapshot.localPath, snapshot.ref, handle.path, snapshot.policy)
 	if err != nil {
 		return ModelSourceReadResult{}, err
 	}
@@ -315,7 +383,8 @@ func (r *Registry) SourceRead(req SourceReadRequest) (ModelSourceReadResult, err
 	return result, nil
 }
 
-func parseZipSourceEntries(zipPath string, snapshotRef string) ([]sourceEntry, int64, []SourceDiagnostic, error) {
+func parseZipSourceEntries(zipPath string, snapshotRef string, policy SourceSnapshotPolicy) ([]sourceEntry, int64, []SourceDiagnostic, error) {
+	policy = NormalizeSourceSnapshotPolicy(policy)
 	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -346,15 +415,15 @@ func parseZipSourceEntries(zipPath string, snapshotRef string) ([]sourceEntry, i
 		}
 		if !isDir {
 			fileCount++
-			if fileCount > DefaultSourceFileCountLimit {
+			if fileCount > policy.MaxFileCount {
 				return nil, 0, nil, sourceError("source_file_count_exceeded", "source archive has too many files")
 			}
 			size := int64(file.UncompressedSize64)
-			if size > DefaultSourcePerFileLimitBytes {
+			if size > policy.MaxPerFileUncompressedBytes {
 				return nil, 0, nil, sourceError("source_file_size_exceeded", "source archive contains an oversized file")
 			}
 			totalBytes += size
-			if totalBytes > DefaultSourceTotalLimitBytes {
+			if totalBytes > policy.MaxTotalUncompressedBytes {
 				return nil, 0, nil, sourceError("source_total_size_exceeded", "source archive exceeds total uncompressed size budget")
 			}
 			textReadable, err := zipEntryTextReadable(file)
@@ -430,7 +499,8 @@ func zipEntryTextReadable(file *zip.File) (bool, error) {
 	return utf8.Valid(buf), nil
 }
 
-func readZipSourceText(zipPath string, sourcePath string) (string, SourceFileDescriptor, error) {
+func readZipSourceText(zipPath string, snapshotRef string, sourcePath string, policy SourceSnapshotPolicy) (string, SourceFileDescriptor, error) {
+	policy = NormalizeSourceSnapshotPolicy(policy)
 	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -450,7 +520,7 @@ func readZipSourceText(zipPath string, sourcePath string) (string, SourceFileDes
 		if file.FileInfo().IsDir() || strings.HasSuffix(file.Name, "/") {
 			return "", SourceFileDescriptor{}, sourceError("source_path_not_file", "source path is a directory")
 		}
-		if file.UncompressedSize64 > uint64(DefaultSourcePerFileLimitBytes) {
+		if file.UncompressedSize64 > uint64(policy.MaxPerFileUncompressedBytes) {
 			return "", SourceFileDescriptor{}, sourceError("source_file_size_exceeded", "source file exceeds read size budget")
 		}
 		textReadable, err := zipEntryTextReadable(file)
@@ -458,7 +528,7 @@ func readZipSourceText(zipPath string, sourcePath string) (string, SourceFileDes
 			return "", SourceFileDescriptor{}, err
 		}
 		descriptor := SourceFileDescriptor{
-			SourceFileRef:       sourceFileRefFor(zipPath, normalized),
+			SourceFileRef:       sourceFileRefFor(snapshotRef, normalized),
 			Path:                normalized,
 			Kind:                "file",
 			MimeType:            sourceMimeType(normalized, textReadable),

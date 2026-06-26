@@ -61,14 +61,24 @@ const (
 )
 
 const (
-	DefaultSourceFileCountLimit    = 512
-	DefaultSourcePerFileLimitBytes = 512 * 1024
-	DefaultSourceTotalLimitBytes   = 1024 * 1024
+	DefaultSourceFileCountLimit    = 4096
+	DefaultSourcePerFileLimitBytes = 8 * 1024 * 1024
+	DefaultSourceTotalLimitBytes   = 64 * 1024 * 1024
 	DefaultSourceTreeEntryLimit    = 200
-	DefaultSourceTreeMaxEntryLimit = 1000
+	DefaultSourceTreeMaxEntryLimit = 4096
 	DefaultSourceReadLimitBytes    = defaultReadLimitBytes
 	DefaultSourceReadMaxLimitBytes = maxReadLimitBytes
 )
+
+type SourceSnapshotPolicy struct {
+	MaxFileCount                int   `json:"max_file_count"`
+	MaxPerFileUncompressedBytes int64 `json:"max_per_file_uncompressed_bytes"`
+	MaxTotalUncompressedBytes   int64 `json:"max_total_uncompressed_bytes"`
+	DefaultTreeEntries          int   `json:"default_tree_entries"`
+	MaxTreeEntries              int   `json:"max_tree_entries"`
+	DefaultReadBytes            int   `json:"default_read_bytes"`
+	MaxReadBytes                int   `json:"max_read_bytes"`
+}
 
 type SourceSnapshotOptions struct {
 	Purpose      string

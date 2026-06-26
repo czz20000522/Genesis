@@ -18,8 +18,9 @@ func handleIntakeMaterial(w http.ResponseWriter, r *http.Request, k *Kernel) {
 }
 
 func handleUploadMaterial(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	r.Body = http.MaxBytesReader(w, r.Body, int64(maxMaterialUploadBytes)+1024*1024)
-	if err := r.ParseMultipartForm(int64(maxMaterialUploadBytes)); err != nil {
+	uploadLimit := k.materialUploadByteLimit()
+	r.Body = http.MaxBytesReader(w, r.Body, uploadLimit+1024*1024)
+	if err := r.ParseMultipartForm(uploadLimit); err != nil {
 		writeJSON(w, http.StatusBadRequest, refusedMaterialIntake("invalid_upload", err.Error()))
 		return
 	}

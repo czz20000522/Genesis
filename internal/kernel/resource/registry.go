@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const (
@@ -21,9 +22,11 @@ const (
 )
 
 type Registry struct {
-	items       map[string]registeredResource
-	sources     map[string]sourceSnapshot
-	sourceFiles map[string]sourceFileHandle
+	items        map[string]registeredResource
+	sources      map[string]sourceSnapshot
+	sourceFiles  map[string]sourceFileHandle
+	sourcePolicy SourceSnapshotPolicy
+	mu           sync.RWMutex
 }
 
 type registeredResource struct {
@@ -39,10 +42,15 @@ type ReadRequest struct {
 }
 
 func NewRegistry(items []Descriptor) (*Registry, error) {
+	return NewRegistryWithSourceSnapshotPolicy(items, SourceSnapshotPolicy{})
+}
+
+func NewRegistryWithSourceSnapshotPolicy(items []Descriptor, policy SourceSnapshotPolicy) (*Registry, error) {
 	registry := &Registry{
-		items:       map[string]registeredResource{},
-		sources:     map[string]sourceSnapshot{},
-		sourceFiles: map[string]sourceFileHandle{},
+		items:        map[string]registeredResource{},
+		sources:      map[string]sourceSnapshot{},
+		sourceFiles:  map[string]sourceFileHandle{},
+		sourcePolicy: NormalizeSourceSnapshotPolicy(policy),
 	}
 	for _, item := range items {
 		ref, err := NormalizeRef(item.Ref)
@@ -60,6 +68,57 @@ func NewRegistry(items []Descriptor) (*Registry, error) {
 		}
 	}
 	return registry, nil
+}
+
+func DefaultSourceSnapshotPolicy() SourceSnapshotPolicy {
+	return SourceSnapshotPolicy{
+		MaxFileCount:                DefaultSourceFileCountLimit,
+		MaxPerFileUncompressedBytes: DefaultSourcePerFileLimitBytes,
+		MaxTotalUncompressedBytes:   DefaultSourceTotalLimitBytes,
+		DefaultTreeEntries:          DefaultSourceTreeEntryLimit,
+		MaxTreeEntries:              DefaultSourceTreeMaxEntryLimit,
+		DefaultReadBytes:            DefaultSourceReadLimitBytes,
+		MaxReadBytes:                DefaultSourceReadMaxLimitBytes,
+	}
+}
+
+func NormalizeSourceSnapshotPolicy(policy SourceSnapshotPolicy) SourceSnapshotPolicy {
+	defaults := DefaultSourceSnapshotPolicy()
+	if policy.MaxFileCount <= 0 {
+		policy.MaxFileCount = defaults.MaxFileCount
+	}
+	if policy.MaxPerFileUncompressedBytes <= 0 {
+		policy.MaxPerFileUncompressedBytes = defaults.MaxPerFileUncompressedBytes
+	}
+	if policy.MaxTotalUncompressedBytes <= 0 {
+		policy.MaxTotalUncompressedBytes = defaults.MaxTotalUncompressedBytes
+	}
+	if policy.MaxTreeEntries <= 0 {
+		policy.MaxTreeEntries = defaults.MaxTreeEntries
+	}
+	if policy.DefaultTreeEntries <= 0 {
+		policy.DefaultTreeEntries = defaults.DefaultTreeEntries
+	}
+	if policy.DefaultTreeEntries > policy.MaxTreeEntries {
+		policy.DefaultTreeEntries = policy.MaxTreeEntries
+	}
+	if policy.MaxReadBytes <= 0 {
+		policy.MaxReadBytes = defaults.MaxReadBytes
+	}
+	if policy.DefaultReadBytes <= 0 {
+		policy.DefaultReadBytes = defaults.DefaultReadBytes
+	}
+	if policy.DefaultReadBytes > policy.MaxReadBytes {
+		policy.DefaultReadBytes = policy.MaxReadBytes
+	}
+	return policy
+}
+
+func (r *Registry) SourceSnapshotPolicy() SourceSnapshotPolicy {
+	if r == nil {
+		return DefaultSourceSnapshotPolicy()
+	}
+	return NormalizeSourceSnapshotPolicy(r.sourcePolicy)
 }
 
 func (r *Registry) Has(ref string) bool {

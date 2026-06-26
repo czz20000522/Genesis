@@ -67,7 +67,7 @@ func New(config Config) (*Kernel, error) {
 	if err != nil {
 		return nil, err
 	}
-	resourceRegistry, err := resource.NewRegistry(config.Resources)
+	resourceRegistry, err := resource.NewRegistryWithSourceSnapshotPolicy(config.Resources, config.SourceSnapshotPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -136,17 +136,22 @@ func (k *Kernel) Ready() ReadyResponse {
 func (k *Kernel) Capabilities() CapabilitiesResponse {
 	ready := k.Ready()
 	return CapabilitiesResponse{
-		Readiness:          ready.Readiness,
-		ReadinessReason:    ready.ReadinessReason,
-		Provider:           safeProviderStatusForInspection(ready.Provider),
-		RuntimeAuth:        ready.RuntimeAuth,
-		Ledger:             ready.Ledger,
-		BudgetLease:        k.budgetLeaseProjection(),
-		ShellTimeoutPolicy: k.shellTimeoutPolicy,
-		Limits:             k.runtimeLimitProjections(),
-		Tools:              k.toolCapabilityProjections(),
-		SkillCatalog:       k.skillCatalogProjection(),
+		Readiness:                 ready.Readiness,
+		ReadinessReason:           ready.ReadinessReason,
+		Provider:                  safeProviderStatusForInspection(ready.Provider),
+		RuntimeAuth:               ready.RuntimeAuth,
+		Ledger:                    ready.Ledger,
+		BudgetLease:               k.budgetLeaseProjection(),
+		ShellTimeoutPolicy:        k.shellTimeoutPolicy,
+		SourceSnapshotPersistence: k.sourceSnapshotPersistence(),
+		Limits:                    k.runtimeLimitProjections(),
+		Tools:                     k.toolCapabilityProjections(),
+		SkillCatalog:              k.skillCatalogProjection(),
 	}
+}
+
+func (k *Kernel) sourceSnapshotPersistence() ReadyCheck {
+	return ReadyCheck{Readiness: ReadinessNotReady, ReadinessReason: "process_lifetime_only"}
 }
 
 func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse, error) {

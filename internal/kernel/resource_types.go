@@ -14,6 +14,7 @@ type SourceFileDescriptor = resource.SourceFileDescriptor
 type SourceDiagnostic = resource.SourceDiagnostic
 type SourceTreeResult = resource.SourceTreeResult
 type ModelSourceReadResult = resource.ModelSourceReadResult
+type SourceSnapshotPolicy = resource.SourceSnapshotPolicy
 
 const (
 	SourcePurposeAnalysis        = resource.SourcePurposeAnalysis

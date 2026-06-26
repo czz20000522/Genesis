@@ -11,8 +11,6 @@ import (
 	"genesis/internal/kernel/resource"
 )
 
-const maxMaterialUploadBytes = resource.DefaultSourceTotalLimitBytes + resource.DefaultSourcePerFileLimitBytes
-
 func (k *Kernel) IntakeMaterial(req MaterialIntakeRequest) (MaterialIntakeProjection, error) {
 	kind := strings.TrimSpace(req.Locator.Kind)
 	if kind == "" {
@@ -64,7 +62,8 @@ func (k *Kernel) IntakeUploadedMaterial(sessionID string, purpose string, filena
 			_ = os.Remove(tmpPath)
 		}
 	}()
-	written, copyErr := io.Copy(tmp, io.LimitReader(body, maxMaterialUploadBytes+1))
+	uploadLimit := k.materialUploadByteLimit()
+	written, copyErr := io.Copy(tmp, io.LimitReader(body, uploadLimit+1))
 	closeErr := tmp.Close()
 	if copyErr != nil {
 		return refusedMaterialIntake("upload_read_failed", "upload body could not be read"), copyErr
@@ -72,7 +71,7 @@ func (k *Kernel) IntakeUploadedMaterial(sessionID string, purpose string, filena
 	if closeErr != nil {
 		return refusedMaterialIntake("object_store_unavailable", "material object store write failed"), closeErr
 	}
-	if written > maxMaterialUploadBytes {
+	if written > uploadLimit {
 		return refusedMaterialIntake("upload_too_large", "upload exceeds material intake byte budget"), errors.New("upload exceeds material intake byte budget")
 	}
 	purpose = strings.TrimSpace(purpose)
@@ -99,6 +98,11 @@ func (k *Kernel) IntakeUploadedMaterial(sessionID string, purpose string, filena
 		AvailableOperations: append([]string(nil), descriptor.AvailableOperations...),
 		Diagnostics:         append([]SourceDiagnostic(nil), descriptor.Diagnostics...),
 	}, nil
+}
+
+func (k *Kernel) materialUploadByteLimit() int64 {
+	policy := k.resourceRegistry.SourceSnapshotPolicy()
+	return policy.MaxTotalUncompressedBytes + policy.MaxPerFileUncompressedBytes
 }
 
 func refusedMaterialIntake(reason string, message string) MaterialIntakeProjection {

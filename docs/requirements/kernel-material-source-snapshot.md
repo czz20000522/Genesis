@@ -54,10 +54,20 @@ object keys, upload paths, or raw external payload ids.
   duplicate normalized paths fail closed or are refused with bounded
   diagnostics.
 - File count, per-file size, total uncompressed size, tree output, and read
-  output are bounded. Long text is truncated with byte metadata. Binary entries
-  can appear in the tree but `source_read` must not return garbled text.
-- Source tools are `pure_read` only for snapshot-stable refs admitted by the
-  source owner. The scheduler must not infer shell reads from command text.
+  output are bounded by `SourceSnapshotPolicy` and projected through runtime
+  limits. Intake defaults must be sized for ordinary project-scale code
+  packages, while per-read provider output remains small and explicitly
+  truncated with byte metadata.
+- Binary entries can appear in the tree but `source_read` must not return
+  garbled text.
+- Source tools are `pure_read` only for source refs admitted by the source owner
+  and only after the owner can serve tree/read operations without mutating
+  shared resolver state during tool execution. The scheduler must not infer
+  shell reads from command text.
+- Source snapshot resolver state is currently process-lifetime only. A restarted
+  kernel with the same ledger/material store does not recover snapshot handles
+  until a durable source owner index is implemented; capabilities must report
+  this truthfully as `process_lifetime_only`.
 
 ## Non-Goals
 
@@ -86,21 +96,25 @@ object keys, upload paths, or raw external payload ids.
 
 The current slice implements Phase A through Phase D for zip source packages:
 
-- `POST /materials/intake` admits an absolute local zip path as a live-read
-  source snapshot for an optional session.
+- `POST /materials/intake` admits an absolute local zip path as a source
+  snapshot for an optional session. The target zip must remain available while
+  the current process uses the snapshot.
 - `POST /materials/upload` stores multipart upload bytes in the kernel material
   file store using a generated path, treats the uploaded filename as display
   metadata only, and reuses zip snapshot parsing.
 - `source_tree` and `source_read` are typed model-visible tools backed by
-  source owner admission. They accept only source refs, not host paths.
+  source owner admission. They accept only source refs, not host paths, and run
+  against handles generated at intake.
+- Source intake/read limits are configurable through `SourceSnapshotPolicy` and
+  visible through runtime limit inspection.
 - Provider context may include a bounded `source_snapshot_context` notice with
   refs and operation names. It omits host paths, storage refs, upload paths, and
   archive bodies.
 
-Remaining future work is production object-store policy, retention/quarantine,
-richer source selection, source search/span tools, code intelligence indexing,
-and live LLM/user-interface smoke. Those gaps do not change the current
-source-ref contract.
+Remaining future work is durable source owner indexing/recovery, production
+object-store policy, retention/quarantine, richer source selection, source
+search/span tools, code intelligence indexing, and live LLM/user-interface
+smoke. Those gaps do not change the current source-ref contract.
 
 ## Acceptance Criteria
 
@@ -125,6 +139,9 @@ source-ref contract.
 - Fake-provider tests demonstrate a turn can see a source snapshot, call
   `source_tree`, call `source_read`, and produce a final answer based on file
   content.
+- Runtime capabilities expose effective source snapshot intake/read limits.
+- Restart/resume projections either recover source owner state or truthfully
+  declare source snapshot persistence as `process_lifetime_only`.
 
 ## Reference Alignment
 

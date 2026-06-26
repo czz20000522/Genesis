@@ -3,18 +3,19 @@ package kernel
 import "time"
 
 type Config struct {
-	LedgerPath         string
-	Provider           Provider
-	JobExecutor        ManagedJobExecutor
-	RuntimeToken       string
-	ToolPolicy         ToolPolicy
-	ContextPolicy      ContextPolicy
-	BudgetPolicy       BudgetPolicy
-	ShellTimeoutPolicy ShellTimeoutPolicy
-	SkillRoots         []string
-	Resources          []ResourceDescriptor
-	MaterialStorePath  string
-	Clock              func() time.Time
+	LedgerPath           string
+	Provider             Provider
+	JobExecutor          ManagedJobExecutor
+	RuntimeToken         string
+	ToolPolicy           ToolPolicy
+	ContextPolicy        ContextPolicy
+	BudgetPolicy         BudgetPolicy
+	ShellTimeoutPolicy   ShellTimeoutPolicy
+	SourceSnapshotPolicy SourceSnapshotPolicy
+	SkillRoots           []string
+	Resources            []ResourceDescriptor
+	MaterialStorePath    string
+	Clock                func() time.Time
 }
 
 type ToolPolicy struct {
@@ -75,16 +76,17 @@ type ReadyResponse struct {
 }
 
 type CapabilitiesResponse struct {
-	Readiness          string                     `json:"readiness"`
-	ReadinessReason    string                     `json:"readiness_reason,omitempty"`
-	Provider           ProviderStatus             `json:"provider"`
-	RuntimeAuth        ReadyCheck                 `json:"runtime_auth"`
-	Ledger             ReadyCheck                 `json:"ledger"`
-	BudgetLease        BudgetLeaseProjection      `json:"budget_lease"`
-	ShellTimeoutPolicy ShellTimeoutPolicy         `json:"shell_timeout_policy"`
-	Limits             []RuntimeLimitProjection   `json:"limits"`
-	Tools              []ToolCapabilityProjection `json:"tools"`
-	SkillCatalog       SkillCatalogProjection     `json:"skill_catalog"`
+	Readiness                 string                     `json:"readiness"`
+	ReadinessReason           string                     `json:"readiness_reason,omitempty"`
+	Provider                  ProviderStatus             `json:"provider"`
+	RuntimeAuth               ReadyCheck                 `json:"runtime_auth"`
+	Ledger                    ReadyCheck                 `json:"ledger"`
+	BudgetLease               BudgetLeaseProjection      `json:"budget_lease"`
+	ShellTimeoutPolicy        ShellTimeoutPolicy         `json:"shell_timeout_policy"`
+	SourceSnapshotPersistence ReadyCheck                 `json:"source_snapshot_persistence"`
+	Limits                    []RuntimeLimitProjection   `json:"limits"`
+	Tools                     []ToolCapabilityProjection `json:"tools"`
+	SkillCatalog              SkillCatalogProjection     `json:"skill_catalog"`
 }
 
 type ProviderStatus struct {

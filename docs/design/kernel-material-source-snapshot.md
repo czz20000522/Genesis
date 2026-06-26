@@ -54,6 +54,12 @@ SourceFileDescriptor:
 validate the ref again, verify the underlying local file or uploaded object is
 available, and re-check read budgets before producing output.
 
+Source file handles are created at intake. `source_tree` is a read projection
+over those admitted handles; it must not lazily add new file handles while the
+tool runtime may execute pure-read calls concurrently. If the backing zip
+changes, tree projection can drop unavailable entries, but it must not expand
+model-visible read authority to new archive entries without a new intake.
+
 ## Local Path Intake
 
 The first locator shape is:
@@ -77,7 +83,9 @@ Validation:
   timeline, and model-visible descriptor metadata.
 
 Local path snapshots are not durable body storage. If the original file is
-deleted or changed later, source tools report the current live-read outcome.
+deleted or changed later, source tools report the current process-lifetime
+outcome without pretending that the original body was durably stored. Current
+resolver state is not recovered after kernel restart.
 
 ## Zip Snapshot Parser
 
@@ -92,13 +100,18 @@ source descriptors:
 - `..` segments or normalized paths that escape root;
 - duplicate normalized file paths.
 
-Budgets:
+Budgets are supplied by `SourceSnapshotPolicy` and projected through runtime
+limit inspection:
 
 - maximum source file count;
 - maximum per-file uncompressed bytes;
 - maximum total uncompressed bytes;
 - maximum tree result entries/bytes;
 - maximum source read bytes.
+
+The production default intake budget must accept ordinary project-scale zip
+packages such as the pleiades pressure package, while explicit low-budget
+overrides must still fail closed for archive bombs and tests.
 
 Text detection is conservative: a NUL byte or invalid UTF-8 in the inspected
 prefix makes an entry binary. Binary entries stay visible in tree output but
@@ -172,6 +185,9 @@ The current owner split is:
 - The source snapshot registry lives under `internal/kernel/resource` because it
   owns refs, descriptors, zip validation, bounded tree projection, and source
   file reads.
+- Source snapshot resolver state is process-lifetime only in the current
+  implementation. Capabilities expose `source_snapshot_persistence` as
+  `not_ready/process_lifetime_only` until a durable source owner index exists.
 - HTTP material routes are control surfaces. They authorize runtime requests,
   decode JSON or multipart input, then delegate to kernel owner methods.
 - ToolGateway exposes only `source_tree` and `source_read`; no route or tool

@@ -113,6 +113,54 @@ func TestHTTPMaterialUploadStoresByGeneratedPathAndParsesZip(t *testing.T) {
 	}
 }
 
+func TestMaterialSourceSnapshotPersistenceIsDeclaredProcessLifetimeOnly(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "http-material-process-lifetime")
+	storePath := filepath.Join(dir, "material-store")
+	k, err := New(Config{
+		LedgerPath:        filepath.Join(dir, "events.jsonl"),
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	resp := postMultipartMaterialUpload(t, server.URL+"/materials/upload", map[string]string{
+		"session_id": "upload-process-lifetime",
+		"purpose":    SourcePurposeAnalysis,
+	}, "package.zip", zipBytesFixture(t, map[string]string{"src/main.go": "package main\n"}))
+	defer resp.Body.Close()
+	payload := readAll(t, resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /materials/upload status=%d body=%s", resp.StatusCode, payload)
+	}
+	var projection MaterialIntakeProjection
+	if err := json.Unmarshal(payload, &projection); err != nil {
+		t.Fatalf("unmarshal material projection: %v", err)
+	}
+
+	restarted, err := New(Config{
+		LedgerPath:        filepath.Join(dir, "events.jsonl"),
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New restarted kernel returned error: %v", err)
+	}
+	if _, _, code, err := restarted.resourceRegistry.AdmitSourceTree(projection.SourceSnapshotRef, nil); err == nil || code != "unknown_source_snapshot_ref" {
+		t.Fatalf("restarted AdmitSourceTree code=%q err=%v, want unknown source ref", code, err)
+	}
+	capabilities := restarted.Capabilities()
+	if capabilities.SourceSnapshotPersistence.Readiness != ReadinessNotReady ||
+		capabilities.SourceSnapshotPersistence.ReadinessReason != "process_lifetime_only" {
+		t.Fatalf("source snapshot persistence = %+v, want not_ready/process_lifetime_only", capabilities.SourceSnapshotPersistence)
+	}
+}
+
 func TestHTTPMaterialUploadRejectsNonZipBinary(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "http-material-upload-binary")
 	k := newTestKernel(t, filepath.Join(dir, "events.jsonl"))

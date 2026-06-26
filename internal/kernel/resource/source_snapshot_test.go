@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"genesis/internal/testsupport"
@@ -117,19 +119,76 @@ func TestSourceTreeAndReadReturnBoundedArchiveContent(t *testing.T) {
 	}
 }
 
+func TestSourceSnapshotDefaultBudgetAdmitsPressureSizedCodePackage(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "source-snapshot-pressure")
+	zipPath := filepath.Join(dir, "package.zip")
+	oldTinyTotalLimit := 1024 * 1024
+	body := bytes.Repeat([]byte("a"), oldTinyTotalLimit/3+4096)
+	writeZipFixture(t, zipPath, map[string][]byte{
+		"src/a.py": body,
+		"src/b.py": body,
+		"src/c.py": body,
+	})
+	registry, err := NewRegistry(nil)
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+
+	descriptor, err := registry.RegisterLocalZipSnapshot(zipPath, SourceSnapshotOptions{Purpose: SourcePurposeAnalysis})
+	if err != nil {
+		t.Fatalf("RegisterLocalZipSnapshot returned error for pressure-sized code package: %v", err)
+	}
+	if descriptor.TotalUncompressedBytes <= int64(oldTinyTotalLimit) {
+		t.Fatalf("descriptor total = %d, test fixture must exceed old tiny total limit %d", descriptor.TotalUncompressedBytes, oldTinyTotalLimit)
+	}
+	tree := sourceTreeForSnapshot(t, registry, descriptor.SourceSnapshotRef)
+	sourceRef := sourceFileRefByPath(tree.Entries, "src/a.py")
+	readReq, _, code, err := registry.AdmitSourceRead(sourceRef, nil, nil)
+	if err != nil {
+		t.Fatalf("AdmitSourceRead returned %s: %v", code, err)
+	}
+	read, err := registry.SourceRead(readReq)
+	if err != nil {
+		t.Fatalf("SourceRead returned error: %v", err)
+	}
+	if read.ReturnedBytes != DefaultSourceReadLimitBytes || !read.Truncated {
+		t.Fatalf("source read = %+v, want bounded default read projection", read)
+	}
+}
+
+func TestSourceSnapshotExplicitLowBudgetStillRefusesArchiveBombs(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "source-snapshot-low-budget")
+	zipPath := filepath.Join(dir, "package.zip")
+	oldTinyTotalLimit := 1024 * 1024
+	body := bytes.Repeat([]byte("b"), oldTinyTotalLimit/3+4096)
+	writeZipFixture(t, zipPath, map[string][]byte{
+		"src/a.py": body,
+		"src/b.py": body,
+		"src/c.py": body,
+	})
+	policy := DefaultSourceSnapshotPolicy()
+	policy.MaxTotalUncompressedBytes = int64(oldTinyTotalLimit)
+	registry, err := NewRegistryWithSourceSnapshotPolicy(nil, policy)
+	if err != nil {
+		t.Fatalf("NewRegistryWithSourceSnapshotPolicy returned error: %v", err)
+	}
+
+	_, err = registry.RegisterLocalZipSnapshot(zipPath, SourceSnapshotOptions{Purpose: SourcePurposeAnalysis})
+	if err == nil || SourceErrorReason(err) != "source_total_size_exceeded" {
+		t.Fatalf("RegisterLocalZipSnapshot returned %v, want source_total_size_exceeded under explicit low budget", err)
+	}
+}
+
 func TestSourceSnapshotRejectsUnsafeZipEntriesAndBudgets(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "source-snapshot-unsafe")
-	cases := map[string]map[string][]byte{
-		"dotdot":      {"../escape.txt": []byte("escape")},
-		"absolute":    {"/escape.txt": []byte("escape")},
-		"windows":     {"C:/escape.txt": []byte("escape")},
-		"backslash":   {"nested\\escape.txt": []byte("escape")},
-		"duplicates":  {"dup.txt": []byte("one"), "./dup.txt": []byte("two")},
-		"large-file":  {"large.txt": bytes.Repeat([]byte("x"), DefaultSourcePerFileLimitBytes+1)},
-		"many-files":  manyZipEntries(DefaultSourceFileCountLimit + 1),
-		"total-bytes": manyZipEntriesWithSize(3, DefaultSourceTotalLimitBytes/3+1),
+	unsafeCases := map[string]map[string][]byte{
+		"dotdot":     {"../escape.txt": []byte("escape")},
+		"absolute":   {"/escape.txt": []byte("escape")},
+		"windows":    {"C:/escape.txt": []byte("escape")},
+		"backslash":  {"nested\\escape.txt": []byte("escape")},
+		"duplicates": {"dup.txt": []byte("one"), "./dup.txt": []byte("two")},
 	}
-	for name, entries := range cases {
+	for name, entries := range unsafeCases {
 		t.Run(name, func(t *testing.T) {
 			zipPath := filepath.Join(dir, name+".zip")
 			writeZipFixture(t, zipPath, entries)
@@ -140,6 +199,29 @@ func TestSourceSnapshotRejectsUnsafeZipEntriesAndBudgets(t *testing.T) {
 			_, err = registry.RegisterLocalZipSnapshot(zipPath, SourceSnapshotOptions{Purpose: SourcePurposeAnalysis})
 			if err == nil {
 				t.Fatalf("RegisterLocalZipSnapshot accepted unsafe/budget-breaking archive %q", name)
+			}
+		})
+	}
+	budgetPolicy := DefaultSourceSnapshotPolicy()
+	budgetPolicy.MaxFileCount = 3
+	budgetPolicy.MaxPerFileUncompressedBytes = 1024
+	budgetPolicy.MaxTotalUncompressedBytes = 2 * 1024
+	budgetCases := map[string]map[string][]byte{
+		"large-file":  {"large.txt": bytes.Repeat([]byte("x"), int(budgetPolicy.MaxPerFileUncompressedBytes)+1)},
+		"many-files":  manyZipEntries(budgetPolicy.MaxFileCount + 1),
+		"total-bytes": manyZipEntriesWithSize(3, int(budgetPolicy.MaxTotalUncompressedBytes)/3+1),
+	}
+	for name, entries := range budgetCases {
+		t.Run(name, func(t *testing.T) {
+			zipPath := filepath.Join(dir, name+".zip")
+			writeZipFixture(t, zipPath, entries)
+			registry, err := NewRegistryWithSourceSnapshotPolicy(nil, budgetPolicy)
+			if err != nil {
+				t.Fatalf("NewRegistryWithSourceSnapshotPolicy returned error: %v", err)
+			}
+			_, err = registry.RegisterLocalZipSnapshot(zipPath, SourceSnapshotOptions{Purpose: SourcePurposeAnalysis})
+			if err == nil {
+				t.Fatalf("RegisterLocalZipSnapshot accepted budget-breaking archive %q", name)
 			}
 		})
 	}
@@ -193,6 +275,109 @@ func TestSourceFileRefsAreScopedToSourceSnapshot(t *testing.T) {
 	}
 }
 
+func TestSourceTreeDoesNotExpandFileAuthorityAfterArchiveMutation(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "source-snapshot-no-authority-expansion")
+	zipPath := filepath.Join(dir, "package.zip")
+	writeZipFixture(t, zipPath, map[string][]byte{
+		"src/admitted.go": []byte("package admitted\n"),
+	})
+	registry, err := NewRegistry(nil)
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	descriptor, err := registry.RegisterLocalZipSnapshot(zipPath, SourceSnapshotOptions{Purpose: SourcePurposeAnalysis})
+	if err != nil {
+		t.Fatalf("RegisterLocalZipSnapshot returned error: %v", err)
+	}
+	writeZipFixture(t, zipPath, map[string][]byte{
+		"src/admitted.go": []byte("package admitted\n"),
+		"src/new.go":      []byte("package new\n"),
+	})
+
+	tree := sourceTreeForSnapshot(t, registry, descriptor.SourceSnapshotRef)
+	if sourceFileRefByPath(tree.Entries, "src/admitted.go") == "" {
+		t.Fatalf("tree entries = %+v, want originally admitted file", tree.Entries)
+	}
+	if sourceFileRefByPath(tree.Entries, "src/new.go") != "" {
+		t.Fatalf("tree entries = %+v, must not expose file refs that were not admitted at intake", tree.Entries)
+	}
+}
+
+func TestSourceSnapshotParallelReadsDoNotRaceOrMutateRegistry(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "source-snapshot-parallel-read")
+	zipPath := filepath.Join(dir, "package.zip")
+	writeZipFixture(t, zipPath, map[string][]byte{
+		"src/a.go": []byte("package a\n"),
+		"src/b.go": []byte("package b\n"),
+		"src/c.go": []byte("package c\n"),
+	})
+	registry, err := NewRegistry(nil)
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	descriptor, err := registry.RegisterLocalZipSnapshot(zipPath, SourceSnapshotOptions{Purpose: SourcePurposeAnalysis})
+	if err != nil {
+		t.Fatalf("RegisterLocalZipSnapshot returned error: %v", err)
+	}
+	tree := sourceTreeForSnapshot(t, registry, descriptor.SourceSnapshotRef)
+	refs := []string{
+		sourceFileRefByPath(tree.Entries, "src/a.go"),
+		sourceFileRefByPath(tree.Entries, "src/b.go"),
+		sourceFileRefByPath(tree.Entries, "src/c.go"),
+	}
+	for _, ref := range refs {
+		if ref == "" {
+			t.Fatalf("tree entries = %+v, missing source file ref", tree.Entries)
+		}
+	}
+	sourceFileCount := len(registry.sourceFiles)
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < 20; j++ {
+				treeReq, _, code, err := registry.AdmitSourceTree(descriptor.SourceSnapshotRef, nil)
+				if err != nil {
+					t.Errorf("AdmitSourceTree returned %s: %v", code, err)
+					return
+				}
+				if _, err := registry.SourceTree(treeReq); err != nil {
+					t.Errorf("SourceTree returned error: %v", err)
+					return
+				}
+			}
+		}()
+		for _, ref := range refs {
+			ref := ref
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				for j := 0; j < 20; j++ {
+					readReq, _, code, err := registry.AdmitSourceRead(ref, nil, nil)
+					if err != nil {
+						t.Errorf("AdmitSourceRead returned %s: %v", code, err)
+						return
+					}
+					if _, err := registry.SourceRead(readReq); err != nil {
+						t.Errorf("SourceRead returned error: %v", err)
+						return
+					}
+				}
+			}()
+		}
+	}
+	close(start)
+	wg.Wait()
+	if len(registry.sourceFiles) != sourceFileCount {
+		t.Fatalf("source file handles changed from %d to %d during pure-read operations", sourceFileCount, len(registry.sourceFiles))
+	}
+}
+
 func writeZipFixture(t *testing.T, path string, entries map[string][]byte) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -227,7 +412,7 @@ func writeZipFixture(t *testing.T, path string, entries map[string][]byte) {
 func manyZipEntries(count int) map[string][]byte {
 	entries := make(map[string][]byte, count)
 	for i := 0; i < count; i++ {
-		entries[filepath.ToSlash(filepath.Join("files", "file-"+string(rune('a'+(i%26)))+"-"+string(rune('a'+((i/26)%26)))+".txt"))] = []byte("x")
+		entries[filepath.ToSlash(filepath.Join("files", "file-"+strconv.Itoa(i)+".txt"))] = []byte("x")
 	}
 	return entries
 }
@@ -235,7 +420,7 @@ func manyZipEntries(count int) map[string][]byte {
 func manyZipEntriesWithSize(count int, size int) map[string][]byte {
 	entries := make(map[string][]byte, count)
 	for i := 0; i < count; i++ {
-		entries[filepath.ToSlash(filepath.Join("files", "large-"+string(rune('a'+i))+".txt"))] = bytes.Repeat([]byte("x"), size)
+		entries[filepath.ToSlash(filepath.Join("files", "large-"+strconv.Itoa(i)+".txt"))] = bytes.Repeat([]byte("x"), size)
 	}
 	return entries
 }

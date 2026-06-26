@@ -40,6 +40,13 @@ func main() {
 	skillIndexChars := flag.Int("skill-index-chars", envIntOrDefault("GENESIS_SKILL_INDEX_CHARS", 0), "maximum characters of model-visible external skill index; 0 uses kernel default, negative disables")
 	modelToolRoundBudget := flag.Int("model-tool-round-budget", envIntOrDefault("GENESIS_MODEL_TOOL_ROUND_BUDGET", 0), "model tool-round execution budget per turn; 0 uses kernel default")
 	modelToolRoundCeiling := flag.Int("model-tool-round-ceiling", envIntOrDefault("GENESIS_MODEL_TOOL_ROUND_CEILING", 0), "maximum allowed model tool-round execution budget; 0 uses kernel default ceiling")
+	sourceMaxFileCount := flag.Int("source-max-file-count", envIntOrDefault("GENESIS_SOURCE_MAX_FILE_COUNT", 0), "maximum files in a source snapshot archive; 0 uses kernel default")
+	sourceMaxPerFileBytes := flag.Int("source-max-per-file-bytes", envIntOrDefault("GENESIS_SOURCE_MAX_PER_FILE_BYTES", 0), "maximum uncompressed bytes per source snapshot file; 0 uses kernel default")
+	sourceMaxTotalBytes := flag.Int("source-max-total-bytes", envIntOrDefault("GENESIS_SOURCE_MAX_TOTAL_BYTES", 0), "maximum total uncompressed bytes in a source snapshot archive; 0 uses kernel default")
+	sourceDefaultTreeEntries := flag.Int("source-default-tree-entries", envIntOrDefault("GENESIS_SOURCE_DEFAULT_TREE_ENTRIES", 0), "default source_tree entry limit; 0 uses kernel default")
+	sourceMaxTreeEntries := flag.Int("source-max-tree-entries", envIntOrDefault("GENESIS_SOURCE_MAX_TREE_ENTRIES", 0), "maximum source_tree entry limit; 0 uses kernel default")
+	sourceDefaultReadBytes := flag.Int("source-default-read-bytes", envIntOrDefault("GENESIS_SOURCE_DEFAULT_READ_BYTES", 0), "default source_read byte limit; 0 uses kernel default")
+	sourceMaxReadBytes := flag.Int("source-max-read-bytes", envIntOrDefault("GENESIS_SOURCE_MAX_READ_BYTES", 0), "maximum source_read byte limit; 0 uses kernel default")
 	skillRoots := pathListFlag(defaultSkillRoots())
 	flag.Var(&skillRoots, "skill-root", "external skill root to scan for SKILL.md metadata; repeatable")
 	flag.Parse()
@@ -78,6 +85,15 @@ func main() {
 		BudgetPolicy: kernel.BudgetPolicy{
 			ModelToolRoundBudget:  *modelToolRoundBudget,
 			ModelToolRoundCeiling: *modelToolRoundCeiling,
+		},
+		SourceSnapshotPolicy: kernel.SourceSnapshotPolicy{
+			MaxFileCount:                *sourceMaxFileCount,
+			MaxPerFileUncompressedBytes: int64(*sourceMaxPerFileBytes),
+			MaxTotalUncompressedBytes:   int64(*sourceMaxTotalBytes),
+			DefaultTreeEntries:          *sourceDefaultTreeEntries,
+			MaxTreeEntries:              *sourceMaxTreeEntries,
+			DefaultReadBytes:            *sourceDefaultReadBytes,
+			MaxReadBytes:                *sourceMaxReadBytes,
 		},
 		SkillRoots: skillRoots.Values(),
 	})

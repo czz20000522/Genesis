@@ -171,6 +171,38 @@ func TestKernelLimitClassificationCoversActiveBudgetGuardAndProjectionCaps(t *te
 	}
 }
 
+func TestSourceSnapshotPolicyIsInspectableRuntimeLimit(t *testing.T) {
+	dir := testTempDir(t)
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		Provider:     FakeProvider{},
+		RuntimeToken: testRuntimeToken,
+		SourceSnapshotPolicy: SourceSnapshotPolicy{
+			MaxFileCount:                77,
+			MaxPerFileUncompressedBytes: 8 * 1024 * 1024,
+			MaxTotalUncompressedBytes:   31 * 1024 * 1024,
+			DefaultTreeEntries:          33,
+			MaxTreeEntries:              99,
+			DefaultReadBytes:            2048,
+			MaxReadBytes:                8192,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	capabilities := k.Capabilities()
+	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.max_file_count", 77)
+	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.max_per_file_uncompressed_bytes", 8*1024*1024)
+	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.max_total_uncompressed_bytes", 31*1024*1024)
+	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.default_tree_entries", 33)
+	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.max_tree_entries", 99)
+	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.default_read_bytes", 2048)
+	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.max_read_bytes", 8192)
+	assertLimitClass(t, capabilities.Limits, "source_snapshot.max_total_uncompressed_bytes", LimitClassHardSafetyGuard, false)
+	assertLimitClass(t, capabilities.Limits, "source_snapshot.default_read_bytes", LimitClassProjectionOutputCap, false)
+}
+
 func TestProjectionCapPreservesOwnerContentAndOnlyBoundsProjection(t *testing.T) {
 	secretShapedOutput := "begin " + strings.Repeat("x", maxShellOutputBytes+128) + " api_key=sk-local-user-content-secret end"
 	captured := captureBytes([]byte(secretShapedOutput), 64)
@@ -252,6 +284,19 @@ func assertLimitClass(t *testing.T, limits []RuntimeLimitProjection, name string
 			t.Fatalf("limit %s = %+v, want class=%s model_visible=%v", name, limit, class, modelVisible)
 		}
 		return
+	}
+	t.Fatalf("limits = %+v, want %s", limits, name)
+}
+
+func assertLimitEffectiveValue(t *testing.T, limits []RuntimeLimitProjection, name string, value int) {
+	t.Helper()
+	for _, limit := range limits {
+		if limit.Name == name {
+			if limit.EffectiveValue != value {
+				t.Fatalf("limit %s = %+v, want effective value %d", name, limit, value)
+			}
+			return
+		}
 	}
 	t.Fatalf("limits = %+v, want %s", limits, name)
 }
