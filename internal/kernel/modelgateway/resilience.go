@@ -135,6 +135,14 @@ func NewVisibleFinalRequiredError() error {
 	}
 }
 
+func NewVendorFieldUnsupportedError() error {
+	return &ClassifiedError{
+		Code:      "provider_vendor_field_unsupported",
+		Message:   "provider returned a vendor-native field without an adapter policy",
+		Retryable: false,
+	}
+}
+
 func IsRetryableStatus(statusCode int) bool {
 	return statusCode == http.StatusRequestTimeout || statusCode == http.StatusTooManyRequests || (statusCode >= 500 && statusCode <= 599)
 }

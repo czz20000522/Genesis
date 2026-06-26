@@ -10,6 +10,9 @@ type providerSetupPreset struct {
 	ModelID             string
 	ProfileID           string
 	GatewayRoute        string
+	AdapterID           string
+	AdapterProfileID    string
+	HiddenReasoningMode string
 	BaseURL             string
 	CredentialRef       string
 	APIKeyEnv           string
@@ -34,6 +37,9 @@ func providerSetupPresets() []providerSetupPreset {
 			ModelID:             "deepseek-v4-flash",
 			ProfileID:           "deepseek-flash",
 			GatewayRoute:        "deepseek",
+			AdapterID:           "deepseek",
+			AdapterProfileID:    "deepseek-v4-flash",
+			HiddenReasoningMode: "discard",
 			BaseURL:             "https://api.deepseek.com",
 			CredentialRef:       "secret://models/deepseek/local",
 			APIKeyEnv:           "DEEPSEEK_API_KEY",
@@ -45,6 +51,9 @@ func providerSetupPresets() []providerSetupPreset {
 			ModelID:             "deepseek-v4-pro",
 			ProfileID:           "deepseek-pro",
 			GatewayRoute:        "deepseek",
+			AdapterID:           "deepseek",
+			AdapterProfileID:    "deepseek-v4-pro",
+			HiddenReasoningMode: "discard",
 			BaseURL:             "https://api.deepseek.com",
 			CredentialRef:       "secret://models/deepseek/local",
 			APIKeyEnv:           "DEEPSEEK_API_KEY",
@@ -52,14 +61,16 @@ func providerSetupPresets() []providerSetupPreset {
 			RequestTimeout:      60 * time.Second,
 		},
 		{
-			ProviderID:     "scnet",
-			ModelID:        "DeepSeek-R1-Distill-Qwen-7B",
-			ProfileID:      "scnet-deepseek-r1-distill-qwen-7b",
-			GatewayRoute:   "scnet",
-			BaseURL:        "https://api.scnet.cn/api/llm/v1",
-			CredentialRef:  "secret://models/scnet/local",
-			APIKeyEnv:      "SCNET_API_KEY",
-			RequestTimeout: 60 * time.Second,
+			ProviderID:       "scnet",
+			ModelID:          "DeepSeek-R1-Distill-Qwen-7B",
+			ProfileID:        "scnet-deepseek-r1-distill-qwen-7b",
+			GatewayRoute:     "scnet",
+			AdapterID:        "scnet",
+			AdapterProfileID: "DeepSeek-R1-Distill-Qwen-7B",
+			BaseURL:          "https://api.scnet.cn/api/llm/v1",
+			CredentialRef:    "secret://models/scnet/local",
+			APIKeyEnv:        "SCNET_API_KEY",
+			RequestTimeout:   60 * time.Second,
 		},
 	}
 }

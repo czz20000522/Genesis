@@ -16,6 +16,9 @@ type OpenAICompatibleProviderSetupRequest struct {
 	ModelRole           string
 	ProfileID           string
 	GatewayRoute        string
+	ProviderAdapterID   string
+	AdapterProfileID    string
+	HiddenReasoningMode string
 	BaseURL             string
 	ModelID             string
 	ContextWindowTokens int
@@ -250,10 +253,13 @@ func upsertOpenAICompatibleProviderConfig(config *genesisModelsConfig, req OpenA
 		config.ModelProfiles.Cloud.Gateway = map[string]genesisGatewayProfile{}
 	}
 	config.ModelProfiles.Cloud.Gateway[req.ProfileID] = genesisGatewayProfile{
-		ProfileID:           req.ProfileID,
-		ModelID:             req.ModelID,
-		GatewayRoute:        req.GatewayRoute,
-		ContextWindowTokens: req.ContextWindowTokens,
+		ProfileID:                req.ProfileID,
+		ModelID:                  req.ModelID,
+		GatewayRoute:             req.GatewayRoute,
+		ContextWindowTokens:      req.ContextWindowTokens,
+		ProviderAdapterID:        req.ProviderAdapterID,
+		ProviderAdapterProfileID: req.AdapterProfileID,
+		HiddenReasoningPolicy:    req.HiddenReasoningMode,
 	}
 }
 

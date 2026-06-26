@@ -108,6 +108,70 @@ func TestSetupOpenAICompatibleProviderWritesConfigAndProtectedCredential(t *test
 	}
 }
 
+func TestSetupOpenAICompatibleProviderWritesAdapterProfileBinding(t *testing.T) {
+	configRoot := testTempDir(t)
+	credentialRoot := testTempDir(t)
+	apiKey := "sk-scnet-secret"
+
+	_, err := SetupOpenAICompatibleProvider(OpenAICompatibleProviderSetupRequest{
+		ConfigRoot:          configRoot,
+		CredentialStoreRoot: credentialRoot,
+		ModelRole:           DefaultModelRole,
+		ProfileID:           "scnet-deepseek-r1-distill-qwen-7b",
+		GatewayRoute:        "scnet",
+		ProviderAdapterID:   "scnet",
+		AdapterProfileID:    "DeepSeek-R1-Distill-Qwen-7B",
+		BaseURL:             "https://api.scnet.cn/api/llm/v1",
+		ModelID:             "DeepSeek-R1-Distill-Qwen-7B",
+		CredentialRef:       "secret://models/scnet/local",
+		APIKey:              apiKey,
+		RequestTimeout:      60 * time.Second,
+		SecretProtector: func(secret []byte) ([]byte, error) {
+			if string(secret) != apiKey {
+				t.Fatalf("secret passed to protector = %q", string(secret))
+			}
+			return []byte("protected-scnet-key"), nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetupOpenAICompatibleProvider returned error: %v", err)
+	}
+
+	configPayload, err := os.ReadFile(filepath.Join(configRoot, "models.json"))
+	if err != nil {
+		t.Fatalf("read models.json: %v", err)
+	}
+	for _, want := range []string{
+		`"provider_adapter_id": "scnet"`,
+		`"provider_adapter_profile_id": "DeepSeek-R1-Distill-Qwen-7B"`,
+		`"base_url": "https://api.scnet.cn/api/llm/v1"`,
+		`"credential_ref": "secret://models/scnet/local"`,
+	} {
+		if !strings.Contains(string(configPayload), want) {
+			t.Fatalf("models.json missing %q: %s", want, string(configPayload))
+		}
+	}
+	resolved, err := ResolveProviderConfigFromGenesis(GenesisModelConfigRequest{
+		ConfigRoot:          configRoot,
+		CredentialStoreRoot: credentialRoot,
+		SecretResolver: func(ref string, storeRoot string) (string, error) {
+			if ref != "secret://models/scnet/local" || storeRoot != credentialRoot {
+				t.Fatalf("unexpected resolver input: %q %q", ref, storeRoot)
+			}
+			return apiKey, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveProviderConfigFromGenesis returned error: %v", err)
+	}
+	if resolved.Kind != "openai-compatible" {
+		t.Fatalf("kind = %q, want openai-compatible", resolved.Kind)
+	}
+	if resolved.OpenAICompatible.Adapter.AdapterID != "scnet" || resolved.OpenAICompatible.Adapter.ProfileID != "DeepSeek-R1-Distill-Qwen-7B" {
+		t.Fatalf("adapter binding = %+v, want SCNet profile binding", resolved.OpenAICompatible.Adapter)
+	}
+}
+
 func TestSetupOpenAICompatibleProviderDryRunWritesNothing(t *testing.T) {
 	configRoot := testTempDir(t)
 	credentialRoot := testTempDir(t)

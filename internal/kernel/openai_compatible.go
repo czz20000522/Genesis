@@ -18,6 +18,7 @@ type OpenAICompatibleConfig struct {
 	BaseURL        string
 	APIKey         string
 	Model          string
+	Adapter        ProviderAdapterBinding
 	RequestTimeout time.Duration
 	HTTPClient     *http.Client
 }
@@ -26,6 +27,7 @@ type OpenAICompatibleProvider struct {
 	baseURL    string
 	apiKey     string
 	model      string
+	adapter    ProviderAdapterBinding
 	httpClient *http.Client
 }
 
@@ -42,6 +44,7 @@ func NewOpenAICompatibleProvider(config OpenAICompatibleConfig) *OpenAICompatibl
 		baseURL:    strings.TrimRight(strings.TrimSpace(config.BaseURL), "/"),
 		apiKey:     strings.TrimSpace(config.APIKey),
 		model:      strings.TrimSpace(config.Model),
+		adapter:    config.Adapter,
 		httpClient: client,
 	}
 }
@@ -120,6 +123,9 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 		model = p.model
 	}
 	if len(message.ToolCalls) > 0 {
+		if err := p.handleVendorHiddenReasoning(message); err != nil {
+			return ModelResponse{}, err
+		}
 		calls, err := modelToolCallsFromChat(message.ToolCalls)
 		if err != nil {
 			return ModelResponse{}, err
@@ -130,6 +136,9 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 			Usage:     tokenUsageFromChatUsage(decoded.Usage),
 		}, nil
 	}
+	if err := p.handleVendorHiddenReasoning(message); err != nil {
+		return ModelResponse{}, err
+	}
 	if strings.TrimSpace(message.Content) == "" {
 		return ModelResponse{}, newProviderVisibleFinalRequiredError()
 	}
@@ -138,6 +147,16 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 		Model: model,
 		Usage: tokenUsageFromChatUsage(decoded.Usage),
 	}, nil
+}
+
+func (p *OpenAICompatibleProvider) handleVendorHiddenReasoning(message chatMessage) error {
+	if strings.TrimSpace(message.ReasoningContent) == "" {
+		return nil
+	}
+	if p.adapter.allowsHiddenReasoningDiscard() {
+		return nil
+	}
+	return newProviderVendorFieldUnsupportedError()
 }
 
 func parseProviderRetryAfter(resp *http.Response) time.Duration {
@@ -196,10 +215,11 @@ type chatCompletionRequest struct {
 }
 
 type chatMessage struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
-	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
+	Role             string         `json:"role"`
+	Content          string         `json:"content,omitempty"`
+	ToolCallID       string         `json:"tool_call_id,omitempty"`
+	ToolCalls        []chatToolCall `json:"tool_calls,omitempty"`
+	ReasoningContent string         `json:"reasoning_content,omitempty"`
 }
 
 type chatCompletionResponse struct {

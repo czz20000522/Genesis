@@ -76,6 +76,9 @@ func TestProviderUseDeepSeekPresetWritesConfigWithoutPrintingSecret(t *testing.T
 	for _, want := range []string{
 		"https://api.deepseek.com",
 		"deepseek-v4-flash",
+		"\"provider_adapter_id\": \"deepseek\"",
+		"\"provider_adapter_profile_id\": \"deepseek-v4-flash\"",
+		"\"hidden_reasoning_policy\": \"discard\"",
 		"secret://models/deepseek/local",
 		"openai-chat-completions",
 		"\"context_window_tokens\": 1000000",
@@ -137,6 +140,8 @@ func TestProviderUseSCNetPresetDryRun(t *testing.T) {
 	assertStringField(t, response, "profile_id", "scnet-deepseek-r1-distill-qwen-7b")
 	assertStringField(t, response, "gateway_route", "scnet")
 	assertStringField(t, response, "credential_ref", "secret://models/scnet/local")
+	assertStringField(t, response, "provider_adapter_id", "scnet")
+	assertStringField(t, response, "provider_adapter_profile_id", "DeepSeek-R1-Distill-Qwen-7B")
 	if _, ok := response["context_window_tokens"]; ok {
 		t.Fatalf("response unexpectedly included unapproved SCNet context metadata: %+v", response)
 	}

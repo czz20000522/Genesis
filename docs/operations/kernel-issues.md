@@ -26,57 +26,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-MODEL-PROVIDER-ADAPTER-BOUNDARY-20260626 - P1 - Provider presets must resolve to third-layer adapters, not raw kernel routes
-
-- Status: open.
-- Requirement: `docs/requirements/kernel-foundation-capabilities.md` and the
-  Model Gateway/provider boundary in `docs/kernel-contract.md`.
-- Design: four-layer provider tree:
-  kernel/generic model protocol -> Model Gateway primitive -> provider adapter
-  -> vendor API.
-- Gap: The current `genesisctl provider use` implementation correctly improves
-  operator UX, but it models DeepSeek and SCNet primarily as CLI presets that
-  write OpenAI-compatible route fields. That is not enough for the approved
-  boundary. DeepSeek and SCNet are third-layer provider adapter nodes. The
-  kernel and generic Model Gateway request/response must not know vendor private
-  fields such as DeepSeek `reasoning_content`, while the provider adapter must
-  own vendor-specific profile behavior, capability declarations, translation,
-  passback into approved Genesis typed fields, or explicit refusal when a profile
-  cannot support the requested feature.
-- Next slice: Add a minimal provider adapter contract behind the Model Gateway.
-  `provider use deepseek/...` and `provider use scnet/...` should resolve to
-  adapter-owned profiles, not only raw `base_url` routes. The DeepSeek adapter
-  should own DeepSeek thinking/reasoning behavior such as `reasoning_content`
-  passback or explicit unsupported-profile refusal. The SCNet adapter should own
-  SCNet model catalog/profile behavior and may delegate to the shared
-  OpenAI-compatible chat-completions transport internally. Keep the shared
-  transport small; do not add DeepSeek/SCNet branches to kernel sampling logic.
-- Evidence: Local code inspection on 2026-06-26 found
-  `cmd/genesisctl/provider_presets.go` defines DeepSeek and SCNet presets with
-  base URL, model id, credential ref, and timeout. `cmd/genesisctl/main.go`
-  passes those fields directly into
-  `kernel.SetupOpenAICompatibleProvider`. `internal/kernel/model_config.go`
-  resolves protocol `openai-chat-completions` into `OpenAICompatibleConfig` and
-  has no explicit adapter identity, adapter capability contract, or
-  adapter-owned place for vendor-specific response fields.
-- Verification: Add boundary tests proving generic kernel/Model Gateway typed
-  request and response structs do not expose DeepSeek `reasoning_content` or
-  SCNet vendor wire fields. Add adapter tests proving DeepSeek vendor
-  `reasoning_content` is either mapped into an approved Genesis reasoning field
-  for supported profiles or rejected/refused structurally for unsupported
-  profiles. Add SCNet adapter tests proving SCNet profiles use adapter-owned
-  model catalog/base URL/credential refs while reusing shared OpenAI-compatible
-  transport internally. Add architecture guard that provider-specific names may
-  appear in adapter/preset packages, but not in kernel sampling, provider
-  context projection, or generic Model Gateway DTOs.
-- Priority: P1.
-- Reference alignment: cc-switch is useful for preset-backed provider switching,
-  but its app-specific config writer is not the Genesis kernel boundary. Codex
-  and Reasonix keep the model loop speaking their own typed protocol and put
-  backend-specific wire shape behind provider/client adapters. Genesis should do
-  the same: presets select adapter profiles; adapters translate vendor protocol;
-  kernel sees only Genesis typed model requests/responses.
-
 ### KERNEL-PROVIDER-FAKE-PRODUCTION-GUARD-20260626 - P0 - Fake provider must not be a production-ready provider
 
 - Status: open.

@@ -67,6 +67,91 @@ func TestResolveOpenAICompatibleConfigFromGenesisSelectsRoleProfile(t *testing.T
 	}
 }
 
+func TestResolveOpenAICompatibleConfigFromGenesisCarriesProviderAdapterBinding(t *testing.T) {
+	root := writeModelsConfig(t, map[string]any{
+		"model_gateway": map[string]any{
+			"protocol":       "openai-chat-completions",
+			"base_url":       "https://provider.example.com/api",
+			"credential_ref": "secret://models/provider/default",
+		},
+		"active_model_profile_bindings": map[string]any{
+			DefaultModelRole: "deepseek-flash",
+		},
+		"model_profiles": map[string]any{
+			"cloud": map[string]any{
+				"gateway": map[string]any{
+					"deepseek-flash": map[string]any{
+						"profile_id":                  "deepseek-flash",
+						"model_id":                    "deepseek-v4-flash",
+						"provider_adapter_id":         "deepseek",
+						"provider_adapter_profile_id": "deepseek-v4-flash",
+						"hidden_reasoning_policy":     "discard",
+					},
+				},
+			},
+		},
+	})
+
+	config, err := ResolveOpenAICompatibleConfigFromGenesis(GenesisModelConfigRequest{
+		ConfigRoot: root,
+		SecretResolver: func(ref string, _ string) (string, error) {
+			if ref != "secret://models/provider/default" {
+				t.Fatalf("credential ref = %q, want provider route ref", ref)
+			}
+			return "test-key", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveOpenAICompatibleConfigFromGenesis returned error: %v", err)
+	}
+	if config.Adapter.AdapterID != "deepseek" || config.Adapter.ProfileID != "deepseek-v4-flash" {
+		t.Fatalf("adapter binding = %+v, want DeepSeek profile binding", config.Adapter)
+	}
+	if config.Adapter.TransportProtocol != "openai-chat-completions" {
+		t.Fatalf("adapter transport = %q, want openai-chat-completions", config.Adapter.TransportProtocol)
+	}
+	if config.Adapter.HiddenReasoningPolicy != "discard" {
+		t.Fatalf("hidden reasoning policy = %q, want discard", config.Adapter.HiddenReasoningPolicy)
+	}
+}
+
+func TestResolveOpenAICompatibleConfigFromGenesisRejectsAdapterPolicyWithoutAdapter(t *testing.T) {
+	root := writeModelsConfig(t, map[string]any{
+		"model_gateway": map[string]any{
+			"protocol":       "openai-chat-completions",
+			"base_url":       "https://provider.example.com/api",
+			"credential_ref": "secret://models/provider/default",
+		},
+		"active_model_profile_bindings": map[string]any{
+			DefaultModelRole: "provider-fast",
+		},
+		"model_profiles": map[string]any{
+			"cloud": map[string]any{
+				"gateway": map[string]any{
+					"provider-fast": map[string]any{
+						"profile_id":              "provider-fast",
+						"model_id":                "provider-model-fast",
+						"hidden_reasoning_policy": "discard",
+					},
+				},
+			},
+		},
+	})
+
+	_, err := ResolveOpenAICompatibleConfigFromGenesis(GenesisModelConfigRequest{
+		ConfigRoot: root,
+		SecretResolver: func(_ string, _ string) (string, error) {
+			return "test-key", nil
+		},
+	})
+	if !errors.Is(err, ErrGenesisModelProviderAdapterInvalid) {
+		t.Fatalf("error = %v, want provider adapter invalid", err)
+	}
+	if ProviderConfigReason(err) != "provider_adapter_invalid" {
+		t.Fatalf("reason = %q, want provider_adapter_invalid", ProviderConfigReason(err))
+	}
+}
+
 func TestResolveProviderConfigFromGenesisSelectsCommandProviderRoute(t *testing.T) {
 	workingDir := testTempDir(t)
 	root := writeModelsConfig(t, map[string]any{

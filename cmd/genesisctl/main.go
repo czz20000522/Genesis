@@ -78,6 +78,9 @@ func runProviderUse(args []string, stdin io.Reader, stdout io.Writer) error {
 		ModelRole:           *modelRole,
 		ProfileID:           preset.ProfileID,
 		GatewayRoute:        preset.GatewayRoute,
+		ProviderAdapterID:   preset.AdapterID,
+		AdapterProfileID:    preset.AdapterProfileID,
+		HiddenReasoningMode: preset.HiddenReasoningMode,
 		BaseURL:             preset.BaseURL,
 		ModelID:             preset.ModelID,
 		ContextWindowTokens: preset.ContextWindowTokens,
@@ -196,6 +199,8 @@ func writeProviderSetupResponse(stdout io.Writer, result kernel.OpenAICompatible
 		Verified:            result.Verified,
 		ProviderID:          preset.ProviderID,
 		ModelID:             preset.ModelID,
+		ProviderAdapterID:   preset.AdapterID,
+		AdapterProfileID:    preset.AdapterProfileID,
 		BaseURL:             preset.BaseURL,
 		ContextWindowTokens: preset.ContextWindowTokens,
 	}
@@ -220,6 +225,8 @@ type providerSetupResponse struct {
 	Verified            bool   `json:"verified"`
 	ProviderID          string `json:"provider_id,omitempty"`
 	ModelID             string `json:"model_id,omitempty"`
+	ProviderAdapterID   string `json:"provider_adapter_id,omitempty"`
+	AdapterProfileID    string `json:"provider_adapter_profile_id,omitempty"`
 	BaseURL             string `json:"base_url,omitempty"`
 	ContextWindowTokens int    `json:"context_window_tokens,omitempty"`
 }

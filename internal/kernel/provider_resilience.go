@@ -28,6 +28,10 @@ func newProviderVisibleFinalRequiredError() error {
 	return modelgateway.NewVisibleFinalRequiredError()
 }
 
+func newProviderVendorFieldUnsupportedError() error {
+	return modelgateway.NewVendorFieldUnsupportedError()
+}
+
 func providerFailureFromError(err error) ProviderAttemptProjection {
 	return modelgateway.FailureClassifier{
 		ProviderUnavailable: ErrProviderUnavailable,

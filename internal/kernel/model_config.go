@@ -23,6 +23,7 @@ var (
 	ErrGenesisModelGatewayMissing             = errors.New("genesis model gateway missing")
 	ErrGenesisModelGatewayRouteMissing        = errors.New("genesis model gateway route missing")
 	ErrGenesisModelProtocolUnsupported        = errors.New("genesis model gateway protocol unsupported")
+	ErrGenesisModelProviderAdapterInvalid     = errors.New("genesis model provider adapter invalid")
 	ErrGenesisModelCredentialMissing          = errors.New("genesis model credential missing")
 	ErrGenesisModelCredentialUnsupported      = errors.New("genesis model credential unsupported")
 	ErrGenesisModelProviderCommandEnvRejected = errors.New("genesis provider command environment rejected")
@@ -84,12 +85,17 @@ func ResolveProviderConfigFromGenesis(req GenesisModelConfigRequest) (ResolvedPr
 		if strings.TrimSpace(apiKey) == "" {
 			return ResolvedProviderConfig{}, ErrGenesisModelCredentialMissing
 		}
+		adapter := providerAdapterBindingFromProfile(profile, protocol)
+		if err := validateProviderAdapterBinding(adapter); err != nil {
+			return ResolvedProviderConfig{}, err
+		}
 		return ResolvedProviderConfig{
 			Kind: "openai-compatible",
 			OpenAICompatible: OpenAICompatibleConfig{
 				BaseURL:        baseURL,
 				APIKey:         apiKey,
 				Model:          profile.ModelID,
+				Adapter:        adapter,
 				RequestTimeout: durationSeconds(timeout),
 			},
 		}, nil
@@ -163,6 +169,8 @@ func ProviderConfigReason(err error) string {
 		return "provider_route_missing"
 	case errors.Is(err, ErrGenesisModelProtocolUnsupported):
 		return "provider_protocol_unsupported"
+	case errors.Is(err, ErrGenesisModelProviderAdapterInvalid):
+		return "provider_adapter_invalid"
 	case errors.Is(err, ErrGenesisModelCredentialUnsupported):
 		return "provider_credential_unsupported"
 	case errors.Is(err, ErrGenesisModelCredentialMissing):
@@ -321,8 +329,11 @@ type genesisGatewayProfileBranch struct {
 }
 
 type genesisGatewayProfile struct {
-	ProfileID           string `json:"profile_id"`
-	ModelID             string `json:"model_id"`
-	GatewayRoute        string `json:"gateway_route"`
-	ContextWindowTokens int    `json:"context_window_tokens,omitempty"`
+	ProfileID                string `json:"profile_id"`
+	ModelID                  string `json:"model_id"`
+	GatewayRoute             string `json:"gateway_route"`
+	ContextWindowTokens      int    `json:"context_window_tokens,omitempty"`
+	ProviderAdapterID        string `json:"provider_adapter_id,omitempty"`
+	ProviderAdapterProfileID string `json:"provider_adapter_profile_id,omitempty"`
+	HiddenReasoningPolicy    string `json:"hidden_reasoning_policy,omitempty"`
 }

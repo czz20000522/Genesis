@@ -49,6 +49,12 @@ func TestOpenAICompatibleReasoningContentIsResponseOnly(t *testing.T) {
 			BaseURL: server.URL,
 			APIKey:  "test-key",
 			Model:   "test-model",
+			Adapter: ProviderAdapterBinding{
+				AdapterID:             "deepseek",
+				ProfileID:             "deepseek-v4-flash",
+				TransportProtocol:     "openai-chat-completions",
+				HiddenReasoningPolicy: "discard",
+			},
 		}),
 		RuntimeToken: testRuntimeToken,
 	})
@@ -145,6 +151,30 @@ func TestOpenAICompatibleReasoningContentIsResponseOnly(t *testing.T) {
 		ToolRounds:   providerCommandModelToolRounds(providerContext.ModelRequest().ToolRounds),
 	}
 	assertJSONProjectionOmitsHiddenReasoning(t, "provider command request", commandPayload, hiddenReasoning)
+}
+
+func TestOpenAICompatibleProviderRejectsVendorHiddenReasoningWithoutAdapterPolicy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"served-model","choices":[{"message":{"role":"assistant","content":"visible answer","reasoning_content":"vendor hidden reasoning"}}]}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "test-model",
+	})
+	_, err := provider.Complete(context.Background(), ModelRequest{
+		InputItems: []ModelInputItem{{Kind: ModelInputKindUserText, Text: "answer visibly"}},
+	})
+	if err == nil {
+		t.Fatal("Complete returned nil error for unsupported vendor hidden reasoning")
+	}
+	failure := providerFailureFromError(err)
+	if failure.ReasonCode != "provider_vendor_field_unsupported" || failure.Retryable {
+		t.Fatalf("failure = %+v, want nonretryable provider_vendor_field_unsupported", failure)
+	}
 }
 
 func assertJSONProjectionOmitsHiddenReasoning(t *testing.T, label string, value interface{}, hiddenReasoning string) {

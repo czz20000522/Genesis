@@ -608,6 +608,7 @@ func TestArchitectureBoundaryCoreLoopHasNoProviderNativeWireTerms(t *testing.T) 
 			"tool_choice",
 			"prompt_tokens",
 			"completion_tokens",
+			"reasoning_content",
 			"Bearer ",
 			"Authorization",
 		} {
@@ -643,7 +644,10 @@ func TestArchitectureBoundaryProviderWireTermsStayInsideAdapterFiles(t *testing.
 			"tool_choice",
 			"prompt_tokens",
 			"completion_tokens",
+			"reasoning_content",
 			"DeepSeek",
+			"SCNet",
+			"scnet",
 			"OpenRouter",
 			"openai-responses",
 		} {
