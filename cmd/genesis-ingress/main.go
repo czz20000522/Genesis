@@ -71,6 +71,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	profile := fs.String("profile", "", "explicit lark-cli profile passed to the Feishu connector adapter")
 	profileReadiness := fs.String("profile-readiness", "ok", "connector-local Feishu profile readiness posture: ok, missing_profile, profile_expired, permission_denied, or refresh_required")
 	profileProbeCommand := fs.String("profile-probe-command", "", "direct profile readiness probe executable; emits typed readiness JSON and does not start source or delivery adapters")
+	profileProbeTimeout := fs.Duration("profile-probe-timeout", 0, "bounded timeout for the profile readiness probe command")
 	stdinJSONL := fs.Bool("stdin-jsonl", false, "read ExternalEvent NDJSON from stdin")
 	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable passed to the Feishu connector adapter")
 	deliveryCommand := fs.String("delivery-command", envOrDefault("GENESIS_FEISHU_CONNECTOR_COMMAND", "genesis-feishu-connector-adapter"), "direct Feishu connector adapter executable for final delivery")
@@ -106,7 +107,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	}
 	profileBlockedReason := ""
 	if *deliverFinal || strings.TrimSpace(*sourceCommand) != "" {
-		profileBlockedReason, err = feishuProfileReadinessBlockReason(ctx, *profile, *profileReadiness, *profileProbeCommand, profileProbeCommandArgs)
+		profileBlockedReason, err = feishuProfileReadinessBlockReason(ctx, *profile, *profileReadiness, *profileProbeCommand, profileProbeCommandArgs, *profileProbeTimeout)
 		if err != nil {
 			return err
 		}
@@ -177,6 +178,7 @@ func runFeishuProbe(ctx context.Context, args []string, stdout io.Writer) error 
 	profile := fs.String("profile", "", "explicit lark-cli profile used by the Feishu connector probe")
 	profileReadiness := fs.String("profile-readiness", "ok", "connector-local Feishu profile readiness posture: ok, missing_profile, profile_expired, permission_denied, or refresh_required")
 	profileProbeCommand := fs.String("profile-probe-command", "", "direct profile readiness probe executable; emits typed readiness JSON and does not start source or delivery adapters")
+	profileProbeTimeout := fs.Duration("profile-probe-timeout", 0, "bounded timeout for the profile readiness probe command")
 	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable passed to the Feishu connector adapter")
 	deliveryCommand := fs.String("delivery-command", envOrDefault("GENESIS_FEISHU_CONNECTOR_COMMAND", "genesis-feishu-connector-adapter"), "direct Feishu connector adapter executable to validate")
 	sourceCommand := fs.String("source-command", "", "direct source adapter executable to validate")
@@ -189,7 +191,7 @@ func runFeishuProbe(ctx context.Context, args []string, stdout io.Writer) error 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	finalDeliveryBlockedReason, err := feishuProfileReadinessBlockReason(ctx, *profile, *profileReadiness, *profileProbeCommand, profileProbeCommandArgs)
+	finalDeliveryBlockedReason, err := feishuProfileReadinessBlockReason(ctx, *profile, *profileReadiness, *profileProbeCommand, profileProbeCommandArgs, *profileProbeTimeout)
 	if err != nil {
 		return err
 	}
@@ -257,10 +259,11 @@ func feishuSourceCommandArgs(prefix []string, profile string, larkCLI string, so
 	return args
 }
 
-func feishuProfileReadinessBlockReason(ctx context.Context, profile string, readiness string, probeCommand string, probeArgs []string) (string, error) {
+func feishuProfileReadinessBlockReason(ctx context.Context, profile string, readiness string, probeCommand string, probeArgs []string, probeTimeout time.Duration) (string, error) {
 	blockReason, err := connectorruntime.ResolveProfileReadiness(ctx, profile, readiness, connectorruntime.ProfileReadinessCommandProbe{
 		Executable: probeCommand,
 		Args:       append([]string(nil), probeArgs...),
+		Timeout:    probeTimeout,
 	})
 	if err != nil {
 		return blockReason, fmt.Errorf("Feishu profile readiness probe failed: %w", err)

@@ -7,14 +7,19 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
-const ProfileReadinessOK = "ok"
+const (
+	ProfileReadinessOK                  = "ok"
+	defaultProfileReadinessProbeTimeout = 5 * time.Second
+)
 
 type ProfileReadinessCommandProbe struct {
 	Executable string
 	Args       []string
 	Runner     CommandRunner
+	Timeout    time.Duration
 }
 
 type ProfileReadinessCommandResult struct {
@@ -66,8 +71,17 @@ func (p ProfileReadinessCommandProbe) Probe(ctx context.Context, profile string)
 		return SourceReadinessReasonOperatorActionRequired, errors.New("profile readiness command arguments must not provide profile")
 	}
 	args = append(args, "--profile", strings.TrimSpace(profile))
-	output, err := runner.Run(ctx, executable, args...)
+	timeout := p.Timeout
+	if timeout <= 0 {
+		timeout = defaultProfileReadinessProbeTimeout
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	output, err := runner.Run(runCtx, executable, args...)
 	if IsConnectorCommandOutputExceeded(err) {
+		return SourceReadinessReasonOperatorActionRequired, nil
+	}
+	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		return SourceReadinessReasonOperatorActionRequired, nil
 	}
 	if err != nil {
@@ -108,15 +122,28 @@ func DecodeProfileReadinessCommandResult(output []byte) (string, error) {
 	if readiness != "" {
 		return readinessBlockReasonFromCommand(readiness)
 	}
+	reason := strings.TrimSpace(result.Reason)
+	status := strings.TrimSpace(result.Status)
 	if result.Ready != nil && *result.Ready {
 		return "", nil
 	}
-	reason := strings.TrimSpace(result.Reason)
+	if result.Ready != nil && !*result.Ready {
+		if reason != "" {
+			return readinessBlockReasonFromCommand(reason)
+		}
+		if status != "" {
+			return readinessBlockReasonFromStatus(status)
+		}
+		return SourceReadinessReasonOperatorActionRequired, nil
+	}
 	if reason != "" {
 		return readinessBlockReasonFromCommand(reason)
 	}
-	status := strings.TrimSpace(result.Status)
-	switch status {
+	return readinessBlockReasonFromStatus(status)
+}
+
+func readinessBlockReasonFromStatus(status string) (string, error) {
+	switch strings.TrimSpace(status) {
 	case "", ProfileReadinessOK:
 		return "", nil
 	case ProbeStatusFailed:

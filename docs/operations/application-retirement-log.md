@@ -97,3 +97,7 @@ tests, governing requirement/design, or still-active issues.
 ### APP-CONNECTOR-PROFILE-READINESS-PROBE-BUILD-20260625 - Keep profile probe path buildable
 
 - Retired: the profile readiness probe path no longer has duplicate `ok` switch cases and is covered by connector-runtime and ingress profile probe tests. Evidence: fixing Lore commit.
+
+### APP-CONNECTOR-PROFILE-READINESS-PROBE-FAIL-CLOSED-20260625 - Fail closed on false or hanging profile probes
+
+- Retired: `ready=false` profile probe results and timed-out profile probe commands now classify as `operator_action_required` before source or delivery adapters start. Evidence: fixing Lore commit.

@@ -388,7 +388,10 @@ configured profile as a generated argument and returns typed readiness JSON. It
 does not start source adapters, send messages, call the kernel, or expose
 credentials to the model. Unsupported readiness values, command failure, or
 malformed output fail closed as connector-local operator action requirements.
-This is an application connector boundary, not a kernel credential store.
+The probe has its own bounded timeout; explicit `ready=false` without a
+supported reason and timed-out probes both fail closed before source or delivery
+adapters start. This is an application connector boundary, not a kernel
+credential store.
 
 ## Operator Lifecycle Controls
 

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"genesis/internal/applications/connector_runtime"
 	"genesis/internal/testsupport"
@@ -450,6 +451,58 @@ func TestFeishuListenProfileProbeBlocksSourceBeforeProcessStart(t *testing.T) {
 	}
 }
 
+func TestFeishuListenProfileProbeTimeoutBlocksSourceBeforeProcessStart(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("kernel should not be called when profile probe times out; got %s %s", r.Method, r.URL.Path)
+	}))
+	t.Cleanup(server.Close)
+	dir := testsupport.ProjectTempDir(t, "feishu-listen-source-profile-timeout")
+	sourceLifecyclePath := filepath.Join(dir, "source-lifecycle.json")
+	startedPath := filepath.Join(dir, "source-started.txt")
+	startedAt := time.Now()
+
+	err := runWithIO(context.Background(), []string{
+		"feishu-listen",
+		"--kernel-url", server.URL,
+		"--runtime-token", "token",
+		"--state", filepath.Join(dir, "state.json"),
+		"--source-id", "source_feishu_chat",
+		"--profile", "genesis",
+		"--profile-probe-command", os.Args[0],
+		"--profile-probe-command-arg", "-test.run=TestFeishuProfileProbeHelper",
+		"--profile-probe-command-arg", "--",
+		"--profile-probe-command-arg", "hang",
+		"--profile-probe-timeout", "10ms",
+		"--source-command", os.Args[0],
+		"--source-command-arg", "-test.run=TestFeishuListenSourceCommandHelper",
+		"--source-command-arg", "--",
+		"--source-command-arg", "record-start",
+		"--source-command-arg", startedPath,
+		"--source-state", filepath.Join(dir, "source-failures.json"),
+		"--source-lifecycle-state", sourceLifecyclePath,
+	}, strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("runWithIO should block timed-out profile probe before source process start")
+	}
+	if elapsed := time.Since(startedAt); elapsed > 500*time.Millisecond {
+		t.Fatalf("profile probe elapsed %s, want bounded timeout", elapsed)
+	}
+	if _, statErr := os.Stat(startedPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("source command side effect exists or stat failed: %v", statErr)
+	}
+	store, storeErr := connectorruntime.NewFileSourceLifecycleStore(sourceLifecyclePath)
+	if storeErr != nil {
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", storeErr)
+	}
+	runs, listErr := store.ListSourceRuns(context.Background())
+	if listErr != nil {
+		t.Fatalf("ListSourceRuns returned error: %v", listErr)
+	}
+	if len(runs) != 1 || runs[0].Status != connectorruntime.SourceRunStatusBlocked || runs[0].BlockedReasonCode != connectorruntime.SourceReadinessReasonOperatorActionRequired {
+		t.Fatalf("source runs = %+v, want operator_action_required blocked readiness record", runs)
+	}
+}
+
 func TestFeishuListenRetriesRecoverableSourceCommandFailure(t *testing.T) {
 	var submitCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -643,7 +696,7 @@ func TestFeishuProfileReadinessBlockReasonClassifiesKnownStates(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := feishuProfileReadinessBlockReason(context.Background(), tt.profile, tt.readiness, "", nil)
+			got, err := feishuProfileReadinessBlockReason(context.Background(), tt.profile, tt.readiness, "", nil, 0)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("feishuProfileReadinessBlockReason returned nil error")
@@ -726,6 +779,10 @@ func TestFeishuListenSourceCommandHelper(t *testing.T) {
 func TestFeishuProfileProbeHelper(t *testing.T) {
 	readiness := profileProbeHelperReadiness()
 	if readiness == "" {
+		return
+	}
+	if readiness == "hang" {
+		time.Sleep(2 * time.Second)
 		return
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(connectorruntime.ProfileReadinessCommandResult{

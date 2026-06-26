@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestProfileReadinessCommandProbeClassifiesKnownReasons(t *testing.T) {
@@ -38,6 +39,40 @@ func TestProfileReadinessCommandProbeRejectsUnsupportedReason(t *testing.T) {
 	}
 	if reason != SourceReadinessReasonOperatorActionRequired {
 		t.Fatalf("reason = %q, want operator_action_required fail-closed reason", reason)
+	}
+}
+
+func TestProfileReadinessReadyFalseWithoutReasonFailsClosed(t *testing.T) {
+	reason, err := DecodeProfileReadinessCommandResult([]byte(`{"ready":false}`))
+	if err != nil {
+		t.Fatalf("DecodeProfileReadinessCommandResult returned error: %v", err)
+	}
+	if reason != SourceReadinessReasonOperatorActionRequired {
+		t.Fatalf("reason = %q, want operator_action_required for explicit ready=false", reason)
+	}
+}
+
+func TestProfileReadinessProbeTimeoutFailsClosed(t *testing.T) {
+	runner := &blockingProfileProbeRunner{}
+	started := time.Now()
+
+	reason, err := ResolveProfileReadiness(context.Background(), "genesis", "ok", ProfileReadinessCommandProbe{
+		Executable: "profile-probe",
+		Runner:     runner,
+		Timeout:    5 * time.Millisecond,
+	})
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("ResolveProfileReadiness returned error: %v", err)
+	}
+	if reason != SourceReadinessReasonOperatorActionRequired {
+		t.Fatalf("reason = %q, want operator_action_required for timed out probe", reason)
+	}
+	if elapsed > 75*time.Millisecond {
+		t.Fatalf("probe elapsed %s, want local timeout before runner fallback", elapsed)
+	}
+	if runner.calls != 1 {
+		t.Fatalf("runner calls = %d, want 1", runner.calls)
 	}
 }
 
@@ -106,4 +141,18 @@ func (r *profileProbeRunner) Run(_ context.Context, name string, args ...string)
 	r.name = name
 	r.args = append([]string(nil), args...)
 	return append([]byte(nil), r.output...), r.err
+}
+
+type blockingProfileProbeRunner struct {
+	calls int
+}
+
+func (r *blockingProfileProbeRunner) Run(ctx context.Context, _ string, _ ...string) ([]byte, error) {
+	r.calls++
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(150 * time.Millisecond):
+		return nil, errors.New("probe did not receive a deadline")
+	}
 }
