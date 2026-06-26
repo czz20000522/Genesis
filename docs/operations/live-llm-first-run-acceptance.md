@@ -20,8 +20,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_a
   -Model provider-model
 ```
 
-The script creates an isolated temporary work root, builds `genesisctl.exe` and `genesisd.exe`, writes `models.json`, stores the credential behind a `secret://...` ref, starts `genesisd` through Genesis config, and checks:
+The script creates an isolated temporary work root, builds `genesisctl.exe` and `genesisd.exe`, writes `models.json`, stores the credential behind a `secret://...` ref, runs `genesisctl provider verify` against the upstream provider, starts `genesisd` through Genesis config, and checks:
 
+- `genesisctl provider verify` reports `readiness=ready` before the daemon starts.
 - `GET /ready` reports `readiness=ready`.
 - `GET /ready` reports a configured live provider rather than the fake provider.
 - `POST /turn` returns a non-empty assistant final from the configured provider, not the fake provider.
@@ -31,7 +32,9 @@ The script creates an isolated temporary work root, builds `genesisctl.exe` and 
 - Restarting `genesisd` with the same ledger preserves the same timeline, events, and context projections.
 - A missing credential store reports `provider_credential_missing` through readiness and `provider_unavailable` on turn submission instead of panicking or leaking the secret.
 
-The JSON summary printed by the script includes paths, session id, turn id, provider model, projection counts, and failure-probe status. It must not include the raw provider API key.
+The JSON summary printed by the script includes paths, session id, turn id, provider verify status, provider model, projection counts, and failure-probe status. It must not include the raw provider API key.
+
+`GET /ready` is local kernel readiness. It verifies local config resolution, runtime auth, ledger access, and provider adapter readiness. It does not prove upstream credentials are accepted. `genesisctl provider verify` is the explicit upstream-authenticated live readiness probe and must pass before live LLM smoke work.
 
 Useful options:
 
@@ -94,6 +97,18 @@ The low-level command remains available for custom OpenAI-compatible providers:
   -credential-ref secret://models/provider/live-acceptance
 ```
 
+Verify the configured provider against upstream auth before starting the daemon:
+
+```powershell
+& "$root\bin\genesisctl.exe" provider verify `
+  -config-root "$root\config" `
+  -credential-store-root "$root\credentials" `
+  -model-role foreground.coordinator `
+  -timeout-sec 10
+```
+
+The command must return JSON with `readiness = "ready"`. Missing credentials should return `readiness = "not_ready"` with a credential readiness reason, and invalid or expired upstream keys should return `provider_auth_failed`. The output must not contain the raw key, Authorization header, or provider response body.
+
 Start the kernel through Genesis-owned config:
 
 ```powershell
@@ -128,6 +143,22 @@ Invoke-RestMethod -Headers $headers "http://127.0.0.1:8765/sessions/manual-live-
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8765/turns/$($turn.turn_id)/events"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8765/turns/$($turn.turn_id)/context"
 ```
+
+Optional debug capture for a difficult session:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8765/sessions/manual-live-first-run/debug/enable `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body "{}"
+
+# submit the turn after enabling debug, then export the bounded debug artifact
+Invoke-RestMethod -Headers $headers "http://127.0.0.1:8765/sessions/manual-live-first-run/debug"
+```
+
+Session debug is opt-in. Its artifact is a debug trace stored outside transcript/audit truth. Deleting it must not affect session resume, timeline, context inspection, or audit replay. It should be used to inspect provider-step input kinds, model-visible tool manifest, bounded input/tool-result previews, provider final/error, and usage when live model behavior is poor.
 
 Stop and restart `genesisd` with the same `-ledger`, `-config-root`, and `-credential-store-root`, then re-run the three inspection requests. The same turn must remain readable after restart.
 

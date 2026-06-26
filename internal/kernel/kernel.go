@@ -353,6 +353,7 @@ func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, tur
 		if err == nil && modelResponseNeedsVisibleFinalRepair(modelResp) {
 			err = newProviderVisibleFinalRequiredError()
 		}
+		k.captureSessionDebugProviderStep(sessionID, turnID, roundIndex, transientAttempt+visibleRepairCount, request, modelResp, err, providerContext.KernelObservationEventIDs)
 		if err == nil {
 			return modelResp, nil
 		}

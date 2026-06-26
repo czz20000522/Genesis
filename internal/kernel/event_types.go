@@ -71,6 +71,7 @@ type EventData struct {
 	Job                        *JobProjection                       `json:"job,omitempty"`
 	Approval                   *ApprovalProjection                  `json:"approval,omitempty"`
 	SandboxReadiness           *SandboxReadinessProjection          `json:"sandbox_readiness,omitempty"`
+	SessionDebug               *SessionDebugProjection              `json:"session_debug,omitempty"`
 	KernelObservationDelivery  *KernelObservationDeliveryProjection `json:"kernel_observation_delivery,omitempty"`
 	Work                       *WorkProjection                      `json:"work,omitempty"`
 	MemoryCandidate            *MemoryCandidateProjection           `json:"memory_candidate,omitempty"`

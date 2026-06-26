@@ -123,6 +123,16 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleGetSessionTimelineDetail(w, r, k)
+		case r.Method == http.MethodPost && isSessionDebugEnablePath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
+			handleEnableSessionDebug(w, r, k)
+		case r.Method == http.MethodGet && isSessionDebugExportPath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) {
+				return
+			}
+			handleGetSessionDebug(w, r, k)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/sessions/"):
 			if !authorizeRuntimeRequest(w, r, k) {
 				return

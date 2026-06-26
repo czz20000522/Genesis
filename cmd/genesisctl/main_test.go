@@ -121,6 +121,58 @@ func TestProviderUseUnknownPresetFailsClosed(t *testing.T) {
 	}
 }
 
+func TestProviderVerifyReportsMissingCredentialAsJSON(t *testing.T) {
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-verify-config")
+	credentialRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-verify-credentials")
+	if err := os.MkdirAll(configRoot, 0o755); err != nil {
+		t.Fatalf("mkdir config root: %v", err)
+	}
+	config := `{
+  "model_gateway": {
+    "protocol": "openai-chat-completions",
+    "base_url": "https://provider.example.com",
+    "credential_ref": "secret://models/provider/missing"
+  },
+  "active_model_profile_bindings": {
+    "foreground.coordinator": "verify-profile"
+  },
+  "model_profiles": {
+    "cloud": {
+      "gateway": {
+        "verify-profile": {
+          "profile_id": "verify-profile",
+          "model_id": "verify-model"
+        }
+      }
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(configRoot, "models.json"), []byte(config), 0o644); err != nil {
+		t.Fatalf("write models.json: %v", err)
+	}
+	var stdout bytes.Buffer
+
+	err := run([]string{
+		"provider", "verify",
+		"-config-root", configRoot,
+		"-credential-store-root", credentialRoot,
+		"-timeout-sec", "1",
+	}, strings.NewReader(""), &stdout)
+	if err != nil {
+		t.Fatalf("provider verify returned error: %v", err)
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode provider verify response: %v\n%s", err, stdout.String())
+	}
+	assertStringField(t, response, "readiness", "not_ready")
+	assertStringField(t, response, "readiness_reason", "provider_credential_missing")
+	if strings.Contains(stdout.String(), "secret://models/provider/missing") || strings.Contains(stdout.String(), "Authorization") {
+		t.Fatalf("provider verify output leaked credential detail: %s", stdout.String())
+	}
+}
+
 func TestProviderUseSCNetPresetDryRun(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{

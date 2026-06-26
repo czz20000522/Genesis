@@ -38,10 +38,11 @@ Example:
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 -BaseUrl https://provider.example.com/api -Model provider-model
 
 The script builds genesisctl/genesisd, writes Genesis config and a secret:// credential
-record, starts genesisd through Genesis config, calls /ready and /turn, inspects
-timeline/events/context, restarts the server, replays the same projections, and
-optionally checks a missing-credential failure path. It never accepts the raw API key
-as a command-line argument.
+record, verifies the provider against upstream auth before starting genesisd, starts
+genesisd through Genesis config, calls /ready and /turn, inspects timeline/events/context,
+restarts the server, replays the same projections, and optionally checks a
+missing-credential failure path. It never accepts the raw API key as a command-line
+argument.
 "@
     exit 0
 }
@@ -380,6 +381,22 @@ try {
         throw "provider setup did not report ok+verified: $(ConvertTo-CompactJson $setup)"
     }
 
+    $providerVerifyOutput = Invoke-Native -FilePath $genesisctlExe -Arguments @(
+        "provider", "verify",
+        "-config-root", $ConfigRoot,
+        "-credential-store-root", $CredentialStoreRoot,
+        "-model-role", $ModelRole,
+        "-profile-id", $ProfileId,
+        "-timeout-sec", "10"
+    )
+    if ($providerVerifyOutput.Contains($apiKeyValue)) {
+        throw "provider verify output leaked the raw API key"
+    }
+    $providerVerify = $providerVerifyOutput | ConvertFrom-Json
+    if ($providerVerify.readiness -ne "ready") {
+        throw "provider verify did not report ready: $(ConvertTo-CompactJson $providerVerify)"
+    }
+
     $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $ProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
     $ready = Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ready"
     if ($ready.provider.name -eq "fake" -or $ready.provider.readiness -ne "ready") {
@@ -488,6 +505,11 @@ try {
             provider = $ready.provider.readiness
             runtime_auth = $ready.runtime_auth.readiness
             ledger = $ready.ledger.readiness
+        }
+        provider_verify = @{
+            readiness = $providerVerify.readiness
+            provider = $providerVerify.provider.name
+            model = $providerVerify.model
         }
         inspected = @{
             timeline_items = $timeline.items.Count

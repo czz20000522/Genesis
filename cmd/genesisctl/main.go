@@ -36,13 +36,15 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 
 func runProvider(args []string, stdin io.Reader, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("provider command is required: use or rotate-key")
+		return errors.New("provider command is required: use, rotate-key, or verify")
 	}
 	switch args[0] {
 	case "use":
 		return runProviderUse(args[1:], stdin, stdout)
 	case "rotate-key":
 		return runProviderRotateKey(args[1:], stdin, stdout)
+	case "verify":
+		return runProviderVerify(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown provider command %q", args[0])
 	}
@@ -127,6 +129,32 @@ func runProviderRotateKey(args []string, stdin io.Reader, stdout io.Writer) erro
 		return err
 	}
 	return writeProviderSetupResponse(stdout, result, providerSetupPreset{})
+}
+
+func runProviderVerify(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("provider verify", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	configRoot := fs.String("config-root", os.Getenv("GENESIS_CONFIG_ROOT"), "Genesis config root containing models.json")
+	credentialStoreRoot := fs.String("credential-store-root", os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"), "Genesis credential store root")
+	modelRole := fs.String("model-role", envOrDefault("GENESIS_MODEL_ROLE", kernel.DefaultModelRole), "Genesis model role binding to verify")
+	profileID := fs.String("profile-id", os.Getenv("GENESIS_MODEL_PROFILE_ID"), "Genesis model profile id override")
+	timeoutSec := fs.Float64("timeout-sec", 10, "provider verification timeout seconds")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *timeoutSec <= 0 {
+		return errors.New("timeout-sec must be greater than zero")
+	}
+	result := kernel.VerifyProviderLive(kernel.ProviderLiveVerifyRequest{
+		ConfigRoot:          *configRoot,
+		CredentialStoreRoot: *credentialStoreRoot,
+		ModelRole:           *modelRole,
+		ModelProfileID:      *profileID,
+		Timeout:             time.Duration(*timeoutSec * float64(time.Second)),
+	})
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(result)
 }
 
 func runProviderSetup(args []string, stdin io.Reader, stdout io.Writer) error {

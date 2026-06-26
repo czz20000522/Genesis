@@ -377,6 +377,10 @@ func inspectionEventData(data EventData) EventData {
 		copied := cloneSandboxReadinessProjection(*data.SandboxReadiness)
 		next.SandboxReadiness = &copied
 	}
+	if data.SessionDebug != nil {
+		copied := *data.SessionDebug
+		next.SessionDebug = &copied
+	}
 	if data.KernelObservationDelivery != nil {
 		copied := KernelObservationDeliveryProjection{
 			ObservationEventIDs: append([]string(nil), data.KernelObservationDelivery.ObservationEventIDs...),
