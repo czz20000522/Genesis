@@ -22,7 +22,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_a
 
 The script creates an isolated temporary work root, builds `genesisctl.exe` and `genesisd.exe`, writes `models.json`, stores the credential behind a `secret://...` ref, starts `genesisd` through Genesis config, and checks:
 
-- `GET /ready` reports `status=ok`.
+- `GET /ready` reports `readiness=ready`.
+- `GET /ready` reports a configured live provider rather than the fake provider.
 - `POST /turn` returns a non-empty assistant final from the configured provider, not the fake provider.
 - `GET /sessions/{id}/timeline` returns a usable user-facing timeline projection.
 - `GET /turns/{id}/events` returns the raw turn event replay.

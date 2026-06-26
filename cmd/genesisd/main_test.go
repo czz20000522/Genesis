@@ -48,6 +48,56 @@ func TestBuildProviderFromGenesisConfigCanSelectCommandProvider(t *testing.T) {
 	}
 }
 
+func TestBuildProviderEmptyNameDoesNotSelectFake(t *testing.T) {
+	provider, err := buildProvider(providerBuildRequest{name: "", configRoot: testsupport.ProjectTempDir(t, "genesisd-missing-config")})
+	if err != nil {
+		t.Fatalf("buildProvider returned error: %v", err)
+	}
+	status := provider.Ready()
+	if status.Name == "fake" || status.Readiness != kernel.ReadinessNotReady || status.ReadinessReason != "provider_config_missing" {
+		t.Fatalf("provider status = %+v, want blocked genesis config provider", status)
+	}
+}
+
+func TestBuildProviderRejectsFakeUnlessLabAllowed(t *testing.T) {
+	provider, err := buildProvider(providerBuildRequest{name: "fake"})
+	if err != nil {
+		t.Fatalf("buildProvider returned error: %v", err)
+	}
+	status := provider.Ready()
+	if status.Name != "fake" || status.Readiness != kernel.ReadinessNotReady || status.ReadinessReason != "provider_fake_lab_only" {
+		t.Fatalf("provider status = %+v, want fake lab-only blocker", status)
+	}
+}
+
+func TestBuildProviderAllowsFakeForExplicitLabMode(t *testing.T) {
+	provider, err := buildProvider(providerBuildRequest{name: "fake", allowLabFakeProvider: true})
+	if err != nil {
+		t.Fatalf("buildProvider returned error: %v", err)
+	}
+	status := provider.Ready()
+	if status.Name != "fake" || status.Readiness != kernel.ReadinessReady {
+		t.Fatalf("provider status = %+v, want explicit lab fake ready", status)
+	}
+}
+
+func TestBuildProviderOpenAICompatibleMissingKeyStaysStructuredNotReady(t *testing.T) {
+	t.Setenv("GENESIS_EMPTY_PROVIDER_KEY", "")
+	provider, err := buildProvider(providerBuildRequest{
+		name:      "openai-compatible",
+		baseURL:   "https://provider.example.com/api",
+		model:     "provider-model",
+		apiKeyEnv: "GENESIS_EMPTY_PROVIDER_KEY",
+	})
+	if err != nil {
+		t.Fatalf("buildProvider returned error: %v", err)
+	}
+	status := provider.Ready()
+	if status.Name != "openai-compatible" || status.Readiness != kernel.ReadinessNotReady || status.ReadinessReason != "provider_api_key_missing" {
+		t.Fatalf("provider status = %+v, want provider_api_key_missing", status)
+	}
+}
+
 func TestBuildProviderCanSelectCommandProviderDirectly(t *testing.T) {
 	provider, err := buildProvider(providerBuildRequest{
 		name:    "provider_command",

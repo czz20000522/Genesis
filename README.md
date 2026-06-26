@@ -113,7 +113,7 @@ Minimal HTTP surface:
 - `POST /memory/candidates/{id}/supersede`
 - `POST /memory/recall`
 
-The initial provider is intentionally fake. It proves admission, event persistence, session projection, and restart-safe ledger replay before real providers or tools are added.
+`genesisd` defaults to Genesis-owned model gateway configuration rather than a fake model. The fake provider is a lab/test fixture and is not production-ready unless an operator explicitly enables lab fake mode.
 
 Protected routes require `Authorization: Bearer <runtime-token>`. `GET /ready` is the only unauthenticated route, but readiness is `blocked` when no runtime token is configured because the kernel cannot accept protected work.
 
@@ -151,10 +151,10 @@ Useful operator flags:
 - `-model-role`: role binding to resolve; defaults to `foreground.coordinator`.
 - `-model-profile-id`: explicit profile override when the operator wants to bypass the role default.
 
-For deterministic tests, select the fake provider explicitly:
+For deterministic lab tests, select the fake provider with explicit lab mode:
 
 ```powershell
-"$root\bin\genesisd.exe" -provider fake
+"$root\bin\genesisd.exe" -provider fake -allow-lab-fake-provider
 ```
 
 The long-lived provider boundary is `provider_command`: an external executable reads one typed Genesis model request from stdin and writes one typed provider response to stdout. The command owns vendor SDKs, HTTP JSON, account flows, and provider credentials; the kernel owns only the typed request, typed response, readiness, turn loop, and ledger evidence.

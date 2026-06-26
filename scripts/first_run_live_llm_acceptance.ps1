@@ -194,7 +194,7 @@ function Wait-GenesisReady {
         try {
             $ready = Invoke-Json -Method GET -Uri "$BaseUri/ready"
             $last = $ready
-            if ($ready.status -eq $ExpectedStatus) {
+            if ($ready.readiness -eq $ExpectedStatus) {
                 return $ready
             }
         }
@@ -381,7 +381,10 @@ try {
     }
 
     $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $ProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
-    $ready = Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ok"
+    $ready = Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ready"
+    if ($ready.provider.name -eq "fake" -or $ready.provider.readiness -ne "ready") {
+        throw "ready provider is not a configured live provider: $(ConvertTo-CompactJson $ready.provider)"
+    }
 
     $sessionId = "live-first-run-" + [guid]::NewGuid().ToString("N").Substring(0, 12)
     $turn = Invoke-Json -Method POST -Uri "$baseUri/turn" -Token $RuntimeToken -Body @{
@@ -423,7 +426,7 @@ try {
     $server = $null
 
     $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $ProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
-    Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ok" | Out-Null
+    Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ready" | Out-Null
     $replayedTimeline = Invoke-Json -Method GET -Uri "$baseUri/sessions/$sessionId/timeline" -Token $RuntimeToken
     $replayedEvents = Invoke-Json -Method GET -Uri "$baseUri/turns/$($turn.turn_id)/events" -Token $RuntimeToken
     $replayedContext = Invoke-Json -Method GET -Uri "$baseUri/turns/$($turn.turn_id)/context" -Token $RuntimeToken
@@ -438,8 +441,8 @@ try {
         $brokenCredentialRoot = Join-Path $WorkRoot "missing-credentials"
         New-DirectoryIfMissing -Path $brokenCredentialRoot
         $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger (Join-Path $WorkRoot "failure-events.jsonl") -Token $RuntimeToken -Config $ConfigRoot -Credentials $brokenCredentialRoot -Role $ModelRole -Profile $ProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $failureStdout -StderrPath $failureStderr
-        $blocked = Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "blocked"
-        if ($blocked.provider.status -ne "blocked" -or $blocked.provider.reason -ne "provider_credential_missing") {
+        $blocked = Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "not_ready"
+        if ($blocked.provider.readiness -ne "not_ready" -or $blocked.provider.readiness_reason -ne "provider_credential_missing") {
             throw "failure probe did not report provider_credential_missing: $(ConvertTo-CompactJson $blocked)"
         }
         $turnError = Invoke-JsonExpectError -Method POST -Uri "$baseUri/turn" -Token $RuntimeToken -Body @{
@@ -451,16 +454,16 @@ try {
             throw "failure turn did not report provider_unavailable: $(ConvertTo-CompactJson $turnError)"
         }
         $failureProbe = @{
-            ready_status = $blocked.status
-            provider_status = $blocked.provider.status
-            provider_reason = $blocked.provider.reason
+            ready_status = $blocked.readiness
+            provider_status = $blocked.provider.readiness
+            provider_reason = $blocked.provider.readiness_reason
             turn_status_code = $turnError.status_code
             turn_error_code = $turnErrorCode
         }
         if ($KeepServer) {
             Stop-Genesisd -Process $server
             $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $ProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
-            Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ok" | Out-Null
+            Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ready" | Out-Null
         }
     }
 
@@ -481,10 +484,10 @@ try {
         provider_model = $turn.final.model
         final_text = $turn.final.text
         ready = @{
-            status = $ready.status
-            provider = $ready.provider.status
-            runtime_auth = $ready.runtime_auth.status
-            ledger = $ready.ledger.status
+            status = $ready.readiness
+            provider = $ready.provider.readiness
+            runtime_auth = $ready.runtime_auth.readiness
+            ledger = $ready.ledger.readiness
         }
         inspected = @{
             timeline_items = $timeline.items.Count

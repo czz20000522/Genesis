@@ -21,6 +21,7 @@ func main() {
 	permissionMode := flag.String("permission-mode", envOrDefault("GENESIS_PERMISSION_MODE", kernel.PermissionModePlan), "tool permission mode: plan, default, or yolo")
 	workspaceRoot := flag.String("workspace-root", os.Getenv("GENESIS_WORKSPACE_ROOT"), "workspace root for default tool permission mode")
 	providerName := flag.String("provider", envOrDefault("GENESIS_PROVIDER", "genesis-config"), "provider name: genesis-config, fake, provider_command, or openai-compatible")
+	allowLabFakeProvider := flag.Bool("allow-lab-fake-provider", envBoolOrDefault("GENESIS_ALLOW_LAB_FAKE_PROVIDER", false), "allow lab-only fake provider readiness")
 	providerBaseURL := flag.String("provider-base-url", os.Getenv("GENESIS_PROVIDER_BASE_URL"), "OpenAI-compatible provider base URL")
 	providerModel := flag.String("provider-model", os.Getenv("GENESIS_PROVIDER_MODEL"), "OpenAI-compatible provider model")
 	providerAPIKeyEnv := flag.String("provider-api-key-env", envOrDefault("GENESIS_PROVIDER_API_KEY_ENV", "GENESIS_PROVIDER_API_KEY"), "environment variable containing provider API key")
@@ -52,17 +53,18 @@ func main() {
 	flag.Parse()
 
 	provider, err := buildProvider(providerBuildRequest{
-		name:                *providerName,
-		baseURL:             *providerBaseURL,
-		model:               *providerModel,
-		apiKeyEnv:           *providerAPIKeyEnv,
-		command:             *providerCommand,
-		commandArgs:         providerCommandArgs.Values(),
-		commandEnv:          providerCommandEnv.Values(),
-		configRoot:          *configRoot,
-		credentialStoreRoot: *credentialStoreRoot,
-		modelRole:           *modelRole,
-		modelProfileID:      *modelProfileID,
+		name:                 *providerName,
+		baseURL:              *providerBaseURL,
+		model:                *providerModel,
+		apiKeyEnv:            *providerAPIKeyEnv,
+		command:              *providerCommand,
+		commandArgs:          providerCommandArgs.Values(),
+		commandEnv:           providerCommandEnv.Values(),
+		configRoot:           *configRoot,
+		credentialStoreRoot:  *credentialStoreRoot,
+		modelRole:            *modelRole,
+		modelProfileID:       *modelProfileID,
+		allowLabFakeProvider: *allowLabFakeProvider,
 	})
 	if err != nil {
 		log.Fatalf("create provider: %v", err)
@@ -114,23 +116,35 @@ func main() {
 }
 
 type providerBuildRequest struct {
-	name                string
-	baseURL             string
-	model               string
-	apiKeyEnv           string
-	command             string
-	commandArgs         []string
-	commandEnv          []string
-	configRoot          string
-	credentialStoreRoot string
-	modelRole           string
-	modelProfileID      string
+	name                 string
+	baseURL              string
+	model                string
+	apiKeyEnv            string
+	command              string
+	commandArgs          []string
+	commandEnv           []string
+	configRoot           string
+	credentialStoreRoot  string
+	modelRole            string
+	modelProfileID       string
+	allowLabFakeProvider bool
 }
 
 func buildProvider(req providerBuildRequest) (kernel.Provider, error) {
 	switch req.name {
-	case "", "fake":
-		return kernel.FakeProvider{}, nil
+	case "":
+		return buildProvider(providerBuildRequest{
+			name:                "genesis-config",
+			configRoot:          req.configRoot,
+			credentialStoreRoot: req.credentialStoreRoot,
+			modelRole:           req.modelRole,
+			modelProfileID:      req.modelProfileID,
+		})
+	case "fake":
+		if req.allowLabFakeProvider {
+			return kernel.FakeProvider{}, nil
+		}
+		return kernel.NewBlockedProvider("fake", "provider_fake_lab_only"), nil
 	case "genesis-config":
 		config, err := kernel.ResolveProviderConfigFromGenesis(kernel.GenesisModelConfigRequest{
 			ConfigRoot:          req.configRoot,
@@ -203,6 +217,18 @@ func envFloatOrDefault(name string, fallback float64) float64 {
 		return fallback
 	}
 	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envBoolOrDefault(name string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return fallback
 	}
