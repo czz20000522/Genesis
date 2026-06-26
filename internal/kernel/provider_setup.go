@@ -18,6 +18,7 @@ type OpenAICompatibleProviderSetupRequest struct {
 	GatewayRoute        string
 	BaseURL             string
 	ModelID             string
+	ContextWindowTokens int
 	CredentialRef       string
 	APIKey              string
 	RequestTimeout      time.Duration
@@ -36,6 +37,18 @@ type OpenAICompatibleProviderSetupResult struct {
 	GatewayRoute   string `json:"gateway_route"`
 	DryRun         bool   `json:"dry_run"`
 	Verified       bool   `json:"verified"`
+}
+
+type OpenAICompatibleProviderCredentialRotationRequest struct {
+	ConfigRoot          string
+	CredentialStoreRoot string
+	ModelRole           string
+	ProfileID           string
+	APIKey              string
+	DryRun              bool
+	Verify              bool
+	SecretProtector     func([]byte) ([]byte, error)
+	SecretResolver      func(ref string, storeRoot string) (string, error)
 }
 
 func SetupOpenAICompatibleProvider(req OpenAICompatibleProviderSetupRequest) (OpenAICompatibleProviderSetupResult, error) {
@@ -93,6 +106,71 @@ func SetupOpenAICompatibleProvider(req OpenAICompatibleProviderSetupRequest) (Op
 		}
 		if resolved.BaseURL != normalized.BaseURL || resolved.Model != normalized.ModelID || strings.TrimSpace(resolved.APIKey) == "" {
 			return OpenAICompatibleProviderSetupResult{}, errors.New("provider setup verification failed")
+		}
+		result.Verified = true
+	}
+	return result, nil
+}
+
+func RotateActiveOpenAICompatibleProviderCredential(req OpenAICompatibleProviderCredentialRotationRequest) (OpenAICompatibleProviderSetupResult, error) {
+	modelRole := strings.TrimSpace(req.ModelRole)
+	if modelRole == "" {
+		modelRole = DefaultModelRole
+	}
+	if strings.TrimSpace(req.APIKey) == "" && !req.DryRun {
+		return OpenAICompatibleProviderSetupResult{}, ErrLocalSecretMissing
+	}
+	selected, err := loadSelectedGatewayConfig(GenesisModelConfigRequest{
+		ConfigRoot:     req.ConfigRoot,
+		ModelRole:      modelRole,
+		ModelProfileID: req.ProfileID,
+	})
+	if err != nil {
+		return OpenAICompatibleProviderSetupResult{}, err
+	}
+	credentialRef := firstNonEmpty(selected.route.CredentialRef, selected.gateway.CredentialRef)
+	if !isLocalSecretCredentialRef(credentialRef) {
+		return OpenAICompatibleProviderSetupResult{}, ErrGenesisModelCredentialUnsupported
+	}
+	secretResult, err := WriteLocalCredentialSecret(LocalCredentialSecretWriteRequest{
+		CredentialRef: credentialRef,
+		Secret:        strings.TrimSpace(req.APIKey),
+		StoreRoot:     req.CredentialStoreRoot,
+		Protector:     req.SecretProtector,
+		DryRun:        req.DryRun,
+	})
+	if err != nil {
+		return OpenAICompatibleProviderSetupResult{}, err
+	}
+	result := OpenAICompatibleProviderSetupResult{
+		ConfigPath:     filepath.Join(resolveGenesisConfigRoot(req.ConfigRoot), "models.json"),
+		CredentialPath: secretResult.CredentialPath,
+		CredentialRef:  secretResult.CredentialRef,
+		ModelRole:      modelRole,
+		ProfileID:      selected.profile.ProfileID,
+		GatewayRoute:   selected.profile.GatewayRoute,
+		DryRun:         req.DryRun,
+	}
+	if req.DryRun {
+		return result, nil
+	}
+	if req.Verify {
+		resolver := req.SecretResolver
+		if resolver == nil {
+			resolver = ResolveLocalCredentialSecret
+		}
+		resolved, err := ResolveProviderConfigFromGenesis(GenesisModelConfigRequest{
+			ConfigRoot:          req.ConfigRoot,
+			CredentialStoreRoot: req.CredentialStoreRoot,
+			ModelRole:           modelRole,
+			ModelProfileID:      selected.profile.ProfileID,
+			SecretResolver:      resolver,
+		})
+		if err != nil {
+			return OpenAICompatibleProviderSetupResult{}, err
+		}
+		if resolved.Kind != "openai-compatible" || strings.TrimSpace(resolved.OpenAICompatible.APIKey) == "" {
+			return OpenAICompatibleProviderSetupResult{}, errors.New("provider credential rotation verification failed")
 		}
 		result.Verified = true
 	}
@@ -172,9 +250,10 @@ func upsertOpenAICompatibleProviderConfig(config *genesisModelsConfig, req OpenA
 		config.ModelProfiles.Cloud.Gateway = map[string]genesisGatewayProfile{}
 	}
 	config.ModelProfiles.Cloud.Gateway[req.ProfileID] = genesisGatewayProfile{
-		ProfileID:    req.ProfileID,
-		ModelID:      req.ModelID,
-		GatewayRoute: req.GatewayRoute,
+		ProfileID:           req.ProfileID,
+		ModelID:             req.ModelID,
+		GatewayRoute:        req.GatewayRoute,
+		ContextWindowTokens: req.ContextWindowTokens,
 	}
 }
 

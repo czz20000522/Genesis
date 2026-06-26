@@ -62,7 +62,27 @@ D:\software\Go\bin\go.exe build -o "$root\bin\genesisd.exe" .\cmd\genesisd
 Write provider config and the local credential record:
 
 ```powershell
-$env:GENESIS_PROVIDER_API_KEY = "<provider api key>"
+"<provider api key>" | & "$root\bin\genesisctl.exe" provider use deepseek/deepseek-v4-flash `
+  -config-root "$root\config" `
+  -credential-store-root "$root\credentials" `
+  -api-key-stdin
+```
+
+The preset command is the preferred operator path for known providers. It
+resolves profile id, route, base URL, credential ref, protocol, context-window
+metadata, and timeout before calling the same low-level setup owner. To rotate
+the key for the active profile without repeating provider metadata:
+
+```powershell
+"<new provider api key>" | & "$root\bin\genesisctl.exe" provider rotate-key `
+  -config-root "$root\config" `
+  -credential-store-root "$root\credentials" `
+  -api-key-stdin
+```
+
+The low-level command remains available for custom OpenAI-compatible providers:
+
+```powershell
 "$root\bin\genesisctl.exe" provider-setup `
   -config-root "$root\config" `
   -credential-store-root "$root\credentials" `

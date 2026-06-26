@@ -321,7 +321,8 @@ type genesisGatewayProfileBranch struct {
 }
 
 type genesisGatewayProfile struct {
-	ProfileID    string `json:"profile_id"`
-	ModelID      string `json:"model_id"`
-	GatewayRoute string `json:"gateway_route"`
+	ProfileID           string `json:"profile_id"`
+	ModelID             string `json:"model_id"`
+	GatewayRoute        string `json:"gateway_route"`
+	ContextWindowTokens int    `json:"context_window_tokens,omitempty"`
 }

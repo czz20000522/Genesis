@@ -592,7 +592,7 @@ Owns runtime client authentication, credential refs, local secret protection, an
 
 The first local credential primitive is the Genesis local secret store. On Windows, `secret://...` refs resolve to same-user DPAPI-protected JSON records under `~/.genesis/credentials`. The kernel can decrypt the selected provider key in memory for the Model Gateway, but provider and connector credentials must not leak through readiness, events, sessions, logs, docs, tests, or model-visible context. User-authored text that merely resembles a secret is still user content and remains part of the first-party material Genesis owns for that user. External egress policy, credential refs, and storage protection handle safety without corrupting the local content source. Missing, unreadable, or unsupported credentials fail closed as provider readiness blockers.
 
-The operator setup surface may write Genesis-owned model gateway config and `secret://...` local credential records. It is not a shell for turn execution and must not embed provider account workflows, application-specific logic, or Codex credentials into the kernel runtime.
+The operator setup surface may write Genesis-owned model gateway config and `secret://...` local credential records. Preset-backed setup may translate a known provider/model choice into profile id, gateway route, base URL, protocol, timeout, context-window metadata, and credential ref, then call the same low-level setup owner. It is not a shell for turn execution and must not embed provider account workflows, application-specific logic, or Codex credentials into the kernel runtime.
 
 ## Explicit Non-Kernel Surfaces
 
