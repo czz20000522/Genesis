@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -707,6 +708,32 @@ func TestSkillCatalogProjectionReportsRootStatusAndBudgetWarnings(t *testing.T) 
 	for _, forbidden := range pathLeakVariants(root) {
 		if strings.Contains(string(catalogJSON), forbidden) {
 			t.Fatalf("skill catalog leaked root path %q: %s", forbidden, string(catalogJSON))
+		}
+	}
+}
+
+func TestSkillCatalogTraversalFailureReportsUnreadableRoot(t *testing.T) {
+	root := testTempDir(t)
+	result := loadSkillCatalogWithDiagnosticsAndWalker([]string{root}, func(root string, fn fs.WalkDirFunc) error {
+		return fn(root, nil, errors.New("permission denied"))
+	})
+
+	if len(result.Roots) != 1 {
+		t.Fatalf("roots = %+v, want one root projection", result.Roots)
+	}
+	if result.Roots[0].Status != ReadinessNotReady || result.Roots[0].Reason != "root_unreadable" || result.Roots[0].SkillCount != 0 {
+		t.Fatalf("root = %+v, want path-free unreadable evidence", result.Roots[0])
+	}
+	if !skillCatalogLoadExclusionsHaveReason(result.Exclusions, "root_unreadable") {
+		t.Fatalf("exclusions = %+v, want root_unreadable", result.Exclusions)
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	for _, forbidden := range pathLeakVariants(root) {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("skill catalog traversal failure leaked root path %q: %s", forbidden, string(payload))
 		}
 	}
 }

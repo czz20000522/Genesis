@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,6 +27,10 @@ type skillCatalogLoadResult struct {
 type skillCatalogExclusionCounter map[string]int
 
 func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
+	return loadSkillCatalogWithDiagnosticsAndWalker(roots, filepath.WalkDir)
+}
+
+func loadSkillCatalogWithDiagnosticsAndWalker(roots []string, walkDir func(string, fs.WalkDirFunc) error) skillCatalogLoadResult {
 	var skills []SkillDescriptor
 	var rootProjections []SkillCatalogRootProjection
 	exclusions := skillCatalogExclusionCounter{}
@@ -53,8 +58,14 @@ func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
 		}
 		candidateCount := 0
 		rootSkillCount := 0
-		_ = filepath.WalkDir(absRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		rootUnreadable := false
+		walkErr := walkDir(absRoot, func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
+				rootUnreadable = true
+				exclusions.add("root_unreadable")
+				if entry != nil && entry.IsDir() {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			if path != absRoot {
@@ -120,11 +131,20 @@ func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
 			rootSkillCount++
 			return nil
 		})
+		if walkErr != nil {
+			rootUnreadable = true
+			exclusions.add("root_unreadable")
+		}
 		status := ReadinessReady
-		if rootSkillCount == 0 {
+		reason := ""
+		switch {
+		case rootUnreadable:
+			status = ReadinessNotReady
+			reason = "root_unreadable"
+		case rootSkillCount == 0:
 			status = "empty"
 		}
-		rootProjections = append(rootProjections, SkillCatalogRootProjection{Ordinal: rootOrdinal, Status: status, SkillCount: rootSkillCount})
+		rootProjections = append(rootProjections, SkillCatalogRootProjection{Ordinal: rootOrdinal, Status: status, Reason: reason, SkillCount: rootSkillCount})
 	}
 	sort.Slice(skills, func(i, j int) bool {
 		if skills[i].RootOrdinal != skills[j].RootOrdinal {
