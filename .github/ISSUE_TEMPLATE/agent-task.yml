@@ -1,0 +1,66 @@
+name: Agent task
+description: A bounded task for an implementation or review agent
+title: "[TASK] "
+labels: ["triage"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be true when this task is complete?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Files, modules, docs, or behavior this task may touch.
+    validations:
+      required: true
+  - type: textarea
+    id: do
+    attributes:
+      label: Do
+      description: Concrete work items.
+      placeholder: |
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: do_not
+    attributes:
+      label: Do not
+      description: Boundaries the agent must not cross.
+      placeholder: |
+        - Do not add vendor-specific fields to kernel generic DTOs.
+        - Do not change unrelated docs.
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Local docs, commits, files, or external reference implementations to inspect first.
+      placeholder: |
+        - docs/...
+        - D:\software\JetBrains\python_workspace\codex-main\...
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Commands or behavior checks required before reporting done.
+      placeholder: |
+        - go test ./...
+        - go build ./...
+        - git diff --check
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: How reviewer decides this issue is complete.
+    validations:
+      required: true
