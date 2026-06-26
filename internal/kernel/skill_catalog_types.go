@@ -4,6 +4,7 @@ type SkillDescriptor struct {
 	Name            string `json:"name"`
 	Description     string `json:"description"`
 	InstructionPath string `json:"-"`
+	RootOrdinal     int    `json:"-"`
 }
 
 type SkillCatalogProjection struct {

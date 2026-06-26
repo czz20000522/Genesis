@@ -126,6 +126,165 @@ func TestSourceTreeAndReadToolLoopUsesOpaqueRefs(t *testing.T) {
 	}
 }
 
+func TestSourceTreeTruncationProvidesModelContinuationContract(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "source-tools-tree-continuation")
+	zipPath := filepath.Join(dir, "package.zip")
+	writeKernelZipFixture(t, zipPath, map[string]string{
+		"a.txt": "a",
+		"b.txt": "b",
+		"c.txt": "c",
+		"d.txt": "d",
+	})
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		Provider:     FakeProvider{},
+		RuntimeToken: testRuntimeToken,
+		SourceSnapshotPolicy: SourceSnapshotPolicy{
+			DefaultTreeEntries: 2,
+			MaxTreeEntries:     5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	intake, err := k.IntakeMaterial(MaterialIntakeRequest{
+		SessionID: "source-continuation-session",
+		Purpose:   SourcePurposeAnalysis,
+		Locator: MaterialLocator{
+			Kind: MaterialLocatorKindLocalPath,
+			Path: zipPath,
+		},
+	})
+	if err != nil {
+		t.Fatalf("IntakeMaterial returned error: %v", err)
+	}
+
+	prepared, err := k.toolGateway().PrepareBatch([]ModelToolCall{{
+		ToolCallID:      "call_source_tree",
+		ToolCallEventID: "evt_source_tree",
+		Name:            "source_tree",
+		Arguments:       mustMarshalToolArgs(t, map[string]interface{}{"source_snapshot_ref": intake.SourceSnapshotRef}),
+	}})
+	if err != nil {
+		t.Fatalf("PrepareBatch returned error: %v", err)
+	}
+	result, err := k.toolGateway().Execute(context.Background(), "source-continuation-session", "turn-source-continuation", prepared[0])
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	var payload SourceTreeResult
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("unmarshal source_tree payload: %v\n%s", err, result.Content)
+	}
+	if !payload.Truncated || payload.TotalEntries != 4 || len(payload.Entries) != 2 {
+		t.Fatalf("source_tree payload = %+v, want truncated first page", payload)
+	}
+	if payload.NextMaxEntries == nil || *payload.NextMaxEntries != 4 || payload.MaxEntriesLimit != 5 {
+		t.Fatalf("source_tree continuation = %+v, want next max_entries=4 limit=5", payload)
+	}
+	for _, want := range []string{"max_entries", "offset_entries"} {
+		if !strings.Contains(payload.ContinuationHint, want) {
+			t.Fatalf("continuation hint = %q, missing %q", payload.ContinuationHint, want)
+		}
+	}
+}
+
+func TestSourceTreeAtMaxEntriesLimitReturnsTerminalContinuationHint(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "source-tools-tree-continuation-cap")
+	zipPath := filepath.Join(dir, "package.zip")
+	writeKernelZipFixture(t, zipPath, map[string]string{
+		"a.txt": "a",
+		"b.txt": "b",
+		"c.txt": "c",
+		"d.txt": "d",
+	})
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		Provider:     FakeProvider{},
+		RuntimeToken: testRuntimeToken,
+		SourceSnapshotPolicy: SourceSnapshotPolicy{
+			DefaultTreeEntries: 2,
+			MaxTreeEntries:     2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	intake, err := k.IntakeMaterial(MaterialIntakeRequest{
+		SessionID: "source-continuation-cap-session",
+		Purpose:   SourcePurposeAnalysis,
+		Locator: MaterialLocator{
+			Kind: MaterialLocatorKindLocalPath,
+			Path: zipPath,
+		},
+	})
+	if err != nil {
+		t.Fatalf("IntakeMaterial returned error: %v", err)
+	}
+
+	prepared, err := k.toolGateway().PrepareBatch([]ModelToolCall{{
+		ToolCallID:      "call_source_tree_cap",
+		ToolCallEventID: "evt_source_tree_cap",
+		Name:            "source_tree",
+		Arguments:       mustMarshalToolArgs(t, map[string]interface{}{"source_snapshot_ref": intake.SourceSnapshotRef}),
+	}})
+	if err != nil {
+		t.Fatalf("PrepareBatch returned error: %v", err)
+	}
+	result, err := k.toolGateway().Execute(context.Background(), "source-continuation-cap-session", "turn-source-continuation-cap", prepared[0])
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	var payload SourceTreeResult
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("unmarshal source_tree payload: %v\n%s", err, result.Content)
+	}
+	if !payload.Truncated || payload.NextMaxEntries != nil || payload.MaxEntriesLimit != 2 {
+		t.Fatalf("source_tree continuation = %+v, want terminal cap with no next max_entries", payload)
+	}
+	for _, want := range []string{"max_entries_limit", "Use source_read"} {
+		if !strings.Contains(payload.ContinuationHint, want) {
+			t.Fatalf("terminal continuation hint = %q, missing %q", payload.ContinuationHint, want)
+		}
+	}
+	if strings.Contains(payload.ContinuationHint, "narrower source exploration surface") {
+		t.Fatalf("terminal continuation hint is not executable by current tool schema: %q", payload.ContinuationHint)
+	}
+}
+
+func TestSourceTreeUnknownOffsetEntriesReturnsRepairableContinuationHint(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+
+	prepared, err := k.toolGateway().PrepareBatch([]ModelToolCall{{
+		ToolCallID:      "call_source_tree_invalid",
+		ToolCallEventID: "evt_source_tree_invalid",
+		Name:            "source_tree",
+		Arguments:       mustMarshalToolArgs(t, map[string]interface{}{"source_snapshot_ref": "source_snapshot_test", "offset_entries": 2}),
+	}})
+	if err != nil {
+		t.Fatalf("PrepareBatch returned error: %v", err)
+	}
+	result, err := k.toolGateway().Execute(context.Background(), "source-continuation-session", "turn-source-continuation", prepared[0])
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	var payload ToolRequestInvalidProjection
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("unmarshal invalid payload: %v\n%s", err, result.Content)
+	}
+	if payload.Status != "tool_request_invalid" || payload.Executed || payload.Error.Code != "invalid_tool_arguments" {
+		t.Fatalf("invalid payload = %+v, want repairable invalid arguments", payload)
+	}
+	for _, want := range []string{"offset_entries is not supported", "max_entries"} {
+		if !strings.Contains(payload.Error.Message, want) {
+			t.Fatalf("invalid message = %q, missing %q", payload.Error.Message, want)
+		}
+	}
+}
+
 func TestSourceToolsRejectHostPathsAsModelArguments(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "source-tools-host-path")
 	zipPath := filepath.Join(dir, "package.zip")

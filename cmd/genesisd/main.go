@@ -48,9 +48,11 @@ func main() {
 	sourceMaxTreeEntries := flag.Int("source-max-tree-entries", envIntOrDefault("GENESIS_SOURCE_MAX_TREE_ENTRIES", 0), "maximum source_tree entry limit; 0 uses kernel default")
 	sourceDefaultReadBytes := flag.Int("source-default-read-bytes", envIntOrDefault("GENESIS_SOURCE_DEFAULT_READ_BYTES", 0), "default source_read byte limit; 0 uses kernel default")
 	sourceMaxReadBytes := flag.Int("source-max-read-bytes", envIntOrDefault("GENESIS_SOURCE_MAX_READ_BYTES", 0), "maximum source_read byte limit; 0 uses kernel default")
-	skillRoots := pathListFlag(defaultSkillRoots())
+	skillRoots := pathListFlag(nil)
+	disableDefaultSkillRoots := flag.Bool("disable-default-skill-roots", envBoolOrDefault("GENESIS_DISABLE_DEFAULT_SKILL_ROOTS", false), "scan only explicit --skill-root entries and do not include default global skill roots")
 	flag.Var(&skillRoots, "skill-root", "external skill root to scan for SKILL.md metadata; repeatable")
 	flag.Parse()
+	effectiveSkills := effectiveSkillRoots(defaultSkillRoots(), skillRoots.Values(), *disableDefaultSkillRoots)
 
 	provider, err := buildProvider(providerBuildRequest{
 		name:                 *providerName,
@@ -97,7 +99,7 @@ func main() {
 			DefaultReadBytes:            *sourceDefaultReadBytes,
 			MaxReadBytes:                *sourceMaxReadBytes,
 		},
-		SkillRoots: skillRoots.Values(),
+		SkillRoots: effectiveSkills,
 	})
 	if err != nil {
 		log.Fatalf("create kernel: %v", err)
@@ -255,6 +257,14 @@ func (f *pathListFlag) Set(value string) error {
 
 func (f pathListFlag) Values() []string {
 	return append([]string(nil), f...)
+}
+
+func effectiveSkillRoots(defaults []string, explicit []string, disableDefaults bool) []string {
+	roots := append([]string(nil), explicit...)
+	if !disableDefaults {
+		roots = append(roots, defaults...)
+	}
+	return roots
 }
 
 func defaultSkillRoots() []string {

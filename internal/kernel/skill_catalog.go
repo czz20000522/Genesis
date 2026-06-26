@@ -27,7 +27,7 @@ type skillCatalogExclusionCounter map[string]int
 func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
 	var skills []SkillDescriptor
 	exclusions := skillCatalogExclusionCounter{}
-	for _, root := range roots {
+	for rootOrdinal, root := range roots {
 		cleanRoot := strings.TrimSpace(root)
 		if cleanRoot == "" {
 			continue
@@ -109,11 +109,15 @@ func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
 				Name:            name,
 				Description:     description,
 				InstructionPath: filepath.Clean(instructionPath),
+				RootOrdinal:     rootOrdinal,
 			})
 			return nil
 		})
 	}
 	sort.Slice(skills, func(i, j int) bool {
+		if skills[i].RootOrdinal != skills[j].RootOrdinal {
+			return skills[i].RootOrdinal < skills[j].RootOrdinal
+		}
 		if skills[i].Name == skills[j].Name {
 			return skills[i].InstructionPath < skills[j].InstructionPath
 		}

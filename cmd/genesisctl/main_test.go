@@ -248,6 +248,53 @@ func TestProviderRotateKeyUsesActiveProfileWithoutProviderMetadata(t *testing.T)
 	}
 }
 
+func TestProviderRotateKeyCanRepairKnownPresetMetadataInDryRun(t *testing.T) {
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-rotate-repair-config")
+	credentialRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-rotate-repair-credentials")
+	writePreAdapterProviderConfigForCLI(t, configRoot, "deepseek-flash", "deepseek-v4-flash", "deepseek", "secret://models/deepseek/local")
+	var stdout bytes.Buffer
+
+	err := run([]string{
+		"provider", "rotate-key",
+		"-config-root", configRoot,
+		"-credential-store-root", credentialRoot,
+		"-repair-profile-metadata", "deepseek/deepseek-v4-flash",
+		"-dry-run",
+	}, strings.NewReader(""), &stdout)
+	if err != nil {
+		t.Fatalf("provider rotate-key repair dry-run returned error: %v", err)
+	}
+	response := decodeProviderSetupResponse(t, stdout.Bytes())
+	assertStringField(t, response, "profile_id", "deepseek-flash")
+	assertStringField(t, response, "provider_adapter_id", "deepseek")
+	assertStringField(t, response, "provider_adapter_profile_id", "deepseek-v4-flash")
+	assertFloatField(t, response, "context_window_tokens", 1000000)
+
+	configPayload, err := os.ReadFile(filepath.Join(configRoot, "models.json"))
+	if err != nil {
+		t.Fatalf("read models.json: %v", err)
+	}
+	if strings.Contains(string(configPayload), "provider_adapter_id") {
+		t.Fatalf("dry-run mutated provider metadata: %s", string(configPayload))
+	}
+}
+
+func TestProviderRotateKeyRejectsUnknownRepairPresetBeforeReadingSecret(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{
+		"provider", "rotate-key",
+		"-config-root", testsupport.ProjectTempDir(t, "genesisctl-provider-rotate-unknown-config"),
+		"-credential-store-root", testsupport.ProjectTempDir(t, "genesisctl-provider-rotate-unknown-credentials"),
+		"-repair-profile-metadata", "unknown/provider",
+	}, strings.NewReader(""), &stdout)
+	if err == nil || !strings.Contains(err.Error(), "unknown provider preset") {
+		t.Fatalf("error = %v, want unknown repair preset refusal", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on failure", stdout.String())
+	}
+}
+
 func TestProviderUsePreservesExistingSharedModelConfig(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("real local credential setup uses Windows DPAPI")
@@ -310,6 +357,43 @@ func TestProviderUsePreservesExistingSharedModelConfig(t *testing.T) {
 		if !strings.Contains(string(configPayload), want) {
 			t.Fatalf("models.json missing preserved value %q: %s", want, string(configPayload))
 		}
+	}
+}
+
+func writePreAdapterProviderConfigForCLI(t *testing.T, configRoot string, profileID string, modelID string, routeName string, credentialRef string) {
+	t.Helper()
+	if err := os.MkdirAll(configRoot, 0o755); err != nil {
+		t.Fatalf("mkdir config root: %v", err)
+	}
+	config := `{
+  "model_gateway": {
+    "protocol": "openai-chat-completions",
+    "routes": {
+      "` + routeName + `": {
+        "protocol": "openai-chat-completions",
+        "base_url": "https://api.deepseek.com",
+        "credential_ref": "` + credentialRef + `",
+        "request_timeout_sec": 60
+      }
+    }
+  },
+  "active_model_profile_bindings": {
+    "foreground.coordinator": "` + profileID + `"
+  },
+  "model_profiles": {
+    "cloud": {
+      "gateway": {
+        "` + profileID + `": {
+          "profile_id": "` + profileID + `",
+          "model_id": "` + modelID + `",
+          "gateway_route": "` + routeName + `"
+        }
+      }
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(configRoot, "models.json"), []byte(config), 0o644); err != nil {
+		t.Fatalf("write pre-adapter models.json: %v", err)
 	}
 }
 

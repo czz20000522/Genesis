@@ -43,15 +43,26 @@ type OpenAICompatibleProviderSetupResult struct {
 }
 
 type OpenAICompatibleProviderCredentialRotationRequest struct {
-	ConfigRoot          string
-	CredentialStoreRoot string
-	ModelRole           string
-	ProfileID           string
-	APIKey              string
-	DryRun              bool
-	Verify              bool
-	SecretProtector     func([]byte) ([]byte, error)
-	SecretResolver      func(ref string, storeRoot string) (string, error)
+	ConfigRoot            string
+	CredentialStoreRoot   string
+	ModelRole             string
+	ProfileID             string
+	APIKey                string
+	RepairProfileMetadata *OpenAICompatibleProviderProfileMetadataRepair
+	DryRun                bool
+	Verify                bool
+	SecretProtector       func([]byte) ([]byte, error)
+	SecretResolver        func(ref string, storeRoot string) (string, error)
+}
+
+type OpenAICompatibleProviderProfileMetadataRepair struct {
+	ProfileID             string
+	ModelID               string
+	GatewayRoute          string
+	ProviderAdapterID     string
+	AdapterProfileID      string
+	HiddenReasoningPolicy string
+	ContextWindowTokens   int
 }
 
 func SetupOpenAICompatibleProvider(req OpenAICompatibleProviderSetupRequest) (OpenAICompatibleProviderSetupResult, error) {
@@ -131,9 +142,31 @@ func RotateActiveOpenAICompatibleProviderCredential(req OpenAICompatibleProvider
 	if err != nil {
 		return OpenAICompatibleProviderSetupResult{}, err
 	}
+	if req.RepairProfileMetadata != nil {
+		if err := validateProviderProfileMetadataRepair(selected.profile, *req.RepairProfileMetadata); err != nil {
+			return OpenAICompatibleProviderSetupResult{}, err
+		}
+	}
 	credentialRef := firstNonEmpty(selected.route.CredentialRef, selected.gateway.CredentialRef)
 	if !isLocalSecretCredentialRef(credentialRef) {
 		return OpenAICompatibleProviderSetupResult{}, ErrGenesisModelCredentialUnsupported
+	}
+	var repairedConfig *genesisModelsConfig
+	configPath := filepath.Join(resolveGenesisConfigRoot(req.ConfigRoot), "models.json")
+	if req.RepairProfileMetadata != nil && !req.DryRun {
+		config, err := readGenesisModelsConfig(configPath)
+		if err != nil {
+			return OpenAICompatibleProviderSetupResult{}, err
+		}
+		if err := applyProviderProfileMetadataRepair(&config, *req.RepairProfileMetadata); err != nil {
+			return OpenAICompatibleProviderSetupResult{}, err
+		}
+		repairedConfig = &config
+	}
+	if repairedConfig != nil {
+		if err := writeGenesisModelsConfig(configPath, *repairedConfig); err != nil {
+			return OpenAICompatibleProviderSetupResult{}, err
+		}
 	}
 	secretResult, err := WriteLocalCredentialSecret(LocalCredentialSecretWriteRequest{
 		CredentialRef: credentialRef,
@@ -146,7 +179,7 @@ func RotateActiveOpenAICompatibleProviderCredential(req OpenAICompatibleProvider
 		return OpenAICompatibleProviderSetupResult{}, err
 	}
 	result := OpenAICompatibleProviderSetupResult{
-		ConfigPath:     filepath.Join(resolveGenesisConfigRoot(req.ConfigRoot), "models.json"),
+		ConfigPath:     configPath,
 		CredentialPath: secretResult.CredentialPath,
 		CredentialRef:  secretResult.CredentialRef,
 		ModelRole:      modelRole,
@@ -178,6 +211,55 @@ func RotateActiveOpenAICompatibleProviderCredential(req OpenAICompatibleProvider
 		result.Verified = true
 	}
 	return result, nil
+}
+
+func validateProviderProfileMetadataRepair(current genesisGatewayProfile, repair OpenAICompatibleProviderProfileMetadataRepair) error {
+	if strings.TrimSpace(repair.ProfileID) == "" || strings.TrimSpace(repair.ModelID) == "" || strings.TrimSpace(repair.GatewayRoute) == "" {
+		return errors.New("profile metadata repair refused: profile_id, model_id, and gateway_route are required")
+	}
+	if strings.TrimSpace(repair.ProviderAdapterID) == "" || strings.TrimSpace(repair.AdapterProfileID) == "" {
+		return errors.New("profile metadata repair refused: provider adapter metadata is required")
+	}
+	currentProfileID := strings.TrimSpace(current.ProfileID)
+	if currentProfileID != strings.TrimSpace(repair.ProfileID) {
+		return fmt.Errorf("profile metadata repair refused: active profile %q does not match repair profile %q", currentProfileID, strings.TrimSpace(repair.ProfileID))
+	}
+	if strings.TrimSpace(current.ModelID) != strings.TrimSpace(repair.ModelID) {
+		return fmt.Errorf("profile metadata repair refused: active model %q does not match repair model %q", strings.TrimSpace(current.ModelID), strings.TrimSpace(repair.ModelID))
+	}
+	if strings.TrimSpace(current.GatewayRoute) != strings.TrimSpace(repair.GatewayRoute) {
+		return fmt.Errorf("profile metadata repair refused: active route %q does not match repair route %q", strings.TrimSpace(current.GatewayRoute), strings.TrimSpace(repair.GatewayRoute))
+	}
+	return nil
+}
+
+func applyProviderProfileMetadataRepair(config *genesisModelsConfig, repair OpenAICompatibleProviderProfileMetadataRepair) error {
+	if config == nil {
+		return errors.New("profile metadata repair refused: config is unavailable")
+	}
+	branches := []map[string]genesisGatewayProfile{
+		config.ModelProfiles.Cloud.Gateway,
+		config.ModelProfiles.Local.Gateway,
+	}
+	for _, profiles := range branches {
+		for key, profile := range profiles {
+			if strings.TrimSpace(key) != strings.TrimSpace(repair.ProfileID) && strings.TrimSpace(profile.ProfileID) != strings.TrimSpace(repair.ProfileID) {
+				continue
+			}
+			if err := validateProviderProfileMetadataRepair(profile, repair); err != nil {
+				return err
+			}
+			profile.ProviderAdapterID = strings.TrimSpace(repair.ProviderAdapterID)
+			profile.ProviderAdapterProfileID = strings.TrimSpace(repair.AdapterProfileID)
+			profile.HiddenReasoningPolicy = strings.TrimSpace(repair.HiddenReasoningPolicy)
+			if repair.ContextWindowTokens > 0 {
+				profile.ContextWindowTokens = repair.ContextWindowTokens
+			}
+			profiles[key] = profile
+			return nil
+		}
+	}
+	return fmt.Errorf("profile metadata repair refused: profile %q is not present in models config", strings.TrimSpace(repair.ProfileID))
 }
 
 func normalizeProviderSetup(req OpenAICompatibleProviderSetupRequest) (OpenAICompatibleProviderSetupRequest, error) {

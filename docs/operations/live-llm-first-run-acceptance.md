@@ -81,8 +81,15 @@ the key for the active profile without repeating provider metadata:
 "<new provider api key>" | & "$root\bin\genesisctl.exe" provider rotate-key `
   -config-root "$root\config" `
   -credential-store-root "$root\credentials" `
+  -repair-profile-metadata deepseek/deepseek-v4-flash `
   -api-key-stdin
 ```
+
+`-repair-profile-metadata` is required when rotating an older development
+profile that was created before adapter binding metadata existed. It only
+repairs the active profile when the known preset still matches the profile,
+model, and route; mismatched custom profiles must be repaired through the
+normal setup path instead of silently rewriting `models.json`.
 
 The low-level command remains available for custom OpenAI-compatible providers:
 
@@ -119,8 +126,16 @@ $token = "local-live-acceptance-token"
   -runtime-token $token `
   -provider genesis-config `
   -config-root "$root\config" `
-  -credential-store-root "$root\credentials"
+  -credential-store-root "$root\credentials" `
+  -skill-root "$root\skills\scientific-operator" `
+  -disable-default-skill-roots
 ```
+
+Focused live sessions should pass only the intended skill roots, or set
+`GENESIS_DISABLE_DEFAULT_SKILL_ROOTS=true`. Explicit skill roots are scanned
+before defaults, and disabling defaults prevents unrelated global skills from
+consuming the bounded skill-index budget before the target operator skills are
+projected.
 
 In another PowerShell session, verify readiness and one real turn:
 

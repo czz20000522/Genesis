@@ -262,6 +262,12 @@ wait_reason =
 
 `waiting` is a phase, not a failure. For example, a run waiting for user
 approval uses `phase=waiting` and `wait_reason=approval_required`.
+Budget-paused work is also waiting state: a `turn.paused` fact with a
+`budget_pause`-class reason settles that turn's processing group as waiting
+with a fixed elapsed label. A later continuation turn that reaches final output
+must not make the earlier paused turn look running again. Diagnostics or
+accounting events that are not timeline facts must not create synthetic running
+turn rows by themselves.
 
 ### Terminal Outcome
 

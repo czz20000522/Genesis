@@ -621,6 +621,54 @@ func TestSkillIndexContextKeepsNamesWhenDescriptionsExceedBudget(t *testing.T) {
 	}
 }
 
+func TestSkillIndexContextHonorsConfiguredRootPriorityUnderBudget(t *testing.T) {
+	targetRoot := testTempDir(t)
+	globalRoot := testTempDir(t)
+	writeSkillForTest(t, targetRoot, "review", "scientific-operator-review", "A", "target body")
+	writeSkillForTest(t, targetRoot, "extract", "candidate-package-extraction", "B", "target body")
+	writeSkillForTest(t, targetRoot, "lead", "paper-operator-lead-extraction", "C", "target body")
+	writeSkillForTest(t, targetRoot, "gap", "scientific-operator-gap-completion", "D", "target body")
+	writeSkillForTest(t, globalRoot, "aaa-global", "aaa-global", "Global default skill", "global body")
+	writeSkillForTest(t, globalRoot, "check", "check", "Global check skill", "global body")
+
+	provider := &capturingProvider{text: "focused skill answer"}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		SkillRoots:   []string{targetRoot, globalRoot},
+		ContextPolicy: ContextPolicy{
+			SkillIndexChars: 230,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "focused-skill-priority",
+		InputItems: []InputItem{{Type: "text", Text: "use focused skills"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	content := provider.InputText()
+	for _, want := range []string{
+		"scientific-operator-review",
+		"candidate-package-extraction",
+		"paper-operator-lead-extraction",
+		"scientific-operator-gap-completion",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("skill index context = %q, missing focused skill %q", content, want)
+		}
+	}
+	for _, forbidden := range []string{"aaa-global", "Global default skill", "global body"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("skill index context = %q, global skill %q took focused budget", content, forbidden)
+		}
+	}
+}
+
 func TestSkillCatalogRejectsDuplicateNames(t *testing.T) {
 	root := testTempDir(t)
 	writeSkillForTest(t, root, "first-mail", "mail", "Send email through first CLI", "first body")

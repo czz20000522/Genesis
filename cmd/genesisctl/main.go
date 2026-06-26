@@ -107,28 +107,48 @@ func runProviderRotateKey(args []string, stdin io.Reader, stdout io.Writer) erro
 	profileID := fs.String("profile-id", os.Getenv("GENESIS_MODEL_PROFILE_ID"), "Genesis model profile id override")
 	apiKeyEnv := fs.String("api-key-env", envOrDefault("GENESIS_PROVIDER_API_KEY_ENV", "GENESIS_PROVIDER_API_KEY"), "environment variable containing provider API key")
 	apiKeyStdin := fs.Bool("api-key-stdin", false, "read provider API key from stdin")
+	repairProfileMetadata := fs.String("repair-profile-metadata", "", "repair active profile adapter metadata from a known provider preset, e.g. deepseek/deepseek-v4-flash")
 	dryRun := fs.Bool("dry-run", false, "validate and print target paths without writing files")
 	verify := fs.Bool("verify", true, "verify generated credential after writing")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	var preset providerSetupPreset
+	var repair *kernel.OpenAICompatibleProviderProfileMetadataRepair
+	if strings.TrimSpace(*repairProfileMetadata) != "" {
+		var ok bool
+		preset, ok = providerSetupPresetByRef(*repairProfileMetadata)
+		if !ok {
+			return fmt.Errorf("unknown provider preset for profile metadata repair %q", *repairProfileMetadata)
+		}
+		repair = &kernel.OpenAICompatibleProviderProfileMetadataRepair{
+			ProfileID:             preset.ProfileID,
+			ModelID:               preset.ModelID,
+			GatewayRoute:          preset.GatewayRoute,
+			ProviderAdapterID:     preset.AdapterID,
+			AdapterProfileID:      preset.AdapterProfileID,
+			HiddenReasoningPolicy: preset.HiddenReasoningMode,
+			ContextWindowTokens:   preset.ContextWindowTokens,
+		}
 	}
 	apiKey, err := readAPIKey(*apiKeyEnv, *apiKeyStdin, *dryRun, stdin)
 	if err != nil {
 		return err
 	}
 	result, err := kernel.RotateActiveOpenAICompatibleProviderCredential(kernel.OpenAICompatibleProviderCredentialRotationRequest{
-		ConfigRoot:          *configRoot,
-		CredentialStoreRoot: *credentialStoreRoot,
-		ModelRole:           *modelRole,
-		ProfileID:           *profileID,
-		APIKey:              apiKey,
-		DryRun:              *dryRun,
-		Verify:              *verify && !*dryRun,
+		ConfigRoot:            *configRoot,
+		CredentialStoreRoot:   *credentialStoreRoot,
+		ModelRole:             *modelRole,
+		ProfileID:             *profileID,
+		APIKey:                apiKey,
+		RepairProfileMetadata: repair,
+		DryRun:                *dryRun,
+		Verify:                *verify && !*dryRun,
 	})
 	if err != nil {
 		return err
 	}
-	return writeProviderSetupResponse(stdout, result, providerSetupPreset{})
+	return writeProviderSetupResponse(stdout, result, preset)
 }
 
 func runProviderVerify(args []string, stdout io.Writer) error {

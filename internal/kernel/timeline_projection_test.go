@@ -282,6 +282,130 @@ func TestUITimelineJobTerminalDoesNotSettleTurnBeforeAssistantFinal(t *testing.T
 	}
 }
 
+func TestUITimelineBudgetPausedTurnDoesNotKeepRunningAfterContinuationFinal(t *testing.T) {
+	startedAt := time.Date(2026, 6, 24, 10, 45, 0, 0, time.UTC)
+	sessionID := "timeline-budget-continuation-session"
+	turnA := "turn_budget_paused"
+	turnB := "turn_continuation_final"
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:   "evt_budget_submitted",
+				SessionID: sessionID,
+				TurnID:    turnA,
+				Type:      "turn.submitted",
+				CreatedAt: startedAt,
+				Data: EventData{InputItems: []InputItem{{
+					Type: "text",
+					Text: "keep reading until budget",
+				}}},
+			},
+			StoredEvent{
+				EventID:   "evt_budget_tool_call",
+				SessionID: sessionID,
+				TurnID:    turnA,
+				Type:      "tool.call",
+				CreatedAt: startedAt.Add(time.Second),
+				Data: EventData{ToolCall: &ToolCallProjection{
+					ToolCallEventID: "evt_budget_tool_call",
+					Tool:            "resource_read",
+					Arguments:       `{"resource_ref":"cf:budget"}`,
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_budget_tool_result",
+				SessionID: sessionID,
+				TurnID:    turnA,
+				Type:      "tool.result",
+				CreatedAt: startedAt.Add(2 * time.Second),
+				Data: EventData{ToolResult: &ToolResultProjection{
+					ToolCallEventID: "evt_budget_tool_call",
+					Tool:            "resource_read",
+					ForEventID:      "evt_budget_tool_call",
+					Status:          "completed",
+					Content:         `{"status":"completed","executed":true,"text":"partial"}`,
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_budget_paused",
+				SessionID: sessionID,
+				TurnID:    turnA,
+				Type:      "turn.paused",
+				CreatedAt: startedAt.Add(10 * time.Second),
+				Data: EventData{TurnPause: &TurnPauseProjection{
+					SessionID:           sessionID,
+					TurnID:              turnA,
+					Phase:               RuntimePhaseWaiting,
+					WaitReason:          WaitReasonBudgetPause,
+					Reason:              "tool_loop_round_budget_exhausted",
+					RoundBudget:         1,
+					CompletedToolRounds: 1,
+					PausedAt:            startedAt.Add(10 * time.Second),
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_accounting_without_turn",
+				SessionID: sessionID,
+				Type:      "model.context.accounted",
+				CreatedAt: startedAt.Add(11 * time.Second),
+				Data: EventData{ModelContextAccounting: &ModelContextAccountingProjection{
+					Model: "debug-accounting",
+				}},
+			},
+			StoredEvent{
+				EventID:   "evt_continue_submitted",
+				SessionID: sessionID,
+				TurnID:    turnB,
+				Type:      "turn.submitted",
+				CreatedAt: startedAt.Add(20 * time.Second),
+				Data: EventData{InputItems: []InputItem{{
+					Type: "text",
+					Text: "continue",
+				}}},
+			},
+			StoredEvent{
+				EventID:   "evt_continue_final",
+				SessionID: sessionID,
+				TurnID:    turnB,
+				Type:      "model.final",
+				CreatedAt: startedAt.Add(30 * time.Second),
+				Data:      EventData{Final: &FinalMessage{Text: "done"}},
+			},
+		),
+		clock: func() time.Time {
+			return startedAt.Add(4 * time.Minute)
+		},
+	}
+
+	timeline, err := k.UITimeline(sessionID)
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	if len(timeline.Items) != 2 {
+		t.Fatalf("timeline items = %+v, want exactly paused turn and continuation turn", timeline.Items)
+	}
+	for _, item := range timeline.Items {
+		if item.TurnID == "" || item.Phase == RuntimePhaseRunning {
+			t.Fatalf("timeline item = %+v, want no empty-turn or running stale item", item)
+		}
+	}
+	paused := timeline.Items[0]
+	if paused.TurnID != turnA || paused.Phase != RuntimePhaseWaiting || paused.WaitReason != WaitReasonBudgetPause {
+		t.Fatalf("paused turn = %+v, want waiting budget pause", paused)
+	}
+	processing := requireTimelineChild(t, paused, "processing_group")
+	if processing.Phase != RuntimePhaseWaiting || processing.WaitReason != WaitReasonBudgetPause || processing.Text != "已处理 10s" {
+		t.Fatalf("paused processing = %+v, want fixed budget pause duration", processing)
+	}
+	if processing.DefaultOpen {
+		t.Fatalf("paused processing = %+v, want collapsed after budget pause", processing)
+	}
+	continued := timeline.Items[1]
+	if continued.TurnID != turnB || continued.Phase != RuntimePhaseEnded || continued.TerminalOutcome != TerminalOutcomeSucceeded {
+		t.Fatalf("continuation turn = %+v, want succeeded final", continued)
+	}
+}
+
 func TestUITimelineApprovalRequiredProjectsUserActionNode(t *testing.T) {
 	startedAt := time.Date(2026, 6, 24, 11, 0, 0, 0, time.UTC)
 	k := &Kernel{

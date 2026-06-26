@@ -134,9 +134,14 @@ source_read({
 })
 ```
 
-`source_tree` result includes snapshot ref, entries, truncation metadata, and
-diagnostics. `source_read` result includes file ref, path, mime type, text,
-offset, returned bytes, original bytes, truncation status, and next offset.
+`source_tree` result includes snapshot ref, entries, returned entry count,
+requested entry cap, maximum entry cap, truncation metadata, continuation hint,
+and diagnostics. The continuation contract is to call `source_tree` again with
+a larger `max_entries` value up to `max_entries_limit`. `offset_entries` is not
+a supported input and must be returned as repairable invalid request feedback,
+not guessed into a hidden pagination path. `source_read` result includes file
+ref, path, mime type, text, offset, returned bytes, original bytes, truncation
+status, and next offset.
 
 The tools share owner-side resolver and admission, but their schemas remain
 separate. A universal `ref_read` would blur source, resource, job, artifact, and

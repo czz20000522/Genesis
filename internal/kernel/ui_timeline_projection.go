@@ -23,6 +23,9 @@ func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UIT
 	turns := map[string]*timelineTurnBuilder{}
 	turnOrder := []string{}
 	for _, event := range session.Events {
+		if !timelineHandlesEvent(event.Type) {
+			continue
+		}
 		turn := ensureTimelineTurn(turns, &turnOrder, session.SessionID, event, includeDiagnostics)
 		switch event.Type {
 		case "turn.submitted":
@@ -51,6 +54,19 @@ func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UIT
 			}
 			turn.markTerminal("completed", event.CreatedAt)
 			turn.appendMessage("assistant_message", event.Data.Final.Text, event.CreatedAt)
+		case "turn.paused":
+			at := event.CreatedAt
+			text := "tool loop paused"
+			if event.Data.TurnPause != nil {
+				if !event.Data.TurnPause.PausedAt.IsZero() {
+					at = event.Data.TurnPause.PausedAt
+				}
+				if strings.TrimSpace(event.Data.TurnPause.Reason) != "" {
+					text = event.Data.TurnPause.Reason
+				}
+			}
+			turn.markTerminal("paused", at)
+			turn.appendProcessingNotice("notice", "paused", text, event.CreatedAt)
 		case "assistant.interrupted":
 			text := "turn interrupted"
 			if event.Data.TurnInterruption != nil && strings.TrimSpace(event.Data.TurnInterruption.Reason) != "" {
@@ -87,6 +103,30 @@ func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UIT
 		Readiness: ReadinessReady,
 		Items:     items,
 	}, nil
+}
+
+func timelineHandlesEvent(eventType string) bool {
+	switch eventType {
+	case "turn.submitted",
+		"tool.call",
+		"tool.result",
+		"job.started",
+		"job.output",
+		"job.completed",
+		"job.failed",
+		"job.cancelled",
+		"model.final",
+		"turn.paused",
+		"assistant.interrupted",
+		"context.compaction.started",
+		"context.compaction.completed",
+		"context.compaction.failed",
+		"context.compaction.deferred",
+		"turn.failed":
+		return true
+	default:
+		return false
+	}
 }
 
 func (k *Kernel) UITimelineDetail(sessionID string, detailRef string) (UITimelineDetailResponse, error) {

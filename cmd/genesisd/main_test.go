@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"genesis/internal/kernel"
@@ -153,6 +154,20 @@ func TestBuildProviderBlocksSecretShapedCommandEnvironment(t *testing.T) {
 	status := provider.Ready()
 	if status.Readiness != kernel.ReadinessNotReady || status.ReadinessReason != "provider_command_env_secret_rejected" {
 		t.Fatalf("provider status = %+v, want provider_command_env_secret_rejected", status)
+	}
+}
+
+func TestEffectiveSkillRootsPrioritizesExplicitAndCanDisableDefaults(t *testing.T) {
+	defaults := []string{"global-a", "global-b"}
+	explicit := []string{"focused-a", "focused-b"}
+
+	withDefaults := effectiveSkillRoots(defaults, explicit, false)
+	if strings.Join(withDefaults, ",") != "focused-a,focused-b,global-a,global-b" {
+		t.Fatalf("skill roots with defaults = %v, want explicit roots first then defaults", withDefaults)
+	}
+	focused := effectiveSkillRoots(defaults, explicit, true)
+	if strings.Join(focused, ",") != "focused-a,focused-b" {
+		t.Fatalf("focused skill roots = %v, want only explicit roots", focused)
 	}
 }
 

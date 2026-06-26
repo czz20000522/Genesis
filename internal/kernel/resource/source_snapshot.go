@@ -222,15 +222,35 @@ func (r *Registry) SourceTree(req SourceTreeRequest) (SourceTreeResult, error) {
 	if truncated {
 		descriptors = descriptors[:limit]
 	}
+	nextMaxEntries, continuationHint := sourceTreeContinuation(len(entries), limit, policy.MaxTreeEntries, truncated)
 	return SourceTreeResult{
 		Status:            "completed",
 		Executed:          true,
 		SourceSnapshotRef: snapshot.ref,
 		Entries:           descriptors,
 		TotalEntries:      len(entries),
+		ReturnedEntries:   len(descriptors),
+		MaxEntries:        limit,
+		MaxEntriesLimit:   policy.MaxTreeEntries,
 		Truncated:         truncated,
+		NextMaxEntries:    nextMaxEntries,
+		ContinuationHint:  continuationHint,
 		Diagnostics:       diagnostics,
 	}, nil
+}
+
+func sourceTreeContinuation(totalEntries int, currentMaxEntries int, maxEntriesLimit int, truncated bool) (*int, string) {
+	if !truncated {
+		return nil, ""
+	}
+	next := totalEntries
+	if next > maxEntriesLimit {
+		next = maxEntriesLimit
+	}
+	if next <= currentMaxEntries {
+		return nil, fmt.Sprintf("source_tree does not support offset_entries and this result is already at the max_entries_limit of %d. Use source_read for listed source_file_ref values; no additional source_tree continuation is available for this snapshot with the current policy.", maxEntriesLimit)
+	}
+	return &next, fmt.Sprintf("source_tree does not support offset_entries. To see more entries, rerun source_tree with max_entries=%d; max_entries must be %d or fewer.", next, maxEntriesLimit)
 }
 
 func (r *Registry) filterAdmittedSourceEntries(snapshotRef string, entries []sourceEntry) []sourceEntry {

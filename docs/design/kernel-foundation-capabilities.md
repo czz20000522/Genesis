@@ -164,6 +164,13 @@ The projection has two turn views:
   assistant message as the primary content. Its processing label is fixed from
   recorded timing facts, for example `已处理 1m 5s`.
 
+Budget-paused turns are settled waiting turns, not live turns. A `turn.paused`
+fact with a budget-pause reason fixes the processing duration and leaves the
+turn waiting for ordinary continuation. Later provider accounting or a later
+successful continuation turn must not resurrect the paused turn as running.
+Ledger facts that are not handled by the timeline projection must remain raw
+inspection/audit material instead of creating empty timeline rows.
+
 The conceptual shapes are:
 
 ```text

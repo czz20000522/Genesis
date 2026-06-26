@@ -284,7 +284,7 @@ func (k *Kernel) resourceReadModelToolResult(eventID string, providerCallID stri
 func (k *Kernel) prepareSourceTreeToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 	var args sourceTreeToolArguments
 	if err := decodeStrictModelToolArguments("source_tree", arguments, &args); err != nil {
-		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", sourceTreeToolRequestInvalidMessage(err)), nil
 	}
 	req, _, code, err := k.resourceRegistry.AdmitSourceTree(args.SourceSnapshotRef, args.MaxEntries)
 	if err != nil {
@@ -639,4 +639,12 @@ func toolRequestInvalidMessage(err error) string {
 	message := err.Error()
 	prefix := ErrModelToolCallRejected.Error() + ": "
 	return strings.TrimPrefix(message, prefix)
+}
+
+func sourceTreeToolRequestInvalidMessage(err error) string {
+	message := toolRequestInvalidMessage(err)
+	if strings.Contains(message, `unknown field "offset_entries"`) {
+		return message + "; offset_entries is not supported by source_tree. Use max_entries to request more entries, and stay within the max_entries_limit returned by the previous source_tree result."
+	}
+	return message
 }

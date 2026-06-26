@@ -123,7 +123,12 @@ type SourceTreeResult struct {
 	SourceSnapshotRef string                 `json:"source_snapshot_ref"`
 	Entries           []SourceFileDescriptor `json:"entries"`
 	TotalEntries      int                    `json:"total_entries"`
+	ReturnedEntries   int                    `json:"returned_entries"`
+	MaxEntries        int                    `json:"max_entries"`
+	MaxEntriesLimit   int                    `json:"max_entries_limit"`
 	Truncated         bool                   `json:"truncated"`
+	NextMaxEntries    *int                   `json:"next_max_entries,omitempty"`
+	ContinuationHint  string                 `json:"continuation_hint,omitempty"`
 	Diagnostics       []SourceDiagnostic     `json:"diagnostics,omitempty"`
 }
 

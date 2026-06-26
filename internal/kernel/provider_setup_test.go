@@ -172,6 +172,155 @@ func TestSetupOpenAICompatibleProviderWritesAdapterProfileBinding(t *testing.T) 
 	}
 }
 
+func TestRotateActiveProviderCredentialRepairsExplicitProfileMetadata(t *testing.T) {
+	configRoot := testTempDir(t)
+	credentialRoot := testTempDir(t)
+	apiKey := "sk-rotated-secret"
+	writePreAdapterProviderConfig(t, filepath.Join(configRoot, "models.json"), "deepseek-flash", "deepseek-v4-flash", "deepseek", "secret://models/deepseek/local")
+
+	result, err := RotateActiveOpenAICompatibleProviderCredential(OpenAICompatibleProviderCredentialRotationRequest{
+		ConfigRoot:          configRoot,
+		CredentialStoreRoot: credentialRoot,
+		ModelRole:           DefaultModelRole,
+		APIKey:              apiKey,
+		RepairProfileMetadata: &OpenAICompatibleProviderProfileMetadataRepair{
+			ProfileID:             "deepseek-flash",
+			ModelID:               "deepseek-v4-flash",
+			GatewayRoute:          "deepseek",
+			ProviderAdapterID:     "deepseek",
+			AdapterProfileID:      "deepseek-v4-flash",
+			HiddenReasoningPolicy: "discard",
+			ContextWindowTokens:   1000000,
+		},
+		SecretProtector: func(secret []byte) ([]byte, error) {
+			if string(secret) != apiKey {
+				t.Fatalf("secret passed to protector = %q", string(secret))
+			}
+			return []byte("protected-rotated-key"), nil
+		},
+		SecretResolver: func(ref string, storeRoot string) (string, error) {
+			if ref != "secret://models/deepseek/local" || storeRoot != credentialRoot {
+				t.Fatalf("unexpected resolver input: %q %q", ref, storeRoot)
+			}
+			return apiKey, nil
+		},
+		Verify: true,
+	})
+	if err != nil {
+		t.Fatalf("RotateActiveOpenAICompatibleProviderCredential returned error: %v", err)
+	}
+	if !result.Verified {
+		t.Fatal("result.Verified = false, want true")
+	}
+
+	configPayload, err := os.ReadFile(filepath.Join(configRoot, "models.json"))
+	if err != nil {
+		t.Fatalf("read models.json: %v", err)
+	}
+	configText := string(configPayload)
+	for _, want := range []string{
+		`"provider_adapter_id": "deepseek"`,
+		`"provider_adapter_profile_id": "deepseek-v4-flash"`,
+		`"hidden_reasoning_policy": "discard"`,
+		`"context_window_tokens": 1000000`,
+	} {
+		if !strings.Contains(configText, want) {
+			t.Fatalf("models.json missing %q after repair: %s", want, configText)
+		}
+	}
+	if strings.Contains(configText, apiKey) {
+		t.Fatalf("models.json leaked API key: %s", configText)
+	}
+
+	resolved, err := ResolveProviderConfigFromGenesis(GenesisModelConfigRequest{
+		ConfigRoot:          configRoot,
+		CredentialStoreRoot: credentialRoot,
+		SecretResolver: func(ref string, storeRoot string) (string, error) {
+			return apiKey, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveProviderConfigFromGenesis returned error: %v", err)
+	}
+	if resolved.OpenAICompatible.Adapter.AdapterID != "deepseek" || resolved.OpenAICompatible.Adapter.ProfileID != "deepseek-v4-flash" {
+		t.Fatalf("adapter binding = %+v, want repaired DeepSeek binding", resolved.OpenAICompatible.Adapter)
+	}
+}
+
+func TestRotateActiveProviderCredentialRefusesMismatchedProfileMetadataRepair(t *testing.T) {
+	configRoot := testTempDir(t)
+	credentialRoot := testTempDir(t)
+	writePreAdapterProviderConfig(t, filepath.Join(configRoot, "models.json"), "custom-flash", "deepseek-v4-flash", "deepseek", "secret://models/deepseek/local")
+
+	_, err := RotateActiveOpenAICompatibleProviderCredential(OpenAICompatibleProviderCredentialRotationRequest{
+		ConfigRoot:          configRoot,
+		CredentialStoreRoot: credentialRoot,
+		ModelRole:           DefaultModelRole,
+		APIKey:              "sk-rotated-secret",
+		RepairProfileMetadata: &OpenAICompatibleProviderProfileMetadataRepair{
+			ProfileID:             "deepseek-flash",
+			ModelID:               "deepseek-v4-flash",
+			GatewayRoute:          "deepseek",
+			ProviderAdapterID:     "deepseek",
+			AdapterProfileID:      "deepseek-v4-flash",
+			HiddenReasoningPolicy: "discard",
+		},
+		SecretProtector: func(secret []byte) ([]byte, error) {
+			return []byte("protected"), nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "profile metadata repair refused") {
+		t.Fatalf("error = %v, want metadata repair refusal", err)
+	}
+
+	configPayload, readErr := os.ReadFile(filepath.Join(configRoot, "models.json"))
+	if readErr != nil {
+		t.Fatalf("read models.json: %v", readErr)
+	}
+	if strings.Contains(string(configPayload), "provider_adapter_id") {
+		t.Fatalf("mismatched repair mutated models.json: %s", string(configPayload))
+	}
+}
+
+func TestRotateActiveProviderCredentialDoesNotWriteSecretWhenMetadataRepairConfigWriteFails(t *testing.T) {
+	configRoot := testTempDir(t)
+	credentialRoot := testTempDir(t)
+	configPath := filepath.Join(configRoot, "models.json")
+	writePreAdapterProviderConfig(t, configPath, "deepseek-flash", "deepseek-v4-flash", "deepseek", "secret://models/deepseek/local")
+	if err := os.Chmod(configPath, 0444); err != nil {
+		t.Fatalf("make models.json read-only: %v", err)
+	}
+	defer func() {
+		_ = os.Chmod(configPath, 0666)
+	}()
+
+	secretProtectorCalled := false
+	_, err := RotateActiveOpenAICompatibleProviderCredential(OpenAICompatibleProviderCredentialRotationRequest{
+		ConfigRoot:          configRoot,
+		CredentialStoreRoot: credentialRoot,
+		ModelRole:           DefaultModelRole,
+		APIKey:              "sk-rotated-secret",
+		RepairProfileMetadata: &OpenAICompatibleProviderProfileMetadataRepair{
+			ProfileID:             "deepseek-flash",
+			ModelID:               "deepseek-v4-flash",
+			GatewayRoute:          "deepseek",
+			ProviderAdapterID:     "deepseek",
+			AdapterProfileID:      "deepseek-v4-flash",
+			HiddenReasoningPolicy: "discard",
+		},
+		SecretProtector: func(secret []byte) ([]byte, error) {
+			secretProtectorCalled = true
+			return []byte("protected"), nil
+		},
+	})
+	if err == nil {
+		t.Fatal("RotateActiveOpenAICompatibleProviderCredential returned nil error, want config write failure")
+	}
+	if secretProtectorCalled {
+		t.Fatal("secret protector was called even though profile metadata repair config write failed")
+	}
+}
+
 func TestSetupOpenAICompatibleProviderDryRunWritesNothing(t *testing.T) {
 	configRoot := testTempDir(t)
 	credentialRoot := testTempDir(t)
@@ -195,6 +344,36 @@ func TestSetupOpenAICompatibleProviderDryRunWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(result.CredentialPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("credential stat err = %v, want not exist", err)
+	}
+}
+
+func writePreAdapterProviderConfig(t *testing.T, configPath string, profileID string, modelID string, routeName string, credentialRef string) {
+	t.Helper()
+	config := genesisModelsConfig{
+		ActiveModelProfileBindings: map[string]string{DefaultModelRole: profileID},
+		ModelGateway: genesisModelGateway{
+			Protocol: modelGatewayProtocolChatCompletions,
+			Routes: map[string]genesisGatewayRoute{
+				routeName: {
+					BaseURL:           "https://api.deepseek.com",
+					CredentialRef:     credentialRef,
+					Protocol:          modelGatewayProtocolChatCompletions,
+					RequestTimeoutSec: 60,
+				},
+			},
+		},
+		ModelProfiles: genesisModelProfiles{
+			Cloud: genesisGatewayProfileBranch{Gateway: map[string]genesisGatewayProfile{
+				profileID: {
+					ProfileID:    profileID,
+					ModelID:      modelID,
+					GatewayRoute: routeName,
+				},
+			}},
+		},
+	}
+	if err := writeGenesisModelsConfig(configPath, config); err != nil {
+		t.Fatalf("write pre-adapter models.json: %v", err)
 	}
 }
 
