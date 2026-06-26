@@ -23,13 +23,14 @@ func modelInputItems(userItems []InputItem, memories []MemoryRecall) []ModelInpu
 }
 
 func modelInputItemsWithHistory(userItems []InputItem, memories []MemoryRecall, skills []SkillCatalogItemProjection, skillIndexBudget int, historyContext string) []ModelInputItem {
-	return modelInputItemsWithHistoryAndHydration(userItems, memories, skills, nil, skillIndexBudget, historyContext, "")
+	return modelInputItemsWithHistoryAndHydration(userItems, memories, skills, nil, nil, skillIndexBudget, historyContext, "")
 }
 
-func modelInputItemsWithHistoryAndHydration(userItems []InputItem, memories []MemoryRecall, skills []SkillCatalogItemProjection, hydratedContexts []providerHydratedContextFragment, skillIndexBudget int, historyContext string, observationContext string) []ModelInputItem {
+func modelInputItemsWithHistoryAndHydration(userItems []InputItem, memories []MemoryRecall, skills []SkillCatalogItemProjection, hydratedContexts []providerHydratedContextFragment, sourceSnapshots []SourceSnapshotDescriptor, skillIndexBudget int, historyContext string, observationContext string) []ModelInputItem {
 	skillContext := skillIndexContext(skills, skillIndexBudget)
 	memoryContext := approvedMemoryContext(memories)
-	withContext := make([]ModelInputItem, 0, len(userItems)+4+len(hydratedContexts))
+	sourceContext := sourceSnapshotContext(sourceSnapshots)
+	withContext := make([]ModelInputItem, 0, len(userItems)+5+len(hydratedContexts))
 	if strings.TrimSpace(historyContext) != "" {
 		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindConversationHistoryContext, Text: historyContext})
 	}
@@ -43,12 +44,41 @@ func modelInputItemsWithHistoryAndHydration(userItems []InputItem, memories []Me
 		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindKernelObservationContext, Text: context})
 	}
 	withContext = appendHydratedContextItems(withContext, hydratedContexts)
+	if sourceContext != "" {
+		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindSourceSnapshotContext, Text: sourceContext})
+	}
 	for _, item := range userItems {
 		if item.Type == "text" && item.Text != "" {
 			withContext = append(withContext, ModelInputItem{Kind: ModelInputKindUserText, Text: item.Text})
 		}
 	}
 	return withContext
+}
+
+func sourceSnapshotContext(snapshots []SourceSnapshotDescriptor) string {
+	if len(snapshots) == 0 {
+		return ""
+	}
+	lines := []string{"Source snapshots available for this session. Use source_tree with source_snapshot_ref, then source_read with source_file_ref for selected files."}
+	for _, snapshot := range snapshots {
+		ref := strings.TrimSpace(snapshot.SourceSnapshotRef)
+		if ref == "" {
+			continue
+		}
+		label := oneLine(snapshot.DisplayLabel)
+		if label == "" {
+			label = ref
+		}
+		ops := strings.Join(snapshot.AvailableOperations, ",")
+		if ops == "" {
+			ops = ReferenceOperationSourceTree
+		}
+		lines = append(lines, "- "+ref+" ("+snapshot.SourceKind+", "+snapshot.Purpose+", label="+label+", operations="+ops+")")
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
 }
 
 func appendHydratedContextItems(items []ModelInputItem, hydratedContexts []providerHydratedContextFragment) []ModelInputItem {

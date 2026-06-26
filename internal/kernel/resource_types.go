@@ -9,6 +9,39 @@ import (
 type ResourceDescriptor = resource.Descriptor
 type ResourceMetadata = resource.Metadata
 type ModelResourceReadResult = resource.ModelReadResult
+type SourceSnapshotDescriptor = resource.SourceSnapshotDescriptor
+type SourceFileDescriptor = resource.SourceFileDescriptor
+type SourceDiagnostic = resource.SourceDiagnostic
+type SourceTreeResult = resource.SourceTreeResult
+type ModelSourceReadResult = resource.ModelSourceReadResult
+
+const (
+	SourcePurposeAnalysis        = resource.SourcePurposeAnalysis
+	SourceKindZip                = resource.SourceKindZip
+	ReferenceOperationSourceTree = resource.ReferenceOperationSourceTree
+	ReferenceOperationSourceRead = resource.ReferenceOperationSourceRead
+	MaterialLocatorKindLocalPath = "local_path"
+)
+
+type MaterialLocator struct {
+	Kind string `json:"kind"`
+	Path string `json:"path,omitempty"`
+}
+
+type MaterialIntakeRequest struct {
+	SessionID string          `json:"session_id,omitempty"`
+	Purpose   string          `json:"purpose"`
+	Locator   MaterialLocator `json:"locator"`
+}
+
+type MaterialIntakeProjection struct {
+	AdmissionResult     string                   `json:"admission_result"`
+	RefusalReasonClass  string                   `json:"refusal_reason_class,omitempty"`
+	SourceSnapshotRef   string                   `json:"source_snapshot_ref,omitempty"`
+	Root                SourceSnapshotDescriptor `json:"root,omitempty"`
+	AvailableOperations []string                 `json:"available_operations,omitempty"`
+	Diagnostics         []SourceDiagnostic       `json:"diagnostics,omitempty"`
+}
 
 type ContextHydrationAdmissionRequest struct {
 	SessionID       string   `json:"session_id"`

@@ -92,6 +92,7 @@ type ContextInspectionResponse struct {
 	ModelInputKinds   []string                     `json:"model_input_kinds"`
 	ToolManifest      []ToolSpec                   `json:"tool_manifest"`
 	SkillCatalog      []SkillCatalogItemProjection `json:"skill_catalog"`
+	SourceSnapshots   []SourceSnapshotDescriptor   `json:"source_snapshots,omitempty"`
 	RecalledMemories  []MemoryRecall               `json:"recalled_memories"`
 	HydratedContexts  []ContextHydrationProjection `json:"hydrated_contexts,omitempty"`
 	Runtime           *ContextRuntimeSnapshot      `json:"runtime,omitempty"`

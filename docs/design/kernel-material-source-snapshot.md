@@ -161,6 +161,22 @@ Source tool results are ordinary tool results. Source intake facts are not
 assistant messages, memory truth, connector delivery state, or approval
 authority.
 
+## Current Implementation Shape
+
+The current owner split is:
+
+- `Kernel.IntakeMaterial` validates local-path intake and delegates zip parsing
+  to the resource/source owner.
+- `Kernel.IntakeUploadedMaterial` writes upload bodies to the kernel material
+  store before delegating to the same source snapshot parser.
+- The source snapshot registry lives under `internal/kernel/resource` because it
+  owns refs, descriptors, zip validation, bounded tree projection, and source
+  file reads.
+- HTTP material routes are control surfaces. They authorize runtime requests,
+  decode JSON or multipart input, then delegate to kernel owner methods.
+- ToolGateway exposes only `source_tree` and `source_read`; no route or tool
+  accepts a host path as model authority.
+
 ## Reference Alignment
 
 - Reasonix `pastedFileRef` and `ResolveRefs` keep path detection and file
@@ -184,4 +200,3 @@ authority.
 - Encoding host paths or storage keys inside model-visible source refs.
 - Implementing code search, OCR, vector indexing, or CodeGraph as part of this
   intake slice.
-

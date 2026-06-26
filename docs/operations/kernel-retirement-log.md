@@ -49,10 +49,10 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 ### KERNEL-RESOURCE-READ-MODEL-RESULT-REDACTION-20260625 - P2 - resource_read model-result redaction
 
 - Status: ready_for_acceptance.
-- Conclusion: `resource_read` now keeps raw resource owner text unchanged while paginating over a bounded redacted `ModelResourceReadResult.Text` projection through provider tool results, provider context, provider-command/OpenAI-compatible serialization, session projection, and UI timeline.
+- Conclusion: `resource_read` keeps raw resource owner text unchanged while paginating over a bounded `ModelResourceReadResult.Text` projection through provider tool results, provider context, provider-command/OpenAI-compatible serialization, session projection, and UI timeline.
 - Fix commit: current Lore commit.
 - Verification: `go test ./internal/kernel -run "TestResourceRead" -count=1`; `go test ./internal/kernel -run "Test.*ResourceRead|Test.*ProviderContext|Test.*Timeline" -count=1`; `go test ./internal/kernel -count=1`; `go test ./... -count=1`; `go build ./...`; `git diff --check`.
-- Reference alignment: Aligned with Codex's source/sandbox tests that keep denied sensitive read output out of model-visible function-call output and Reasonix's redacted diagnostic projection pattern while preserving Genesis's raw resource-owner truth boundary.
+- Reference alignment: Aligned with Codex's source/sandbox tests that keep denied sensitive read output out of model-visible function-call output and Reasonix's bounded diagnostic projection pattern while preserving Genesis's raw resource-owner truth boundary.
 
 ### KERNEL-SKILL-CATALOG-SCAN-BOUNDS-20260625 - P2 - Skill catalog scan bounds
 
@@ -73,7 +73,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 ### KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624 - P1 - Generic resource_read primitive
 
 - Status: ready_for_acceptance.
-- Conclusion: `resource_read` is now the only default non-shell `pure_read` candidate, with bounded immutable text reads, repair feedback for unknown refs, hidden scheduling metadata, and shell remaining serial.
+- Conclusion: `resource_read` established the first default non-shell `pure_read` candidate, with bounded immutable text reads, repair feedback for unknown refs, hidden scheduling metadata, and shell remaining serial.
 - Fix commit: `5da33e29e`.
 - Verification: `go test ./internal/kernel -count=1`; `git diff --check`.
 - Reference alignment: Matches Reasonix trusted read-only metadata and Codex opt-in parallel support while rejecting shell command text as a read classifier.
@@ -801,6 +801,7 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Retired
 
+- `KERNEL-MATERIAL-SOURCE-SNAPSHOT-20260626`: retired because local path and multipart upload material intake now create governed zip source snapshots, provider context exposes only bounded source refs/operations, `source_tree` and `source_read` re-run owner admission with zip-slip/budget/binary guards, and host paths/storage refs never become model tool authority; fixing evidence is in the retiring Lore commit, verified by `go test ./internal/kernel/resource -count=1`, `go test ./internal/kernel -run "Resource|Source|ContextHydration|Tool|ArchitectureBoundary" -count=1`, `go test ./internal/kernel -count=1`, `go test ./internal/applications/... -count=1`, `go test ./... -count=1`, `go build ./...`, and `git diff --check`.
 - `KERNEL-RESOURCE-HYDRATION-DURABLE-BODY-PROMOTION-20260626`: retired because `context.hydration.admitted` and `turn.submitted` now persist only hydration evidence and refs, while provider-visible hydrated text is rebuilt through a provider-only resource fragment for the next request; fixing evidence is in the retiring Lore commit, verified by `go test ./internal/kernel -run "ContextHydration|ResourceRead|ContextInspection|Projection" -count=1` and `go test ./internal/kernel -count=1`. Remaining future work is production resource/object storage beyond the current in-memory resource registry seam.
 - `KERNEL-STATE-SEMANTICS-PROJECTION-DRIFT-20260625`: retired because turn/session projections now expose `phase`, `wait_reason`, `terminal_outcome`, and `terminal_cause`, while UI timeline, context inspection, and audit replay use readiness axes instead of a generic read-model `status`; fixing evidence is in the retiring Lore commit, verified by `go test ./internal/kernel -run "State|Projection|Timeline|ContextInspection|Audit|TurnLifecycle|Interrupt|ToolLoop" -count=1` and `go test ./internal/kernel -count=1`.
 - `KERNEL-SHELL-TIMEOUT-POLICY-CONFIG-20260625`: retired because `ShellTimeoutPolicy` now drives shell tool manifest text, model tool validation defaults, scheduling, direct HTTP shell routing, approval replay, capabilities, and context inspection from one owner-owned projection; fixing evidence is in the retiring Lore commit, verified by `go test ./internal/kernel -run "Shell|Timeout|Budget|ToolLoop|Capabilities|ContextInspection" -count=1` and `go test ./internal/kernel -count=1`.

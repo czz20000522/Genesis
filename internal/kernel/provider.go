@@ -52,6 +52,7 @@ const (
 	ModelInputKindKernelObservationContext   = "kernel_observation_context"
 	ModelInputKindProviderRepairContext      = "provider_repair_context"
 	ModelInputKindHydratedContext            = "hydrated_context"
+	ModelInputKindSourceSnapshotContext      = "source_snapshot_context"
 )
 
 type ModelInputItem struct {

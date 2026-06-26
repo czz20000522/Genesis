@@ -23,6 +23,8 @@ type registeredTool struct {
 type toolInvocationContext interface {
 	prepareShellExecToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareResourceReadToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	prepareSourceTreeToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	prepareSourceReadToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobStatusToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobWaitToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobCancelToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
@@ -125,6 +127,67 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			},
 			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 				return ctx.prepareResourceReadToolCall(eventID, providerCallID, name, arguments)
+			},
+		},
+		{
+			Spec: ToolSpec{
+				Name:        "source_tree",
+				Description: "List a bounded tree for a kernel-issued source snapshot reference.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"source_snapshot_ref": map[string]interface{}{
+							"type":        "string",
+							"description": "Kernel-issued source snapshot reference to list.",
+						},
+						"max_entries": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     1,
+							"description": "Optional maximum number of tree entries to return.",
+						},
+					},
+					"required":             []string{"source_snapshot_ref"},
+					"additionalProperties": false,
+				},
+				SideEffectLevel: ToolSideEffectRead,
+				ExecutionKind:   ToolExecutionKindKernelControl,
+				Scheduling:      resourceReadToolSchedulingSpec(),
+			},
+			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+				return ctx.prepareSourceTreeToolCall(eventID, providerCallID, name, arguments)
+			},
+		},
+		{
+			Spec: ToolSpec{
+				Name:        "source_read",
+				Description: "Read bounded text from a source file reference inside an admitted source snapshot.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"source_file_ref": map[string]interface{}{
+							"type":        "string",
+							"description": "Kernel-issued source file reference to read.",
+						},
+						"offset_bytes": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     0,
+							"description": "Optional byte offset. Omit to start at zero.",
+						},
+						"limit_bytes": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     1,
+							"description": "Optional byte limit. Omit for the kernel default.",
+						},
+					},
+					"required":             []string{"source_file_ref"},
+					"additionalProperties": false,
+				},
+				SideEffectLevel: ToolSideEffectRead,
+				ExecutionKind:   ToolExecutionKindKernelControl,
+				Scheduling:      resourceReadToolSchedulingSpec(),
+			},
+			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+				return ctx.prepareSourceReadToolCall(eventID, providerCallID, name, arguments)
 			},
 		},
 		{

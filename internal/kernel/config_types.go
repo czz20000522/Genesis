@@ -13,6 +13,7 @@ type Config struct {
 	ShellTimeoutPolicy ShellTimeoutPolicy
 	SkillRoots         []string
 	Resources          []ResourceDescriptor
+	MaterialStorePath  string
 	Clock              func() time.Time
 }
 

@@ -44,6 +44,7 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 				ModelInputKinds:   cloneStringSlice(event.Data.ModelInputKinds),
 				ToolManifest:      cloneToolSpecs(nil),
 				SkillCatalog:      cloneSkillCatalogItems(nil),
+				SourceSnapshots:   cloneSourceSnapshotDescriptors(event.Data.SourceSnapshots),
 				RecalledMemories:  cloneMemoryRecalls(event.Data.RecalledMemories),
 				HydratedContexts:  cloneContextHydrationProjections(event.Data.HydratedContexts),
 				UnavailableReason: "turn context snapshot was not recorded for this turn",
@@ -57,6 +58,7 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 			ModelInputKinds:  cloneStringSlice(event.Data.ModelInputKinds),
 			ToolManifest:     cloneToolSpecs(event.Data.ToolManifest),
 			SkillCatalog:     cloneSkillCatalogItems(event.Data.SkillCatalog),
+			SourceSnapshots:  cloneSourceSnapshotDescriptors(event.Data.SourceSnapshots),
 			RecalledMemories: cloneMemoryRecalls(event.Data.RecalledMemories),
 			HydratedContexts: cloneContextHydrationProjections(event.Data.HydratedContexts),
 			Runtime:          cloneContextRuntimeSnapshot(event.Data.RuntimeContext),
@@ -284,6 +286,17 @@ func cloneSkillCatalogItems(items []SkillCatalogItemProjection) []SkillCatalogIt
 	return append(out, items...)
 }
 
+func cloneSourceSnapshotDescriptors(items []SourceSnapshotDescriptor) []SourceSnapshotDescriptor {
+	out := make([]SourceSnapshotDescriptor, 0, len(items))
+	for _, item := range items {
+		next := item
+		next.AvailableOperations = append([]string(nil), item.AvailableOperations...)
+		next.Diagnostics = append([]SourceDiagnostic(nil), item.Diagnostics...)
+		out = append(out, next)
+	}
+	return out
+}
+
 func cloneStringSlice(items []string) []string {
 	out := make([]string, 0, len(items))
 	return append(out, items...)
@@ -321,6 +334,7 @@ func inspectionEventData(data EventData) EventData {
 	next.InputItems = cloneProjectionInputItems(data.InputItems)
 	next.RecalledMemories = cloneMemoryRecalls(data.RecalledMemories)
 	next.HydratedContexts = cloneContextHydrationProjections(data.HydratedContexts)
+	next.SourceSnapshots = cloneSourceSnapshotDescriptors(data.SourceSnapshots)
 	if data.ContextHydration != nil {
 		copied := cloneContextHydrationProjection(*data.ContextHydration)
 		next.ContextHydration = &copied

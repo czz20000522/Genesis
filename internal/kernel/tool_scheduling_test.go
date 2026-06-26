@@ -231,7 +231,7 @@ func TestToolSchedulingMetadataStaysOutOfModelVisibleManifest(t *testing.T) {
 	}
 }
 
-func TestDefaultKernelPureReadCandidateIsResourceReadOnly(t *testing.T) {
+func TestDefaultKernelPureReadCandidatesStayTypedReadTools(t *testing.T) {
 	pureReadTools := []string{}
 	for _, tool := range defaultKernelTools() {
 		spec := tool.Spec.Scheduling
@@ -242,8 +242,8 @@ func TestDefaultKernelPureReadCandidateIsResourceReadOnly(t *testing.T) {
 			pureReadTools = append(pureReadTools, tool.Spec.Name)
 		}
 	}
-	if strings.Join(pureReadTools, ",") != "resource_read" {
-		t.Fatalf("default pure-read candidates = %v, want only resource_read", pureReadTools)
+	if strings.Join(pureReadTools, ",") != "resource_read,source_tree,source_read" {
+		t.Fatalf("default pure-read candidates = %v, want only typed resource/source read tools", pureReadTools)
 	}
 }
 

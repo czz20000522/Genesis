@@ -21,7 +21,9 @@ const (
 )
 
 type Registry struct {
-	items map[string]registeredResource
+	items       map[string]registeredResource
+	sources     map[string]sourceSnapshot
+	sourceFiles map[string]sourceFileHandle
 }
 
 type registeredResource struct {
@@ -38,7 +40,9 @@ type ReadRequest struct {
 
 func NewRegistry(items []Descriptor) (*Registry, error) {
 	registry := &Registry{
-		items: map[string]registeredResource{},
+		items:       map[string]registeredResource{},
+		sources:     map[string]sourceSnapshot{},
+		sourceFiles: map[string]sourceFileHandle{},
 	}
 	for _, item := range items {
 		ref, err := NormalizeRef(item.Ref)

@@ -27,6 +27,17 @@ type resourceReadToolArguments struct {
 	LimitBytes  *int   `json:"limit_bytes,omitempty"`
 }
 
+type sourceTreeToolArguments struct {
+	SourceSnapshotRef string `json:"source_snapshot_ref"`
+	MaxEntries        *int   `json:"max_entries,omitempty"`
+}
+
+type sourceReadToolArguments struct {
+	SourceFileRef string `json:"source_file_ref"`
+	OffsetBytes   *int   `json:"offset_bytes,omitempty"`
+	LimitBytes    *int   `json:"limit_bytes,omitempty"`
+}
+
 type jobStatusToolArguments struct {
 	JobID string `json:"job_id"`
 }
@@ -257,6 +268,91 @@ func (k *Kernel) resourceReadModelToolResult(eventID string, providerCallID stri
 	result, err := k.resourceRegistry.Read(readReq)
 	if err != nil {
 		return ModelToolResult{}, fmt.Errorf("%w: resource_read failed: %v", ErrToolInfrastructureFailed, err)
+	}
+	content, err := json.Marshal(result)
+	if err != nil {
+		return ModelToolResult{}, err
+	}
+	return ModelToolResult{
+		ToolCallID:      strings.TrimSpace(providerCallID),
+		ToolCallEventID: strings.TrimSpace(eventID),
+		Name:            strings.TrimSpace(name),
+		Content:         string(content),
+	}, nil
+}
+
+func (k *Kernel) prepareSourceTreeToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args sourceTreeToolArguments
+	if err := decodeStrictModelToolArguments("source_tree", arguments, &args); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+	}
+	req, _, code, err := k.resourceRegistry.AdmitSourceTree(args.SourceSnapshotRef, args.MaxEntries)
+	if err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, code, fmt.Sprintf("invalid source_tree request: %v", err)), nil
+	}
+	return preparedModelToolCall{
+		eventID:        eventID,
+		providerCallID: providerCallID,
+		name:           name,
+		accessPlan:     sourceReadToolAccessPlan(name, req.SourceSnapshotRef),
+		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			return k.sourceTreeModelToolResult(eventID, providerCallID, name, req)
+		},
+	}, nil
+}
+
+func (k *Kernel) sourceTreeModelToolResult(eventID string, providerCallID string, name string, req resource.SourceTreeRequest) (ModelToolResult, error) {
+	maxEntries := req.MaxEntries
+	treeReq, _, code, err := k.resourceRegistry.AdmitSourceTree(req.SourceSnapshotRef, &maxEntries)
+	if err != nil {
+		return invalidModelToolResult(eventID, providerCallID, name, code, fmt.Sprintf("invalid source_tree request: %v", err))
+	}
+	result, err := k.resourceRegistry.SourceTree(treeReq)
+	if err != nil {
+		return ModelToolResult{}, fmt.Errorf("%w: source_tree failed: %v", ErrToolInfrastructureFailed, err)
+	}
+	content, err := json.Marshal(result)
+	if err != nil {
+		return ModelToolResult{}, err
+	}
+	return ModelToolResult{
+		ToolCallID:      strings.TrimSpace(providerCallID),
+		ToolCallEventID: strings.TrimSpace(eventID),
+		Name:            strings.TrimSpace(name),
+		Content:         string(content),
+	}, nil
+}
+
+func (k *Kernel) prepareSourceReadToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args sourceReadToolArguments
+	if err := decodeStrictModelToolArguments("source_read", arguments, &args); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+	}
+	req, _, code, err := k.resourceRegistry.AdmitSourceRead(args.SourceFileRef, args.OffsetBytes, args.LimitBytes)
+	if err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, code, fmt.Sprintf("invalid source_read request: %v", err)), nil
+	}
+	return preparedModelToolCall{
+		eventID:        eventID,
+		providerCallID: providerCallID,
+		name:           name,
+		accessPlan:     sourceReadToolAccessPlan(name, req.SourceFileRef),
+		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			return k.sourceReadModelToolResult(eventID, providerCallID, name, req)
+		},
+	}, nil
+}
+
+func (k *Kernel) sourceReadModelToolResult(eventID string, providerCallID string, name string, req resource.SourceReadRequest) (ModelToolResult, error) {
+	offsetBytes := req.OffsetBytes
+	limitBytes := req.LimitBytes
+	readReq, _, code, err := k.resourceRegistry.AdmitSourceRead(req.SourceFileRef, &offsetBytes, &limitBytes)
+	if err != nil {
+		return invalidModelToolResult(eventID, providerCallID, name, code, fmt.Sprintf("invalid source_read request: %v", err))
+	}
+	result, err := k.resourceRegistry.SourceRead(readReq)
+	if err != nil {
+		return ModelToolResult{}, fmt.Errorf("%w: source_read failed: %v", ErrToolInfrastructureFailed, err)
 	}
 	content, err := json.Marshal(result)
 	if err != nil {

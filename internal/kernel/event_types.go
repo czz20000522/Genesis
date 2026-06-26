@@ -53,6 +53,7 @@ type EventData struct {
 	ModelInputKinds            []string                             `json:"model_input_kinds,omitempty"`
 	ToolManifest               []ToolSpec                           `json:"tool_manifest,omitempty"`
 	SkillCatalog               []SkillCatalogItemProjection         `json:"skill_catalog,omitempty"`
+	SourceSnapshots            []SourceSnapshotDescriptor           `json:"source_snapshots,omitempty"`
 	RuntimeContext             *ContextRuntimeSnapshot              `json:"runtime_context,omitempty"`
 	RecalledMemories           []MemoryRecall                       `json:"recalled_memories,omitempty"`
 	HydratedContexts           []ContextHydrationProjection         `json:"hydrated_contexts,omitempty"`

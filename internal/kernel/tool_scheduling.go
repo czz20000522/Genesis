@@ -44,6 +44,12 @@ func resourceReadToolAccessPlan(toolName string, resourceRef string) ToolAccessP
 	return toolruntime.ResourceReadAccessPlan(toolName, resourceRef)
 }
 
+func sourceReadToolAccessPlan(toolName string, sourceRef string) ToolAccessPlan {
+	plan := toolruntime.ResourceReadAccessPlan(toolName, "source:"+sourceRef)
+	plan.ResourceFootprint.ReadScopes = []string{"source:" + sourceRef}
+	return plan
+}
+
 func jobControlToolAccessPlan(toolName string, jobID string) ToolAccessPlan {
 	return toolruntime.JobControlAccessPlan(toolName, jobID)
 }

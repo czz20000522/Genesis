@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,7 @@ type Kernel struct {
 	shellTimeoutPolicy ShellTimeoutPolicy
 	toolRegistry       *ToolRegistry
 	resourceRegistry   *resource.Registry
+	materialStorePath  string
 	skillCatalog       []SkillDescriptor
 	skillExclusions    []SkillCatalogExclusionProjection
 	clock              func() time.Time
@@ -69,6 +71,10 @@ func New(config Config) (*Kernel, error) {
 	if err != nil {
 		return nil, err
 	}
+	materialStorePath := strings.TrimSpace(config.MaterialStorePath)
+	if materialStorePath == "" {
+		materialStorePath = filepath.Join(filepath.Dir(config.LedgerPath), "material-store")
+	}
 	skillCatalog := loadSkillCatalogWithDiagnostics(config.SkillRoots)
 	k := &Kernel{
 		ledger:             NewJSONLLedger(config.LedgerPath),
@@ -81,6 +87,7 @@ func New(config Config) (*Kernel, error) {
 		shellTimeoutPolicy: shellTimeoutPolicy,
 		toolRegistry:       toolRegistry,
 		resourceRegistry:   resourceRegistry,
+		materialStorePath:  materialStorePath,
 		skillCatalog:       skillCatalog.Items,
 		skillExclusions:    skillCatalog.Exclusions,
 		clock:              clock,
@@ -296,9 +303,10 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 	}
 	historyContext := sameSessionConversationHistoryContext(events, sessionID, "")
 	skillIndex := k.skillCatalogProjection().Items
+	sourceSnapshots := k.resourceRegistry.ListSourceSnapshotDescriptors(sessionID)
 	hydratedContexts := pendingContextHydrationsForNewTurn(events, sessionID, turnID)
 	providerHydratedContexts := k.providerHydratedContextFragments(hydratedContexts)
-	modelInputs := modelInputItemsWithHistoryAndHydration(req.InputItems, recalledMemories, skillIndex, providerHydratedContexts, k.contextPolicy.SkillIndexChars, historyContext, "")
+	modelInputs := modelInputItemsWithHistoryAndHydration(req.InputItems, recalledMemories, skillIndex, providerHydratedContexts, sourceSnapshots, k.contextPolicy.SkillIndexChars, historyContext, "")
 	submitted := StoredEvent{
 		EventID:   newID("evt", now),
 		SessionID: sessionID,
@@ -312,6 +320,7 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 			ModelInputKinds:  modelInputKinds(modelInputs),
 			ToolManifest:     k.toolGateway().ToolManifest(),
 			SkillCatalog:     skillIndex,
+			SourceSnapshots:  sourceSnapshots,
 			RuntimeContext:   k.contextRuntimeSnapshot(),
 			RecalledMemories: recalledMemories,
 			HydratedContexts: hydratedContexts,
@@ -820,7 +829,7 @@ func (k *Kernel) providerContextProjectionFromStoredEvents(events []StoredEvent,
 }
 
 func (k *Kernel) modelInputItemsFromSubmittedEvent(data EventData, historyContext string, skillIndexBudget int, observationContext string) []ModelInputItem {
-	return modelInputItemsWithHistoryAndHydration(data.InputItems, data.RecalledMemories, data.SkillCatalog, k.providerHydratedContextFragments(data.HydratedContexts), skillIndexBudget, historyContext, observationContext)
+	return modelInputItemsWithHistoryAndHydration(data.InputItems, data.RecalledMemories, data.SkillCatalog, k.providerHydratedContextFragments(data.HydratedContexts), data.SourceSnapshots, skillIndexBudget, historyContext, observationContext)
 }
 
 func sameSessionConversationHistoryContext(events []StoredEvent, sessionID string, beforeTurnID string) string {

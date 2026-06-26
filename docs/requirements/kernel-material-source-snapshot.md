@@ -82,6 +82,26 @@ object keys, upload paths, or raw external payload ids.
 - Phase E: use a real model only for manual smoke after fake-provider behavior
   tests prove the tool loop.
 
+## Current Implementation
+
+The current slice implements Phase A through Phase D for zip source packages:
+
+- `POST /materials/intake` admits an absolute local zip path as a live-read
+  source snapshot for an optional session.
+- `POST /materials/upload` stores multipart upload bytes in the kernel material
+  file store using a generated path, treats the uploaded filename as display
+  metadata only, and reuses zip snapshot parsing.
+- `source_tree` and `source_read` are typed model-visible tools backed by
+  source owner admission. They accept only source refs, not host paths.
+- Provider context may include a bounded `source_snapshot_context` notice with
+  refs and operation names. It omits host paths, storage refs, upload paths, and
+  archive bodies.
+
+Remaining future work is production object-store policy, retention/quarantine,
+richer source selection, source search/span tools, code intelligence indexing,
+and live LLM/user-interface smoke. Those gaps do not change the current
+source-ref contract.
+
 ## Acceptance Criteria
 
 - Missing local path intake is refused with a structured resource-unavailable
@@ -118,4 +138,3 @@ object keys, upload paths, or raw external payload ids.
   local filesystem support is unavailable, requests fail closed.
 - Codex image/file handlers validate local paths through a runtime filesystem
   boundary rather than letting the model invent hidden host access.
-
