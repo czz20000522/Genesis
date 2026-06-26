@@ -123,7 +123,7 @@ Protected routes require `Authorization: Bearer <runtime-token>`. `GET /ready` i
 
 External skills are user-space assets. Genesis can make installed skill metadata visible to the model without adding application-specific code to the kernel.
 
-`genesisd` scans configured skill roots for `SKILL.md` front matter and injects a concise model-context catalog containing each skill's name and description. Missing roots and malformed skill files are ignored. Skill metadata that looks like authority forgery, prompt injection, hidden control text, or a secret is excluded. Full skill bodies and instruction paths are not loaded into every turn.
+`genesisd` scans configured skill roots for `SKILL.md` front matter and injects a concise model-context catalog containing each skill's name and description. Missing roots and malformed skill files become path-free inspection evidence in `/capabilities`; they do not block chat and do not disappear silently. Skill metadata that looks like authority forgery, prompt injection, hidden control text, or a secret is excluded. If the bounded skill index cannot include every configured skill, capabilities and session debug report a `skill_index_budget_excluded` warning with safe skill names. Full skill bodies and instruction paths are not loaded into every turn.
 
 By default, `genesisd` looks at the current user's global agent skill root:
 
@@ -137,6 +137,8 @@ Operators can replace or extend roots with `GENESIS_SKILL_ROOTS` or repeated `-s
 $env:GENESIS_SKILL_ROOTS = "$HOME\.agents\skills;$HOME\.genesis\skills"
 "$root\bin\genesisd.exe" -skill-root D:\tools\custom-skills
 ```
+
+`-disable-default-skill-roots` is a smoke/dev escape hatch for focused tests. The normal model is one deterministic store made from configured roots, ordered with explicit roots before defaults and inspected through root status plus projection warnings.
 
 This does not make Feishu, email, calendar, or any other application a kernel feature. The initial kernel exposes skill metadata only; full skill-body hydration is deferred until a generic resource/context contract exists. Installed CLIs are still invoked through governed tools such as `shell_exec` under kernel permission policy.
 

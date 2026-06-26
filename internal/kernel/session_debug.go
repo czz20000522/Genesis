@@ -44,26 +44,28 @@ type SessionDebugCaptureBounds struct {
 }
 
 type SessionDebugProviderStep struct {
-	SessionID                 string                        `json:"session_id"`
-	TurnID                    string                        `json:"turn_id"`
-	ProviderStep              int                           `json:"provider_step"`
-	Attempt                   int                           `json:"attempt,omitempty"`
-	CapturedAt                time.Time                     `json:"captured_at"`
-	Provider                  ProviderStatus                `json:"provider"`
-	Model                     string                        `json:"model,omitempty"`
-	ModelInputKinds           []string                      `json:"model_input_kinds,omitempty"`
-	InputItems                []SessionDebugInputItem       `json:"input_items,omitempty"`
-	ToolManifest              []ToolSpec                    `json:"tool_manifest,omitempty"`
-	SkillSummaries            []SessionDebugInputItem       `json:"skill_summaries,omitempty"`
-	SourceContext             []SessionDebugInputItem       `json:"source_context,omitempty"`
-	HydratedContext           []SessionDebugInputItem       `json:"hydrated_context,omitempty"`
-	ToolRounds                []SessionDebugToolRound       `json:"tool_rounds,omitempty"`
-	ToolCalls                 []SessionDebugToolCallSummary `json:"tool_calls,omitempty"`
-	KernelObservationEventIDs []string                      `json:"kernel_observation_event_ids,omitempty"`
-	Final                     *FinalMessage                 `json:"final,omitempty"`
-	Error                     *ProviderAttemptProjection    `json:"error,omitempty"`
-	Usage                     *TokenUsage                   `json:"usage,omitempty"`
-	CaptureBounds             SessionDebugCaptureBounds     `json:"capture_bounds"`
+	SessionID                 string                          `json:"session_id"`
+	TurnID                    string                          `json:"turn_id"`
+	ProviderStep              int                             `json:"provider_step"`
+	Attempt                   int                             `json:"attempt,omitempty"`
+	CapturedAt                time.Time                       `json:"captured_at"`
+	Provider                  ProviderStatus                  `json:"provider"`
+	Model                     string                          `json:"model,omitempty"`
+	ModelInputKinds           []string                        `json:"model_input_kinds,omitempty"`
+	InputItems                []SessionDebugInputItem         `json:"input_items,omitempty"`
+	ToolManifest              []ToolSpec                      `json:"tool_manifest,omitempty"`
+	SkillSummaries            []SessionDebugInputItem         `json:"skill_summaries,omitempty"`
+	SkillWarnings             []SkillCatalogWarningProjection `json:"skill_warnings,omitempty"`
+	SkillRoots                []SkillCatalogRootProjection    `json:"skill_roots,omitempty"`
+	SourceContext             []SessionDebugInputItem         `json:"source_context,omitempty"`
+	HydratedContext           []SessionDebugInputItem         `json:"hydrated_context,omitempty"`
+	ToolRounds                []SessionDebugToolRound         `json:"tool_rounds,omitempty"`
+	ToolCalls                 []SessionDebugToolCallSummary   `json:"tool_calls,omitempty"`
+	KernelObservationEventIDs []string                        `json:"kernel_observation_event_ids,omitempty"`
+	Final                     *FinalMessage                   `json:"final,omitempty"`
+	Error                     *ProviderAttemptProjection      `json:"error,omitempty"`
+	Usage                     *TokenUsage                     `json:"usage,omitempty"`
+	CaptureBounds             SessionDebugCaptureBounds       `json:"capture_bounds"`
 }
 
 type SessionDebugInputItem struct {
@@ -190,6 +192,8 @@ func (k *Kernel) captureSessionDebugProviderStep(sessionID string, turnID string
 		InputItems:                sessionDebugInputItems(request.InputItems, sessionDebugTextBytes),
 		ToolManifest:              cloneToolSpecs(request.ToolManifest),
 		SkillSummaries:            sessionDebugItemsByKind(request.InputItems, ModelInputKindSkillIndexContext),
+		SkillWarnings:             skillIndexWarnings(k.skillCatalogProjection().Items, k.contextPolicy.SkillIndexChars),
+		SkillRoots:                append([]SkillCatalogRootProjection(nil), k.skillCatalogProjection().Roots...),
 		SourceContext:             sessionDebugItemsByKind(request.InputItems, ModelInputKindSourceSnapshotContext),
 		HydratedContext:           sessionDebugItemsByKind(request.InputItems, ModelInputKindHydratedContext),
 		ToolRounds:                sessionDebugToolRounds(request.ToolRounds),

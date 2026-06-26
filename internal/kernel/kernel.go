@@ -27,6 +27,7 @@ type Kernel struct {
 	resourceRegistry   *resource.Registry
 	materialStorePath  string
 	skillCatalog       []SkillDescriptor
+	skillRoots         []SkillCatalogRootProjection
 	skillExclusions    []SkillCatalogExclusionProjection
 	clock              func() time.Time
 	turnMu             sync.Mutex
@@ -89,6 +90,7 @@ func New(config Config) (*Kernel, error) {
 		resourceRegistry:   resourceRegistry,
 		materialStorePath:  materialStorePath,
 		skillCatalog:       skillCatalog.Items,
+		skillRoots:         skillCatalog.Roots,
 		skillExclusions:    skillCatalog.Exclusions,
 		clock:              clock,
 		activeTurns:        map[string]*activeTurn{},

@@ -49,7 +49,7 @@ func main() {
 	sourceDefaultReadBytes := flag.Int("source-default-read-bytes", envIntOrDefault("GENESIS_SOURCE_DEFAULT_READ_BYTES", 0), "default source_read byte limit; 0 uses kernel default")
 	sourceMaxReadBytes := flag.Int("source-max-read-bytes", envIntOrDefault("GENESIS_SOURCE_MAX_READ_BYTES", 0), "maximum source_read byte limit; 0 uses kernel default")
 	skillRoots := pathListFlag(nil)
-	disableDefaultSkillRoots := flag.Bool("disable-default-skill-roots", envBoolOrDefault("GENESIS_DISABLE_DEFAULT_SKILL_ROOTS", false), "scan only explicit --skill-root entries and do not include default global skill roots")
+	disableDefaultSkillRoots := flag.Bool("disable-default-skill-roots", envBoolOrDefault("GENESIS_DISABLE_DEFAULT_SKILL_ROOTS", false), "smoke/dev escape hatch: scan only explicit --skill-root entries and do not include default global skill roots")
 	flag.Var(&skillRoots, "skill-root", "external skill root to scan for SKILL.md metadata; repeatable")
 	flag.Parse()
 	effectiveSkills := effectiveSkillRoots(defaultSkillRoots(), skillRoots.Values(), *disableDefaultSkillRoots)

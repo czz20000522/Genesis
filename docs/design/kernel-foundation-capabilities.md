@@ -138,7 +138,7 @@ shape.
 
 ## Skill Catalog Projection
 
-Skill packages are user-space assets. The kernel scans configured skill roots only to build a safe metadata index for capability and provider-context projection. Discovery is bounded by recursion depth, candidate count per root, and `SKILL.md` metadata file size before parsing. Exclusions use stable path-free reasons so `/capabilities` can explain skipped metadata without exposing package paths, skill bodies, or heavy file contents.
+Skill packages are user-space assets. The kernel scans configured skill roots only to build a safe metadata index for capability and provider-context projection. Discovery is bounded by recursion depth, candidate count per root, and `SKILL.md` metadata file size before parsing. Exclusions use stable path-free reasons so `/capabilities` can explain skipped metadata without exposing package paths, skill bodies, or heavy file contents. Root status is projected as ordinal/status/count only; paths stay internal. When the bounded provider skill index excludes configured skill names, `/capabilities` and session debug expose a bounded `skill_index_budget_excluded` warning so focused sessions fail visibly instead of silently losing skills.
 
 Reference alignment:
 

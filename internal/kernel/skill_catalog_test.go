@@ -669,6 +669,91 @@ func TestSkillIndexContextHonorsConfiguredRootPriorityUnderBudget(t *testing.T) 
 	}
 }
 
+func TestSkillCatalogProjectionReportsRootStatusAndBudgetWarnings(t *testing.T) {
+	root := testTempDir(t)
+	writeSkillForTest(t, root, "alpha", "alpha", "A", "alpha body")
+	writeSkillForTest(t, root, "beta", "beta", "B", "beta body")
+	missingRoot := filepath.Join(root, "missing")
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		Provider:     FakeProvider{},
+		RuntimeToken: testRuntimeToken,
+		SkillRoots:   []string{root, missingRoot},
+		ContextPolicy: ContextPolicy{
+			SkillIndexChars: 84,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	catalog := k.Capabilities().SkillCatalog
+	if len(catalog.Roots) != 2 {
+		t.Fatalf("roots = %+v, want two configured root statuses", catalog.Roots)
+	}
+	if catalog.Roots[0].Status != ReadinessReady || catalog.Roots[0].SkillCount != 2 {
+		t.Fatalf("root[0] = %+v, want ready with two skills", catalog.Roots[0])
+	}
+	if catalog.Roots[1].Status != ReadinessNotReady || catalog.Roots[1].Reason != "root_missing" || catalog.Roots[1].SkillCount != 0 {
+		t.Fatalf("root[1] = %+v, want missing root evidence", catalog.Roots[1])
+	}
+	if !skillWarningsHaveName(catalog.Warnings, "skill_index_budget_excluded", "beta") {
+		t.Fatalf("warnings = %+v, want budget-excluded beta", catalog.Warnings)
+	}
+	catalogJSON, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatalf("marshal catalog: %v", err)
+	}
+	for _, forbidden := range pathLeakVariants(root) {
+		if strings.Contains(string(catalogJSON), forbidden) {
+			t.Fatalf("skill catalog leaked root path %q: %s", forbidden, string(catalogJSON))
+		}
+	}
+}
+
+func TestSessionDebugReportsSkillIndexBudgetWarnings(t *testing.T) {
+	root := testTempDir(t)
+	writeSkillForTest(t, root, "alpha", "alpha", "A", "alpha body")
+	writeSkillForTest(t, root, "beta", "beta", "B", "beta body")
+	missingRoot := filepath.Join(root, "missing")
+	k, err := New(Config{
+		LedgerPath:           filepath.Join(testTempDir(t), "events.jsonl"),
+		Provider:             &recordingTextProvider{text: "debug skill final"},
+		RuntimeToken:         testRuntimeToken,
+		MaterialStorePath:    testTempDir(t),
+		SkillRoots:           []string{root, missingRoot},
+		ContextPolicy:        ContextPolicy{SkillIndexChars: 84},
+		SourceSnapshotPolicy: SourceSnapshotPolicy{},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	sessionID := "debug-skill-warnings"
+	if _, err := k.EnableSessionDebug(sessionID); err != nil {
+		t.Fatalf("EnableSessionDebug returned error: %v", err)
+	}
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "debug skill warnings"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+
+	export, err := k.SessionDebugExport(sessionID)
+	if err != nil {
+		t.Fatalf("SessionDebugExport returned error: %v", err)
+	}
+	if len(export.Steps) != 1 {
+		t.Fatalf("debug steps = %+v, want one provider step", export.Steps)
+	}
+	if !skillWarningsHaveName(export.Steps[0].SkillWarnings, "skill_index_budget_excluded", "beta") {
+		t.Fatalf("skill warnings = %+v, want budget-excluded beta", export.Steps[0].SkillWarnings)
+	}
+	if len(export.Steps[0].SkillRoots) != 2 || export.Steps[0].SkillRoots[1].Status != ReadinessNotReady || export.Steps[0].SkillRoots[1].Reason != "root_missing" {
+		t.Fatalf("debug skill roots = %+v, want path-free missing root evidence", export.Steps[0].SkillRoots)
+	}
+}
+
 func TestSkillCatalogRejectsDuplicateNames(t *testing.T) {
 	root := testTempDir(t)
 	writeSkillForTest(t, root, "first-mail", "mail", "Send email through first CLI", "first body")
@@ -856,6 +941,20 @@ func skillExclusionsHaveReason(exclusions []struct {
 	for _, exclusion := range exclusions {
 		if exclusion.Reason == reason && exclusion.Count > 0 {
 			return true
+		}
+	}
+	return false
+}
+
+func skillWarningsHaveName(warnings []SkillCatalogWarningProjection, reason string, name string) bool {
+	for _, warning := range warnings {
+		if warning.Reason != reason {
+			continue
+		}
+		for _, got := range warning.Names {
+			if got == name {
+				return true
+			}
 		}
 	}
 	return false

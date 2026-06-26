@@ -75,10 +75,14 @@ func (k *Kernel) skillCatalogProjection() SkillCatalogProjection {
 	}
 	exclusions := make([]SkillCatalogExclusionProjection, 0, len(k.skillExclusions))
 	exclusions = append(exclusions, k.skillExclusions...)
+	roots := make([]SkillCatalogRootProjection, 0, len(k.skillRoots))
+	roots = append(roots, k.skillRoots...)
 	return SkillCatalogProjection{
 		Status:     status,
 		Count:      len(items),
 		Items:      items,
+		Roots:      roots,
 		Exclusions: exclusions,
+		Warnings:   skillIndexWarnings(items, k.contextPolicy.SkillIndexChars),
 	}
 }

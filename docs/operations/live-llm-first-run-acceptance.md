@@ -131,11 +131,12 @@ $token = "local-live-acceptance-token"
   -disable-default-skill-roots
 ```
 
-Focused live sessions should pass only the intended skill roots, or set
-`GENESIS_DISABLE_DEFAULT_SKILL_ROOTS=true`. Explicit skill roots are scanned
-before defaults, and disabling defaults prevents unrelated global skills from
-consuming the bounded skill-index budget before the target operator skills are
-projected.
+Focused live sessions should pass the intended skill roots first. Explicit
+roots are scanned before defaults, and `/capabilities` plus session debug expose
+path-free root status and `skill_index_budget_excluded` warnings when the
+bounded index drops configured skills. `-disable-default-skill-roots` /
+`GENESIS_DISABLE_DEFAULT_SKILL_ROOTS=true` is a smoke/dev escape hatch, not the
+normal skill-store model.
 
 In another PowerShell session, verify readiness and one real turn:
 

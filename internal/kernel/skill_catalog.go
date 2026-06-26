@@ -19,6 +19,7 @@ func loadSkillCatalog(roots []string) []SkillDescriptor {
 
 type skillCatalogLoadResult struct {
 	Items      []SkillDescriptor
+	Roots      []SkillCatalogRootProjection
 	Exclusions []SkillCatalogExclusionProjection
 }
 
@@ -26,6 +27,7 @@ type skillCatalogExclusionCounter map[string]int
 
 func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
 	var skills []SkillDescriptor
+	var rootProjections []SkillCatalogRootProjection
 	exclusions := skillCatalogExclusionCounter{}
 	for rootOrdinal, root := range roots {
 		cleanRoot := strings.TrimSpace(root)
@@ -35,18 +37,22 @@ func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
 		absRoot, err := filepath.Abs(expandHome(cleanRoot))
 		if err != nil {
 			exclusions.add("root_missing")
+			rootProjections = append(rootProjections, SkillCatalogRootProjection{Ordinal: rootOrdinal, Status: ReadinessNotReady, Reason: "root_missing"})
 			continue
 		}
 		info, err := os.Stat(absRoot)
 		if err != nil || !info.IsDir() {
 			exclusions.add("root_missing")
+			rootProjections = append(rootProjections, SkillCatalogRootProjection{Ordinal: rootOrdinal, Status: ReadinessNotReady, Reason: "root_missing"})
 			continue
 		}
 		if pathHasLinkOrReparsePoint(absRoot) {
 			exclusions.add("root_linked")
+			rootProjections = append(rootProjections, SkillCatalogRootProjection{Ordinal: rootOrdinal, Status: ReadinessNotReady, Reason: "root_linked"})
 			continue
 		}
 		candidateCount := 0
+		rootSkillCount := 0
 		_ = filepath.WalkDir(absRoot, func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return nil
@@ -111,8 +117,14 @@ func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
 				InstructionPath: filepath.Clean(instructionPath),
 				RootOrdinal:     rootOrdinal,
 			})
+			rootSkillCount++
 			return nil
 		})
+		status := ReadinessReady
+		if rootSkillCount == 0 {
+			status = "empty"
+		}
+		rootProjections = append(rootProjections, SkillCatalogRootProjection{Ordinal: rootOrdinal, Status: status, SkillCount: rootSkillCount})
 	}
 	sort.Slice(skills, func(i, j int) bool {
 		if skills[i].RootOrdinal != skills[j].RootOrdinal {
@@ -129,6 +141,7 @@ func loadSkillCatalogWithDiagnostics(roots []string) skillCatalogLoadResult {
 	}
 	return skillCatalogLoadResult{
 		Items:      unique,
+		Roots:      rootProjections,
 		Exclusions: exclusions.projections(),
 	}
 }
@@ -176,6 +189,50 @@ func (c skillCatalogExclusionCounter) projections() []SkillCatalogExclusionProje
 		})
 	}
 	return projections
+}
+
+func skillIndexWarnings(skills []SkillCatalogItemProjection, budget int) []SkillCatalogWarningProjection {
+	if len(skills) == 0 {
+		return nil
+	}
+	included := skillIndexNames(skillIndexContext(skills, budget))
+	missing := make([]string, 0)
+	for _, skill := range skills {
+		name := strings.TrimSpace(skill.Name)
+		if name == "" || included[name] {
+			continue
+		}
+		missing = append(missing, name)
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	if len(missing) > 20 {
+		missing = append([]string(nil), missing[:20]...)
+	}
+	return []SkillCatalogWarningProjection{{
+		Reason: "skill_index_budget_excluded",
+		Count:  len(skills) - len(included),
+		Names:  missing,
+	}}
+}
+
+func skillIndexNames(text string) map[string]bool {
+	names := map[string]bool{}
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "- ") {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(line, "- "))
+		if before, _, ok := strings.Cut(name, ":"); ok {
+			name = strings.TrimSpace(before)
+		}
+		if name != "" {
+			names[name] = true
+		}
+	}
+	return names
 }
 
 func pathDepth(rel string) int {

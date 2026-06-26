@@ -463,6 +463,9 @@ records decision evidence before execution.
 - Configured skill roots can be scanned for `SKILL.md` metadata.
 - Skill root scanning is bounded by recursion depth, candidate count per root, and metadata file size before any provider-context projection is built.
 - Provider context receives only a bounded path-free metadata index by default.
+- Protected inspection surfaces expose path-free root status and skill-index
+  projection warnings, including missing roots and configured skill names that
+  were excluded by the bounded model-visible index.
 - Skill bodies, instruction paths, package paths, and full examples are not injected into every turn.
 - Unsafe, malformed, duplicate, linked-path, authority-shaped, hidden-control, prompt-injection-shaped, or secret-shaped metadata is excluded rather than repaired into model context.
 - Full skill hydration, if added later, must use a generic resource/context contract and must not introduce a package-specific skill-body retrieval tool.
