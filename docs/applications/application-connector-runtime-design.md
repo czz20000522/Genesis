@@ -117,6 +117,16 @@ LLM does not own:
 - `display`
 - `metadata`
 
+`ExternalResourceRef`:
+
+- `connector`
+- `kind`
+- `external_id`
+
+These refs name connector-local external resources only. They are not kernel
+`resource_ref` values and cannot be passed to kernel resource tools or context
+hydration without a separate resource/context intake owner.
+
 `RequestContext`:
 
 - `request_id`

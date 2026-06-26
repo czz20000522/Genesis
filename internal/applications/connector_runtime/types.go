@@ -49,22 +49,22 @@ type ExternalThreadRef struct {
 	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
-type ResourceRef struct {
+type ExternalResourceRef struct {
 	Connector  string `json:"connector"`
 	ExternalID string `json:"external_id"`
 	Kind       string `json:"kind"`
 }
 
 type AppCommand struct {
-	CommandID            string            `json:"command_id"`
-	Kind                 string            `json:"kind"`
-	TargetRef            ExternalThreadRef `json:"target_ref"`
-	Body                 string            `json:"body,omitempty"`
-	ResourceRefs         []ResourceRef     `json:"resource_refs,omitempty"`
-	RequiresConfirmation bool              `json:"requires_confirmation,omitempty"`
-	DedupeKey            string            `json:"dedupe_key"`
-	Metadata             map[string]string `json:"metadata,omitempty"`
-	CreatedAt            time.Time         `json:"created_at,omitempty"`
+	CommandID            string                `json:"command_id"`
+	Kind                 string                `json:"kind"`
+	TargetRef            ExternalThreadRef     `json:"target_ref"`
+	Body                 string                `json:"body,omitempty"`
+	ResourceRefs         []ExternalResourceRef `json:"resource_refs,omitempty"`
+	RequiresConfirmation bool                  `json:"requires_confirmation,omitempty"`
+	DedupeKey            string                `json:"dedupe_key"`
+	Metadata             map[string]string     `json:"metadata,omitempty"`
+	CreatedAt            time.Time             `json:"created_at,omitempty"`
 }
 
 type ConnectorOutboxItem struct {

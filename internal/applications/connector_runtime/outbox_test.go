@@ -93,6 +93,25 @@ func TestAppCommandMetadataIsNotCopiedToConnectorActionPayload(t *testing.T) {
 	}
 }
 
+func TestAppCommandExternalResourceRefsAreNotCopiedToConnectorActionPayload(t *testing.T) {
+	store := newTestOutboxStore(t)
+	runtime := testRuntime(store, nil)
+	command := testSendMessageCommand()
+	command.ResourceRefs = []ExternalResourceRef{{
+		Connector:  "feishu",
+		Kind:       "image",
+		ExternalID: "file_external_attachment_456",
+	}}
+
+	item, _, err := runtime.EnqueueCommand(context.Background(), command)
+	if err != nil {
+		t.Fatalf("EnqueueCommand returned error: %v", err)
+	}
+	if item.Payload["body"] != "hello from app command" || len(item.Payload) != 1 {
+		t.Fatalf("payload should only contain execution body, got %+v", item.Payload)
+	}
+}
+
 func TestExternalThreadRefMetadataIsNotCopiedToOutboxAction(t *testing.T) {
 	store := newTestOutboxStore(t)
 	runtime := testRuntime(store, nil)

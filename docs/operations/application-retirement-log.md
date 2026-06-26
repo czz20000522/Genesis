@@ -101,3 +101,7 @@ tests, governing requirement/design, or still-active issues.
 ### APP-CONNECTOR-PROFILE-READINESS-PROBE-FAIL-CLOSED-20260625 - Fail closed on false or hanging profile probes
 
 - Retired: `ready=false` profile probe results and timed-out profile probe commands now classify as `operator_action_required` before source or delivery adapters start. Evidence: fixing Lore commit.
+
+### APP-CONNECTOR-EXTERNAL-RESOURCE-REF-NAMING-20260626 - Keep connector resource refs external
+
+- Retired: connector runtime now uses `ExternalResourceRef` for inbound and command-side external resource handles, keeps them connector-local and opaque in kernel turn input, and documents that they are not kernel `resource_ref` authority. Evidence: fixing Lore commit; verified by `go test ./internal/applications/connector_runtime -count=1`.

@@ -82,6 +82,49 @@ func TestProcessExternalEventSubmitsOpaqueKernelTurn(t *testing.T) {
 	}
 }
 
+func TestExternalResourceRefsRemainConnectorLocalInKernelTurn(t *testing.T) {
+	store := newTestInboundStore(t)
+	client := &fakeTurnClient{
+		response: TurnSubmitResponse{SessionID: "kernel-session", TurnID: "turn-1"},
+	}
+	runtime := testInboundRuntime(store, client)
+	event := testExternalEvent("om_external_resource")
+	event.ResourceRefs = []ExternalResourceRef{{
+		Connector:  "feishu",
+		Kind:       "image",
+		ExternalID: "file_external_attachment_123",
+	}}
+
+	ctx := event.RequestContext(ApplicationSessionMapping{
+		ApplicationSessionID: "app-session",
+		KernelSessionID:      "kernel-session",
+	})
+	if len(ctx.ResourceRefs) != 1 || ctx.ResourceRefs[0].ExternalID != "file_external_attachment_123" {
+		t.Fatalf("request context resource refs = %+v, want connector-local external ref preserved", ctx.ResourceRefs)
+	}
+
+	if _, err := runtime.ProcessExternalEvent(context.Background(), event); err != nil {
+		t.Fatalf("ProcessExternalEvent returned error: %v", err)
+	}
+	if client.calls != 1 {
+		t.Fatalf("kernel calls = %d, want 1", client.calls)
+	}
+	input := client.requests[0].InputItems[0].Text
+	if !strings.Contains(input, "resource_refs: resource_") {
+		t.Fatalf("turn input missing opaque external resource ref:\n%s", input)
+	}
+	for _, forbidden := range []string{
+		"file_external_attachment_123",
+		"resource_ref:",
+		"cf:",
+		"kernel_resource",
+	} {
+		if strings.Contains(input, forbidden) {
+			t.Fatalf("turn input exposed connector resource as kernel ref %q in:\n%s", forbidden, input)
+		}
+	}
+}
+
 func TestProcessExternalEventDowngradesDirectVerifiedClaim(t *testing.T) {
 	store := newTestInboundStore(t)
 	client := &fakeTurnClient{

@@ -99,6 +99,13 @@ operator-only access.
 chat, mailbox, webhook source, or console conversation. It is stable enough for
 mapping and outbox delivery, but it is not a kernel authority id.
 
+`ExternalResourceRef` is an application-owned reference to an external attachment,
+file, message resource, or connector-local payload handle. It can be preserved
+for connector policy and operator inspection, but it is not a kernel
+`resource_ref`, not model-visible resource authority, and not valid input to
+kernel `resource_read` or context hydration until a resource/context owner
+performs an explicit intake/admission step.
+
 `RequestContext` is the application-owned context passed into application
 policy. It contains source channel, connector, external refs, dedupe key,
 resource refs, sender facts, and safety/validation facts. It is not provider

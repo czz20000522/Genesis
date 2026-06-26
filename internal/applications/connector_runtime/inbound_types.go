@@ -21,34 +21,34 @@ type ExternalRef struct {
 }
 
 type ExternalEvent struct {
-	Connector        string            `json:"connector"`
-	ExternalEventID  string            `json:"external_event_id"`
-	EventType        string            `json:"event_type"`
-	ThreadRef        ExternalThreadRef `json:"thread_ref"`
-	SenderRef        ExternalRef       `json:"sender_ref"`
-	MessageRef       ExternalRef       `json:"message_ref"`
-	Body             string            `json:"body,omitempty"`
-	ResourceRefs     []ResourceRef     `json:"resource_refs,omitempty"`
-	ReceivedAt       time.Time         `json:"received_at,omitempty"`
-	SourceValidation string            `json:"source_validation"`
-	Metadata         map[string]string `json:"metadata,omitempty"`
+	Connector        string                `json:"connector"`
+	ExternalEventID  string                `json:"external_event_id"`
+	EventType        string                `json:"event_type"`
+	ThreadRef        ExternalThreadRef     `json:"thread_ref"`
+	SenderRef        ExternalRef           `json:"sender_ref"`
+	MessageRef       ExternalRef           `json:"message_ref"`
+	Body             string                `json:"body,omitempty"`
+	ResourceRefs     []ExternalResourceRef `json:"resource_refs,omitempty"`
+	ReceivedAt       time.Time             `json:"received_at,omitempty"`
+	SourceValidation string                `json:"source_validation"`
+	Metadata         map[string]string     `json:"metadata,omitempty"`
 }
 
 type RequestContext struct {
-	RequestID            string            `json:"request_id"`
-	DedupeKey            string            `json:"dedupe_key"`
-	Connector            string            `json:"connector"`
-	EventType            string            `json:"event_type"`
-	ThreadRef            ExternalThreadRef `json:"thread_ref"`
-	SenderRef            ExternalRef       `json:"sender_ref"`
-	MessageRef           ExternalRef       `json:"message_ref"`
-	ResourceRefs         []ResourceRef     `json:"resource_refs,omitempty"`
-	SourceValidation     string            `json:"source_validation"`
-	ApplicationSessionID string            `json:"application_session_id"`
-	KernelSessionID      string            `json:"kernel_session_id"`
-	KernelIdempotencyKey string            `json:"kernel_idempotency_key"`
-	Body                 string            `json:"body"`
-	ReceivedAt           time.Time         `json:"received_at,omitempty"`
+	RequestID            string                `json:"request_id"`
+	DedupeKey            string                `json:"dedupe_key"`
+	Connector            string                `json:"connector"`
+	EventType            string                `json:"event_type"`
+	ThreadRef            ExternalThreadRef     `json:"thread_ref"`
+	SenderRef            ExternalRef           `json:"sender_ref"`
+	MessageRef           ExternalRef           `json:"message_ref"`
+	ResourceRefs         []ExternalResourceRef `json:"resource_refs,omitempty"`
+	SourceValidation     string                `json:"source_validation"`
+	ApplicationSessionID string                `json:"application_session_id"`
+	KernelSessionID      string                `json:"kernel_session_id"`
+	KernelIdempotencyKey string                `json:"kernel_idempotency_key"`
+	Body                 string                `json:"body"`
+	ReceivedAt           time.Time             `json:"received_at,omitempty"`
 }
 
 type ApplicationSessionMapping struct {

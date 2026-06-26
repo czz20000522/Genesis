@@ -63,7 +63,7 @@ func (e ExternalEvent) RequestContext(mapping ApplicationSessionMapping) Request
 		ThreadRef:            sanitizedThreadRef(e.ThreadRef),
 		SenderRef:            sanitizedExternalRef(e.SenderRef),
 		MessageRef:           sanitizedExternalRef(e.MessageRef),
-		ResourceRefs:         append([]ResourceRef(nil), e.ResourceRefs...),
+		ResourceRefs:         append([]ExternalResourceRef(nil), e.ResourceRefs...),
 		SourceValidation:     sourceValidation,
 		ApplicationSessionID: mapping.ApplicationSessionID,
 		KernelSessionID:      mapping.KernelSessionID,

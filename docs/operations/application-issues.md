@@ -26,51 +26,6 @@ Genesis Kernel. Kernel primitive gaps belong in
 
 ## Active Issues
 
-### APP-CONNECTOR-EXTERNAL-RESOURCE-REF-NAMING-20260626 - P2 - Connector resource refs must not masquerade as kernel resource refs
-
-- Status: open.
-- Requirement:
-  `docs/applications/application-connector-runtime-requirement.md`;
-  kernel resource boundary:
-  `docs/requirements/kernel-resource-read.md`.
-- Design: `docs/applications/application-connector-runtime-design.md`;
-  kernel resource design: `docs/design/kernel-resource-read.md`.
-- Kernel/owner pressure: application connector resource intake and public
-  reference handoff without letting external protocol ids become kernel
-  `resource_read` authority.
-- Gap: `connector_runtime.ResourceRef` currently means an external connector
-  resource locator with `connector`, `external_id`, and `kind`. Kernel
-  `resource_ref` means an admitted model-visible public reference owned by the
-  kernel/resource owner. The identical name makes it too easy for future Feishu,
-  mail, web, or document adapters to pass connector-local attachment ids into
-  kernel `resource_read` or context hydration as if they were already admitted
-  kernel resources. This is a naming and boundary drift risk, not a current
-  functional failure.
-- Next slice: Rename or wrap the connector-side type as
-  `ExternalResourceRef` / `ConnectorResourceRef`, and keep it in the
-  application connector namespace. Add an explicit intake/admission seam that
-  converts connector-local external resources into a kernel public reference
-  only after the owning resource path exists. Until that seam exists, connector
-  resource refs must remain application facts and must not be accepted by
-  `resource_read`, context hydration, provider context projection, or kernel
-  tool results.
-- Evidence: `internal/applications/connector_runtime/types.go` defines
-  `ResourceRef` as `{connector, external_id, kind}` and embeds it in
-  `AppCommand`. `internal/applications/connector_runtime/inbound_types.go`
-  embeds the same type in inbound `ExternalEvent` /
-  `ApplicationRequestContext`. `docs/requirements/kernel-resource-read.md`
-  defines kernel `resource_ref` as an opaque model-visible handle, not a
-  filesystem path or external protocol id.
-- Verification: Add tests proving connector external resource refs are preserved
-  as connector-local facts, are not copied into kernel tool arguments, are not
-  accepted by `resource_read`, and require an explicit owner intake/admission
-  step before any kernel public reference or context hydration can be produced.
-- Reference alignment: Codex and Reasonix keep external protocol/resource
-  handles behind adapter or plugin/resource protocol boundaries. Genesis should
-  follow the same direction: connector owns protocol translation, kernel owns
-  admitted references and authority, and LLM/provider context sees only the
-  public reference surface the owner has admitted.
-
 ### APP-CONNECTOR-FEISHU-LISTENER-20260623 - P2 - Connector source verification and lifecycle gate
 
 - Status: open.
