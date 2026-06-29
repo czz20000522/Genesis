@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { decideApproval, enableSessionDebug, getReady, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, listApprovals, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
+import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, listApprovals, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
 import { approvalSummary } from './approvalView'
+import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
 import { timelineDetailEntries } from './timelineDetail'
@@ -20,10 +21,12 @@ const material = ref<MaterialIntakeProjection | null>(null)
 const approvals = ref<ApprovalProjection[]>([])
 const approvalReason = ref('')
 const debugExport = ref<SessionDebugExport | null>(null)
+const compaction = ref<ContextCompactionResponse | null>(null)
 const detailEntries = computed(() => timelineDetailEntries(timeline.value?.items))
 const detailItem = computed(() => detail.value?.item ?? {})
 const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
 const debugSummaryRows = computed(() => debugExport.value ? debugSummary(debugExport.value) : [])
+const compactionSummaryRows = computed(() => compaction.value ? compactionSummary(compaction.value) : [])
 
 async function checkReady() {
   error.value = ''
@@ -166,6 +169,20 @@ function downloadDebugExport() {
   URL.revokeObjectURL(url)
 }
 
+async function compactContext() {
+  error.value = ''
+  saveKernelConfig(config.value)
+  if (!sessionId.value.trim()) {
+    error.value = 'session id is required'
+    return
+  }
+  try {
+    compaction.value = await compactSessionContext(config.value, sessionId.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
 function newDesktopIdempotencyKey() {
   const randomUUID = globalThis.crypto?.randomUUID?.()
   if (randomUUID) return `desktop-turn-${randomUUID}`
@@ -259,7 +276,18 @@ function newDesktopIdempotencyKey() {
         <button type="button" @click="enableDebug">Enable debug</button>
         <button type="button" @click="exportDebug">Export debug</button>
         <button type="button" :disabled="!debugExport" @click="downloadDebugExport">Download debug JSON</button>
+        <button type="button" @click="compactContext">Compact context</button>
       </div>
+
+      <aside v-if="compaction" class="detail-panel">
+        <p class="eyebrow">Context compaction</p>
+        <dl>
+          <dt>Admission</dt>
+          <dd>{{ compactionSummaryRows[0] }}</dd>
+          <dt>Reason</dt>
+          <dd>{{ compactionSummaryRows[1] || 'none' }}</dd>
+        </dl>
+      </aside>
 
       <aside v-if="debugExport" class="detail-panel">
         <p class="eyebrow">Session debug</p>

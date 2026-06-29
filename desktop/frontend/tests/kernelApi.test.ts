@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { decideApproval, enableSessionDebug, getSessionDebug, getTimelineDetail, kernelConfig, kernelUrl, listApprovals, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
+import { compactSessionContext, decideApproval, enableSessionDebug, getSessionDebug, getTimelineDetail, kernelConfig, kernelUrl, listApprovals, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
+import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
 import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
@@ -255,6 +256,61 @@ try {
   assert.equal(requestedAuth, 'Bearer secret')
   assert.deepEqual(debugSummary(debug), ['ready', '2', 'user_text: 2, skill_index: 1', 'deepseek: 2'])
   assert.equal(debugExportText(debug), '{\n  "readiness": "ready",\n  "steps": [\n    {\n      "model": "m1"\n    },\n    {\n      "model": "m2"\n    }\n  ],\n  "input_kind_counts": {\n    "user_text": 2,\n    "skill_index": 1\n  },\n  "model_counts": {\n    "deepseek": 2\n  }\n}')
+} finally {
+  globalThis.fetch = originalFetch
+}
+
+let compactUrl = ''
+let compactMethod = ''
+let compactContentType = ''
+let compactBody = ''
+globalThis.fetch = async (input, init) => {
+  compactUrl = String(input)
+  compactMethod = String(init?.method ?? '')
+  requestedAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  compactContentType = new Headers(init?.headers).get('Content-Type') ?? ''
+  compactBody = String(init?.body ?? '')
+  return new Response(JSON.stringify({
+    admission_result: 'admitted',
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const compacted = await compactSessionContext({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'session/compact')
+
+  assert.equal(compactUrl, 'http://127.0.0.1:8765/sessions/session%2Fcompact/context/compact')
+  assert.equal(compactMethod, 'POST')
+  assert.equal(requestedAuth, 'Bearer secret')
+  assert.equal(compactContentType, 'application/json')
+  assert.equal(compactBody, '{}')
+  assert.deepEqual(compactionSummary(compacted), ['admitted', ''])
+} finally {
+  globalThis.fetch = originalFetch
+}
+
+let compactAttempts = 0
+globalThis.fetch = async () => {
+  compactAttempts += 1
+  return new Response(JSON.stringify({
+    error: { code: 'active_turn_running', message: 'manual compaction requires an idle session' },
+  }), {
+    status: 409,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  await assert.rejects(
+    () => compactSessionContext({ baseUrl: 'http://127.0.0.1:8765', runtimeToken: 'secret' }, 'busy-session'),
+    /active_turn_running: manual compaction requires an idle session/,
+  )
+  assert.equal(compactAttempts, 1)
 } finally {
   globalThis.fetch = originalFetch
 }

@@ -59,6 +59,12 @@ export type ApprovalDecision = 'approved' | 'denied'
 
 export type SessionDebugExport = Record<string, unknown>
 
+export type ContextCompactionResponse = {
+  admission_result?: string
+  reason_class?: string
+  refusal_reason_class?: string
+}
+
 export function kernelConfig(storage: Pick<Storage, 'getItem'> | null = safeLocalStorage()): KernelConfig {
   return {
     baseUrl: String(storage?.getItem(baseUrlKey) ?? 'http://127.0.0.1:8765').trim(),
@@ -137,6 +143,13 @@ export async function enableSessionDebug(config: KernelConfig, sessionId: string
 
 export async function getSessionDebug(config: KernelConfig, sessionId: string) {
   return requestKernel<SessionDebugExport>(config, `/sessions/${encodeURIComponent(sessionId)}/debug`)
+}
+
+export async function compactSessionContext(config: KernelConfig, sessionId: string) {
+  return requestKernel<ContextCompactionResponse>(config, `/sessions/${encodeURIComponent(sessionId)}/context/compact`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
 }
 
 export async function requestKernel<T = Record<string, unknown>>(config: KernelConfig, path: string, init: RequestInit = {}): Promise<T> {
