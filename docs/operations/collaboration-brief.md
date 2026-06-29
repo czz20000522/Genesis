@@ -126,12 +126,9 @@ kernel/application boundaries:
 
 Frontend lane owns user experience over backend projections, not kernel truth.
 Genesis is a personal local system, so the product shell is desktop-first.
-WebUI is a draft visualization surface for development and review, not the
-primary production surface. CLI is not a required product lane unless a future
-operator need proves it is worth the maintenance cost.
+The earlier Vue/Vite WebUI draft is retired. CLI is not a required product lane
+unless a future operator need proves it is worth the maintenance cost.
 
-- the kernel reconstruction frontend uses the Python line's Vue/Vite direction
-  for the current WebUI draft surface;
 - the desktop shell uses Wails + Vue/Vite + Go sidecar over existing kernel
   HTTP, following the Reasonix-style pattern: one desktop application drives the
   same kernel projections without becoming a kernel owner;

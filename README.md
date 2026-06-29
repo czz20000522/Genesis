@@ -17,7 +17,7 @@ The kernel owns only these planes:
 
 ## Out Of Scope
 
-- CLI, WebUI, desktop UI, browser UI.
+- CLI, desktop UI, browser UI, and other user-space shells.
 - Feishu, WeChat, email, calendar, document, OCR, or other application-specific logic.
 - Skill bodies, product prompts, user workflows, and channel daemons.
 - Project-specific assumptions from the previous Python implementation.
