@@ -264,18 +264,21 @@ func effectiveSkillRoots(defaults []string, explicit []string, disableDefaults b
 	if !disableDefaults {
 		roots = append(roots, defaults...)
 	}
-	return roots
+	return dedupeSkillRoots(roots)
 }
 
 func defaultSkillRoots() []string {
 	if roots := splitPathList(os.Getenv("GENESIS_SKILL_ROOTS")); len(roots) > 0 {
-		return roots
+		return dedupeSkillRoots(roots)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return nil
 	}
-	return []string{filepath.Join(home, ".agents", "skills")}
+	return dedupeSkillRoots([]string{
+		filepath.Join(home, ".genesis", "skills"),
+		filepath.Join(home, ".agents", "skills"),
+	})
 }
 
 func splitPathList(value string) []string {
@@ -287,6 +290,23 @@ func splitPathList(value string) []string {
 		}
 	}
 	return roots
+}
+
+func dedupeSkillRoots(roots []string) []string {
+	var out []string
+	seen := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		key := filepath.Clean(root)
+		if filepath.Separator == '\\' {
+			key = strings.ToLower(key)
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, root)
+	}
+	return out
 }
 
 type stringListFlag []string

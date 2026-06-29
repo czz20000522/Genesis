@@ -158,29 +158,32 @@ func TestBuildProviderBlocksSecretShapedCommandEnvironment(t *testing.T) {
 }
 
 func TestEffectiveSkillRootsPrioritizesExplicitAndCanDisableDefaults(t *testing.T) {
-	defaults := []string{"global-a", "global-b"}
-	explicit := []string{"focused-a", "focused-b"}
+	defaults := []string{"global-a", "global-b", "focused-a"}
+	explicit := []string{"focused-a", "focused-b", "global-a"}
 
 	withDefaults := effectiveSkillRoots(defaults, explicit, false)
 	if strings.Join(withDefaults, ",") != "focused-a,focused-b,global-a,global-b" {
-		t.Fatalf("skill roots with defaults = %v, want explicit roots first then defaults", withDefaults)
+		t.Fatalf("skill roots with defaults = %v, want explicit roots first then deduped defaults", withDefaults)
 	}
 	focused := effectiveSkillRoots(defaults, explicit, true)
-	if strings.Join(focused, ",") != "focused-a,focused-b" {
-		t.Fatalf("focused skill roots = %v, want only explicit roots", focused)
+	if strings.Join(focused, ",") != "focused-a,focused-b,global-a" {
+		t.Fatalf("focused skill roots = %v, want deduped explicit roots only", focused)
 	}
 }
 
-func TestDefaultSkillRootsUsesUserAgentSkillStore(t *testing.T) {
+func TestDefaultSkillRootsUsesGenesisThenUserAgentSkillStores(t *testing.T) {
 	home := testsupport.ProjectTempDir(t, "genesisd-user-skill-store")
 	t.Setenv("GENESIS_SKILL_ROOTS", "")
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 
 	roots := defaultSkillRoots()
-	want := filepath.Join(home, ".agents", "skills")
-	if len(roots) != 1 || roots[0] != want {
-		t.Fatalf("default skill roots = %v, want [%s]", roots, want)
+	want := []string{
+		filepath.Join(home, ".genesis", "skills"),
+		filepath.Join(home, ".agents", "skills"),
+	}
+	if strings.Join(roots, ",") != strings.Join(want, ",") {
+		t.Fatalf("default skill roots = %v, want %v", roots, want)
 	}
 }
 
