@@ -9,13 +9,40 @@ export type KernelConfig = {
 export type KernelTimeline = {
   session_id?: string
   readiness?: string
-  items?: Array<Record<string, unknown>>
+  items?: UITimelineItem[]
 }
 
 export type KernelTimelineDetail = {
   detail_ref?: string
   readiness?: string
-  item?: Record<string, unknown>
+  item?: UITimelineItem
+}
+
+export type UITimelineItem = {
+  item_id?: string
+  turn_id?: string
+  kind?: string
+  phase?: string
+  wait_reason?: string
+  terminal_outcome?: string
+  terminal_cause?: string
+  text?: string
+  tool?: string
+  command_preview?: string
+  output_preview?: string
+  visible_output?: string
+  output_source?: string
+  output_truncated?: boolean
+  output_truncation?: string
+  default_open?: boolean
+  detail_ref?: string
+  detail_available?: boolean
+  duration_ms?: number
+  tool_count?: number
+  job_count?: number
+  compaction_count?: number
+  children?: UITimelineItem[]
+  [key: string]: unknown
 }
 
 export type MaterialIntakeProjection = {
@@ -86,19 +113,22 @@ export async function getCapabilities(config = kernelConfig()) {
 }
 
 export async function getTimeline(config: KernelConfig, sessionId: string) {
-  return requestKernel<KernelTimeline>(config, `/sessions/${encodeURIComponent(sessionId)}/timeline`)
+  const session = requiredSessionId(sessionId)
+  return requestKernel<KernelTimeline>(config, `/sessions/${encodeURIComponent(session)}/timeline`)
 }
 
 export async function getTimelineDetail(config: KernelConfig, sessionId: string, detailRef: string) {
+  const session = requiredSessionId(sessionId)
   return requestKernel<KernelTimelineDetail>(
     config,
-    `/sessions/${encodeURIComponent(sessionId)}/timeline/details/${encodeURIComponent(detailRef)}`,
+    `/sessions/${encodeURIComponent(session)}/timeline/details/${encodeURIComponent(detailRef)}`,
   )
 }
 
 export async function uploadMaterial(config: KernelConfig, sessionId: string, file: File) {
+  const session = requiredSessionId(sessionId)
   const form = new FormData()
-  form.set('session_id', sessionId)
+  form.set('session_id', session)
   form.set('purpose', 'source_analysis')
   form.set('file', file)
   return requestKernel<MaterialIntakeProjection>(config, '/materials/upload', {
@@ -108,10 +138,11 @@ export async function uploadMaterial(config: KernelConfig, sessionId: string, fi
 }
 
 export async function submitTurn(config: KernelConfig, sessionId: string, text: string, idempotencyKey: string) {
+  const session = requiredSessionId(sessionId)
   return requestKernel<TurnResponse>(config, '/turn', {
     method: 'POST',
     body: JSON.stringify({
-      session_id: sessionId,
+      session_id: session,
       idempotency_key: idempotencyKey,
       input_items: [{ type: 'text', text }],
     }),
@@ -135,18 +166,21 @@ export async function decideApproval(config: KernelConfig, approvalId: string, d
 }
 
 export async function enableSessionDebug(config: KernelConfig, sessionId: string) {
-  return requestKernel<SessionDebugExport>(config, `/sessions/${encodeURIComponent(sessionId)}/debug/enable`, {
+  const session = requiredSessionId(sessionId)
+  return requestKernel<SessionDebugExport>(config, `/sessions/${encodeURIComponent(session)}/debug/enable`, {
     method: 'POST',
     body: JSON.stringify({}),
   })
 }
 
 export async function getSessionDebug(config: KernelConfig, sessionId: string) {
-  return requestKernel<SessionDebugExport>(config, `/sessions/${encodeURIComponent(sessionId)}/debug`)
+  const session = requiredSessionId(sessionId)
+  return requestKernel<SessionDebugExport>(config, `/sessions/${encodeURIComponent(session)}/debug`)
 }
 
 export async function compactSessionContext(config: KernelConfig, sessionId: string) {
-  return requestKernel<ContextCompactionResponse>(config, `/sessions/${encodeURIComponent(sessionId)}/context/compact`, {
+  const session = requiredSessionId(sessionId)
+  return requestKernel<ContextCompactionResponse>(config, `/sessions/${encodeURIComponent(session)}/context/compact`, {
     method: 'POST',
     body: JSON.stringify({}),
   })
@@ -166,6 +200,12 @@ export async function requestKernel<T = Record<string, unknown>>(config: KernelC
 export function kernelUrl(baseUrl: string, path: string) {
   const base = normalizedBaseUrl(baseUrl)
   return `${base}/${path.replace(/^\/+/, '')}`
+}
+
+export function requiredSessionId(sessionId: string) {
+  const session = String(sessionId || '').trim()
+  if (!session) throw new Error('session id is required')
+  return session
 }
 
 function normalizedBaseUrl(baseUrl: string) {

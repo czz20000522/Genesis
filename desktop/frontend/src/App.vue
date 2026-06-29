@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, listApprovals, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
-import ActionDock from './components/ActionDock.vue'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -10,11 +9,13 @@ import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
 import { timelineDetailEntries } from './timelineDetail'
+import { timelineRows } from './timelineView'
 
 const config = ref(kernelConfig())
 const readiness = ref('unchecked')
 const error = ref('')
-const sessionId = ref('')
+const sessionId = ref(newDesktopSessionId())
+const localSessions = ref([sessionId.value])
 const messageText = ref('')
 const lastTurn = ref<TurnResponse | null>(null)
 const selectedDetailRef = ref('')
@@ -26,10 +27,49 @@ const approvals = ref<ApprovalProjection[]>([])
 const approvalReason = ref('')
 const debugExport = ref<SessionDebugExport | null>(null)
 const compaction = ref<ContextCompactionResponse | null>(null)
+const inspectorOpen = ref(false)
+
+const conversationRows = computed(() => timelineRows(timeline.value?.items))
 const detailEntries = computed(() => timelineDetailEntries(timeline.value?.items))
+const selectedFileName = computed(() => selectedFile.value?.name ?? '')
 const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
 const debugSummaryRows = computed(() => debugExport.value ? debugSummary(debugExport.value) : [])
 const compactionSummaryRows = computed(() => compaction.value ? compactionSummary(compaction.value) : [])
+
+function currentSession() {
+  const session = sessionId.value.trim()
+  if (!session) {
+    error.value = 'session id is required'
+    return ''
+  }
+  if (!localSessions.value.includes(session)) localSessions.value = [session, ...localSessions.value]
+  return session
+}
+
+function newSession() {
+  const next = newDesktopSessionId()
+  sessionId.value = next
+  localSessions.value = [next, ...localSessions.value]
+  timeline.value = null
+  detail.value = null
+  lastTurn.value = null
+  selectedDetailRef.value = ''
+  approvals.value = []
+  messageText.value = ''
+  error.value = ''
+}
+
+function selectSession(value: string) {
+  const session = value.trim()
+  if (!session) return
+  sessionId.value = session
+  if (!localSessions.value.includes(session)) localSessions.value = [session, ...localSessions.value]
+  timeline.value = null
+  detail.value = null
+  lastTurn.value = null
+  selectedDetailRef.value = ''
+  error.value = ''
+}
 
 async function checkReady() {
   error.value = ''
@@ -47,8 +87,11 @@ async function loadTimeline() {
   error.value = ''
   saveKernelConfig(config.value)
   detail.value = null
+  const session = currentSession()
+  if (!session) return
   try {
-    timeline.value = await getTimeline(config.value, sessionId.value)
+    timeline.value = await getTimeline(config.value, session)
+    lastTurn.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -58,11 +101,8 @@ async function sendMessage() {
   error.value = ''
   saveKernelConfig(config.value)
   const text = messageText.value.trim()
-  const session = sessionId.value.trim()
-  if (!session) {
-    error.value = 'session id is required'
-    return
-  }
+  const session = currentSession()
+  if (!session) return
   if (!text) {
     error.value = 'message is required'
     return
@@ -71,6 +111,7 @@ async function sendMessage() {
     lastTurn.value = await submitTurn(config.value, session, text, newDesktopIdempotencyKey())
     messageText.value = ''
     timeline.value = await getTimeline(config.value, session)
+    await loadApprovals()
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -80,8 +121,11 @@ async function loadDetail(detailRef = selectedDetailRef.value) {
   error.value = ''
   saveKernelConfig(config.value)
   selectedDetailRef.value = detailRef
+  const session = currentSession()
+  if (!session) return
   try {
-    detail.value = await getTimelineDetail(config.value, sessionId.value, detailRef)
+    detail.value = await getTimelineDetail(config.value, session, detailRef)
+    inspectorOpen.value = true
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -98,8 +142,11 @@ async function uploadSelectedMaterial() {
     error.value = 'select a material file first'
     return
   }
+  const session = currentSession()
+  if (!session) return
   try {
-    material.value = await uploadMaterial(config.value, sessionId.value, selectedFile.value)
+    material.value = await uploadMaterial(config.value, session, selectedFile.value)
+    inspectorOpen.value = true
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -122,9 +169,8 @@ async function submitApprovalDecision(approvalId: string, decision: 'approved' |
     await decideApproval(config.value, approvalId, decision, approvalReason.value || decision)
     approvalReason.value = ''
     await loadApprovals()
-    if (sessionId.value.trim()) {
-      timeline.value = await getTimeline(config.value, sessionId.value)
-    }
+    const session = sessionId.value.trim()
+    if (session) timeline.value = await getTimeline(config.value, session)
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -133,12 +179,11 @@ async function submitApprovalDecision(approvalId: string, decision: 'approved' |
 async function enableDebug() {
   error.value = ''
   saveKernelConfig(config.value)
-  if (!sessionId.value.trim()) {
-    error.value = 'session id is required'
-    return
-  }
+  const session = currentSession()
+  if (!session) return
   try {
-    debugExport.value = await enableSessionDebug(config.value, sessionId.value)
+    debugExport.value = await enableSessionDebug(config.value, session)
+    inspectorOpen.value = true
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -147,12 +192,11 @@ async function enableDebug() {
 async function exportDebug() {
   error.value = ''
   saveKernelConfig(config.value)
-  if (!sessionId.value.trim()) {
-    error.value = 'session id is required'
-    return
-  }
+  const session = currentSession()
+  if (!session) return
   try {
-    debugExport.value = await getSessionDebug(config.value, sessionId.value)
+    debugExport.value = await getSessionDebug(config.value, session)
+    inspectorOpen.value = true
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -171,15 +215,20 @@ function downloadDebugExport() {
 async function compactContext() {
   error.value = ''
   saveKernelConfig(config.value)
-  if (!sessionId.value.trim()) {
-    error.value = 'session id is required'
-    return
-  }
+  const session = currentSession()
+  if (!session) return
   try {
-    compaction.value = await compactSessionContext(config.value, sessionId.value)
+    compaction.value = await compactSessionContext(config.value, session)
+    inspectorOpen.value = true
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
+}
+
+function newDesktopSessionId() {
+  const randomUUID = globalThis.crypto?.randomUUID?.()
+  if (randomUUID) return `desktop-${randomUUID}`
+  return `desktop-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function newDesktopIdempotencyKey() {
@@ -190,58 +239,68 @@ function newDesktopIdempotencyKey() {
 </script>
 
 <template>
-  <main class="workbench">
-    <KernelTopBar
-      :base-url="config.baseUrl"
-      :runtime-token="config.runtimeToken"
-      :readiness="readiness"
-      :error="error"
-      @update:base-url="config.baseUrl = $event"
-      @update:runtime-token="config.runtimeToken = $event"
-      @check-ready="checkReady"
+  <main :class="['chat-shell', { 'chat-shell--inspector-open': inspectorOpen }]">
+    <SessionRail
+      :session-id="sessionId"
+      :sessions="localSessions"
+      @new-session="newSession"
+      @select-session="selectSession"
+      @load-timeline="loadTimeline"
     />
 
-    <section class="workbench-grid">
-      <SessionRail
+    <section class="session-workspace">
+      <KernelTopBar
         :session-id="sessionId"
-        :debug-export-ready="Boolean(debugExport)"
-        @update:session-id="sessionId = $event"
-        @load-timeline="loadTimeline"
-        @select-material="selectMaterial"
-        @upload-material="uploadSelectedMaterial"
-        @enable-debug="enableDebug"
-        @export-debug="exportDebug"
-        @download-debug="downloadDebugExport"
-        @compact-context="compactContext"
+        :readiness="readiness"
+        :error="error"
+        :inspector-open="inspectorOpen"
+        @check-ready="checkReady"
+        @load-approvals="loadApprovals"
+        @toggle-inspector="inspectorOpen = !inspectorOpen"
       />
 
       <ConversationPane
+        :session-id="sessionId"
         :message-text="messageText"
         :last-turn="lastTurn"
-        :timeline="timeline"
+        :rows="conversationRows"
         :detail-entries="detailEntries"
-        @update:message-text="messageText = $event"
-        @send-message="sendMessage"
-        @load-detail="loadDetail"
-      />
-
-      <ActionDock
         :approvals="approvals"
         :approval-reason="approvalReason"
+        :selected-file-name="selectedFileName"
+        :readiness="readiness"
+        @update:message-text="messageText = $event"
         @update:approval-reason="approvalReason = $event"
+        @send-message="sendMessage"
+        @load-detail="loadDetail"
+        @select-material="selectMaterial"
+        @upload-material="uploadSelectedMaterial"
         @load-approvals="loadApprovals"
         @decide-approval="submitApprovalDecision"
       />
-
-      <InspectorDrawer
-        :detail="detail"
-        :selected-detail-ref="selectedDetailRef"
-        :material-summary="materialSummary"
-        :debug-summary-rows="debugSummaryRows"
-        :compaction-summary-rows="compactionSummaryRows"
-        @update:selected-detail-ref="selectedDetailRef = $event"
-        @load-detail="loadDetail"
-      />
     </section>
+
+    <InspectorDrawer
+      v-if="inspectorOpen"
+      :base-url="config.baseUrl"
+      :runtime-token="config.runtimeToken"
+      :readiness="readiness"
+      :detail="detail"
+      :selected-detail-ref="selectedDetailRef"
+      :material-summary="materialSummary"
+      :debug-summary-rows="debugSummaryRows"
+      :compaction-summary-rows="compactionSummaryRows"
+      :debug-export-ready="Boolean(debugExport)"
+      @update:base-url="config.baseUrl = $event"
+      @update:runtime-token="config.runtimeToken = $event"
+      @update:selected-detail-ref="selectedDetailRef = $event"
+      @check-ready="checkReady"
+      @load-detail="loadDetail"
+      @enable-debug="enableDebug"
+      @export-debug="exportDebug"
+      @download-debug="downloadDebugExport"
+      @compact-context="compactContext"
+      @close="inspectorOpen = false"
+    />
   </main>
 </template>

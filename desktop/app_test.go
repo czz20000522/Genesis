@@ -76,3 +76,19 @@ func TestDesktopGoDoesNotImportKernelInternals(t *testing.T) {
 		}
 	}
 }
+
+func TestFrontendAssetDirPrefersPackagedExecutableLayout(t *testing.T) {
+	root := t.TempDir()
+	dist := filepath.Join(root, "frontend", "dist")
+	if err := os.MkdirAll(dist, 0o755); err != nil {
+		t.Fatalf("mkdir dist: %v", err)
+	}
+	exe := filepath.Join(root, "build", "bin", "genesis-desktop.exe")
+	cwd := filepath.Join(root, "elsewhere")
+
+	got := frontendAssetDir(exe, cwd)
+
+	if got != dist {
+		t.Fatalf("frontendAssetDir() = %q, want %q", got, dist)
+	}
+}

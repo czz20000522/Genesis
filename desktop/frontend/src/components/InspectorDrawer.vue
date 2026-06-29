@@ -3,16 +3,28 @@ import { computed } from 'vue'
 import type { KernelTimelineDetail } from '../api/kernelApi'
 
 const props = defineProps<{
+  baseUrl: string
+  runtimeToken: string
+  readiness: string
   detail: KernelTimelineDetail | null
   selectedDetailRef: string
   materialSummary: string[]
   debugSummaryRows: string[]
   compactionSummaryRows: string[]
+  debugExportReady: boolean
 }>()
 
 defineEmits<{
+  'update:baseUrl': [value: string]
+  'update:runtimeToken': [value: string]
   'update:selectedDetailRef': [value: string]
+  checkReady: []
   loadDetail: []
+  enableDebug: []
+  exportDebug: []
+  downloadDebug: []
+  compactContext: []
+  close: []
 }>()
 
 const detailItem = computed(() => props.detail?.item ?? {})
@@ -24,13 +36,40 @@ function detailField(name: string) {
 
 <template>
   <aside class="inspector">
+    <div class="inspector-head">
+      <div>
+        <p class="eyebrow">Inspector</p>
+        <strong>{{ readiness }}</strong>
+      </div>
+      <button type="button" class="secondary-button" @click="$emit('close')">Close</button>
+    </div>
+
     <section class="panel">
-      <p class="eyebrow">Inspector</p>
+      <p class="eyebrow">Settings</p>
+      <label>
+        Kernel URL
+        <input :value="baseUrl" spellcheck="false" @input="$emit('update:baseUrl', ($event.target as HTMLInputElement).value)" />
+      </label>
+      <label>
+        Runtime token
+        <input :value="runtimeToken" type="password" spellcheck="false" @input="$emit('update:runtimeToken', ($event.target as HTMLInputElement).value)" />
+      </label>
+      <button type="button" class="secondary-button" @click="$emit('checkReady')">Check kernel</button>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">Session diagnostics</p>
       <label>
         Detail ref
         <input :value="selectedDetailRef" spellcheck="false" @input="$emit('update:selectedDetailRef', ($event.target as HTMLInputElement).value)" />
       </label>
-      <button type="button" @click="$emit('loadDetail')">Load detail</button>
+      <div class="button-row">
+        <button type="button" class="secondary-button" @click="$emit('loadDetail')">Load detail</button>
+        <button type="button" class="secondary-button" @click="$emit('enableDebug')">Enable debug</button>
+        <button type="button" class="secondary-button" @click="$emit('exportDebug')">Export debug</button>
+        <button type="button" class="secondary-button" :disabled="!debugExportReady" @click="$emit('downloadDebug')">Download</button>
+        <button type="button" class="secondary-button" @click="$emit('compactContext')">Compact</button>
+      </div>
     </section>
 
     <section v-if="detail" class="detail-panel">

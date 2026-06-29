@@ -4,7 +4,7 @@
 - Status: Active
 - Last refreshed: 2026-06-29
 - Primary product surfaces: Wails desktop app
-- Evidence reviewed: `desktop/frontend/src/App.vue`, `desktop/frontend/src/api/kernelApi.ts`, GitHub issue #25
+- Evidence reviewed: `desktop/frontend/src/App.vue`, `desktop/frontend/src/api/kernelApi.ts`, GitHub issues #25 and #26
 
 ## Brand
 - Personality: local-first, technical, calm, operator-grade
@@ -12,7 +12,7 @@
 - Avoid: marketing layout, decorative visuals, hidden side effects
 
 ## Product goals
-- Goals: make one session workable from connection through conversation, approval, materials, debug, compaction, and details
+- Goals: make the first screen read as a local assistant chat while keeping approvals, materials, debug, compaction, and details reachable
 - Non-goals: WebUI polish, multi-session database, provider context construction in the frontend
 - Success signals: user can send a turn and inspect kernel projections without leaving the primary workbench
 
@@ -23,8 +23,8 @@
 
 ## Information architecture
 - Primary navigation: no router; one workbench screen
-- Core routes/screens: top kernel bar, session rail, conversation pane, action dock, inspector drawer
-- Content hierarchy: conversation first, controls second, diagnostics in inspector
+- Core routes/screens: compact kernel bar, session rail, central transcript/composer, inspector drawer
+- Content hierarchy: chat transcript and composer first, session navigation second, diagnostics in inspector
 
 ## Design principles
 - Principle 1: desktop is a shell over kernel HTTP primitives, not a truth owner
@@ -41,7 +41,7 @@
 
 ## Components
 - Existing components to reuse: `kernelApi.ts` as the HTTP choke point, view helpers for approvals/material/debug/compaction/timeline detail
-- New/changed components: `KernelTopBar`, `SessionRail`, `ConversationPane`, `ActionDock`, `InspectorDrawer`
+- New/changed components: `KernelTopBar`, `SessionRail`, `ConversationPane`, `InspectorDrawer`
 - Variants and states: ready/not ready, empty timeline, pending approvals, debug export available, compaction result
 - Token/component ownership: frontend-local CSS only; no design-system dependency
 

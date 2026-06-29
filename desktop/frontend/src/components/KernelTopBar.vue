@@ -1,36 +1,30 @@
 <script setup lang="ts">
 defineProps<{
-  baseUrl: string
-  runtimeToken: string
   readiness: string
+  sessionId: string
   error: string
+  inspectorOpen: boolean
 }>()
 
 defineEmits<{
-  'update:baseUrl': [value: string]
-  'update:runtimeToken': [value: string]
   checkReady: []
+  loadApprovals: []
+  toggleInspector: []
 }>()
 </script>
 
 <template>
   <header class="topbar">
-    <div>
+    <div class="topbar-status">
       <p class="eyebrow">Genesis Desktop</p>
-      <h1>Session workbench</h1>
-      <p class="status">readiness: {{ readiness }}</p>
+      <h1>Genesis</h1>
+      <p class="status">kernel {{ readiness }} · {{ sessionId || 'no session' }}</p>
       <p v-if="error" class="error">{{ error }}</p>
     </div>
-    <div class="connection-fields">
-      <label>
-        Kernel URL
-        <input :value="baseUrl" spellcheck="false" @input="$emit('update:baseUrl', ($event.target as HTMLInputElement).value)" />
-      </label>
-      <label>
-        Runtime token
-        <input :value="runtimeToken" type="password" spellcheck="false" @input="$emit('update:runtimeToken', ($event.target as HTMLInputElement).value)" />
-      </label>
-      <button type="button" @click="$emit('checkReady')">Check kernel</button>
+    <div class="topbar-actions">
+      <button type="button" class="secondary-button" @click="$emit('checkReady')">Check kernel</button>
+      <button type="button" class="secondary-button" @click="$emit('loadApprovals')">Approvals</button>
+      <button type="button" @click="$emit('toggleInspector')">{{ inspectorOpen ? 'Hide inspector' : 'Inspector' }}</button>
     </div>
   </header>
 </template>

@@ -1,49 +1,48 @@
 <script setup lang="ts">
 defineProps<{
   sessionId: string
-  debugExportReady: boolean
+  sessions: string[]
 }>()
 
 defineEmits<{
-  'update:sessionId': [value: string]
+  newSession: []
+  selectSession: [value: string]
   loadTimeline: []
-  selectMaterial: [event: Event]
-  uploadMaterial: []
-  enableDebug: []
-  exportDebug: []
-  downloadDebug: []
-  compactContext: []
 }>()
+
+function shortSession(value: string) {
+  return value.length <= 22 ? value : `${value.slice(0, 14)}...${value.slice(-6)}`
+}
 </script>
 
 <template>
   <aside class="rail">
-    <section class="panel">
-      <p class="eyebrow">Session</p>
-      <label>
-        Session ID
-        <input :value="sessionId" spellcheck="false" @input="$emit('update:sessionId', ($event.target as HTMLInputElement).value)" />
-      </label>
-      <button type="button" @click="$emit('loadTimeline')">Load timeline</button>
-    </section>
-
-    <section class="panel">
-      <p class="eyebrow">Materials</p>
-      <label>
-        Material zip
-        <input type="file" accept=".zip,application/zip,application/x-zip-compressed" @change="$emit('selectMaterial', $event)" />
-      </label>
-      <button type="button" @click="$emit('uploadMaterial')">Upload material</button>
-    </section>
-
-    <section class="panel">
-      <p class="eyebrow">Session controls</p>
-      <div class="detail-list">
-        <button type="button" @click="$emit('enableDebug')">Enable debug</button>
-        <button type="button" @click="$emit('exportDebug')">Export debug</button>
-        <button type="button" :disabled="!debugExportReady" @click="$emit('downloadDebug')">Download debug JSON</button>
-        <button type="button" @click="$emit('compactContext')">Compact context</button>
+    <div class="rail-brand">
+      <div class="brand-mark">G</div>
+      <div>
+        <strong>Genesis</strong>
+        <span>Desktop</span>
       </div>
-    </section>
+    </div>
+
+    <button type="button" class="new-session-button" @click="$emit('newSession')">New session</button>
+
+    <nav class="session-list" aria-label="Sessions">
+      <button
+        v-for="session in sessions"
+        :key="session"
+        type="button"
+        :class="['session-link', { 'session-link-active': session === sessionId }]"
+        :title="session"
+        @click="$emit('selectSession', session)"
+      >
+        <span>{{ shortSession(session) }}</span>
+        <small>{{ session === sessionId ? 'current' : 'local' }}</small>
+      </button>
+    </nav>
+
+    <div class="rail-footer">
+      <button type="button" class="secondary-button" @click="$emit('loadTimeline')">Refresh timeline</button>
+    </div>
   </aside>
 </template>

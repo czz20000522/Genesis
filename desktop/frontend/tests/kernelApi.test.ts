@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { compactSessionContext, decideApproval, enableSessionDebug, getSessionDebug, getTimelineDetail, kernelConfig, kernelUrl, listApprovals, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
+import { compactSessionContext, decideApproval, enableSessionDebug, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, listApprovals, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
 import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
+import { timelineRows } from '../src/timelineView.ts'
 
 const values = new Map<string, string>()
 const storage = {
@@ -31,6 +32,23 @@ assert.deepEqual(kernelConfig(storage), {
 
 assert.equal(kernelUrl('http://127.0.0.1:8765/', '/ready'), 'http://127.0.0.1:8765/ready')
 assert.equal(kernelUrl('', 'capabilities'), 'http://127.0.0.1:8765/capabilities')
+
+let emptySessionRequests = 0
+const originalFetchForEmptySession = globalThis.fetch
+globalThis.fetch = async () => {
+  emptySessionRequests += 1
+  return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+}
+
+try {
+  await assert.rejects(
+    () => getTimeline({ baseUrl: 'http://127.0.0.1:8765', runtimeToken: '' }, ' '),
+    /session id is required/,
+  )
+  assert.equal(emptySessionRequests, 0)
+} finally {
+  globalThis.fetch = originalFetchForEmptySession
+}
 
 let requestedUrl = ''
 let requestedAuth = ''
@@ -87,6 +105,32 @@ assert.deepEqual(timelineDetailEntries([
   { detailRef: 'group-1', label: 'processing_group: group-1' },
   { detailRef: 'tool-1', label: 'operation_detail: tool-1' },
   { detailRef: 'nested-ref', label: 'operation_detail: nested-ref' },
+])
+
+assert.deepEqual(timelineRows([
+  {
+    item_id: 'turn-1',
+    kind: 'turn',
+    children: [
+      { item_id: 'user-1', kind: 'user_message', text: 'hello Genesis' },
+      {
+        item_id: 'processing-1',
+        kind: 'processing_group',
+        text: '已处理 3s',
+        tool_count: 1,
+        detail_ref: 'processing-detail',
+        detail_available: true,
+        children: [{ item_id: 'operation-1', kind: 'operation_detail', output_preview: 'raw tool output' }],
+      },
+      { item_id: 'assistant-1', kind: 'assistant_message', text: 'done' },
+      { item_id: 'action-1', kind: 'user_action_request', text: '需要用户批准', tool: 'shell_exec' },
+    ],
+  },
+]).map((row) => [row.kind, row.text, row.meta]), [
+  ['user', 'hello Genesis', ''],
+  ['processing', '已处理 3s', '1 tool'],
+  ['assistant', 'done', ''],
+  ['action', '需要用户批准', 'shell_exec'],
 ])
 
 let uploadedUrl = ''
