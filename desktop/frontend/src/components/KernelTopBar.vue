@@ -16,15 +16,15 @@ defineEmits<{
 <template>
   <header class="topbar">
     <div class="topbar-status">
-      <p class="eyebrow">Genesis Desktop</p>
-      <h1>Genesis</h1>
-      <p class="status">kernel {{ readiness }} · {{ sessionId || 'no session' }}</p>
+      <strong>Genesis</strong>
+      <span>内核 {{ readiness }}</span>
+      <span>{{ sessionId || '未选择会话' }}</span>
       <p v-if="error" class="error">{{ error }}</p>
     </div>
     <div class="topbar-actions">
-      <button type="button" class="secondary-button" @click="$emit('checkReady')">Check kernel</button>
-      <button type="button" class="secondary-button" @click="$emit('loadApprovals')">Approvals</button>
-      <button type="button" @click="$emit('toggleInspector')">{{ inspectorOpen ? 'Hide inspector' : 'Inspector' }}</button>
+      <button type="button" @click="$emit('checkReady')">检查</button>
+      <button type="button" @click="$emit('loadApprovals')">审批</button>
+      <button type="button" @click="$emit('toggleInspector')">{{ inspectorOpen ? '收起' : '检查器' }}</button>
     </div>
   </header>
 </template>

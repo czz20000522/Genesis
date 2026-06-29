@@ -39,7 +39,7 @@ const compactionSummaryRows = computed(() => compaction.value ? compactionSummar
 function currentSession() {
   const session = sessionId.value.trim()
   if (!session) {
-    error.value = 'session id is required'
+    error.value = '请先选择或新建会话'
     return ''
   }
   if (!localSessions.value.includes(session)) localSessions.value = [session, ...localSessions.value]
@@ -104,7 +104,7 @@ async function sendMessage() {
   const session = currentSession()
   if (!session) return
   if (!text) {
-    error.value = 'message is required'
+    error.value = '请输入消息'
     return
   }
   try {
@@ -139,7 +139,7 @@ async function uploadSelectedMaterial() {
   error.value = ''
   saveKernelConfig(config.value)
   if (!selectedFile.value) {
-    error.value = 'select a material file first'
+    error.value = '请先选择资料文件'
     return
   }
   const session = currentSession()

@@ -29,8 +29,8 @@ const emit = defineEmits<{
 
 const turnStatus = computed(() => {
   if (props.lastTurn?.error) return [props.lastTurn.error.code, props.lastTurn.error.message].filter(Boolean).join(': ')
-  if (props.lastTurn?.pause) return String(props.lastTurn.pause.reason ?? props.lastTurn.pause.wait_reason ?? 'Turn paused')
-  if (props.lastTurn?.turn_id) return `Turn ${props.lastTurn.turn_id} accepted`
+  if (props.lastTurn?.pause) return String(props.lastTurn.pause.reason ?? props.lastTurn.pause.wait_reason ?? '回合已暂停')
+  if (props.lastTurn?.turn_id) return `回合 ${props.lastTurn.turn_id} 已提交`
   return ''
 })
 
@@ -48,9 +48,9 @@ function onKeydown(event: KeyboardEvent) {
         <div class="empty-mark">G</div>
         <h2>Genesis</h2>
         <div class="prompt-row">
-          <span>Review this session</span>
-          <span>Summarize a source</span>
-          <span>Plan the next step</span>
+          <span>总结这个会话</span>
+          <span>分析一个代码包</span>
+          <span>规划下一步</span>
         </div>
       </article>
 
@@ -65,28 +65,28 @@ function onKeydown(event: KeyboardEvent) {
             <p v-if="row.meta" class="eyebrow">{{ row.meta }}</p>
             <pre>{{ row.text || row.kind }}</pre>
           </template>
-          <button v-if="row.detailAvailable" type="button" class="secondary-button" @click="$emit('loadDetail', row.detailRef)">Details</button>
+          <button v-if="row.detailAvailable" type="button" class="secondary-button" @click="$emit('loadDetail', row.detailRef)">详情</button>
         </div>
       </article>
 
       <article v-for="approval in approvals" :key="approval.approval_id" class="chat-row chat-row-action">
         <div class="chat-bubble approval-card">
-          <p class="eyebrow">Approval required</p>
+          <p class="eyebrow">需要审批</p>
           <dl>
-            <dt>Status</dt>
+            <dt>状态</dt>
             <dd>{{ approvalSummary(approval)[0] }}</dd>
-            <dt>Tool</dt>
+            <dt>工具</dt>
             <dd>{{ approvalSummary(approval)[1] }}</dd>
-            <dt>Effect</dt>
+            <dt>动作</dt>
             <dd><code>{{ approvalSummary(approval)[2] }}</code></dd>
           </dl>
           <label>
-            Decision reason
+            审批说明
             <input :value="approvalReason" spellcheck="true" @input="$emit('update:approvalReason', ($event.target as HTMLInputElement).value)" />
           </label>
           <div class="button-row">
-            <button type="button" @click="$emit('decideApproval', String(approval.approval_id), 'approved')">Approve</button>
-            <button type="button" class="danger" @click="$emit('decideApproval', String(approval.approval_id), 'denied')">Deny</button>
+            <button type="button" @click="$emit('decideApproval', String(approval.approval_id), 'approved')">批准</button>
+            <button type="button" class="danger" @click="$emit('decideApproval', String(approval.approval_id), 'denied')">拒绝</button>
           </div>
         </div>
       </article>
@@ -98,26 +98,26 @@ function onKeydown(event: KeyboardEvent) {
         <textarea
           :value="messageText"
           rows="2"
-          placeholder="Message Genesis..."
+          placeholder="给 Genesis 发送消息..."
           spellcheck="true"
           @keydown="onKeydown"
           @input="$emit('update:messageText', ($event.target as HTMLTextAreaElement).value)"
         ></textarea>
         <div class="composer-actions">
           <label class="file-action">
-            Attach
+            附件
             <input type="file" accept=".zip,application/zip,application/x-zip-compressed" @change="$emit('selectMaterial', $event)" />
           </label>
-          <button type="button" class="secondary-button" :disabled="!selectedFileName" @click="$emit('uploadMaterial')">Upload</button>
-          <button type="button" class="secondary-button" @click="$emit('loadApprovals')">Approvals</button>
-          <button type="button" class="send-button" @click="$emit('sendMessage')">Send</button>
+          <button type="button" class="secondary-button" :disabled="!selectedFileName" @click="$emit('uploadMaterial')">上传</button>
+          <button type="button" class="secondary-button" @click="$emit('loadApprovals')">审批</button>
+          <button type="button" class="send-button" @click="$emit('sendMessage')">发送</button>
         </div>
       </div>
       <div class="composer-meta">
         <span>{{ readiness }}</span>
         <span>{{ sessionId }}</span>
         <span v-if="selectedFileName">{{ selectedFileName }}</span>
-        <span v-if="detailEntries.length">{{ detailEntries.length }} detail refs</span>
+        <span v-if="detailEntries.length">{{ detailEntries.length }} 个详情入口</span>
       </div>
     </div>
   </section>

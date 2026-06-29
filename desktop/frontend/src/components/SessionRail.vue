@@ -21,13 +21,13 @@ function shortSession(value: string) {
       <div class="brand-mark">G</div>
       <div>
         <strong>Genesis</strong>
-        <span>Desktop</span>
+        <span>桌面端</span>
       </div>
     </div>
 
-    <button type="button" class="new-session-button" @click="$emit('newSession')">New session</button>
+    <button type="button" class="new-session-button" @click="$emit('newSession')">新建会话</button>
 
-    <nav class="session-list" aria-label="Sessions">
+    <nav class="session-list" aria-label="会话">
       <button
         v-for="session in sessions"
         :key="session"
@@ -37,12 +37,12 @@ function shortSession(value: string) {
         @click="$emit('selectSession', session)"
       >
         <span>{{ shortSession(session) }}</span>
-        <small>{{ session === sessionId ? 'current' : 'local' }}</small>
+        <small>{{ session === sessionId ? '当前' : '本地' }}</small>
       </button>
     </nav>
 
     <div class="rail-footer">
-      <button type="button" class="secondary-button" @click="$emit('loadTimeline')">Refresh timeline</button>
+      <button type="button" class="secondary-button" @click="$emit('loadTimeline')">刷新时间线</button>
     </div>
   </aside>
 </template>

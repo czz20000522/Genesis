@@ -1,16 +1,19 @@
 :root {
-  color: #182029;
-  background: #eef1f3;
-  --border: #d5dde5;
+  color: #20252b;
+  background: #f4f6f8;
+  --border: #d9e0e7;
   --panel: #ffffff;
-  --panel-soft: #f7f9fb;
-  --ink: #182029;
-  --muted: #697789;
-  --primary: #1766d1;
-  --primary-dark: #0f4fa5;
-  --green: #18715b;
+  --panel-soft: #f7f8fa;
+  --ink: #20252b;
+  --muted: #687382;
+  --primary: #17745f;
+  --primary-dark: #115946;
+  --green: #17745f;
   --amber: #8a5a00;
   --red: #b42318;
+  --rail: #15181d;
+  --rail-soft: #20252c;
+  --rail-ink: #eef2f5;
 }
 
 * {
@@ -21,7 +24,7 @@ body {
   margin: 0;
   font-family: Aptos, "Segoe UI", system-ui, sans-serif;
   color: var(--ink);
-  background: #eef1f3;
+  background: var(--rail);
 }
 
 button,
@@ -35,7 +38,7 @@ button {
   min-height: 36px;
   padding: 8px 13px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   color: #ffffff;
   background: var(--primary);
   cursor: pointer;
@@ -52,7 +55,7 @@ button:disabled {
 
 .secondary-button {
   color: var(--ink);
-  background: #e8edf3;
+  background: #edf1f4;
 }
 
 .secondary-button:hover {
@@ -88,7 +91,7 @@ label {
 
 .chat-shell {
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
   min-height: 680px;
@@ -96,7 +99,7 @@ label {
 }
 
 .chat-shell--inspector-open {
-  grid-template-columns: 264px minmax(0, 1fr) minmax(320px, 380px);
+  grid-template-columns: 248px minmax(0, 1fr) minmax(320px, 380px);
 }
 
 .rail {
@@ -105,8 +108,9 @@ label {
   gap: 14px;
   min-width: 0;
   padding: 18px 12px;
-  border-right: 1px solid var(--border);
-  background: #f8fafb;
+  color: var(--rail-ink);
+  border-right: 1px solid #252b33;
+  background: linear-gradient(180deg, #15181d, #101317);
 }
 
 .rail-brand {
@@ -123,6 +127,10 @@ label {
 
 .rail-brand span,
 .session-link small,
+.rail .eyebrow {
+  color: #9aa5b1;
+}
+
 .composer-meta,
 .eyebrow {
   color: var(--muted);
@@ -134,15 +142,17 @@ label {
   place-items: center;
   width: 32px;
   height: 32px;
-  border: 1px solid #c8d3df;
-  border-radius: 8px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 10px;
   color: #ffffff;
-  background: linear-gradient(135deg, #1d5fbf, #18715b);
+  background: linear-gradient(135deg, #1f8a70, #4768d6);
   font-weight: 700;
 }
 
 .new-session-button {
   width: 100%;
+  color: var(--rail-ink);
+  background: #286bff;
 }
 
 .session-list {
@@ -158,14 +168,14 @@ label {
   width: 100%;
   gap: 3px;
   padding: 10px 11px;
-  color: var(--ink);
+  color: var(--rail-ink);
   text-align: left;
   background: transparent;
 }
 
 .session-link:hover,
 .session-link-active {
-  background: #e8edf3;
+  background: var(--rail-soft);
 }
 
 .session-link span {
@@ -177,7 +187,12 @@ label {
 
 .rail-footer {
   padding: 8px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid #2a3038;
+}
+
+.rail .secondary-button {
+  color: var(--rail-ink);
+  background: #222832;
 }
 
 .session-workspace {
@@ -185,22 +200,40 @@ label {
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
-  background: #ffffff;
+  background: #f4f6f8;
 }
 
 .topbar {
-  display: grid;
-  grid-template-columns: minmax(130px, auto) minmax(0, 1fr) max-content;
-  gap: 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
   align-items: center;
-  min-height: 66px;
-  padding: 12px 18px;
+  min-height: 52px;
+  padding: 8px 18px;
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.96);
+  background: #ffffff;
 }
 
-.topbar-title {
+.topbar-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.topbar-status strong {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.topbar-status span {
+  max-width: 34vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar h1,
@@ -210,7 +243,7 @@ label {
 }
 
 .topbar h1 {
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1.1;
 }
 
@@ -229,6 +262,18 @@ label {
 .composer-actions {
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.topbar-actions button {
+  min-height: 30px;
+  padding: 5px 9px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.topbar-actions button:hover {
+  color: var(--ink);
+  background: #f1f4f6;
 }
 
 .status-strip {
@@ -274,7 +319,9 @@ label {
   grid-template-rows: minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
-  background: #ffffff;
+  background:
+    radial-gradient(circle at 50% 0%, rgb(23 116 95 / 8%), transparent 280px),
+    #f4f6f8;
 }
 
 .transcript {
@@ -293,8 +340,14 @@ label {
   justify-items: center;
   gap: 15px;
   width: min(560px, 100%);
-  min-height: 360px;
+  min-height: 340px;
   text-align: center;
+}
+
+.empty-chat p {
+  max-width: 460px;
+  margin: 0;
+  color: var(--muted);
 }
 
 .empty-mark {
@@ -333,14 +386,16 @@ label {
   min-width: 0;
   padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--panel);
+  box-shadow: 0 8px 28px rgb(20 26 33 / 6%);
 }
 
 .chat-row-user .chat-bubble {
   color: #ffffff;
   border-color: var(--primary);
   background: var(--primary);
+  box-shadow: 0 8px 26px rgb(23 116 95 / 20%);
 }
 
 .chat-row-processing .chat-bubble,
@@ -377,7 +432,7 @@ label {
   gap: 8px;
   padding: 14px clamp(18px, 5vw, 72px) 18px;
   border-top: 1px solid var(--border);
-  background: #fbfcfd;
+  background: linear-gradient(180deg, rgb(244 246 248 / 65%), #f4f6f8);
 }
 
 .composer-card {
@@ -385,9 +440,9 @@ label {
   gap: 10px;
   padding: 11px;
   border: 1px solid #b9c5d1;
-  border-radius: 8px;
+  border-radius: 14px;
   background: #ffffff;
-  box-shadow: 0 10px 26px rgb(24 32 41 / 8%);
+  box-shadow: 0 14px 34px rgb(24 32 41 / 12%);
 }
 
 .composer-card textarea {
@@ -427,6 +482,8 @@ label {
 }
 
 .turn-status,
+.status,
+.error,
 .eyebrow {
   margin: 0;
   font-size: 12px;
@@ -434,6 +491,14 @@ label {
 
 .turn-status {
   color: var(--amber);
+}
+
+.status {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--red);
 }
 
 .composer-meta {
@@ -459,7 +524,7 @@ label {
   overflow: auto;
   padding: 16px;
   border-left: 1px solid var(--border);
-  background: #f8fafb;
+  background: #f7f9fb;
 }
 
 .inspector-head {
@@ -475,8 +540,9 @@ label {
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--panel);
+  box-shadow: 0 8px 24px rgb(20 26 33 / 5%);
 }
 
 dl {

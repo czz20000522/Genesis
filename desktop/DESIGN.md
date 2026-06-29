@@ -1,9 +1,9 @@
-# Design
+# Genesis Desktop Design Contract
 
 ## Source of truth
 - Status: Active
 - Last refreshed: 2026-06-29
-- Primary product surfaces: Wails desktop app
+- Primary product surface: Wails desktop app
 - Evidence reviewed: `desktop/frontend/src/App.vue`, `desktop/frontend/src/api/kernelApi.ts`, GitHub issues #25 and #26
 
 ## Brand
@@ -23,16 +23,16 @@
 
 ## Information architecture
 - Primary navigation: no router; one workbench screen
-- Core routes/screens: compact kernel bar, session rail, central transcript/composer, inspector drawer
+- Core surfaces: compact kernel bar, session rail, central transcript/composer, inspector drawer
 - Content hierarchy: chat transcript and composer first, session navigation second, diagnostics in inspector
 
 ## Design principles
 - Principle 1: desktop is a shell over kernel HTTP primitives, not a truth owner
 - Principle 2: approvals and diagnostics are action/detail surfaces, not chat messages
-- Tradeoffs: dense utility layout over visual polish until the kernel/product flow stabilizes
+- Tradeoffs: chat-first utility layout over decorative polish until the kernel/product flow stabilizes
 
 ## Visual language
-- Color: restrained neutral surface with blue primary action and red denial action
+- Color: restrained neutral surface with blue primary action, green processing state, amber interruption state, and red denial action
 - Typography: system UI, monospace only for refs/commands/output
 - Spacing/layout rhythm: compact panels with 8px radius
 - Shape/radius/elevation: bordered panels, no nested decorative cards
@@ -54,12 +54,12 @@
 
 ## Responsive behavior
 - Supported breakpoints/devices: desktop-first, single-column fallback below 980px
-- Layout adaptations: topbar and three-column workbench collapse to one column
+- Layout adaptations: rail, session workspace, and inspector collapse to one column
 - Touch/hover differences: native controls only
 
 ## Interaction states
-- Loading: button-triggered actions currently rely on kernel response/error state
-- Empty: empty timeline/detail/approval panels stay secondary
+- Loading: last-turn response is transient feedback only; settled display returns to the timeline projection
+- Empty: first viewport still shows a chat shell with prompt chips and composer
 - Error: shared topbar error line
 - Success: kernel projections appear in conversation or inspector
 - Disabled: debug download disabled until export exists
@@ -75,6 +75,7 @@
 - Design-token constraints: no new dependency or global state library
 - Performance constraints: no raw event rendering in desktop
 - Compatibility constraints: all kernel calls stay behind `desktop/frontend/src/api/kernelApi.ts`
+- Session constraints: new sessions are local opaque ids; desktop adds no DB and no kernel route
 - Test/screenshot expectations: static guard prevents component-level `fetch`
 
 ## Open questions

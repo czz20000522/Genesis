@@ -38,99 +38,99 @@ function detailField(name: string) {
   <aside class="inspector">
     <div class="inspector-head">
       <div>
-        <p class="eyebrow">Inspector</p>
+        <p class="eyebrow">检查器</p>
         <strong>{{ readiness }}</strong>
       </div>
-      <button type="button" class="secondary-button" @click="$emit('close')">Close</button>
+      <button type="button" class="secondary-button" @click="$emit('close')">关闭</button>
     </div>
 
     <section class="panel">
-      <p class="eyebrow">Settings</p>
+      <p class="eyebrow">连接设置</p>
       <label>
-        Kernel URL
+        内核地址
         <input :value="baseUrl" spellcheck="false" @input="$emit('update:baseUrl', ($event.target as HTMLInputElement).value)" />
       </label>
       <label>
-        Runtime token
+        运行令牌
         <input :value="runtimeToken" type="password" spellcheck="false" @input="$emit('update:runtimeToken', ($event.target as HTMLInputElement).value)" />
       </label>
-      <button type="button" class="secondary-button" @click="$emit('checkReady')">Check kernel</button>
+      <button type="button" class="secondary-button" @click="$emit('checkReady')">检查内核</button>
     </section>
 
     <section class="panel">
-      <p class="eyebrow">Session diagnostics</p>
+      <p class="eyebrow">会话诊断</p>
       <label>
-        Detail ref
+        详情引用
         <input :value="selectedDetailRef" spellcheck="false" @input="$emit('update:selectedDetailRef', ($event.target as HTMLInputElement).value)" />
       </label>
       <div class="button-row">
-        <button type="button" class="secondary-button" @click="$emit('loadDetail')">Load detail</button>
-        <button type="button" class="secondary-button" @click="$emit('enableDebug')">Enable debug</button>
-        <button type="button" class="secondary-button" @click="$emit('exportDebug')">Export debug</button>
-        <button type="button" class="secondary-button" :disabled="!debugExportReady" @click="$emit('downloadDebug')">Download</button>
-        <button type="button" class="secondary-button" @click="$emit('compactContext')">Compact</button>
+        <button type="button" class="secondary-button" @click="$emit('loadDetail')">加载详情</button>
+        <button type="button" class="secondary-button" @click="$emit('enableDebug')">开启调试</button>
+        <button type="button" class="secondary-button" @click="$emit('exportDebug')">导出调试</button>
+        <button type="button" class="secondary-button" :disabled="!debugExportReady" @click="$emit('downloadDebug')">下载</button>
+        <button type="button" class="secondary-button" @click="$emit('compactContext')">压缩上下文</button>
       </div>
     </section>
 
     <section v-if="detail" class="detail-panel">
-      <p class="eyebrow">Timeline detail</p>
-      <h2>{{ detailField('kind') || 'detail' }}</h2>
+      <p class="eyebrow">时间线详情</p>
+      <h2>{{ detailField('kind') || '详情' }}</h2>
       <dl>
         <template v-if="detailField('tool')">
-          <dt>Tool</dt>
+          <dt>工具</dt>
           <dd>{{ detailField('tool') }}</dd>
         </template>
         <template v-if="detailField('command_preview')">
-          <dt>Command</dt>
+          <dt>命令</dt>
           <dd><code>{{ detailField('command_preview') }}</code></dd>
         </template>
         <template v-if="detailField('duration_ms')">
-          <dt>Duration</dt>
+          <dt>耗时</dt>
           <dd>{{ detailField('duration_ms') }} ms</dd>
         </template>
         <template v-if="detailField('output_truncation')">
-          <dt>Truncation</dt>
+          <dt>截断</dt>
           <dd>{{ detailField('output_truncation') }}</dd>
         </template>
         <template v-if="detailField('visible_output') || detailField('output_preview')">
-          <dt>Output</dt>
+          <dt>输出</dt>
           <dd><pre>{{ detailField('visible_output') || detailField('output_preview') }}</pre></dd>
         </template>
       </dl>
     </section>
 
     <section v-if="materialSummary.length" class="detail-panel">
-      <p class="eyebrow">Material intake</p>
+      <p class="eyebrow">资料导入</p>
       <dl>
-        <dt>Admission</dt>
+        <dt>准入</dt>
         <dd>{{ materialSummary[0] }}</dd>
-        <dt>Source/refusal</dt>
+        <dt>来源/拒绝</dt>
         <dd><code>{{ materialSummary[1] }}</code></dd>
-        <dt>Operations</dt>
+        <dt>可用操作</dt>
         <dd>{{ materialSummary[2] }}</dd>
       </dl>
     </section>
 
     <section v-if="compactionSummaryRows.length" class="detail-panel">
-      <p class="eyebrow">Context compaction</p>
+      <p class="eyebrow">上下文压缩</p>
       <dl>
-        <dt>Admission</dt>
+        <dt>准入</dt>
         <dd>{{ compactionSummaryRows[0] }}</dd>
-        <dt>Reason</dt>
+        <dt>原因</dt>
         <dd>{{ compactionSummaryRows[1] || 'none' }}</dd>
       </dl>
     </section>
 
     <section v-if="debugSummaryRows.length" class="detail-panel">
-      <p class="eyebrow">Session debug</p>
+      <p class="eyebrow">会话调试</p>
       <dl>
-        <dt>Readiness</dt>
+        <dt>就绪</dt>
         <dd>{{ debugSummaryRows[0] }}</dd>
-        <dt>Steps</dt>
+        <dt>步骤</dt>
         <dd>{{ debugSummaryRows[1] }}</dd>
-        <dt>Input kinds</dt>
+        <dt>输入类型</dt>
         <dd>{{ debugSummaryRows[2] }}</dd>
-        <dt>Models</dt>
+        <dt>模型</dt>
         <dd>{{ debugSummaryRows[3] }}</dd>
       </dl>
     </section>
