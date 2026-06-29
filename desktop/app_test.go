@@ -92,3 +92,11 @@ func TestFrontendAssetDirPrefersPackagedExecutableLayout(t *testing.T) {
 		t.Fatalf("frontendAssetDir() = %q, want %q", got, dist)
 	}
 }
+
+func TestSingleInstanceLockIsConfigured(t *testing.T) {
+	lock := singleInstanceLock(NewApp())
+
+	if lock == nil || lock.UniqueId == "" || lock.OnSecondInstanceLaunch == nil {
+		t.Fatalf("singleInstanceLock() = %+v, want unique id and second-launch handler", lock)
+	}
+}

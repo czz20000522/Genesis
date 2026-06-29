@@ -8,14 +8,16 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func main() {
 	app := NewApp()
 	if err := wails.Run(&options.App{
-		Title:  "Genesis",
-		Width:  1100,
-		Height: 760,
+		Title:              "Genesis",
+		Width:              1100,
+		Height:             760,
+		SingleInstanceLock: singleInstanceLock(app),
 		AssetServer: &assetserver.Options{
 			Assets: os.DirFS(frontendAssetDirFromRuntime()),
 		},
@@ -26,6 +28,23 @@ func main() {
 	}); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func singleInstanceLock(app *App) *options.SingleInstanceLock {
+	return &options.SingleInstanceLock{
+		UniqueId: "genesis-desktop-local-shell",
+		OnSecondInstanceLaunch: func(options.SecondInstanceData) {
+			app.showExistingWindow()
+		},
+	}
+}
+
+func (a *App) showExistingWindow() {
+	if a == nil || a.ctx == nil {
+		return
+	}
+	wailsruntime.WindowUnminimise(a.ctx)
+	wailsruntime.WindowShow(a.ctx)
 }
 
 func frontendAssetDirFromRuntime() string {
