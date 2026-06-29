@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { approvalSummary } from '../approvalView'
-import type { ApprovalDecision, ApprovalProjection, TurnResponse } from '../api/kernelApi'
+import type { TurnResponse } from '../api/kernelApi'
 import { readinessLabel, sessionLabel } from '../display'
 import type { TimelineRow } from '../timelineView'
 
@@ -11,19 +10,15 @@ const props = defineProps<{
   lastTurn: TurnResponse | null
   rows: TimelineRow[]
   detailEntries: Array<{ detailRef: string; label: string }>
-  approvals: ApprovalProjection[]
-  approvalReason: string
   selectedFileName: string
   readiness: string
 }>()
 
 const emit = defineEmits<{
   'update:messageText': [value: string]
-  'update:approvalReason': [value: string]
   sendMessage: []
   selectMaterial: [event: Event]
   loadDetail: [detailRef: string]
-  decideApproval: [approvalId: string, decision: ApprovalDecision]
 }>()
 
 const turnStatus = computed(() => {
@@ -47,7 +42,7 @@ function useStarter(text: string) {
 <template>
   <section class="conversation">
     <div class="transcript" aria-live="polite">
-      <article v-if="!rows.length && !approvals.length" class="empty-chat">
+      <article v-if="!rows.length" class="empty-chat">
         <div class="empty-mark">G</div>
         <h2>Genesis</h2>
         <p>从一个问题、一个任务或一个代码包开始。</p>
@@ -71,28 +66,6 @@ function useStarter(text: string) {
             <pre>{{ row.text || row.kind }}</pre>
           </template>
           <button v-if="row.detailAvailable" type="button" class="secondary-button" @click="$emit('loadDetail', row.detailRef)">详情</button>
-        </div>
-      </article>
-
-      <article v-for="approval in approvals" :key="approval.approval_id" class="chat-row chat-row-action">
-        <div class="chat-bubble approval-card">
-          <p class="eyebrow">需要确认操作</p>
-          <dl>
-            <dt>状态</dt>
-            <dd>{{ approvalSummary(approval)[0] }}</dd>
-            <dt>类型</dt>
-            <dd>{{ approvalSummary(approval)[1] }}</dd>
-            <dt>内容</dt>
-            <dd><code>{{ approvalSummary(approval)[2] }}</code></dd>
-          </dl>
-          <label>
-            确认说明
-            <input :value="approvalReason" spellcheck="true" @input="$emit('update:approvalReason', ($event.target as HTMLInputElement).value)" />
-          </label>
-          <div class="button-row">
-            <button type="button" @click="$emit('decideApproval', String(approval.approval_id), 'approved')">允许</button>
-            <button type="button" class="danger" @click="$emit('decideApproval', String(approval.approval_id), 'denied')">拒绝</button>
-          </div>
         </div>
       </article>
     </div>

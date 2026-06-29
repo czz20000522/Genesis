@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, listApprovals, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
+import { compactSessionContext, enableSessionDebug, getReady, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, saveKernelConfig, submitTurn, uploadMaterial, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -8,6 +8,7 @@ import SessionRail from './components/SessionRail.vue'
 import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
+import { isBlankSessionDraft } from './sessionDraft'
 import { timelineDetailEntries } from './timelineDetail'
 import { timelineRows } from './timelineView'
 
@@ -23,8 +24,6 @@ const timeline = ref<KernelTimeline | null>(null)
 const detail = ref<KernelTimelineDetail | null>(null)
 const selectedFile = ref<File | null>(null)
 const material = ref<MaterialIntakeProjection | null>(null)
-const approvals = ref<ApprovalProjection[]>([])
-const approvalReason = ref('')
 const debugExport = ref<SessionDebugExport | null>(null)
 const compaction = ref<ContextCompactionResponse | null>(null)
 const inspectorOpen = ref(false)
@@ -47,28 +46,49 @@ function currentSession() {
 }
 
 function newSession() {
+  if (isCurrentSessionBlank()) {
+    resetSessionViewState()
+    return
+  }
   const next = newDesktopSessionId()
   sessionId.value = next
   localSessions.value = [next, ...localSessions.value]
-  timeline.value = null
-  detail.value = null
-  lastTurn.value = null
-  selectedDetailRef.value = ''
-  approvals.value = []
-  messageText.value = ''
-  error.value = ''
+  resetSessionViewState()
 }
 
-function selectSession(value: string) {
+async function selectSession(value: string) {
   const session = value.trim()
   if (!session) return
   sessionId.value = session
   if (!localSessions.value.includes(session)) localSessions.value = [session, ...localSessions.value]
+  resetSessionViewState()
+  await loadTimeline()
+}
+
+function resetSessionViewState() {
   timeline.value = null
   detail.value = null
   lastTurn.value = null
   selectedDetailRef.value = ''
+  selectedFile.value = null
+  material.value = null
+  debugExport.value = null
+  compaction.value = null
+  messageText.value = ''
   error.value = ''
+  inspectorOpen.value = false
+}
+
+function isCurrentSessionBlank() {
+  return isBlankSessionDraft({
+    messageText: messageText.value,
+    timelineRowCount: conversationRows.value.length,
+    selectedFileName: selectedFileName.value,
+    hasMaterial: Boolean(material.value),
+    hasDebugExport: Boolean(debugExport.value),
+    hasCompaction: Boolean(compaction.value),
+    hasLastTurn: Boolean(lastTurn.value),
+  })
 }
 
 async function checkReady() {
@@ -114,7 +134,6 @@ async function sendMessage() {
     messageText.value = ''
     if (fileWasSelected) selectedFile.value = null
     timeline.value = await getTimeline(config.value, session)
-    await loadApprovals()
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -136,30 +155,6 @@ async function loadDetail(detailRef = selectedDetailRef.value) {
 
 function selectMaterial(event: Event) {
   selectedFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
-}
-
-async function loadApprovals() {
-  error.value = ''
-  saveKernelConfig(config.value)
-  try {
-    approvals.value = (await listApprovals(config.value)).items ?? []
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
-  }
-}
-
-async function submitApprovalDecision(approvalId: string, decision: 'approved' | 'denied') {
-  error.value = ''
-  saveKernelConfig(config.value)
-  try {
-    await decideApproval(config.value, approvalId, decision, approvalReason.value || decision)
-    approvalReason.value = ''
-    await loadApprovals()
-    const session = sessionId.value.trim()
-    if (session) timeline.value = await getTimeline(config.value, session)
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
-  }
 }
 
 async function enableDebug() {
@@ -250,16 +245,12 @@ function newDesktopIdempotencyKey() {
         :last-turn="lastTurn"
         :rows="conversationRows"
         :detail-entries="detailEntries"
-        :approvals="approvals"
-        :approval-reason="approvalReason"
         :selected-file-name="selectedFileName"
         :readiness="readiness"
         @update:message-text="messageText = $event"
-        @update:approval-reason="approvalReason = $event"
         @send-message="sendMessage"
         @load-detail="loadDetail"
         @select-material="selectMaterial"
-        @decide-approval="submitApprovalDecision"
       />
     </section>
 

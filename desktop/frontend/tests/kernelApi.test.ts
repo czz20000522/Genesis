@@ -7,6 +7,7 @@ import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
 import { connectionErrorLabel, readinessLabel, sessionLabel, sessionStatus } from '../src/display.ts'
 import { materialIntakeSummary } from '../src/materialIntake.ts'
+import { isBlankSessionDraft } from '../src/sessionDraft.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
 import { timelineRows } from '../src/timelineView.ts'
 
@@ -24,6 +25,11 @@ for (const file of vueFiles(join(import.meta.dirname, '..', 'src'))) {
   const source = readFileSync(file, 'utf8')
   assert.equal(/\bfetch\s*\(/.test(source), false, `${file} must use src/api/kernelApi.ts instead of fetch`)
 }
+
+const appSource = readFileSync(join(import.meta.dirname, '..', 'src', 'App.vue'), 'utf8')
+const conversationSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'ConversationPane.vue'), 'utf8')
+assert.equal(appSource.includes('listApprovals'), false, 'App.vue must not load global pending approvals into the current conversation')
+assert.equal(conversationSource.includes('approvals:'), false, 'ConversationPane must not accept global approvals as chat rows')
 
 saveKernelConfig({ baseUrl: 'http://127.0.0.1:8765/', runtimeToken: ' token ' }, storage)
 assert.deepEqual(kernelConfig(storage), {
@@ -43,6 +49,11 @@ assert.equal(sessionStatus('a', 'a'), '正在使用')
 assert.equal(sessionStatus('a', 'b'), '本地会话')
 assert.equal(connectionErrorLabel('Failed to fetch'), '连接失败，请检查本地服务')
 assert.equal(connectionErrorLabel(''), '')
+assert.equal(isBlankSessionDraft({}), true)
+assert.equal(isBlankSessionDraft({ messageText: 'hello' }), false)
+assert.equal(isBlankSessionDraft({ selectedFileName: 'package.zip' }), false)
+assert.equal(isBlankSessionDraft({ timelineRowCount: 1 }), false)
+assert.equal(isBlankSessionDraft({ hasMaterial: true }), false)
 
 let emptySessionRequests = 0
 const originalFetchForEmptySession = globalThis.fetch
