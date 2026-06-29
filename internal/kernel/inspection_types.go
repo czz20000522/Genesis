@@ -134,5 +134,6 @@ type SessionListResponse struct {
 
 type SessionListItem struct {
 	SessionID string    `json:"session_id"`
+	Title     string    `json:"title,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

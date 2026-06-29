@@ -479,6 +479,15 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 }
 
 func (k *Kernel) ListSessions() (SessionListResponse, error) {
+	if index, ok := k.ledger.(interface {
+		ListSessions() ([]SessionListItem, error)
+	}); ok {
+		items, err := index.ListSessions()
+		if err != nil {
+			return SessionListResponse{}, wrapLedgerUnavailable(err)
+		}
+		return SessionListResponse{Items: items}, nil
+	}
 	events, err := k.loadEvents()
 	if err != nil {
 		return SessionListResponse{}, err

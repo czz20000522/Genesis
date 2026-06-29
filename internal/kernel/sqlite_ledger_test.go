@@ -98,6 +98,76 @@ func TestSQLiteLedgerFailsClosedWhenIndexedEventFileIsMissing(t *testing.T) {
 	}
 }
 
+func TestSQLiteLedgerImportsOrphanEventFramesWhenIndexIsMissing(t *testing.T) {
+	dir := testTempDir(t)
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	first := StoredEvent{
+		EventID:   "evt_orphan_first",
+		SessionID: "session-orphan-a",
+		TurnID:    "turn-orphan-a",
+		Type:      "turn.submitted",
+		CreatedAt: time.Date(2026, 6, 29, 3, 0, 0, 0, time.UTC),
+		Data:      EventData{InputItems: []InputItem{{Type: "text", Text: "first orphan message with enough words"}}},
+	}
+	second := StoredEvent{
+		EventID:   "evt_orphan_second",
+		SessionID: "session-orphan-b",
+		TurnID:    "turn-orphan-b",
+		Type:      "model.final",
+		CreatedAt: first.CreatedAt.Add(time.Minute),
+		Data:      EventData{Final: &FinalMessage{Text: "second", Model: "fake"}},
+	}
+	ledger := NewSQLiteLedger(ledgerPath)
+	for _, event := range []StoredEvent{first, second} {
+		if err := ledger.Append(event); err != nil {
+			t.Fatalf("Append %s returned error: %v", event.EventID, err)
+		}
+	}
+	if err := ledger.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	removeSQLiteIndexFiles(t, ledgerPath)
+
+	restarted := NewSQLiteLedger(ledgerPath)
+	events, err := restarted.Load()
+	if err != nil {
+		t.Fatalf("Load after index loss returned error: %v", err)
+	}
+	if len(events) != 2 || events[0].EventID != first.EventID || events[1].EventID != second.EventID {
+		t.Fatalf("events = %+v, want orphan frames imported in event order", events)
+	}
+	sessions, err := restarted.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions returned error: %v", err)
+	}
+	if len(sessions) != 2 || sessions[0].SessionID != second.SessionID || sessions[1].SessionID != first.SessionID {
+		t.Fatalf("sessions = %+v, want sqlite-backed updated_at ordering", sessions)
+	}
+	if sessions[1].Title == "" || strings.Contains(sessions[1].Title, "\n") {
+		t.Fatalf("imported session title = %q, want bounded first-message title", sessions[1].Title)
+	}
+}
+
+func TestSQLiteLedgerRecoversStaleWriterLock(t *testing.T) {
+	dir := testTempDir(t)
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	staleCreatedAt := time.Now().Add(-2 * time.Hour)
+	if err := os.WriteFile(ledgerPath+".lock", []byte("pid=0\ncreated_at="+staleCreatedAt.Format(time.RFC3339Nano)+"\n"), 0o644); err != nil {
+		t.Fatalf("write stale lock: %v", err)
+	}
+	ledger := NewSQLiteLedger(ledgerPath)
+	if err := ledger.Append(StoredEvent{
+		EventID:   "evt_stale_lock",
+		SessionID: "session-stale-lock",
+		TurnID:    "turn-stale-lock",
+		Type:      "turn.submitted",
+		CreatedAt: time.Date(2026, 6, 30, 4, 0, 0, 0, time.UTC),
+		Data:      EventData{InputItems: []InputItem{{Type: "text", Text: "hello"}}},
+	}); err != nil {
+		t.Fatalf("Append with stale lock returned error: %v", err)
+	}
+}
+
 func TestSQLiteLedgerFailsClosedWhenExternalWriterLockExists(t *testing.T) {
 	dir := testTempDir(t)
 	ledgerPath := filepath.Join(dir, "events.sqlite")
@@ -186,7 +256,7 @@ func TestHTTPListSessionsDerivesMinimalIndexFromEvents(t *testing.T) {
 	}
 	for _, item := range payload.Items {
 		for key := range item {
-			if key != "session_id" && key != "updated_at" {
+			if key != "session_id" && key != "updated_at" && key != "title" {
 				t.Fatalf("session list item contains unapproved field %q in %+v", key, item)
 			}
 		}
@@ -212,4 +282,14 @@ func sqliteLedgerRow(t *testing.T, ledgerPath string, eventID string) sqliteLedg
 		t.Fatalf("query session_events row: %v", err)
 	}
 	return row
+}
+
+func removeSQLiteIndexFiles(t *testing.T, ledgerPath string) {
+	t.Helper()
+	for _, path := range []string{ledgerPath, ledgerPath + "-wal", ledgerPath + "-shm"} {
+		err := os.Remove(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("remove %s: %v", path, err)
+		}
+	}
 }
