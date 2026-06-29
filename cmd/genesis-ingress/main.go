@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"genesis/internal/applications/connector_runtime"
+	feishucli "genesis/internal/applications/feishu_cli"
 )
 
 func main() {
@@ -207,7 +208,7 @@ func runFeishuProbe(ctx context.Context, args []string, stdout io.Writer) error 
 	if finalDeliveryBlockedReason == "" {
 		finalDeliveryArgs = feishuConnectorCommandArgs(append([]string(nil), deliveryCommandArgs...), *profile, *larkCLI)
 	}
-	report := connectorruntime.ProbeFeishuAdapter(connectorruntime.FeishuAdapterProbeConfig{
+	report := feishucli.ProbeAdapter(feishucli.AdapterProbeConfig{
 		SourceCommand:              *sourceCommand,
 		SourceCommandArgs:          sourceArgs,
 		SourceBlockedReason:        sourceBlockedReason,

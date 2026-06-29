@@ -383,6 +383,7 @@ func (r *Registry) SourceRead(req SourceReadRequest) (ModelSourceReadResult, err
 	if end > len(data) {
 		end = len(data)
 	}
+	offset, end = utf8SafeByteRange(data, offset, end)
 	visible := string(data[offset:end])
 	result := ModelSourceReadResult{
 		Status:        "completed",
@@ -401,6 +402,28 @@ func (r *Registry) SourceRead(req SourceReadRequest) (ModelSourceReadResult, err
 		result.NextOffsetBytes = &next
 	}
 	return result, nil
+}
+
+func utf8SafeByteRange(data []byte, offset int, end int) (int, int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(data) {
+		offset = len(data)
+	}
+	for offset < len(data) && !utf8.RuneStart(data[offset]) {
+		offset++
+	}
+	if end < offset {
+		end = offset
+	}
+	if end > len(data) {
+		end = len(data)
+	}
+	for end > offset && !utf8.Valid(data[offset:end]) {
+		end--
+	}
+	return offset, end
 }
 
 func parseZipSourceEntries(zipPath string, snapshotRef string, policy SourceSnapshotPolicy) ([]sourceEntry, int64, []SourceDiagnostic, error) {

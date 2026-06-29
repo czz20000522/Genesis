@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestSessionDebugDefaultOffDoesNotCreateArtifactOrBreakResume(t *testing.T) {
@@ -145,6 +147,46 @@ func TestSessionDebugCapturesProviderStepsAndToolLoopWithoutHostPaths(t *testing
 		if strings.Contains(string(exportJSON), forbidden) {
 			t.Fatalf("debug export leaked %q: %s", forbidden, string(exportJSON))
 		}
+	}
+}
+
+func TestSessionDebugExportIsStepBoundedAndUTF8Safe(t *testing.T) {
+	sessionID := "debug-bounds"
+	materialRoot := testTempDir(t)
+	k, err := New(Config{
+		LedgerPath:        filepath.Join(testTempDir(t), "events.jsonl"),
+		MaterialStorePath: materialRoot,
+		Provider:          &recordingTextProvider{text: strings.Repeat("界", sessionDebugTextBytes)},
+		RuntimeToken:      testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if _, err := k.EnableSessionDebug(sessionID); err != nil {
+		t.Fatalf("EnableSessionDebug returned error: %v", err)
+	}
+	for i := 0; i < sessionDebugMaxSteps+2; i++ {
+		if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+			SessionID:  sessionID,
+			InputItems: []InputItem{{Type: "text", Text: "debug " + strconv.Itoa(i)}},
+		}); err != nil {
+			t.Fatalf("SubmitTurn %d returned error: %v", i, err)
+		}
+	}
+
+	export, err := k.SessionDebugExport(sessionID)
+	if err != nil {
+		t.Fatalf("SessionDebugExport returned error: %v", err)
+	}
+	if len(export.Steps) != sessionDebugMaxSteps {
+		t.Fatalf("debug steps = %d, want max %d", len(export.Steps), sessionDebugMaxSteps)
+	}
+	if !export.CaptureBounds.Truncated || export.CaptureBounds.MaxSteps != sessionDebugMaxSteps {
+		t.Fatalf("capture bounds = %+v, want truncated max-steps evidence", export.CaptureBounds)
+	}
+	last := export.Steps[len(export.Steps)-1]
+	if last.Final == nil || !utf8.ValidString(last.Final.Text) || !last.CaptureBounds.Truncated {
+		t.Fatalf("last final/capture bounds = %+v %+v, want utf8-safe bounded final", last.Final, last.CaptureBounds)
 	}
 }
 

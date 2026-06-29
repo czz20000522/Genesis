@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"genesis/internal/applications/connector_runtime"
+	feishucli "genesis/internal/applications/feishu_cli"
 )
 
 const (
@@ -187,7 +188,7 @@ func feishuEventCommand(executable string, profile string, eventKey string, iden
 	if maxEvents < 0 {
 		return "", nil, errors.New("Feishu source adapter max events must be non-negative")
 	}
-	executable = connectorruntime.SelectFeishuCLIExecutable(executable, connectorruntime.InstalledOfficialLarkCLIExecutable())
+	executable = feishucli.SelectExecutable(executable, feishucli.InstalledOfficialExecutable())
 	argv := []string{"--profile", profile, "event", "consume", eventKey, "--as", identity}
 	if maxEvents > 0 {
 		argv = append(argv, "--max-events", strconv.Itoa(maxEvents))

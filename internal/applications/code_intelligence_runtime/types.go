@@ -36,7 +36,7 @@ type CodeProjectRef struct {
 	ProjectRef        string `json:"project_ref"`
 	DisplayName       string `json:"display_name,omitempty"`
 	RootDigest        string `json:"root_digest,omitempty"`
-	AdmittedRoot      string `json:"admitted_root"`
+	AdmittedRoot      string `json:"-"`
 	AdapterBindingRef string `json:"adapter_binding_ref,omitempty"`
 }
 
@@ -51,8 +51,8 @@ func (p PendingChanges) Total() int {
 }
 
 type WorktreeMismatch struct {
-	WorktreeRoot       string `json:"worktree_root,omitempty"`
-	IndexedProjectPath string `json:"indexed_project_path,omitempty"`
+	WorktreeRoot       string `json:"-"`
+	IndexedProjectPath string `json:"-"`
 }
 
 type AdapterReadiness struct {
@@ -76,10 +76,10 @@ type CodeIndexReadiness struct {
 	Freshness          string            `json:"freshness"`
 	Telemetry          string            `json:"telemetry"`
 	BlockedReason      string            `json:"blocked_reason,omitempty"`
-	ProjectPath        string            `json:"project_path,omitempty"`
-	IndexPath          string            `json:"index_path,omitempty"`
+	ProjectPath        string            `json:"-"`
+	IndexPath          string            `json:"-"`
 	PendingChanges     PendingChanges    `json:"pending_changes,omitempty"`
-	WorktreeMismatch   *WorktreeMismatch `json:"worktree_mismatch,omitempty"`
+	WorktreeMismatch   *WorktreeMismatch `json:"-"`
 	DiagnosticReason   string            `json:"diagnostic_reason,omitempty"`
 	ReindexRecommended bool              `json:"reindex_recommended,omitempty"`
 }

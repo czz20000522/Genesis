@@ -3,40 +3,8 @@ package connectorruntime
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 )
-
-func SelectFeishuCLIExecutable(explicit string, installed string) string {
-	if strings.TrimSpace(explicit) != "" {
-		return strings.TrimSpace(explicit)
-	}
-	if strings.TrimSpace(installed) != "" {
-		return strings.TrimSpace(installed)
-	}
-	return "lark-cli"
-}
-
-func InstalledOfficialLarkCLIExecutable() string {
-	candidate := OfficialLarkCLIExecutable(os.Getenv("APPDATA"), runtime.GOOS)
-	if candidate == "" {
-		return ""
-	}
-	info, err := os.Stat(candidate)
-	if err != nil || info.IsDir() {
-		return ""
-	}
-	return candidate
-}
-
-func OfficialLarkCLIExecutable(appData string, goos string) string {
-	if goos != "windows" || strings.TrimSpace(appData) == "" {
-		return ""
-	}
-	return filepath.Join(appData, "npm", "node_modules", "@larksuite", "cli", "bin", "lark-cli.exe")
-}
 
 func SafeCLIProbeExcerpt(output []byte) string {
 	const limit = 1024

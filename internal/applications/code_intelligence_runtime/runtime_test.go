@@ -2,9 +2,11 @@ package codeintelligenceruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"genesis/internal/testsupport"
@@ -46,6 +48,39 @@ func TestReadinessBlocksWorktreeMismatchAndSkipsQuery(t *testing.T) {
 	}
 	if result.Status != QueryStatusBlocked || adapter.queryCalls != 0 {
 		t.Fatalf("result = %+v queryCalls=%d, want blocked without adapter query", result, adapter.queryCalls)
+	}
+}
+
+func TestPublicReadinessProjectionDoesNotExposeLocalPaths(t *testing.T) {
+	root := testProjectRoot(t)
+	adapter := &fakeAdapter{
+		readiness: AdapterReadiness{
+			Adapter:             "codegraph",
+			ExecutableAvailable: true,
+			CachePresent:        true,
+			ProjectPath:         root,
+			IndexPath:           filepath.Join(root, ".codegraph"),
+			Telemetry:           TelemetryDisabled,
+			WorktreeMismatch: &WorktreeMismatch{
+				WorktreeRoot:       root,
+				IndexedProjectPath: filepath.Dir(root),
+			},
+		},
+	}
+	runtime := NewRuntime(adapter)
+
+	readiness, err := runtime.Probe(context.Background(), CodeProjectRef{ProjectRef: "proj_public", AdmittedRoot: root})
+	if err != nil {
+		t.Fatalf("Probe returned error: %v", err)
+	}
+	payload, err := json.Marshal(readiness)
+	if err != nil {
+		t.Fatalf("marshal readiness: %v", err)
+	}
+	for _, forbidden := range []string{"admitted_root", "project_path", "index_path", "worktree_root", "indexed_project_path", root, filepath.Dir(root)} {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("public readiness leaked %q: %s", forbidden, string(payload))
+		}
 	}
 }
 

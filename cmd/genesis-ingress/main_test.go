@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"genesis/internal/applications/connector_runtime"
+	feishucli "genesis/internal/applications/feishu_cli"
 	"genesis/internal/testsupport"
 )
 
@@ -561,7 +562,7 @@ func TestFeishuProbeReportsInstalledAdapterReadiness(t *testing.T) {
 	}, strings.NewReader(""), &stdout, io.Discard); err != nil {
 		t.Fatalf("runWithIO returned error: %v\n%s", err, stdout.String())
 	}
-	var got connectorruntime.FeishuAdapterProbeReport
+	var got feishucli.AdapterProbeReport
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode probe report: %v\n%s", err, stdout.String())
 	}
@@ -623,7 +624,7 @@ func TestFeishuProbeReportsProfileReadinessFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("runWithIO should reject permission-denied profile readiness")
 	}
-	var got connectorruntime.FeishuAdapterProbeReport
+	var got feishucli.AdapterProbeReport
 	if decodeErr := json.Unmarshal(stdout.Bytes(), &got); decodeErr != nil {
 		t.Fatalf("decode probe report: %v\n%s", decodeErr, stdout.String())
 	}
@@ -652,7 +653,7 @@ func TestFeishuProbeUsesProfileReadinessCommandBeforeAdapters(t *testing.T) {
 	if err == nil {
 		t.Fatal("runWithIO should reject profile_expired from profile probe command")
 	}
-	var got connectorruntime.FeishuAdapterProbeReport
+	var got feishucli.AdapterProbeReport
 	if decodeErr := json.Unmarshal(stdout.Bytes(), &got); decodeErr != nil {
 		t.Fatalf("decode probe report: %v\n%s", decodeErr, stdout.String())
 	}
@@ -670,7 +671,7 @@ func TestFeishuProbeRejectsMissingProfileWithoutKernelCall(t *testing.T) {
 	if err == nil {
 		t.Fatal("runWithIO should reject missing profile")
 	}
-	var got connectorruntime.FeishuAdapterProbeReport
+	var got feishucli.AdapterProbeReport
 	if decodeErr := json.Unmarshal(stdout.Bytes(), &got); decodeErr != nil {
 		t.Fatalf("decode probe report: %v\n%s", decodeErr, stdout.String())
 	}

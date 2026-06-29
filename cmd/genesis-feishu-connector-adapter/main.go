@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	connectorruntime "genesis/internal/applications/connector_runtime"
+	feishucli "genesis/internal/applications/feishu_cli"
 )
 
 func main() {
@@ -59,7 +60,7 @@ func execute(ctx context.Context, args []string, stdin io.Reader, runner connect
 	if err := validateFeishuSendMessageAction(action); err != nil {
 		return failed(err.Error())
 	}
-	executable := connectorruntime.SelectFeishuCLIExecutable(*larkCLI, connectorruntime.InstalledOfficialLarkCLIExecutable())
+	executable := feishucli.SelectExecutable(*larkCLI, feishucli.InstalledOfficialExecutable())
 	output, err := runner.Run(ctx, executable,
 		"--profile", strings.TrimSpace(*profile),
 		"im", "+messages-send",
@@ -152,7 +153,7 @@ func feishuConnectorAdapterProbe(profile string, profileReadiness string, larkCL
 		report.Reason = reason
 		return report
 	}
-	executable := connectorruntime.SelectFeishuCLIExecutable(larkCLI, connectorruntime.InstalledOfficialLarkCLIExecutable())
+	executable := feishucli.SelectExecutable(larkCLI, feishucli.InstalledOfficialExecutable())
 	resolved, err := connectorruntime.ResolveDirectCommandExecutable(executable)
 	if err != nil {
 		report.Reason = "external_command_missing"

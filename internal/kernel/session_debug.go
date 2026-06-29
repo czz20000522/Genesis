@@ -11,11 +11,13 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
 	sessionDebugTextBytes       = 16 * 1024
 	sessionDebugToolResultBytes = 16 * 1024
+	sessionDebugMaxSteps        = 50
 )
 
 type SessionDebugProjection struct {
@@ -39,8 +41,11 @@ type SessionDebugExportResponse struct {
 }
 
 type SessionDebugCaptureBounds struct {
-	MaxInputItemBytes  int `json:"max_input_item_bytes"`
-	MaxToolResultBytes int `json:"max_tool_result_bytes"`
+	MaxInputItemBytes  int  `json:"max_input_item_bytes"`
+	MaxToolResultBytes int  `json:"max_tool_result_bytes"`
+	MaxSteps           int  `json:"max_steps"`
+	RetainedSteps      int  `json:"retained_steps,omitempty"`
+	Truncated          bool `json:"truncated,omitempty"`
 }
 
 type SessionDebugProviderStep struct {
@@ -121,7 +126,7 @@ func (k *Kernel) SessionDebugExport(sessionID string) (SessionDebugExportRespons
 	if sessionID == "" {
 		return SessionDebugExportResponse{}, errors.New("session id is required")
 	}
-	bounds := SessionDebugCaptureBounds{MaxInputItemBytes: sessionDebugTextBytes, MaxToolResultBytes: sessionDebugToolResultBytes}
+	bounds := SessionDebugCaptureBounds{MaxInputItemBytes: sessionDebugTextBytes, MaxToolResultBytes: sessionDebugToolResultBytes, MaxSteps: sessionDebugMaxSteps}
 	if !k.sessionDebugEnabled(sessionID) {
 		return SessionDebugExportResponse{
 			SessionID:       sessionID,
@@ -133,7 +138,7 @@ func (k *Kernel) SessionDebugExport(sessionID string) (SessionDebugExportRespons
 	path := k.sessionDebugArtifactPath(sessionID)
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return SessionDebugExportResponse{SessionID: sessionID, Readiness: ReadinessReady, CaptureBounds: bounds}, nil
+		return SessionDebugExportResponse{SessionID: sessionID, Readiness: ReadinessNotReady, ReadinessReason: "session_debug_artifact_missing", CaptureBounds: bounds}, nil
 	}
 	if err != nil {
 		return SessionDebugExportResponse{}, err
@@ -151,6 +156,10 @@ func (k *Kernel) SessionDebugExport(sessionID string) (SessionDebugExportRespons
 	}
 	if err := scanner.Err(); err != nil {
 		return SessionDebugExportResponse{}, err
+	}
+	bounds.RetainedSteps = len(steps)
+	if len(steps) >= sessionDebugMaxSteps {
+		bounds.Truncated = true
 	}
 	return SessionDebugExportResponse{
 		SessionID:     sessionID,
@@ -200,7 +209,7 @@ func (k *Kernel) captureSessionDebugProviderStep(sessionID string, turnID string
 		ToolCalls:                 sessionDebugToolCalls(response.ToolCalls),
 		KernelObservationEventIDs: append([]string(nil), observationEventIDs...),
 		Usage:                     response.Usage,
-		CaptureBounds:             SessionDebugCaptureBounds{MaxInputItemBytes: sessionDebugTextBytes, MaxToolResultBytes: sessionDebugToolResultBytes},
+		CaptureBounds:             SessionDebugCaptureBounds{MaxInputItemBytes: sessionDebugTextBytes, MaxToolResultBytes: sessionDebugToolResultBytes, MaxSteps: sessionDebugMaxSteps},
 	}
 	if providerErr != nil {
 		failure := providerFailureFromError(providerErr)
@@ -219,13 +228,52 @@ func (k *Kernel) writeSessionDebugStep(sessionID string, step SessionDebugProvid
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	steps := []SessionDebugProviderStep{}
+	file, err := os.Open(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err != nil {
+		file = nil
+	}
+	if file != nil {
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			var existing SessionDebugProviderStep
+			if err := json.Unmarshal(scanner.Bytes(), &existing); err != nil {
+				_ = file.Close()
+				return err
+			}
+			steps = append(steps, existing)
+		}
+		if err := scanner.Err(); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return err
+		}
+	}
+	steps = append(steps, step)
+	if len(steps) > sessionDebugMaxSteps {
+		steps = steps[len(steps)-sessionDebugMaxSteps:]
+		for i := range steps {
+			steps[i].CaptureBounds.Truncated = true
+		}
+	}
+	out, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	encoder := json.NewEncoder(file)
-	return encoder.Encode(step)
+	defer out.Close()
+	encoder := json.NewEncoder(out)
+	for _, retained := range steps {
+		if err := encoder.Encode(retained); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (k *Kernel) sessionDebugArtifactPath(sessionID string) string {
@@ -335,6 +383,21 @@ func debugBoundedText(text string, limit int) debugBoundedTextResult {
 	if limit <= 0 || originalBytes <= limit {
 		return debugBoundedTextResult{Text: redacted, OriginalBytes: originalBytes, VisibleBytes: originalBytes}
 	}
-	visible := string([]byte(redacted)[:limit])
+	visible := utf8SafePrefix(redacted, limit)
 	return debugBoundedTextResult{Text: visible, OriginalBytes: originalBytes, VisibleBytes: len([]byte(visible)), Truncated: true}
+}
+
+func utf8SafePrefix(text string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	data := []byte(text)
+	if len(data) <= limit {
+		return text
+	}
+	end := limit
+	for end > 0 && !utf8.Valid(data[:end]) {
+		end--
+	}
+	return string(data[:end])
 }

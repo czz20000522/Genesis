@@ -195,6 +195,7 @@ func (r *Registry) Read(req ReadRequest) (ModelReadResult, error) {
 	if end > len(data) {
 		end = len(data)
 	}
+	offset, end = utf8SafeByteRange(data, offset, end)
 	text := string(data[offset:end])
 	result := ModelReadResult{
 		Status:        "completed",

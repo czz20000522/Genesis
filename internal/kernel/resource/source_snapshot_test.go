@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"genesis/internal/testsupport"
 )
@@ -116,6 +117,40 @@ func TestSourceTreeAndReadReturnBoundedArchiveContent(t *testing.T) {
 	_, _, code, err = registry.AdmitSourceRead(binaryRef, nil, nil)
 	if err == nil || code != "binary_source_file" {
 		t.Fatalf("binary source read code=%q err=%v, want binary_source_file refusal", code, err)
+	}
+}
+
+func TestSourceReadPreservesUTF8ValidityAtByteBudget(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "source-snapshot-utf8")
+	zipPath := filepath.Join(dir, "package.zip")
+	writeZipFixture(t, zipPath, map[string][]byte{
+		"src/unicode.txt": []byte("界界界"),
+	})
+	registry, err := NewRegistry(nil)
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	descriptor, err := registry.RegisterLocalZipSnapshot(zipPath, SourceSnapshotOptions{Purpose: SourcePurposeAnalysis})
+	if err != nil {
+		t.Fatalf("RegisterLocalZipSnapshot returned error: %v", err)
+	}
+	tree := sourceTreeForSnapshot(t, registry, descriptor.SourceSnapshotRef)
+	sourceRef := sourceFileRefByPath(tree.Entries, "src/unicode.txt")
+	limit := 4
+	readReq, _, code, err := registry.AdmitSourceRead(sourceRef, nil, &limit)
+	if err != nil {
+		t.Fatalf("AdmitSourceRead returned %s: %v", code, err)
+	}
+
+	read, err := registry.SourceRead(readReq)
+	if err != nil {
+		t.Fatalf("SourceRead returned error: %v", err)
+	}
+	if !utf8.ValidString(read.Text) || read.Text != "界" {
+		t.Fatalf("read text = %q valid=%v, want one complete rune", read.Text, utf8.ValidString(read.Text))
+	}
+	if read.ReturnedBytes != len([]byte("界")) || read.NextOffsetBytes == nil || *read.NextOffsetBytes != len([]byte("界")) {
+		t.Fatalf("read metadata = %+v, want utf8 boundary byte accounting", read)
 	}
 }
 

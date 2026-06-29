@@ -12,7 +12,7 @@ import (
 
 func TestCommandTemplateDriverRendersConfiguredArgvWithoutCredentialPayload(t *testing.T) {
 	runner := &recordingRunner{}
-	driver := testFeishuCommandTemplateDriver("codex", runner)
+	driver := testCommandTemplateDriver("codex", runner)
 	action := testConnectorSendAction()
 
 	result, err := driver.Execute(context.Background(), action)
@@ -22,12 +22,12 @@ func TestCommandTemplateDriverRendersConfiguredArgvWithoutCredentialPayload(t *t
 	if result.Status != DeliveryStatusSent {
 		t.Fatalf("result = %+v", result)
 	}
-	wantArgs := []string{"--profile", "codex", "im", "+messages-send", "--as", "bot", "--chat-id", "oc_123", "--text", "hello", "--idempotency-key", "idem_1"}
+	wantArgs := []string{"--profile", "codex", "send-message", "--target", "oc_123", "--text", "hello", "--idempotency-key", "idem_1"}
 	if strings.Join(runner.args, "\x00") != strings.Join(wantArgs, "\x00") {
 		t.Fatalf("args = %#v, want %#v", runner.args, wantArgs)
 	}
-	if runner.name != "lark-cli" {
-		t.Fatalf("executable = %q, want lark-cli", runner.name)
+	if runner.name != "connector-test-cli" {
+		t.Fatalf("executable = %q, want connector-test-cli", runner.name)
 	}
 	for key, value := range action.Payload {
 		if strings.Contains(strings.ToLower(key), "credential") || strings.Contains(strings.ToLower(value), "secret") {
@@ -37,7 +37,7 @@ func TestCommandTemplateDriverRendersConfiguredArgvWithoutCredentialPayload(t *t
 }
 
 func TestCommandTemplateDriverRequiresExplicitProfile(t *testing.T) {
-	driver := testFeishuCommandTemplateDriver("", &recordingRunner{})
+	driver := testCommandTemplateDriver("", &recordingRunner{})
 
 	result, err := driver.Execute(context.Background(), testConnectorSendAction())
 	if err == nil {
@@ -49,11 +49,11 @@ func TestCommandTemplateDriverRequiresExplicitProfile(t *testing.T) {
 }
 
 func TestCommandTemplateDriverRequiresTemplateToBindExplicitProfile(t *testing.T) {
-	driver := testFeishuCommandTemplateDriver("codex", &recordingRunner{})
+	driver := testCommandTemplateDriver("codex", &recordingRunner{})
 	driver.Actions["send_message"] = CommandTemplateAction{
 		Argv: []string{
-			"im", "+messages-send",
-			"--chat-id", "${target.external_id}",
+			"send-message",
+			"--target", "${target.external_id}",
 			"--text", "${payload.body}",
 		},
 	}
@@ -68,7 +68,7 @@ func TestCommandTemplateDriverRequiresTemplateToBindExplicitProfile(t *testing.T
 }
 
 func TestCommandTemplateDriverRejectsUnknownTemplateVariable(t *testing.T) {
-	driver := testFeishuCommandTemplateDriver("codex", &recordingRunner{})
+	driver := testCommandTemplateDriver("codex", &recordingRunner{})
 	driver.Actions["send_message"] = CommandTemplateAction{
 		Argv: []string{"--text", "${external.foo}"},
 	}
@@ -83,7 +83,7 @@ func TestCommandTemplateDriverRejectsUnknownTemplateVariable(t *testing.T) {
 }
 
 func TestCommandTemplateDriverRejectsMissingPayloadAsInvalidActionPayload(t *testing.T) {
-	driver := testFeishuCommandTemplateDriver("codex", &recordingRunner{})
+	driver := testCommandTemplateDriver("codex", &recordingRunner{})
 	action := testConnectorSendAction()
 	delete(action.Payload, "body")
 
@@ -97,9 +97,9 @@ func TestCommandTemplateDriverRejectsMissingPayloadAsInvalidActionPayload(t *tes
 }
 
 func TestCommandTemplateDriverRejectsShellStringTemplate(t *testing.T) {
-	driver := testFeishuCommandTemplateDriver("codex", &recordingRunner{})
+	driver := testCommandTemplateDriver("codex", &recordingRunner{})
 	driver.Actions["send_message"] = CommandTemplateAction{
-		Argv: []string{`im +messages-send --chat-id ${target.external_id} --text ${payload.body}`},
+		Argv: []string{`send-message --target ${target.external_id} --text ${payload.body}`},
 	}
 
 	result, err := driver.Execute(context.Background(), testConnectorSendAction())
@@ -112,7 +112,7 @@ func TestCommandTemplateDriverRejectsShellStringTemplate(t *testing.T) {
 }
 
 func TestCommandTemplateDriverRejectsShellExecutable(t *testing.T) {
-	driver := testFeishuCommandTemplateDriver("codex", &recordingRunner{})
+	driver := testCommandTemplateDriver("codex", &recordingRunner{})
 	driver.Executable = "cmd.exe"
 
 	result, err := driver.Execute(context.Background(), testConnectorSendAction())
@@ -125,8 +125,8 @@ func TestCommandTemplateDriverRejectsShellExecutable(t *testing.T) {
 }
 
 func TestCommandTemplateDriverRejectsExecutableShellString(t *testing.T) {
-	driver := testFeishuCommandTemplateDriver("codex", &recordingRunner{})
-	driver.Executable = "lark-cli --profile codex"
+	driver := testCommandTemplateDriver("codex", &recordingRunner{})
+	driver.Executable = "connector-test-cli --profile codex"
 
 	result, err := driver.Execute(context.Background(), testConnectorSendAction())
 	if err == nil {
@@ -138,9 +138,9 @@ func TestCommandTemplateDriverRejectsExecutableShellString(t *testing.T) {
 }
 
 func TestCommandTemplateDriverRejectsScriptExecutablePath(t *testing.T) {
-	for _, executable := range []string{"lark-cli.cmd", "lark-cli.bat", "lark-cli.ps1", "lark-cli.sh"} {
+	for _, executable := range []string{"connector-test-cli.cmd", "connector-test-cli.bat", "connector-test-cli.ps1", "connector-test-cli.sh"} {
 		t.Run(executable, func(t *testing.T) {
-			driver := testFeishuCommandTemplateDriver("codex", &recordingRunner{})
+			driver := testCommandTemplateDriver("codex", &recordingRunner{})
 			driver.Executable = executable
 
 			result, err := driver.Execute(context.Background(), testConnectorSendAction())
@@ -155,7 +155,7 @@ func TestCommandTemplateDriverRejectsScriptExecutablePath(t *testing.T) {
 }
 
 func TestCommandTemplateDriverRejectsCredentialShapedTemplateVariable(t *testing.T) {
-	driver := testFeishuCommandTemplateDriver("codex", &recordingRunner{})
+	driver := testCommandTemplateDriver("codex", &recordingRunner{})
 	driver.Actions["send_message"] = CommandTemplateAction{
 		Argv: []string{"--token", "${credential.token}"},
 	}
@@ -173,7 +173,7 @@ func TestCommandTemplateDriverParsesExternalActionRefFromConfiguredJSONPath(t *t
 	runner := &recordingRunner{
 		output: []byte(`{"data":{"message_id":"om_456"},"debug":"Authorization: Bearer sk-secret"}`),
 	}
-	driver := testFeishuCommandTemplateDriver("genesis", runner)
+	driver := testCommandTemplateDriver("genesis", runner)
 
 	result, err := driver.Execute(context.Background(), testConnectorSendAction())
 	if err != nil {
@@ -191,7 +191,7 @@ func TestCommandTemplateDriverDropsSecretShapedExternalActionRef(t *testing.T) {
 	runner := &recordingRunner{
 		output: []byte(`{"data":{"message_id":"Authorization: Bearer sk-secret"}}`),
 	}
-	driver := testFeishuCommandTemplateDriver("genesis", runner)
+	driver := testCommandTemplateDriver("genesis", runner)
 
 	result, err := driver.Execute(context.Background(), testConnectorSendAction())
 	if err != nil {
@@ -206,7 +206,7 @@ func TestCommandTemplateDriverDropsMalformedExternalActionRef(t *testing.T) {
 	runner := &recordingRunner{
 		output: []byte("{\"data\":{\"message_id\":\"om_456\\nraw-debug\"}}"),
 	}
-	driver := testFeishuCommandTemplateDriver("genesis", runner)
+	driver := testCommandTemplateDriver("genesis", runner)
 
 	result, err := driver.Execute(context.Background(), testConnectorSendAction())
 	if err != nil {
@@ -222,7 +222,7 @@ func TestCommandTemplateDriverMapsFailureWithoutRawOutput(t *testing.T) {
 		output: []byte("Authorization: Bearer sk-secret\nrate limit exceeded"),
 		err:    errors.New("exit status 1"),
 	}
-	driver := testFeishuCommandTemplateDriver("genesis", runner)
+	driver := testCommandTemplateDriver("genesis", runner)
 
 	result, err := driver.Execute(context.Background(), testConnectorSendAction())
 	if err == nil {
@@ -240,7 +240,7 @@ func TestCommandTemplateDriverRejectsOversizedRunnerOutputBeforeParsing(t *testi
 	runner := &recordingRunner{
 		output: []byte(`{"message_id":"om_oversized"}` + strings.Repeat("x", maxConnectorCommandOutputBytes+1)),
 	}
-	driver := testFeishuCommandTemplateDriver("genesis", runner)
+	driver := testCommandTemplateDriver("genesis", runner)
 
 	result, err := driver.Execute(context.Background(), testConnectorSendAction())
 	if err == nil {
@@ -268,9 +268,9 @@ func TestOSCommandRunnerBoundsOversizedStderrOnFailure(t *testing.T) {
 
 func TestCommandTemplateDriverMapsUnsafeExecutableToInvalidTemplate(t *testing.T) {
 	runner := &recordingRunner{
-		err: fmt.Errorf("%w: lark-cli.cmd", errUnsafeCommandExecutable),
+		err: fmt.Errorf("%w: connector-test-cli.cmd", errUnsafeCommandExecutable),
 	}
-	driver := testFeishuCommandTemplateDriver("genesis", runner)
+	driver := testCommandTemplateDriver("genesis", runner)
 
 	result, err := driver.Execute(context.Background(), testConnectorSendAction())
 	if err == nil {
@@ -282,7 +282,7 @@ func TestCommandTemplateDriverMapsUnsafeExecutableToInvalidTemplate(t *testing.T
 }
 
 func TestCommandTemplateDriverRejectsUnexpectedActionPayloadAndTargetMetadata(t *testing.T) {
-	driver := testFeishuCommandTemplateDriver("genesis", &recordingRunner{})
+	driver := testCommandTemplateDriver("genesis", &recordingRunner{})
 	action := testConnectorSendAction()
 	action.TargetRef.Metadata = map[string]string{"api_key": "sk-secret"}
 	action.Payload["api_key"] = "sk-secret"
@@ -320,12 +320,12 @@ func TestConnectorCommandEnvironmentDropsSecretEnvironment(t *testing.T) {
 }
 
 func TestUnsafeResolvedCommandExecutableRejectsScriptWrappers(t *testing.T) {
-	executables := []string{"/usr/local/bin/lark-cli.sh"}
+	executables := []string{"/usr/local/bin/connector-test-cli.sh"}
 	if runtime.GOOS == "windows" {
 		executables = append(executables,
-			"C:\\Users\\Tomczz\\AppData\\Roaming\\npm\\lark-cli",
-			"C:\\Users\\Tomczz\\AppData\\Roaming\\npm\\lark-cli.cmd",
-			"C:\\Users\\Tomczz\\AppData\\Roaming\\npm\\lark-cli.ps1",
+			"C:\\Users\\Tomczz\\AppData\\Roaming\\npm\\connector-test-cli",
+			"C:\\Users\\Tomczz\\AppData\\Roaming\\npm\\connector-test-cli.cmd",
+			"C:\\Users\\Tomczz\\AppData\\Roaming\\npm\\connector-test-cli.ps1",
 		)
 	}
 	for _, executable := range executables {
@@ -349,8 +349,24 @@ func TestCommandTemplateDriverOutputHelper(t *testing.T) {
 	}
 }
 
-func testFeishuCommandTemplateDriver(profile string, runner CommandRunner) CommandTemplateDriver {
-	return NewFeishuSendMessageCommandTemplateDriver(profile, "lark-cli", runner)
+func testCommandTemplateDriver(profile string, runner CommandRunner) CommandTemplateDriver {
+	return CommandTemplateDriver{
+		Executable: "connector-test-cli",
+		Profile:    profile,
+		Runner:     runner,
+		Actions: map[string]CommandTemplateAction{
+			"send_message": {
+				Argv: []string{
+					"--profile", "${profile}",
+					"send-message",
+					"--target", "${target.external_id}",
+					"--text", "${payload.body}",
+					"--idempotency-key", "${idempotency_key}",
+				},
+				ExternalActionRefJSONPaths: []string{"data.message_id", "message_id"},
+			},
+		},
+	}
 }
 
 func testConnectorSendAction() ConnectorAction {
