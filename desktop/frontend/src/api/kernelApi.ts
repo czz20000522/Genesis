@@ -18,6 +18,14 @@ export type KernelTimelineDetail = {
   item?: Record<string, unknown>
 }
 
+export type MaterialIntakeProjection = {
+  admission_result?: string
+  refusal_reason_class?: string
+  source_snapshot_ref?: string
+  available_operations?: string[]
+  diagnostics?: Array<Record<string, unknown>>
+}
+
 export function kernelConfig(storage: Pick<Storage, 'getItem'> | null = safeLocalStorage()): KernelConfig {
   return {
     baseUrl: String(storage?.getItem(baseUrlKey) ?? 'http://127.0.0.1:8765').trim(),
@@ -47,6 +55,17 @@ export async function getTimelineDetail(config: KernelConfig, sessionId: string,
     config,
     `/sessions/${encodeURIComponent(sessionId)}/timeline/details/${encodeURIComponent(detailRef)}`,
   )
+}
+
+export async function uploadMaterial(config: KernelConfig, sessionId: string, file: File) {
+  const form = new FormData()
+  form.set('session_id', sessionId)
+  form.set('purpose', 'source_analysis')
+  form.set('file', file)
+  return requestKernel<MaterialIntakeProjection>(config, '/materials/upload', {
+    method: 'POST',
+    body: form,
+  })
 }
 
 export async function requestKernel<T = Record<string, unknown>>(config: KernelConfig, path: string, init: RequestInit = {}): Promise<T> {

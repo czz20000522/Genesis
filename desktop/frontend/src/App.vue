@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { getReady, getTimeline, getTimelineDetail, kernelConfig, saveKernelConfig, type KernelTimeline, type KernelTimelineDetail } from './api/kernelApi'
+import { getReady, getTimeline, getTimelineDetail, kernelConfig, saveKernelConfig, uploadMaterial, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection } from './api/kernelApi'
+import { materialIntakeSummary } from './materialIntake'
 import { timelineDetailEntries } from './timelineDetail'
 
 const config = ref(kernelConfig())
@@ -10,8 +11,11 @@ const sessionId = ref('')
 const selectedDetailRef = ref('')
 const timeline = ref<KernelTimeline | null>(null)
 const detail = ref<KernelTimelineDetail | null>(null)
+const selectedFile = ref<File | null>(null)
+const material = ref<MaterialIntakeProjection | null>(null)
 const detailEntries = computed(() => timelineDetailEntries(timeline.value?.items))
 const detailItem = computed(() => detail.value?.item ?? {})
+const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
 
 async function checkReady() {
   error.value = ''
@@ -50,6 +54,24 @@ async function loadDetail(detailRef = selectedDetailRef.value) {
 function detailField(name: string) {
   return String(detailItem.value[name] ?? '').trim()
 }
+
+function selectMaterial(event: Event) {
+  selectedFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
+}
+
+async function uploadSelectedMaterial() {
+  error.value = ''
+  saveKernelConfig(config.value)
+  if (!selectedFile.value) {
+    error.value = 'select a material file first'
+    return
+  }
+  try {
+    material.value = await uploadMaterial(config.value, sessionId.value, selectedFile.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
 </script>
 
 <template>
@@ -81,6 +103,25 @@ function detailField(name: string) {
         Session ID
         <input v-model="sessionId" spellcheck="false" />
       </label>
+
+      <label>
+        Material zip
+        <input type="file" accept=".zip,application/zip,application/x-zip-compressed" @change="selectMaterial" />
+      </label>
+
+      <button type="button" @click="uploadSelectedMaterial">Upload material</button>
+
+      <aside v-if="material" class="detail-panel">
+        <p class="eyebrow">Material intake</p>
+        <dl>
+          <dt>Admission</dt>
+          <dd>{{ materialSummary[0] }}</dd>
+          <dt>Source/refusal</dt>
+          <dd><code>{{ materialSummary[1] }}</code></dd>
+          <dt>Operations</dt>
+          <dd>{{ materialSummary[2] }}</dd>
+        </dl>
+      </aside>
 
       <button type="button" @click="loadTimeline">Load timeline</button>
 

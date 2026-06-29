@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { getTimelineDetail, kernelConfig, kernelUrl, saveKernelConfig } from '../src/api/kernelApi.ts'
+import { getTimelineDetail, kernelConfig, kernelUrl, saveKernelConfig, uploadMaterial } from '../src/api/kernelApi.ts'
+import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
 
 const values = new Map<string, string>()
@@ -68,4 +69,51 @@ assert.deepEqual(timelineDetailEntries([
   { detailRef: 'group-1', label: 'processing_group: group-1' },
   { detailRef: 'tool-1', label: 'operation_detail: tool-1' },
   { detailRef: 'nested-ref', label: 'operation_detail: nested-ref' },
+])
+
+let uploadedUrl = ''
+let uploadedSession = ''
+let uploadedPurpose = ''
+let uploadedFilename = ''
+globalThis.fetch = async (input, init) => {
+  uploadedUrl = String(input)
+  requestedAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  const form = init?.body as FormData
+  uploadedSession = String(form.get('session_id') ?? '')
+  uploadedPurpose = String(form.get('purpose') ?? '')
+  uploadedFilename = (form.get('file') as File).name
+  return new Response(JSON.stringify({
+    admission_result: 'admitted',
+    source_snapshot_ref: 'source:snapshot:1',
+    available_operations: ['source_tree', 'source_read'],
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const projection = await uploadMaterial({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'session-upload', new File(['zip'], 'package.zip'))
+
+  assert.equal(uploadedUrl, 'http://127.0.0.1:8765/materials/upload')
+  assert.equal(requestedAuth, 'Bearer secret')
+  assert.equal(uploadedSession, 'session-upload')
+  assert.equal(uploadedPurpose, 'source_analysis')
+  assert.equal(uploadedFilename, 'package.zip')
+  assert.equal(projection.source_snapshot_ref, 'source:snapshot:1')
+} finally {
+  globalThis.fetch = originalFetch
+}
+
+assert.deepEqual(materialIntakeSummary({
+  admission_result: 'admitted',
+  source_snapshot_ref: 'source:snapshot:1',
+  available_operations: ['source_tree', 'source_read'],
+}), [
+  'admitted',
+  'source:snapshot:1',
+  'source_tree, source_read',
 ])
