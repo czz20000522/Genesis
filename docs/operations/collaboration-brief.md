@@ -35,7 +35,7 @@ from implementation convenience.
 - P0: without it, a user cannot complete the basic Genesis loop. Examples:
   chat/turn submission, live provider readiness, provider context projection,
   ToolGateway execution, session/timeline reads, material intake/upload,
-  context compaction safety, and a usable chat-first frontend shell.
+  context compaction safety, and a usable chat-first desktop shell.
 - P1: without it, the system works but daily use is fragile or hard to inspect.
   Examples: session debug export, Feishu inbound stability, local skill store,
   detail projections, provider setup ergonomics, and first-run runbooks.
@@ -124,11 +124,18 @@ kernel/application boundaries:
 - material intake, source snapshots, source tools, references, and resources;
 - connector runtime, inbound source supervision, outbox, and delivery receipts.
 
-Frontend lane owns user experience over backend projections, not kernel truth:
+Frontend lane owns user experience over backend projections, not kernel truth.
+Genesis is a personal local system, so the product shell is desktop-first.
+WebUI is a draft visualization surface for development and review, not the
+primary production surface. CLI is not a required product lane unless a future
+operator need proves it is worth the maintenance cost.
 
 - the kernel reconstruction frontend uses the Python line's Vue/Vite direction
-  until an explicit replacement decision is recorded;
-- chat-first shell and input composer;
+  for the current WebUI draft surface;
+- the desktop shell should follow the Reasonix-style desktop pattern: one
+  desktop application drives the same kernel projections without becoming a
+  kernel owner;
+- chat-first desktop shell and input composer;
 - upload/material attachment entry;
 - live turn progress and settled processing group rendering;
 - timeline detail drawer, debug export access, and readiness/error surfaces;
