@@ -140,6 +140,14 @@ shape.
 
 Skill packages are user-space assets. The kernel scans configured skill roots only to build a safe metadata index for capability and provider-context projection. Discovery is bounded by recursion depth, candidate count per root, and `SKILL.md` metadata file size before parsing. Exclusions use stable path-free reasons so `/capabilities` can explain skipped metadata without exposing package paths, skill bodies, or heavy file contents. Root status is projected as ordinal/status/count only; paths stay internal. When the bounded provider skill index excludes configured skill names, `/capabilities` and session debug expose a bounded `skill_index_budget_excluded` warning so focused sessions fail visibly instead of silently losing skills.
 
+### Local User Skill Store Skeleton
+
+The first local skill store is the configured skill-root set, defaulting to the current user's global agent skill root at `~/.agents/skills`. Explicit `GENESIS_SKILL_ROOTS` entries and repeated `-skill-root` flags are operator setup surfaces and are ordered before the default root. `-disable-default-skill-roots` is a smoke/dev escape hatch for focused sessions; it is not the product default and must not be used to make installed user skills disappear silently.
+
+This store is a user-space filesystem asset store of skill packages, not a kernel database, marketplace, installer, account system, remote sync service, or authority owner. The kernel owns only the bounded catalog projection of safe `SKILL.md` name/description metadata. It must not persist full skill bodies, expose package paths to the model, bind tools to skills, or treat a skill as permission to execute anything. Skills can teach the model how to use existing governed tools, but they do not grant those tools.
+
+Full skill-body access, if needed later, must enter through the generic resource/context admission contract with a system-generated reference and budgeted projection. Do not add `skill.read`, `read_skill`, or other skill-specific model-visible tools as a shortcut around that contract.
+
 Reference alignment:
 
 - Reasonix bounds skill-root discovery depth and candidate count before registering user-space skill packages.

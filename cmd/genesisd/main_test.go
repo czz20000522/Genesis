@@ -171,6 +171,19 @@ func TestEffectiveSkillRootsPrioritizesExplicitAndCanDisableDefaults(t *testing.
 	}
 }
 
+func TestDefaultSkillRootsUsesUserAgentSkillStore(t *testing.T) {
+	home := testsupport.ProjectTempDir(t, "genesisd-user-skill-store")
+	t.Setenv("GENESIS_SKILL_ROOTS", "")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	roots := defaultSkillRoots()
+	want := filepath.Join(home, ".agents", "skills")
+	if len(roots) != 1 || roots[0] != want {
+		t.Fatalf("default skill roots = %v, want [%s]", roots, want)
+	}
+}
+
 func TestDaemonProviderCommandEnvHelper(t *testing.T) {
 	if os.Getenv("GENESIS_DAEMON_PROVIDER_ENV_HELPER") != "1" {
 		return
