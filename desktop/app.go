@@ -19,13 +19,13 @@ import (
 
 const (
 	defaultKernelBaseURL = "http://127.0.0.1:8765"
-	sidecarNotWired      = "sidecar_not_wired"
 )
 
 type App struct {
-	ctx    context.Context
-	config DesktopConfig
-	client *KernelHTTPClient
+	ctx        context.Context
+	config     DesktopConfig
+	client     *KernelHTTPClient
+	supervisor *LocalServiceSupervisor
 }
 
 type DesktopConfig struct {
@@ -35,20 +35,41 @@ type DesktopConfig struct {
 }
 
 type SidecarStatus struct {
+	ServiceID string `json:"service_id"`
+	Kind      string `json:"kind"`
+	Ownership string `json:"ownership"`
 	Readiness string `json:"readiness"`
 	Reason    string `json:"reason,omitempty"`
+	PID       int    `json:"pid,omitempty"`
+	StartedAt string `json:"started_at,omitempty"`
+	LogPath   string `json:"log_path,omitempty"`
 }
 
 func NewApp() *App {
 	cfg := loadDesktopConfig()
+	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
+		KernelBaseURL: cfg.KernelBaseURL,
+		RuntimeToken:  cfg.RuntimeToken,
+		External:      cfg.Sidecar.Ownership == serviceOwnershipExternal,
+	})
 	return &App{
-		config: cfg,
-		client: NewKernelHTTPClient(cfg.KernelBaseURL, cfg.RuntimeToken, nil),
+		config:     cfg,
+		client:     NewKernelHTTPClient(cfg.KernelBaseURL, cfg.RuntimeToken, nil),
+		supervisor: supervisor,
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if a.supervisor != nil {
+		a.config.Sidecar = a.supervisor.StartKernel(ctx)
+	}
+}
+
+func (a *App) shutdown(ctx context.Context) {
+	if a.supervisor != nil {
+		a.config.Sidecar = a.supervisor.StopOwned(ctx)
+	}
 }
 
 func (a *App) DesktopConfig() DesktopConfig {
@@ -187,16 +208,20 @@ func (a *App) requestContext() (context.Context, context.CancelFunc) {
 
 func loadDesktopConfig() DesktopConfig {
 	baseURL := strings.TrimSpace(os.Getenv("GENESIS_KERNEL_BASE_URL"))
+	external := baseURL != ""
 	if baseURL == "" {
 		baseURL = defaultKernelBaseURL
 	}
+	token := strings.TrimSpace(os.Getenv("GENESIS_RUNTIME_TOKEN"))
+	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
+		KernelBaseURL: baseURL,
+		RuntimeToken:  token,
+		External:      external,
+	})
 	return DesktopConfig{
 		KernelBaseURL: strings.TrimRight(baseURL, "/"),
-		RuntimeToken:  strings.TrimSpace(os.Getenv("GENESIS_RUNTIME_TOKEN")),
-		Sidecar: SidecarStatus{
-			Readiness: "not_ready",
-			Reason:    sidecarNotWired,
-		},
+		RuntimeToken:  token,
+		Sidecar:       supervisor.KernelStatus(),
 	}
 }
 

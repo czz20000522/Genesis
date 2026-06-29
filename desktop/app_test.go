@@ -11,14 +11,47 @@ import (
 	"testing"
 )
 
-func TestSidecarPlaceholderIsNotReady(t *testing.T) {
+func TestLocalServiceSupervisorProjectsOwnedKernelSkeleton(t *testing.T) {
 	t.Setenv("GENESIS_KERNEL_BASE_URL", "")
 	t.Setenv("GENESIS_RUNTIME_TOKEN", "")
 
 	cfg := loadDesktopConfig()
 
-	if cfg.Sidecar.Readiness != "not_ready" || cfg.Sidecar.Reason != sidecarNotWired {
-		t.Fatalf("sidecar = %+v, want structured not_ready placeholder", cfg.Sidecar)
+	if cfg.Sidecar.ServiceID != "kernel" || cfg.Sidecar.Kind != "kernel" || cfg.Sidecar.Ownership != "owned" {
+		t.Fatalf("sidecar identity = %+v, want owned kernel service", cfg.Sidecar)
+	}
+	if cfg.Sidecar.Readiness != "not_ready" || cfg.Sidecar.Reason != sidecarStartNotImplemented {
+		t.Fatalf("sidecar readiness = %+v, want structured not_ready skeleton", cfg.Sidecar)
+	}
+}
+
+func TestLocalServiceSupervisorProjectsExternalKernelWithoutOwnership(t *testing.T) {
+	t.Setenv("GENESIS_KERNEL_BASE_URL", "http://127.0.0.1:9999")
+	t.Setenv("GENESIS_RUNTIME_TOKEN", "token")
+
+	cfg := loadDesktopConfig()
+
+	if cfg.KernelBaseURL != "http://127.0.0.1:9999" {
+		t.Fatalf("kernel base url = %q", cfg.KernelBaseURL)
+	}
+	if cfg.Sidecar.Ownership != "external" || cfg.Sidecar.Reason != sidecarExternalKernelConfigured {
+		t.Fatalf("sidecar = %+v, want external kernel projection", cfg.Sidecar)
+	}
+}
+
+func TestDesktopStartupAndShutdownRouteThroughLocalServiceSupervisor(t *testing.T) {
+	app := NewApp()
+	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{KernelBaseURL: defaultKernelBaseURL})
+	app.supervisor = supervisor
+
+	app.startup(context.Background())
+	if !supervisor.startAttempted {
+		t.Fatal("startup did not ask local service supervisor to start owned services")
+	}
+
+	app.shutdown(context.Background())
+	if !supervisor.stopAttempted {
+		t.Fatal("shutdown did not ask local service supervisor to stop owned services")
 	}
 }
 

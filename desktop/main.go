@@ -21,7 +21,8 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: os.DirFS(frontendAssetDirFromRuntime()),
 		},
-		OnStartup: app.startup,
+		OnStartup:  app.startup,
+		OnShutdown: app.shutdown,
 		Bind: []any{
 			app,
 		},
