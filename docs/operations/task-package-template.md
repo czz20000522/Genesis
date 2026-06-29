@@ -7,9 +7,21 @@ aspirational.
 
 `OWNER-SHORT-GOAL-YYYYMMDD`
 
+## Queue Metadata
+
+- Lane: `backend` or `frontend`
+- Priority: `P0`, `P1`, `P2`, or `P3`
+- Stage: `skeleton-needed`, `skeleton-ready`, `ready-for-agent`, or
+  `blocked-decision`
+
 ## Goal
 
 One sentence describing the exact gap to close.
+
+## User Value
+
+Explain which user-visible loop this unblocks. Priority must be based on user
+experience, not implementation convenience.
 
 ## Reference Files
 
@@ -23,6 +35,7 @@ One sentence describing the exact gap to close.
 - Concrete behavior to implement.
 - Required red tests / behavior tests.
 - Required docs or retirement-log updates.
+- Whether this is skeleton-only or production implementation.
 
 ## Out Of Scope
 
@@ -30,6 +43,8 @@ One sentence describing the exact gap to close.
 - New provider/application-specific kernel paths.
 - Compatibility shims for old development state.
 - Anything not already decided in the governing requirement/design.
+- Choosing a framework, state model, route shape, persistence policy, or adapter
+  pattern not named by the task package.
 
 ## Required Checks
 
@@ -50,4 +65,3 @@ Return:
 - issue retired or still open;
 - known residual risk;
 - any drift found outside scope.
-
