@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "genesis-desktop",
+  "outputfilename": "genesis-desktop",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Genesis"
+  },
+  "info": {
+    "companyName": "Genesis",
+    "productName": "Genesis",
+    "productVersion": "0.0.0",
+    "copyright": "Copyright © 2026 Genesis Contributors",
+    "comments": "Genesis desktop shell around the local kernel HTTP surface."
+  }
+}
