@@ -126,6 +126,8 @@ kernel/application boundaries:
 
 Frontend lane owns user experience over backend projections, not kernel truth:
 
+- the kernel reconstruction frontend uses the Python line's Vue/Vite direction
+  until an explicit replacement decision is recorded;
 - chat-first shell and input composer;
 - upload/material attachment entry;
 - live turn progress and settled processing group rendering;
