@@ -25,3 +25,14 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Periodic governance review checks architecture, feature behavior, directory structure, and document lifetime together. Completed plans and stale documents should be deleted or condensed instead of spawning issues that only preserve old notes.
 
 ## Active Issues
+
+### KERNEL-SESSION-STORE-PRODUCTION-CLOSURE-20260630 - P2 - File-backed SQLite session store production closure
+
+- Status: open.
+- Requirement: `docs/requirements/kernel-foundation-capabilities.md`.
+- Design: `docs/design/kernel-foundation-capabilities.md`; current storage contract: `docs/kernel-contract.md`.
+- Gap: Commit `ecf386b41` retired the JSONL physical ledger and introduced a file-backed session event store with a SQLite authority index. The current slice is sufficient for local development and restart replay, but it is not the full production storage closure: orphan event frames are not garbage-collected, multiple `genesisd` writers against the same store are not fail-closed by an interprocess lock, `GET /sessions` derives the list by loading events instead of using a SQLite aggregation path, and there is no retention/backup/compaction policy for growing event files.
+- Next slice: Add the smallest production closure that has a concrete consumer: first fail closed on concurrent writers, then add orphan-frame repair/GC and SQLite-backed session listing when session volume or desktop history performance requires it. Do not add title, preview, archive, provider, model, or token summary columns until a shell or owner explicitly consumes them.
+- Evidence: `internal/kernel/sqlite_ledger.go` writes event bodies to `session-events/*.events` and stores query/integrity metadata in SQLite. `internal/kernel/sqlite_ledger_test.go` proves restart replay, file-body separation, and fail-closed missing event files. `Kernel.ListSessions` currently derives `session_id` and `updated_at` from loaded events.
+- Verification: Production closure must prove single-writer admission, no duplicate effects after restart, missing index or missing frame failure modes, orphan cleanup that does not delete indexed truth, and session list behavior without full event-body replay.
+- Reference alignment: Aligned with Codex's split between durable thread handles/backing store and projected thread details, and Reasonix's separation of settled transcript/checkpoint from live stream. Genesis intentionally differs by making SQLite an index over file-backed event truth instead of a full transcript table.
