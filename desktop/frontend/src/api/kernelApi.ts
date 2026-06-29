@@ -6,6 +6,18 @@ export type KernelConfig = {
   runtimeToken: string
 }
 
+export type KernelTimeline = {
+  session_id?: string
+  readiness?: string
+  items?: Array<Record<string, unknown>>
+}
+
+export type KernelTimelineDetail = {
+  detail_ref?: string
+  readiness?: string
+  item?: Record<string, unknown>
+}
+
 export function kernelConfig(storage: Pick<Storage, 'getItem'> | null = safeLocalStorage()): KernelConfig {
   return {
     baseUrl: String(storage?.getItem(baseUrlKey) ?? 'http://127.0.0.1:8765').trim(),
@@ -24,6 +36,17 @@ export async function getReady(config = kernelConfig()) {
 
 export async function getCapabilities(config = kernelConfig()) {
   return requestKernel(config, '/capabilities')
+}
+
+export async function getTimeline(config: KernelConfig, sessionId: string) {
+  return requestKernel<KernelTimeline>(config, `/sessions/${encodeURIComponent(sessionId)}/timeline`)
+}
+
+export async function getTimelineDetail(config: KernelConfig, sessionId: string, detailRef: string) {
+  return requestKernel<KernelTimelineDetail>(
+    config,
+    `/sessions/${encodeURIComponent(sessionId)}/timeline/details/${encodeURIComponent(detailRef)}`,
+  )
 }
 
 export async function requestKernel<T = Record<string, unknown>>(config: KernelConfig, path: string, init: RequestInit = {}): Promise<T> {

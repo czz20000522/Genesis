@@ -12,7 +12,7 @@ body {
 main {
   min-height: 100vh;
   display: grid;
-  place-items: center;
+  place-items: start center;
   padding: 32px;
 }
 
@@ -69,4 +69,62 @@ button {
 
 .error {
   color: #b42318;
+}
+
+.divider {
+  height: 1px;
+  background: #d8e0ea;
+}
+
+.detail-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-list button {
+  color: #17202a;
+  background: #e8eef6;
+}
+
+.detail-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+}
+
+dt {
+  color: #536579;
+}
+
+dd {
+  min-width: 0;
+  margin: 0;
+}
+
+code,
+pre {
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+pre {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
 }
