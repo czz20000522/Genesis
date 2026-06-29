@@ -103,13 +103,16 @@ async function sendMessage() {
   const text = messageText.value.trim()
   const session = currentSession()
   if (!session) return
-  if (!text) {
-    error.value = '请输入消息'
+  if (!text && !selectedFile.value) {
+    error.value = '请输入消息或选择附件'
     return
   }
   try {
-    lastTurn.value = await submitTurn(config.value, session, text, newDesktopIdempotencyKey())
+    const fileWasSelected = selectedFile.value
+    if (fileWasSelected) material.value = await uploadMaterial(config.value, session, fileWasSelected)
+    lastTurn.value = await submitTurn(config.value, session, text || '请查看我上传的资料。', newDesktopIdempotencyKey())
     messageText.value = ''
+    if (fileWasSelected) selectedFile.value = null
     timeline.value = await getTimeline(config.value, session)
     await loadApprovals()
   } catch (err) {
@@ -133,23 +136,6 @@ async function loadDetail(detailRef = selectedDetailRef.value) {
 
 function selectMaterial(event: Event) {
   selectedFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
-}
-
-async function uploadSelectedMaterial() {
-  error.value = ''
-  saveKernelConfig(config.value)
-  if (!selectedFile.value) {
-    error.value = '请先选择资料文件'
-    return
-  }
-  const session = currentSession()
-  if (!session) return
-  try {
-    material.value = await uploadMaterial(config.value, session, selectedFile.value)
-    inspectorOpen.value = true
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
-  }
 }
 
 async function loadApprovals() {
@@ -255,7 +241,6 @@ function newDesktopIdempotencyKey() {
         :error="error"
         :inspector-open="inspectorOpen"
         @check-ready="checkReady"
-        @load-approvals="loadApprovals"
         @toggle-inspector="inspectorOpen = !inspectorOpen"
       />
 
@@ -274,8 +259,6 @@ function newDesktopIdempotencyKey() {
         @send-message="sendMessage"
         @load-detail="loadDetail"
         @select-material="selectMaterial"
-        @upload-material="uploadSelectedMaterial"
-        @load-approvals="loadApprovals"
         @decide-approval="submitApprovalDecision"
       />
     </section>

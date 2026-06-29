@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { sessionLabel, sessionStatus } from '../display'
+
 defineProps<{
   sessionId: string
   sessions: string[]
@@ -10,9 +12,6 @@ defineEmits<{
   loadTimeline: []
 }>()
 
-function shortSession(value: string) {
-  return value.length <= 22 ? value : `${value.slice(0, 14)}...${value.slice(-6)}`
-}
 </script>
 
 <template>
@@ -33,16 +32,16 @@ function shortSession(value: string) {
         :key="session"
         type="button"
         :class="['session-link', { 'session-link-active': session === sessionId }]"
-        :title="session"
+        :title="sessionLabel(session)"
         @click="$emit('selectSession', session)"
       >
-        <span>{{ shortSession(session) }}</span>
-        <small>{{ session === sessionId ? '当前' : '本地' }}</small>
+        <span>{{ session === sessionId ? '当前会话' : '本地会话' }}</span>
+        <small>{{ sessionStatus(session, sessionId) }} · 刚刚</small>
       </button>
     </nav>
 
     <div class="rail-footer">
-      <button type="button" class="secondary-button" @click="$emit('loadTimeline')">同步会话</button>
+      <button type="button" class="secondary-button" @click="$emit('loadTimeline')">重新载入</button>
     </div>
   </aside>
 </template>

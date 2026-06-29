@@ -338,10 +338,15 @@ label {
   justify-self: center;
   display: grid;
   justify-items: center;
-  gap: 15px;
-  width: min(560px, 100%);
-  min-height: 340px;
+  gap: 18px;
+  width: min(640px, 100%);
+  min-height: 300px;
+  padding: 34px;
   text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgb(255 255 255 / 72%);
+  box-shadow: 0 18px 48px rgb(24 32 41 / 8%);
 }
 
 .empty-chat p {
@@ -361,6 +366,16 @@ label {
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
+}
+
+.prompt-row button {
+  color: var(--ink);
+  border: 1px solid var(--border);
+  background: #ffffff;
+}
+
+.prompt-row button:hover {
+  background: #eef5f2;
 }
 
 .chat-row {
@@ -459,14 +474,19 @@ label {
 
 .file-action {
   position: relative;
+  display: grid;
+  place-items: center;
   width: auto;
+  min-width: 38px;
   min-height: 36px;
-  padding: 8px 13px;
+  padding: 7px 11px;
   border: 1px solid #b9c5d1;
   border-radius: 7px;
   color: var(--ink);
   background: #ffffff;
   cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .file-action input {

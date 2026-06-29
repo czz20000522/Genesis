@@ -5,6 +5,7 @@ import { compactSessionContext, decideApproval, enableSessionDebug, getSessionDe
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
+import { connectionErrorLabel, readinessLabel, sessionLabel, sessionStatus } from '../src/display.ts'
 import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
 import { timelineRows } from '../src/timelineView.ts'
@@ -32,6 +33,16 @@ assert.deepEqual(kernelConfig(storage), {
 
 assert.equal(kernelUrl('http://127.0.0.1:8765/', '/ready'), 'http://127.0.0.1:8765/ready')
 assert.equal(kernelUrl('', 'capabilities'), 'http://127.0.0.1:8765/capabilities')
+assert.equal(readinessLabel('ready'), '已连接')
+assert.equal(readinessLabel('serving-ready'), '已连接')
+assert.equal(readinessLabel('not_ready'), '连接失败')
+assert.equal(readinessLabel('unchecked'), '未连接')
+assert.equal(sessionLabel('desktop-full-id'), '当前会话')
+assert.equal(sessionLabel(''), '未选择会话')
+assert.equal(sessionStatus('a', 'a'), '正在使用')
+assert.equal(sessionStatus('a', 'b'), '本地会话')
+assert.equal(connectionErrorLabel('Failed to fetch'), '连接失败，请检查本地服务')
+assert.equal(connectionErrorLabel(''), '')
 
 let emptySessionRequests = 0
 const originalFetchForEmptySession = globalThis.fetch

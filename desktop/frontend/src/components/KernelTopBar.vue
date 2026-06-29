@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { connectionErrorLabel, readinessLabel, sessionLabel } from '../display'
+
 defineProps<{
   readiness: string
   sessionId: string
@@ -8,7 +10,6 @@ defineProps<{
 
 defineEmits<{
   checkReady: []
-  loadApprovals: []
   toggleInspector: []
 }>()
 </script>
@@ -17,14 +18,13 @@ defineEmits<{
   <header class="topbar">
     <div class="topbar-status">
       <strong>Genesis</strong>
-      <span>连接 {{ readiness }}</span>
-      <span>{{ sessionId || '未选择会话' }}</span>
-      <p v-if="error" class="error">{{ error }}</p>
+      <span>{{ readinessLabel(readiness) }}</span>
+      <span>{{ sessionLabel(sessionId) }}</span>
+      <p v-if="error" class="error">{{ connectionErrorLabel(error) }}</p>
     </div>
     <div class="topbar-actions">
       <button type="button" @click="$emit('checkReady')">检查连接</button>
-      <button type="button" @click="$emit('loadApprovals')">审批</button>
-      <button type="button" @click="$emit('toggleInspector')">{{ inspectorOpen ? '收起详情' : '详情' }}</button>
+      <button type="button" @click="$emit('toggleInspector')">{{ inspectorOpen ? '收起设置' : '设置' }}</button>
     </div>
   </header>
 </template>

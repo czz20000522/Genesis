@@ -38,7 +38,7 @@ function detailField(name: string) {
   <aside class="inspector">
     <div class="inspector-head">
       <div>
-        <p class="eyebrow">检查器</p>
+        <p class="eyebrow">设置与诊断</p>
         <strong>{{ readiness }}</strong>
       </div>
       <button type="button" class="secondary-button" @click="$emit('close')">关闭</button>
@@ -54,7 +54,7 @@ function detailField(name: string) {
         运行令牌
         <input :value="runtimeToken" type="password" spellcheck="false" @input="$emit('update:runtimeToken', ($event.target as HTMLInputElement).value)" />
       </label>
-      <button type="button" class="secondary-button" @click="$emit('checkReady')">检查内核</button>
+      <button type="button" class="secondary-button" @click="$emit('checkReady')">检查连接</button>
     </section>
 
     <section class="panel">

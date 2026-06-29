@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { approvalSummary } from '../approvalView'
 import type { ApprovalDecision, ApprovalProjection, TurnResponse } from '../api/kernelApi'
+import { readinessLabel, sessionLabel } from '../display'
 import type { TimelineRow } from '../timelineView'
 
 const props = defineProps<{
@@ -21,9 +22,7 @@ const emit = defineEmits<{
   'update:approvalReason': [value: string]
   sendMessage: []
   selectMaterial: [event: Event]
-  uploadMaterial: []
   loadDetail: [detailRef: string]
-  loadApprovals: []
   decideApproval: [approvalId: string, decision: ApprovalDecision]
 }>()
 
@@ -39,6 +38,10 @@ function onKeydown(event: KeyboardEvent) {
   event.preventDefault()
   emit('sendMessage')
 }
+
+function useStarter(text: string) {
+  emit('update:messageText', text)
+}
 </script>
 
 <template>
@@ -47,10 +50,12 @@ function onKeydown(event: KeyboardEvent) {
       <article v-if="!rows.length && !approvals.length" class="empty-chat">
         <div class="empty-mark">G</div>
         <h2>Genesis</h2>
+        <p>从一个问题、一个任务或一个代码包开始。</p>
         <div class="prompt-row">
-          <span>总结这个会话</span>
-          <span>分析一个代码包</span>
-          <span>规划下一步</span>
+          <button type="button" @click="useStarter('帮我梳理今天最重要的下一步。')">梳理下一步</button>
+          <button type="button" @click="useStarter('我会上传一个代码包，请先查看顶层结构。')">查看代码包</button>
+          <button type="button" @click="useStarter('根据当前会话，给我一个简洁总结。')">总结会话</button>
+          <button type="button" @click="useStarter('帮我把这个想法整理成可执行计划。')">整理计划</button>
         </div>
       </article>
 
@@ -71,7 +76,7 @@ function onKeydown(event: KeyboardEvent) {
 
       <article v-for="approval in approvals" :key="approval.approval_id" class="chat-row chat-row-action">
         <div class="chat-bubble approval-card">
-          <p class="eyebrow">需要审批</p>
+          <p class="eyebrow">需要确认操作</p>
           <dl>
             <dt>状态</dt>
             <dd>{{ approvalSummary(approval)[0] }}</dd>
@@ -81,11 +86,11 @@ function onKeydown(event: KeyboardEvent) {
             <dd><code>{{ approvalSummary(approval)[2] }}</code></dd>
           </dl>
           <label>
-            审批说明
+            确认说明
             <input :value="approvalReason" spellcheck="true" @input="$emit('update:approvalReason', ($event.target as HTMLInputElement).value)" />
           </label>
           <div class="button-row">
-            <button type="button" @click="$emit('decideApproval', String(approval.approval_id), 'approved')">批准</button>
+            <button type="button" @click="$emit('decideApproval', String(approval.approval_id), 'approved')">允许</button>
             <button type="button" class="danger" @click="$emit('decideApproval', String(approval.approval_id), 'denied')">拒绝</button>
           </div>
         </div>
@@ -98,25 +103,23 @@ function onKeydown(event: KeyboardEvent) {
         <textarea
           :value="messageText"
           rows="2"
-          placeholder="给 Genesis 发送消息..."
+          placeholder="输入消息，或添加附件后直接发送..."
           spellcheck="true"
           @keydown="onKeydown"
           @input="$emit('update:messageText', ($event.target as HTMLTextAreaElement).value)"
         ></textarea>
         <div class="composer-actions">
           <label class="file-action">
-            附件
+            ＋
             <input type="file" accept=".zip,application/zip,application/x-zip-compressed" @change="$emit('selectMaterial', $event)" />
           </label>
-          <button type="button" class="secondary-button" :disabled="!selectedFileName" @click="$emit('uploadMaterial')">上传</button>
-          <button type="button" class="secondary-button" @click="$emit('loadApprovals')">审批</button>
           <button type="button" class="send-button" @click="$emit('sendMessage')">发送</button>
         </div>
       </div>
       <div class="composer-meta">
-        <span>{{ readiness }}</span>
-        <span>{{ sessionId }}</span>
-        <span v-if="selectedFileName">{{ selectedFileName }}</span>
+        <span>{{ readinessLabel(readiness) }}</span>
+        <span>{{ sessionLabel(sessionId) }}</span>
+        <span v-if="selectedFileName">已选择：{{ selectedFileName }}，发送时一并上传</span>
         <span v-if="detailEntries.length">{{ detailEntries.length }} 个详情入口</span>
       </div>
     </div>
