@@ -51,6 +51,7 @@ func NewApp() *App {
 		KernelBaseURL: cfg.KernelBaseURL,
 		RuntimeToken:  cfg.RuntimeToken,
 		External:      cfg.Sidecar.Ownership == serviceOwnershipExternal,
+		GenesisdPath:  strings.TrimSpace(os.Getenv("GENESIS_DESKTOP_GENESISD_PATH")),
 	})
 	return &App{
 		config:     cfg,
@@ -217,6 +218,7 @@ func loadDesktopConfig() DesktopConfig {
 		KernelBaseURL: baseURL,
 		RuntimeToken:  token,
 		External:      external,
+		GenesisdPath:  strings.TrimSpace(os.Getenv("GENESIS_DESKTOP_GENESISD_PATH")),
 	})
 	return DesktopConfig{
 		KernelBaseURL: strings.TrimRight(baseURL, "/"),

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,17 +13,70 @@ import (
 	"testing"
 )
 
-func TestLocalServiceSupervisorProjectsOwnedKernelSkeleton(t *testing.T) {
+func desktopTestTempDir(t *testing.T) string {
+	t.Helper()
+	name := strings.NewReplacer("\\", "_", "/", "_", ":", "_", " ", "_").Replace(t.Name())
+	dir := filepath.Join("..", ".test-tmp", "desktop", name)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove test temp dir: %v", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir test temp dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	return dir
+}
+
+type fakeSidecarProcess struct {
+	pid       int
+	stopCalls int
+}
+
+func (p *fakeSidecarProcess) PID() int {
+	return p.pid
+}
+
+func (p *fakeSidecarProcess) Stop(context.Context) error {
+	p.stopCalls++
+	return nil
+}
+
+func TestLocalServiceSupervisorStartsOwnedKernelProcess(t *testing.T) {
 	t.Setenv("GENESIS_KERNEL_BASE_URL", "")
 	t.Setenv("GENESIS_RUNTIME_TOKEN", "")
 
-	cfg := loadDesktopConfig()
+	proc := &fakeSidecarProcess{pid: 4321}
+	launched := false
+	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
+		KernelBaseURL: defaultKernelBaseURL,
+		LogDir:        desktopTestTempDir(t),
+		launcher: func(_ context.Context, req sidecarLaunchRequest) (sidecarProcess, error) {
+			launched = true
+			if req.LogPath == "" {
+				t.Fatal("launcher did not receive a log path")
+			}
+			return proc, nil
+		},
+		readinessProbe: func(context.Context, string, string) sidecarReadinessResult {
+			return sidecarReadinessResult{Ready: true}
+		},
+	})
 
-	if cfg.Sidecar.ServiceID != "kernel" || cfg.Sidecar.Kind != "kernel" || cfg.Sidecar.Ownership != "owned" {
-		t.Fatalf("sidecar identity = %+v, want owned kernel service", cfg.Sidecar)
+	status := supervisor.StartKernel(context.Background())
+
+	if !launched {
+		t.Fatal("owned supervisor did not launch genesisd")
 	}
-	if cfg.Sidecar.Readiness != "not_ready" || cfg.Sidecar.Reason != sidecarStartNotImplemented {
-		t.Fatalf("sidecar readiness = %+v, want structured not_ready skeleton", cfg.Sidecar)
+	if status.ServiceID != "kernel" || status.Kind != "kernel" || status.Ownership != "owned" {
+		t.Fatalf("sidecar identity = %+v, want owned kernel service", status)
+	}
+	if status.Readiness != "ready" || status.Reason != "" {
+		t.Fatalf("sidecar readiness = %+v, want ready owned service", status)
+	}
+	if status.PID != proc.pid || status.StartedAt == "" || status.LogPath == "" {
+		t.Fatalf("sidecar process metadata = %+v, want pid, started_at, log_path", status)
 	}
 }
 
@@ -41,7 +96,16 @@ func TestLocalServiceSupervisorProjectsExternalKernelWithoutOwnership(t *testing
 
 func TestDesktopStartupAndShutdownRouteThroughLocalServiceSupervisor(t *testing.T) {
 	app := NewApp()
-	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{KernelBaseURL: defaultKernelBaseURL})
+	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
+		KernelBaseURL: defaultKernelBaseURL,
+		LogDir:        desktopTestTempDir(t),
+		launcher: func(context.Context, sidecarLaunchRequest) (sidecarProcess, error) {
+			return &fakeSidecarProcess{pid: 1234}, nil
+		},
+		readinessProbe: func(context.Context, string, string) sidecarReadinessResult {
+			return sidecarReadinessResult{Ready: true}
+		},
+	})
 	app.supervisor = supervisor
 
 	app.startup(context.Background())
@@ -52,6 +116,72 @@ func TestDesktopStartupAndShutdownRouteThroughLocalServiceSupervisor(t *testing.
 	app.shutdown(context.Background())
 	if !supervisor.stopAttempted {
 		t.Fatal("shutdown did not ask local service supervisor to stop owned services")
+	}
+}
+
+func TestLocalServiceSupervisorDoesNotOwnExternalKernel(t *testing.T) {
+	proc := &fakeSidecarProcess{pid: 9876}
+	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
+		KernelBaseURL: "http://127.0.0.1:9999",
+		External:      true,
+		launcher: func(context.Context, sidecarLaunchRequest) (sidecarProcess, error) {
+			t.Fatal("external kernel must not launch a sidecar")
+			return proc, nil
+		},
+	})
+
+	started := supervisor.StartKernel(context.Background())
+	stopped := supervisor.StopOwned(context.Background())
+
+	if started.Ownership != "external" || stopped.Ownership != "external" {
+		t.Fatalf("statuses = %+v %+v, want external ownership", started, stopped)
+	}
+	if proc.stopCalls != 0 {
+		t.Fatalf("external shutdown stopped process %d times", proc.stopCalls)
+	}
+}
+
+func TestLocalServiceSupervisorReportsStructuredStartFailure(t *testing.T) {
+	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
+		KernelBaseURL: defaultKernelBaseURL,
+		LogDir:        desktopTestTempDir(t),
+		launcher: func(context.Context, sidecarLaunchRequest) (sidecarProcess, error) {
+			return nil, errors.New("boom")
+		},
+	})
+
+	status := supervisor.StartKernel(context.Background())
+
+	if status.Readiness != "not_ready" || status.Reason != sidecarStartFailed {
+		t.Fatalf("status = %+v, want structured start failure", status)
+	}
+	if status.LogPath == "" {
+		t.Fatalf("status = %+v, want diagnostic log path", status)
+	}
+}
+
+func TestLocalServiceSupervisorShutdownOnlyStopsOwnedProcessOnce(t *testing.T) {
+	proc := &fakeSidecarProcess{pid: 2468}
+	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
+		KernelBaseURL: defaultKernelBaseURL,
+		LogDir:        desktopTestTempDir(t),
+		launcher: func(context.Context, sidecarLaunchRequest) (sidecarProcess, error) {
+			return proc, nil
+		},
+		readinessProbe: func(context.Context, string, string) sidecarReadinessResult {
+			return sidecarReadinessResult{Ready: true}
+		},
+	})
+
+	supervisor.StartKernel(context.Background())
+	first := supervisor.StopOwned(context.Background())
+	second := supervisor.StopOwned(context.Background())
+
+	if proc.stopCalls != 1 {
+		t.Fatalf("stop calls = %d, want exactly one owned process stop", proc.stopCalls)
+	}
+	if first.Readiness != "not_ready" || second.Readiness != "not_ready" || second.Reason != sidecarStopped {
+		t.Fatalf("shutdown statuses = %+v %+v, want idempotent stopped state", first, second)
 	}
 }
 
@@ -116,7 +246,7 @@ func TestTypedSubmitTurnBridgePostsKernelTurn(t *testing.T) {
 }
 
 func TestUploadMaterialBridgePostsMultipartThroughGoChokePoint(t *testing.T) {
-	source := filepath.Join(t.TempDir(), "package.zip")
+	source := filepath.Join(desktopTestTempDir(t), "package.zip")
 	if err := os.WriteFile(source, []byte("zip"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
@@ -190,8 +320,45 @@ func TestDesktopGoDoesNotImportKernelInternals(t *testing.T) {
 	}
 }
 
+func TestFrontendDoesNotManageLocalProcesses(t *testing.T) {
+	forbidden := []string{
+		"child_process",
+		"process.kill",
+		"spawn(",
+		"exec(",
+		"GENESIS_KERNEL_BASE_URL",
+	}
+	err := filepath.WalkDir(filepath.Join("frontend", "src"), func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		switch filepath.Ext(path) {
+		case ".ts", ".vue":
+		default:
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(body)
+		for _, needle := range forbidden {
+			if strings.Contains(text, needle) {
+				t.Fatalf("%s contains process-management surface %q", path, needle)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk frontend source: %v", err)
+	}
+}
+
 func TestFrontendAssetDirPrefersPackagedExecutableLayout(t *testing.T) {
-	root := t.TempDir()
+	root := desktopTestTempDir(t)
 	dist := filepath.Join(root, "frontend", "dist")
 	if err := os.MkdirAll(dist, 0o755); err != nil {
 		t.Fatalf("mkdir dist: %v", err)

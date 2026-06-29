@@ -76,6 +76,7 @@
 - Performance constraints: no raw event rendering in desktop
 - Compatibility constraints: all local-service calls stay behind `desktop/frontend/src/api/kernelApi.ts`
 - Conversation constraints: new conversations use local opaque ids; desktop adds no DB and no new service route
+- Local service constraints: when `GENESIS_KERNEL_BASE_URL` is unset, desktop owns a `genesisd` sidecar lifecycle; when it is set, desktop treats the kernel as external and must not start or stop it.
 - Test/screenshot expectations: static guard prevents component-level `fetch`
 
 ## Open questions
