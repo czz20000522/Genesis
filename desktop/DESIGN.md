@@ -8,31 +8,31 @@
 
 ## Brand
 - Personality: local-first, technical, calm, operator-grade
-- Trust signals: visible readiness, explicit session controls, inspectable kernel evidence
+- Trust signals: visible connection state, explicit current conversation, inspectable diagnostic evidence
 - Avoid: marketing layout, decorative visuals, hidden side effects
 
 ## Product goals
-- Goals: make the first screen read as a local assistant chat while keeping approvals, materials, debug, compaction, and details reachable
+- Goals: make the first screen read as a local assistant chat while keeping confirmations, attachments, diagnostics, context cleanup, and details reachable
 - Non-goals: WebUI polish, multi-session database, provider context construction in the frontend
-- Success signals: user can send a turn and inspect kernel projections without leaving the primary workbench
+- Success signals: user can send a message and inspect processing details without leaving the primary workbench
 
 ## Personas and jobs
 - Primary personas: local operator, developer/operator validating Genesis
-- User jobs: connect to kernel, submit session turns, approve effects, inspect details, export debug evidence
-- Key contexts of use: desktop local runtime, single active session
+- User jobs: connect to the local service, send messages, confirm risky actions, inspect details, export diagnostic evidence
+- Key contexts of use: desktop local runtime, single active conversation
 
 ## Information architecture
 - Primary navigation: no router; one workbench screen
-- Core surfaces: compact kernel bar, session rail, central transcript/composer, inspector drawer
-- Content hierarchy: chat transcript and composer first, session navigation second, diagnostics in inspector
+- Core surfaces: compact connection bar, conversation rail, central transcript/composer, settings and diagnostics drawer
+- Content hierarchy: chat transcript and composer first, conversation navigation second, diagnostics in settings
 
 ## Design principles
-- Principle 1: desktop is a shell over kernel HTTP primitives, not a truth owner
-- Principle 2: approvals and diagnostics are action/detail surfaces, not chat messages
+- Principle 1: desktop is a shell over local-service HTTP primitives, not a truth owner
+- Principle 2: confirmations and diagnostics are action/detail surfaces, not chat messages
 - Tradeoffs: chat-first utility layout over decorative polish until the kernel/product flow stabilizes
 
 ## Visual language
-- Color: restrained neutral surface with blue primary action, green processing state, amber interruption state, and red denial action
+- Color: restrained neutral surface with green primary action, green processing state, amber interruption state, and red denial action
 - Typography: system UI, monospace only for refs/commands/output
 - Spacing/layout rhythm: compact panels with 8px radius
 - Shape/radius/elevation: bordered panels, no nested decorative cards
@@ -40,9 +40,9 @@
 - Imagery/iconography: none in the walking skeleton
 
 ## Components
-- Existing components to reuse: `kernelApi.ts` as the HTTP choke point, view helpers for approvals/material/debug/compaction/timeline detail
+- Existing components to reuse: `kernelApi.ts` as the HTTP choke point, view helpers for confirmation/material/diagnostic/context/detail projection
 - New/changed components: `KernelTopBar`, `SessionRail`, `ConversationPane`, `InspectorDrawer`
-- Variants and states: ready/not ready, empty timeline, pending approvals, debug export available, compaction result
+- Variants and states: connected/disconnected, empty conversation, pending confirmations, diagnostic export available, context cleanup result
 - Token/component ownership: frontend-local CSS only; no design-system dependency
 
 ## Accessibility
@@ -58,24 +58,24 @@
 - Touch/hover differences: native controls only
 
 ## Interaction states
-- Loading: last-turn response is transient feedback only; settled display returns to the timeline projection
+- Loading: live response is transient feedback only; settled display returns to the conversation projection
 - Empty: first viewport still shows a chat shell with prompt chips and composer
 - Error: shared topbar error line
-- Success: kernel projections appear in conversation or inspector
-- Disabled: debug download disabled until export exists
+- Success: local-service projections appear in conversation or diagnostics
+- Disabled: diagnostic download disabled until export exists
 - Offline/slow network, if applicable: readiness/error surface reports request failure
 
 ## Content voice
 - Tone: concise operator labels
-- Terminology: kernel, session, timeline, approval, inspector
-- Microcopy rules: expose kernel status/results, do not narrate internal implementation
+- Terminology: local service, conversation, processing, confirmation, settings and diagnostics
+- Microcopy rules: keep kernel/session/timeline/approval/inspector/tool wording out of the primary user surface; expose internal terms only in API, tests, and diagnostics when necessary
 
 ## Implementation constraints
 - Framework/styling system: Vue/Vite/Wails, plain CSS
 - Design-token constraints: no new dependency or global state library
 - Performance constraints: no raw event rendering in desktop
-- Compatibility constraints: all kernel calls stay behind `desktop/frontend/src/api/kernelApi.ts`
-- Session constraints: new sessions are local opaque ids; desktop adds no DB and no kernel route
+- Compatibility constraints: all local-service calls stay behind `desktop/frontend/src/api/kernelApi.ts`
+- Conversation constraints: new conversations use local opaque ids; desktop adds no DB and no new service route
 - Test/screenshot expectations: static guard prevents component-level `fetch`
 
 ## Open questions

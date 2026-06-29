@@ -80,9 +80,9 @@ function useStarter(text: string) {
           <dl>
             <dt>状态</dt>
             <dd>{{ approvalSummary(approval)[0] }}</dd>
-            <dt>工具</dt>
+            <dt>类型</dt>
             <dd>{{ approvalSummary(approval)[1] }}</dd>
-            <dt>动作</dt>
+            <dt>内容</dt>
             <dd><code>{{ approvalSummary(approval)[2] }}</code></dd>
           </dl>
           <label>

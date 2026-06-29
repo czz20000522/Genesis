@@ -54,8 +54,8 @@ function row(kind: TimelineRow['kind'], item: TimelineItemLike): TimelineRow {
 function rowMeta(kind: TimelineRow['kind'], item: TimelineItemLike) {
   if (kind === 'processing') {
     const count = Number(item.tool_count ?? 0)
-    return count > 0 ? `${count} tool${count === 1 ? '' : 's'}` : ''
+    return count > 0 ? `${count} 项操作` : ''
   }
-  if (kind === 'action') return String(item.tool ?? '').trim()
+  if (kind === 'action') return String(item.tool ?? '').trim() ? '需要确认' : ''
   return ''
 }

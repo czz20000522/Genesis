@@ -139,9 +139,9 @@ assert.deepEqual(timelineRows([
   },
 ]).map((row) => [row.kind, row.text, row.meta]), [
   ['user', 'hello Genesis', ''],
-  ['processing', '已处理 3s', '1 tool'],
+  ['processing', '已处理 3s', '1 项操作'],
   ['assistant', 'done', ''],
-  ['action', '需要用户批准', 'shell_exec'],
+  ['action', '需要用户批准', '需要确认'],
 ])
 
 let uploadedUrl = ''
@@ -186,9 +186,9 @@ assert.deepEqual(materialIntakeSummary({
   source_snapshot_ref: 'source:snapshot:1',
   available_operations: ['source_tree', 'source_read'],
 }), [
-  'admitted',
+  '已添加',
   'source:snapshot:1',
-  'source_tree, source_read',
+  '查看目录, 读取文件',
 ])
 
 let approvalsUrl = ''
@@ -267,7 +267,7 @@ assert.deepEqual(approvalSummary({
     tool: 'shell_exec',
     command_preview: 'echo ok',
   },
-}), ['pending', 'shell_exec', 'echo ok'])
+}), ['等待确认', '运行命令', 'echo ok'])
 
 let debugEnableUrl = ''
 let debugEnableMethod = ''
@@ -324,7 +324,7 @@ try {
 
   assert.equal(debugExportUrl, 'http://127.0.0.1:8765/sessions/session%2Fdebug/debug')
   assert.equal(requestedAuth, 'Bearer secret')
-  assert.deepEqual(debugSummary(debug), ['ready', '2', 'user_text: 2, skill_index: 1', 'deepseek: 2'])
+  assert.deepEqual(debugSummary(debug), ['已连接', '2', 'user_text: 2, skill_index: 1', 'deepseek: 2'])
   assert.equal(debugExportText(debug), '{\n  "readiness": "ready",\n  "steps": [\n    {\n      "model": "m1"\n    },\n    {\n      "model": "m2"\n    }\n  ],\n  "input_kind_counts": {\n    "user_text": 2,\n    "skill_index": 1\n  },\n  "model_counts": {\n    "deepseek": 2\n  }\n}')
 } finally {
   globalThis.fetch = originalFetch
@@ -359,7 +359,7 @@ try {
   assert.equal(requestedAuth, 'Bearer secret')
   assert.equal(compactContentType, 'application/json')
   assert.equal(compactBody, '{}')
-  assert.deepEqual(compactionSummary(compacted), ['admitted', ''])
+  assert.deepEqual(compactionSummary(compacted), ['已开始', ''])
 } finally {
   globalThis.fetch = originalFetch
 }
