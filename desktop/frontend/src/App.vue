@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { getReady, getTimeline, getTimelineDetail, kernelConfig, saveKernelConfig, uploadMaterial, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection } from './api/kernelApi'
+import { getReady, getTimeline, getTimelineDetail, kernelConfig, saveKernelConfig, submitTurn, uploadMaterial, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type TurnResponse } from './api/kernelApi'
 import { materialIntakeSummary } from './materialIntake'
 import { timelineDetailEntries } from './timelineDetail'
 
@@ -8,6 +8,8 @@ const config = ref(kernelConfig())
 const readiness = ref('unchecked')
 const error = ref('')
 const sessionId = ref('')
+const messageText = ref('')
+const lastTurn = ref<TurnResponse | null>(null)
 const selectedDetailRef = ref('')
 const timeline = ref<KernelTimeline | null>(null)
 const detail = ref<KernelTimelineDetail | null>(null)
@@ -35,6 +37,28 @@ async function loadTimeline() {
   detail.value = null
   try {
     timeline.value = await getTimeline(config.value, sessionId.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function sendMessage() {
+  error.value = ''
+  saveKernelConfig(config.value)
+  const text = messageText.value.trim()
+  const session = sessionId.value.trim()
+  if (!session) {
+    error.value = 'session id is required'
+    return
+  }
+  if (!text) {
+    error.value = 'message is required'
+    return
+  }
+  try {
+    lastTurn.value = await submitTurn(config.value, session, text, newDesktopIdempotencyKey())
+    messageText.value = ''
+    timeline.value = await getTimeline(config.value, session)
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -72,6 +96,12 @@ async function uploadSelectedMaterial() {
     error.value = err instanceof Error ? err.message : String(err)
   }
 }
+
+function newDesktopIdempotencyKey() {
+  const randomUUID = globalThis.crypto?.randomUUID?.()
+  if (randomUUID) return `desktop-turn-${randomUUID}`
+  return `desktop-turn-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 </script>
 
 <template>
@@ -103,6 +133,33 @@ async function uploadSelectedMaterial() {
         Session ID
         <input v-model="sessionId" spellcheck="false" />
       </label>
+
+      <label>
+        Message
+        <textarea v-model="messageText" rows="4" spellcheck="true"></textarea>
+      </label>
+
+      <button type="button" @click="sendMessage">Send turn</button>
+
+      <aside v-if="lastTurn" class="detail-panel">
+        <p class="eyebrow">Turn result</p>
+        <dl>
+          <dt>Turn</dt>
+          <dd><code>{{ lastTurn.turn_id || 'unknown' }}</code></dd>
+          <template v-if="lastTurn.final?.text">
+            <dt>Final</dt>
+            <dd><pre>{{ lastTurn.final.text }}</pre></dd>
+          </template>
+          <template v-if="lastTurn.pause">
+            <dt>Pause</dt>
+            <dd>{{ lastTurn.pause.reason || lastTurn.pause.wait_reason || 'paused' }}</dd>
+          </template>
+          <template v-if="lastTurn.error">
+            <dt>Error</dt>
+            <dd>{{ lastTurn.error.code }} {{ lastTurn.error.message }}</dd>
+          </template>
+        </dl>
+      </aside>
 
       <label>
         Material zip

@@ -26,6 +26,20 @@ export type MaterialIntakeProjection = {
   diagnostics?: Array<Record<string, unknown>>
 }
 
+export type TurnResponse = {
+  session_id?: string
+  turn_id?: string
+  final?: {
+    text?: string
+    model?: string
+  }
+  pause?: Record<string, unknown>
+  error?: {
+    code?: string
+    message?: string
+  }
+}
+
 export function kernelConfig(storage: Pick<Storage, 'getItem'> | null = safeLocalStorage()): KernelConfig {
   return {
     baseUrl: String(storage?.getItem(baseUrlKey) ?? 'http://127.0.0.1:8765').trim(),
@@ -65,6 +79,17 @@ export async function uploadMaterial(config: KernelConfig, sessionId: string, fi
   return requestKernel<MaterialIntakeProjection>(config, '/materials/upload', {
     method: 'POST',
     body: form,
+  })
+}
+
+export async function submitTurn(config: KernelConfig, sessionId: string, text: string, idempotencyKey: string) {
+  return requestKernel<TurnResponse>(config, '/turn', {
+    method: 'POST',
+    body: JSON.stringify({
+      session_id: sessionId,
+      idempotency_key: idempotencyKey,
+      input_items: [{ type: 'text', text }],
+    }),
   })
 }
 

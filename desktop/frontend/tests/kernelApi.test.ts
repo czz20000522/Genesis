@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { getTimelineDetail, kernelConfig, kernelUrl, saveKernelConfig, uploadMaterial } from '../src/api/kernelApi.ts'
+import { getTimelineDetail, kernelConfig, kernelUrl, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
 import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
 
@@ -117,3 +117,43 @@ assert.deepEqual(materialIntakeSummary({
   'source:snapshot:1',
   'source_tree, source_read',
 ])
+
+let turnUrl = ''
+let turnMethod = ''
+let turnContentType = ''
+let turnBody: Record<string, unknown> = {}
+globalThis.fetch = async (input, init) => {
+  turnUrl = String(input)
+  turnMethod = String(init?.method ?? '')
+  requestedAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  turnContentType = new Headers(init?.headers).get('Content-Type') ?? ''
+  turnBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+  return new Response(JSON.stringify({
+    session_id: 'desktop-session',
+    turn_id: 'turn-1',
+    final: { text: 'hello from kernel', model: 'test-model' },
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const turn = await submitTurn({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'desktop-session', 'hello', 'desktop-idem-1')
+
+  assert.equal(turnUrl, 'http://127.0.0.1:8765/turn')
+  assert.equal(turnMethod, 'POST')
+  assert.equal(requestedAuth, 'Bearer secret')
+  assert.equal(turnContentType, 'application/json')
+  assert.deepEqual(turnBody, {
+    session_id: 'desktop-session',
+    idempotency_key: 'desktop-idem-1',
+    input_items: [{ type: 'text', text: 'hello' }],
+  })
+  assert.equal(turn.final?.text, 'hello from kernel')
+} finally {
+  globalThis.fetch = originalFetch
+}
