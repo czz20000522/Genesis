@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { decideApproval, getTimelineDetail, kernelConfig, kernelUrl, listApprovals, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
+import { decideApproval, enableSessionDebug, getSessionDebug, getTimelineDetail, kernelConfig, kernelUrl, listApprovals, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
+import { debugExportText, debugSummary } from '../src/debugExport.ts'
 import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
 
@@ -196,6 +197,67 @@ assert.deepEqual(approvalSummary({
     command_preview: 'echo ok',
   },
 }), ['pending', 'shell_exec', 'echo ok'])
+
+let debugEnableUrl = ''
+let debugEnableMethod = ''
+let debugEnableContentType = ''
+let debugEnableBody = ''
+globalThis.fetch = async (input, init) => {
+  debugEnableUrl = String(input)
+  debugEnableMethod = String(init?.method ?? '')
+  requestedAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  debugEnableContentType = new Headers(init?.headers).get('Content-Type') ?? ''
+  debugEnableBody = String(init?.body ?? '')
+  return new Response(JSON.stringify({ readiness: 'ready' }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const enabled = await enableSessionDebug({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'session/debug')
+
+  assert.equal(debugEnableUrl, 'http://127.0.0.1:8765/sessions/session%2Fdebug/debug/enable')
+  assert.equal(debugEnableMethod, 'POST')
+  assert.equal(requestedAuth, 'Bearer secret')
+  assert.equal(debugEnableContentType, 'application/json')
+  assert.equal(debugEnableBody, '{}')
+  assert.equal(enabled.readiness, 'ready')
+} finally {
+  globalThis.fetch = originalFetch
+}
+
+let debugExportUrl = ''
+globalThis.fetch = async (input, init) => {
+  debugExportUrl = String(input)
+  requestedAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  return new Response(JSON.stringify({
+    readiness: 'ready',
+    steps: [{ model: 'm1' }, { model: 'm2' }],
+    input_kind_counts: { user_text: 2, skill_index: 1 },
+    model_counts: { deepseek: 2 },
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const debug = await getSessionDebug({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'session/debug')
+
+  assert.equal(debugExportUrl, 'http://127.0.0.1:8765/sessions/session%2Fdebug/debug')
+  assert.equal(requestedAuth, 'Bearer secret')
+  assert.deepEqual(debugSummary(debug), ['ready', '2', 'user_text: 2, skill_index: 1', 'deepseek: 2'])
+  assert.equal(debugExportText(debug), '{\n  "readiness": "ready",\n  "steps": [\n    {\n      "model": "m1"\n    },\n    {\n      "model": "m2"\n    }\n  ],\n  "input_kind_counts": {\n    "user_text": 2,\n    "skill_index": 1\n  },\n  "model_counts": {\n    "deepseek": 2\n  }\n}')
+} finally {
+  globalThis.fetch = originalFetch
+}
 
 let turnUrl = ''
 let turnMethod = ''

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { decideApproval, getReady, getTimeline, getTimelineDetail, kernelConfig, listApprovals, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type TurnResponse } from './api/kernelApi'
+import { decideApproval, enableSessionDebug, getReady, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, listApprovals, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
 import { approvalSummary } from './approvalView'
+import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
 import { timelineDetailEntries } from './timelineDetail'
 
@@ -18,9 +19,11 @@ const selectedFile = ref<File | null>(null)
 const material = ref<MaterialIntakeProjection | null>(null)
 const approvals = ref<ApprovalProjection[]>([])
 const approvalReason = ref('')
+const debugExport = ref<SessionDebugExport | null>(null)
 const detailEntries = computed(() => timelineDetailEntries(timeline.value?.items))
 const detailItem = computed(() => detail.value?.item ?? {})
 const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
+const debugSummaryRows = computed(() => debugExport.value ? debugSummary(debugExport.value) : [])
 
 async function checkReady() {
   error.value = ''
@@ -125,6 +128,44 @@ async function submitApprovalDecision(approvalId: string, decision: 'approved' |
   }
 }
 
+async function enableDebug() {
+  error.value = ''
+  saveKernelConfig(config.value)
+  if (!sessionId.value.trim()) {
+    error.value = 'session id is required'
+    return
+  }
+  try {
+    debugExport.value = await enableSessionDebug(config.value, sessionId.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function exportDebug() {
+  error.value = ''
+  saveKernelConfig(config.value)
+  if (!sessionId.value.trim()) {
+    error.value = 'session id is required'
+    return
+  }
+  try {
+    debugExport.value = await getSessionDebug(config.value, sessionId.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+function downloadDebugExport() {
+  if (!debugExport.value) return
+  const url = URL.createObjectURL(new Blob([debugExportText(debugExport.value)], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${sessionId.value.trim() || 'session'}-debug.json`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 function newDesktopIdempotencyKey() {
   const randomUUID = globalThis.crypto?.randomUUID?.()
   if (randomUUID) return `desktop-turn-${randomUUID}`
@@ -213,6 +254,26 @@ function newDesktopIdempotencyKey() {
       <div class="divider"></div>
 
       <button type="button" @click="loadApprovals">Load pending approvals</button>
+
+      <div class="detail-list">
+        <button type="button" @click="enableDebug">Enable debug</button>
+        <button type="button" @click="exportDebug">Export debug</button>
+        <button type="button" :disabled="!debugExport" @click="downloadDebugExport">Download debug JSON</button>
+      </div>
+
+      <aside v-if="debugExport" class="detail-panel">
+        <p class="eyebrow">Session debug</p>
+        <dl>
+          <dt>Readiness</dt>
+          <dd>{{ debugSummaryRows[0] }}</dd>
+          <dt>Steps</dt>
+          <dd>{{ debugSummaryRows[1] }}</dd>
+          <dt>Input kinds</dt>
+          <dd>{{ debugSummaryRows[2] }}</dd>
+          <dt>Models</dt>
+          <dd>{{ debugSummaryRows[3] }}</dd>
+        </dl>
+      </aside>
 
       <label>
         Decision reason
