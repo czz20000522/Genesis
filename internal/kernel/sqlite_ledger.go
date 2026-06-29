@@ -431,7 +431,7 @@ func sqliteSessionTitleFromEvent(event StoredEvent) string {
 		if item.Type != "text" {
 			continue
 		}
-		title := strings.Join(strings.Fields(item.Text), " ")
+		title := strings.Join(strings.Fields(sqliteSessionTitleText(item.Text)), " ")
 		if title == "" {
 			continue
 		}
@@ -443,6 +443,14 @@ func sqliteSessionTitleFromEvent(event StoredEvent) string {
 		return title
 	}
 	return ""
+}
+
+func sqliteSessionTitleText(text string) string {
+	const externalEventBodyMarker = "\n\ntext:\n"
+	if _, body, ok := strings.Cut(text, externalEventBodyMarker); ok {
+		return body
+	}
+	return text
 }
 
 func (l *SQLiteLedger) openDBLocked() (*sql.DB, error) {

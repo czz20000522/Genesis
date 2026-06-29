@@ -148,6 +148,36 @@ func TestSQLiteLedgerImportsOrphanEventFramesWhenIndexIsMissing(t *testing.T) {
 	}
 }
 
+func TestSQLiteLedgerSessionTitleUsesExternalEventBody(t *testing.T) {
+	dir := testTempDir(t)
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	ledger := NewSQLiteLedger(ledgerPath)
+	if err := ledger.Append(StoredEvent{
+		EventID:   "evt_external_title",
+		SessionID: "session-external-title",
+		TurnID:    "turn-external-title",
+		Type:      "turn.submitted",
+		CreatedAt: time.Date(2026, 6, 30, 5, 0, 0, 0, time.UTC),
+		Data: EventData{InputItems: []InputItem{{Type: "text", Text: strings.Join([]string{
+			"External application event",
+			"connector: feishu",
+			"event_type: message.created",
+			"",
+			"text:",
+			"Genesis 入站 smoke 20260630",
+		}, "\n")}}},
+	}); err != nil {
+		t.Fatalf("Append returned error: %v", err)
+	}
+	sessions, err := ledger.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions returned error: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].Title != "Genesis 入站 smoke 20260630" {
+		t.Fatalf("sessions = %+v, want external event body title", sessions)
+	}
+}
+
 func TestSQLiteLedgerRecoversStaleWriterLock(t *testing.T) {
 	dir := testTempDir(t)
 	ledgerPath := filepath.Join(dir, "events.sqlite")
