@@ -31,6 +31,10 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
 		return
 	}
+	if errors.Is(err, ErrSessionActive) {
+		writeError(w, http.StatusConflict, "session_active", err.Error())
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return

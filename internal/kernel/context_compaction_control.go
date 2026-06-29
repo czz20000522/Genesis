@@ -25,6 +25,15 @@ func (k *Kernel) CompactSessionContext(ctx context.Context, sessionID string) (C
 	if sessionID == "" {
 		return ContextCompactionControlResponse{}, errors.New("session id is required")
 	}
+	finishActiveControl, admitted := k.reserveActiveSessionControl(sessionID, activeSessionKindContextCompaction)
+	if !admitted {
+		return ContextCompactionControlResponse{
+			SessionID:       sessionID,
+			AdmissionResult: contextCompactionAdmissionRefused,
+			ReasonClass:     contextCompactionRefusalActiveTurn,
+		}, nil
+	}
+	defer finishActiveControl()
 	events, err := k.loadEvents()
 	if err != nil {
 		return ContextCompactionControlResponse{}, err

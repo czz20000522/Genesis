@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -221,6 +222,69 @@ func TestManualCompactionControlSurfaceRefusesRunningSession(t *testing.T) {
 	for _, event := range events {
 		if strings.HasPrefix(event.Type, "context.compaction.") {
 			t.Fatalf("running-session refusal wrote compaction event: %+v", event)
+		}
+	}
+}
+
+func TestManualCompactionAdmissionChecksActiveTurnOwnership(t *testing.T) {
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		Provider:     &compactionProvider{},
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	_, finishActiveTurn := k.beginActiveTurn(context.Background(), "manual-compact-active-owner", "turn_active_owner")
+	defer finishActiveTurn()
+
+	resp, err := k.CompactSessionContext(context.Background(), "manual-compact-active-owner")
+	if err != nil {
+		t.Fatalf("CompactSessionContext returned error: %v", err)
+	}
+	if resp.AdmissionResult != contextCompactionAdmissionRefused || resp.ReasonClass != contextCompactionRefusalActiveTurn {
+		t.Fatalf("CompactSessionContext response = %+v, want active-turn refusal", resp)
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	for _, event := range events {
+		if strings.HasPrefix(event.Type, "context.compaction.") {
+			t.Fatalf("active-turn refusal wrote compaction event: %+v", event)
+		}
+	}
+}
+
+func TestSubmitTurnRefusesWhileManualCompactionOwnsSession(t *testing.T) {
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		Provider:     &compactionProvider{},
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	finishControl, admitted := k.reserveActiveSessionControl("manual-compact-owns-session", activeSessionKindContextCompaction)
+	if !admitted {
+		t.Fatal("reserveActiveSessionControl did not admit test compaction control")
+	}
+	defer finishControl()
+
+	_, err = k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "manual-compact-owns-session",
+		InputItems: []InputItem{{Type: "text", Text: "new turn must not start during manual compaction"}},
+	})
+	if !errors.Is(err, ErrSessionActive) {
+		t.Fatalf("SubmitTurn error = %v, want ErrSessionActive", err)
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	for _, event := range events {
+		if event.Type == "turn.submitted" {
+			t.Fatalf("SubmitTurn wrote turn.submitted while manual compaction owned session: %+v", event)
 		}
 	}
 }

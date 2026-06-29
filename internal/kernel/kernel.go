@@ -43,6 +43,7 @@ type Kernel struct {
 type activeTurn struct {
 	sessionID string
 	turnID    string
+	kind      string
 	cancel    context.CancelFunc
 	reason    string
 }
@@ -171,6 +172,8 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	}
 	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
 	var turnID string
+	var runCtx context.Context
+	var finishActiveTurn func()
 	if idempotencyKey != "" {
 		var existing TurnResponse
 		var ok bool
@@ -178,7 +181,16 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		existing, ok, err = k.turnByIdempotencyKey(sessionID, idempotencyKey)
 		if err == nil && !ok {
 			turnID = newID("turn", now)
-			_, _, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now)
+			var admitted bool
+			runCtx, finishActiveTurn, admitted = k.tryBeginActiveTurn(ctx, sessionID, turnID)
+			if !admitted {
+				err = ErrSessionActive
+			} else {
+				_, _, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now)
+				if err != nil {
+					finishActiveTurn()
+				}
+			}
 		}
 		k.turnMu.Unlock()
 		if err != nil || ok {
@@ -186,13 +198,17 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		}
 	} else {
 		turnID = newID("turn", now)
+		var admitted bool
+		runCtx, finishActiveTurn, admitted = k.tryBeginActiveTurn(ctx, sessionID, turnID)
+		if !admitted {
+			return TurnResponse{}, ErrSessionActive
+		}
 		_, _, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now)
 		if err != nil {
+			finishActiveTurn()
 			return TurnResponse{}, err
 		}
 	}
-
-	runCtx, finishActiveTurn := k.beginActiveTurn(ctx, sessionID, turnID)
 	defer finishActiveTurn()
 
 	toolGateway := k.toolGateway()

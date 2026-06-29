@@ -8,6 +8,12 @@ import (
 
 var ErrTurnInterrupted = errors.New("turn interrupted")
 var ErrNoActiveTurn = errors.New("no active turn")
+var ErrSessionActive = errors.New("session has active work")
+
+const (
+	activeSessionKindTurn              = "turn"
+	activeSessionKindContextCompaction = "context_compaction"
+)
 
 func (k *Kernel) InterruptSession(sessionID string, req TurnInterruptRequest) (TurnInterruptionProjection, error) {
 	sessionID = strings.TrimSpace(sessionID)
@@ -17,7 +23,7 @@ func (k *Kernel) InterruptSession(sessionID string, req TurnInterruptRequest) (T
 	reason := strings.TrimSpace(req.Reason)
 	k.activeTurnMu.Lock()
 	active := k.activeTurns[sessionID]
-	if active == nil {
+	if active == nil || active.kind != activeSessionKindTurn {
 		k.activeTurnMu.Unlock()
 		return TurnInterruptionProjection{}, ErrNoActiveTurn
 	}
@@ -38,6 +44,11 @@ func (k *Kernel) InterruptSession(sessionID string, req TurnInterruptRequest) (T
 }
 
 func (k *Kernel) beginActiveTurn(ctx context.Context, sessionID string, turnID string) (context.Context, func()) {
+	runCtx, finish, _ := k.tryBeginActiveTurn(ctx, sessionID, turnID)
+	return runCtx, finish
+}
+
+func (k *Kernel) tryBeginActiveTurn(ctx context.Context, sessionID string, turnID string) (context.Context, func(), bool) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -45,11 +56,17 @@ func (k *Kernel) beginActiveTurn(ctx context.Context, sessionID string, turnID s
 	active := &activeTurn{
 		sessionID: strings.TrimSpace(sessionID),
 		turnID:    strings.TrimSpace(turnID),
+		kind:      activeSessionKindTurn,
 		cancel:    cancel,
 	}
 	k.activeTurnMu.Lock()
 	if k.activeTurns == nil {
 		k.activeTurns = map[string]*activeTurn{}
+	}
+	if k.activeTurns[active.sessionID] != nil {
+		k.activeTurnMu.Unlock()
+		cancel()
+		return ctx, func() {}, false
 	}
 	k.activeTurns[active.sessionID] = active
 	k.activeTurnMu.Unlock()
@@ -60,7 +77,35 @@ func (k *Kernel) beginActiveTurn(ctx context.Context, sessionID string, turnID s
 		}
 		k.activeTurnMu.Unlock()
 		cancel()
+	}, true
+}
+
+func (k *Kernel) reserveActiveSessionControl(sessionID string, kind string) (func(), bool) {
+	active := &activeTurn{
+		sessionID: strings.TrimSpace(sessionID),
+		kind:      strings.TrimSpace(kind),
+		cancel:    func() {},
 	}
+	if active.kind == "" {
+		active.kind = "control"
+	}
+	k.activeTurnMu.Lock()
+	if k.activeTurns == nil {
+		k.activeTurns = map[string]*activeTurn{}
+	}
+	if active.sessionID == "" || k.activeTurns[active.sessionID] != nil {
+		k.activeTurnMu.Unlock()
+		return func() {}, false
+	}
+	k.activeTurns[active.sessionID] = active
+	k.activeTurnMu.Unlock()
+	return func() {
+		k.activeTurnMu.Lock()
+		if current := k.activeTurns[active.sessionID]; current == active {
+			delete(k.activeTurns, active.sessionID)
+		}
+		k.activeTurnMu.Unlock()
+	}, true
 }
 
 func (k *Kernel) completeInterruptedTurn(sessionID string, turnID string) (TurnResponse, error) {
@@ -112,7 +157,7 @@ func (k *Kernel) activeTurnInterruptReason(sessionID string, turnID string) stri
 	k.activeTurnMu.Lock()
 	defer k.activeTurnMu.Unlock()
 	active := k.activeTurns[sessionID]
-	if active == nil || active.turnID != turnID {
+	if active == nil || active.kind != activeSessionKindTurn || active.turnID != turnID {
 		return ""
 	}
 	return active.reason
