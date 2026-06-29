@@ -132,9 +132,9 @@ operator need proves it is worth the maintenance cost.
 
 - the kernel reconstruction frontend uses the Python line's Vue/Vite direction
   for the current WebUI draft surface;
-- the desktop shell should follow the Reasonix-style desktop pattern: one
-  desktop application drives the same kernel projections without becoming a
-  kernel owner;
+- the desktop shell uses Wails + Vue/Vite + Go sidecar over existing kernel
+  HTTP, following the Reasonix-style pattern: one desktop application drives the
+  same kernel projections without becoming a kernel owner;
 - chat-first desktop shell and input composer;
 - upload/material attachment entry;
 - live turn progress and settled processing group rendering;
