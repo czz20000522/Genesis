@@ -12,7 +12,7 @@ import (
 )
 
 func TestExecShellPlanBlocksMutatingCommand(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	workspace := testTempDir(t)
 	k := newTestKernel(t, ledgerPath)
 
@@ -36,7 +36,7 @@ func TestExecShellPlanBlocksMutatingCommand(t *testing.T) {
 }
 
 func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
@@ -95,7 +95,7 @@ func TestExecShellDefaultCompletesInsideWorkspaceAndProjectsAfterRestart(t *test
 }
 
 func TestExecShellIdempotencyKeySurvivesRestartWithoutRepeatingEffect(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
@@ -158,7 +158,7 @@ func TestExecShellIdempotencyKeySurvivesRestartWithoutRepeatingEffect(t *testing
 }
 
 func TestExecShellStaleRunningIdempotencyKeyFailsClosedAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
@@ -222,7 +222,7 @@ func TestExecShellStaleRunningIdempotencyKeyFailsClosedAfterRestart(t *testing.T
 }
 
 func TestExecShellBlockedOperationIsIdempotent(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModePlan,
 	})
@@ -261,7 +261,7 @@ func TestExecShellBlockedOperationIsIdempotent(t *testing.T) {
 }
 
 func TestExecShellRejectsInvalidIdempotencyKey(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 
 	_, err := k.ExecShell(context.Background(), ShellExecRequest{
 		SessionID:      "shell-bad-idempotency",
@@ -278,7 +278,7 @@ func TestExecShellRejectsInvalidIdempotencyKey(t *testing.T) {
 }
 
 func TestExecShellDefaultBlocksOutsideWorkspace(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	root := testTempDir(t)
 	workspace := filepath.Join(root, "workspace")
 	outside := filepath.Join(root, "outside")
@@ -310,7 +310,7 @@ func TestExecShellDefaultBlocksOutsideWorkspace(t *testing.T) {
 }
 
 func TestExecShellDefaultBlocksMutatingCommandPathEscapesWorkspace(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	root := testTempDir(t)
 	workspace := filepath.Join(root, "workspace")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -375,7 +375,7 @@ func TestExecShellDefaultBlocksMutatingCommandPathEscapesWorkspace(t *testing.T)
 }
 
 func TestExecShellDefaultBlocksLinkedCWDOutsideWorkspace(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	root := testTempDir(t)
 	workspace := filepath.Join(root, "workspace")
 	outside := filepath.Join(root, "outside")
@@ -409,7 +409,7 @@ func TestExecShellDefaultBlocksLinkedCWDOutsideWorkspace(t *testing.T) {
 }
 
 func TestExecShellDefaultBlocksHardlinkAlias(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	root := testTempDir(t)
 	workspace := filepath.Join(root, "workspace")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -467,7 +467,7 @@ func TestExecShellDefaultBlocksHardlinkAlias(t *testing.T) {
 }
 
 func TestExecShellDefaultBlocksRawShellAndEnvironmentAccess(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
@@ -497,7 +497,7 @@ func TestExecShellDefaultBlocksRawShellAndEnvironmentAccess(t *testing.T) {
 }
 
 func TestExecShellPreservesTerminalVisibleContentInLocalProjection(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeYolo,
@@ -515,9 +515,13 @@ func TestExecShellPreservesTerminalVisibleContentInLocalProjection(t *testing.T)
 	if operation.Status != "completed" {
 		t.Fatalf("status = %q, want completed; stderr=%q", operation.Status, operation.Stderr)
 	}
-	ledgerData, err := os.ReadFile(ledgerPath)
+	ledgerEvents, err := k.loadEvents()
 	if err != nil {
-		t.Fatalf("read ledger: %v", err)
+		t.Fatalf("load ledger events: %v", err)
+	}
+	ledgerData, err := json.Marshal(ledgerEvents)
+	if err != nil {
+		t.Fatalf("marshal ledger events: %v", err)
 	}
 	for _, leaked := range []string{"sk-secret123", "tokentest123456", "sk-jsonsecret"} {
 		if !strings.Contains(operation.Command+operation.Stdout+operation.Stderr, leaked) {
@@ -552,7 +556,7 @@ func TestExecShellPreservesTerminalVisibleContentInLocalProjection(t *testing.T)
 func TestExecShellReportsHeadTailTruncationMetadata(t *testing.T) {
 	workspace := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeYolo,
@@ -602,7 +606,7 @@ func TestExecShellReportsHeadTailTruncationMetadata(t *testing.T) {
 func TestExecShellControlledReadFailureDoesNotExposeAbsolutePath(t *testing.T) {
 	workspace := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModeDefault,

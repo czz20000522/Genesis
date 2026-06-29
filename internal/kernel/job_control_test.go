@@ -26,7 +26,7 @@ func TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt(t *testing.T) {
 		},
 		final: "managed job receipt observed",
 	}
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
@@ -123,7 +123,7 @@ func TestSubmitTurnLongShellTimeoutDefaultModeDoesNotStartManagedHostJob(t *test
 		final: "default managed block observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -181,7 +181,7 @@ func TestSubmitTurnDeliversCompletedJobObservationToNextProviderStep(t *testing.
 		final: "job observation received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		JobExecutor:  completingManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
@@ -259,7 +259,7 @@ func TestSubmitTurnDeliversAllTerminalJobObservationKinds(t *testing.T) {
 			jobID := "job_terminal_" + tc.status
 			provider := &recordingTextProvider{text: "terminal observation delivered"}
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 				Provider:     provider,
 				RuntimeToken: testRuntimeToken,
 				ToolPolicy: ToolPolicy{
@@ -363,7 +363,7 @@ func TestProviderFailureDoesNotMarkJobObservationDelivered(t *testing.T) {
 		call: ModelToolCall{ToolCallID: "call_job_observation_failure", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		JobExecutor:  completingManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
@@ -417,7 +417,7 @@ func TestDeliveredJobObservationIsNotProjectedAgainAfterRestart(t *testing.T) {
 		},
 		final: "job observation received",
 	}
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
@@ -481,7 +481,7 @@ func TestDeliveredJobObservationIsNotProjectedAgainAfterRestart(t *testing.T) {
 
 func TestSubmitTurnLiveManagedExecutorRecordsCompletedOutput(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	sessionID := "job-live-completion"
 	arguments, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
@@ -544,7 +544,7 @@ func TestSubmitTurnLiveManagedExecutorRecordsCompletedOutput(t *testing.T) {
 func TestSubmitTurnProjectsGenericJobControlToolManifest(t *testing.T) {
 	provider := &recordingTextProvider{text: "manifest observed"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy:   ToolPolicy{PermissionMode: PermissionModePlan},
@@ -576,7 +576,7 @@ func TestSubmitTurnProjectsGenericJobControlToolManifest(t *testing.T) {
 
 func TestSubmitTurnJobStatusReturnsCompletedJobAfterRestartWithoutOperation(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	sessionID := "job-status-completed"
 	jobID := submitCompletedManagedJobForTest(t, ledgerPath, workspace, sessionID)
 	arguments, err := json.Marshal(map[string]string{"job_id": jobID})
@@ -623,7 +623,7 @@ func TestSubmitTurnJobStatusReturnsCompletedJobAfterRestartWithoutOperation(t *t
 
 func TestSubmitTurnJobStatusPreservesTerminalOutputProjection(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	sessionID := "job-status-redaction"
 	jobID := "job_status_redaction"
 	seed, err := New(Config{
@@ -710,7 +710,7 @@ func TestSubmitTurnJobStatusReturnsRunningFailedAndCancelledStates(t *testing.T)
 	} {
 		t.Run(tc.status, func(t *testing.T) {
 			workspace := testTempDir(t)
-			ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+			ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 			sessionID := "job-status-" + tc.status
 			jobID := "job_status_" + tc.status
 			k, err := New(Config{
@@ -790,7 +790,7 @@ func TestSubmitTurnJobStatusReturnsRepairFeedbackForUnknownJob(t *testing.T) {
 		final: "job status repair observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy:   ToolPolicy{PermissionMode: PermissionModePlan},
@@ -817,7 +817,7 @@ func TestSubmitTurnJobStatusReturnsRepairFeedbackForUnknownJob(t *testing.T) {
 
 func TestSubmitTurnJobWaitReturnsTerminalJobBeforeTimeout(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	sessionID := "job-wait-terminal"
 	jobID := "job_wait_terminal"
 	k, err := New(Config{
@@ -886,7 +886,7 @@ func TestSubmitTurnJobWaitReturnsTerminalJobBeforeTimeout(t *testing.T) {
 
 func TestSubmitTurnJobWaitReturnsRunningAfterBoundedTimeout(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	sessionID := "job-wait-timeout"
 	jobID := "job_wait_timeout"
 	k, err := New(Config{
@@ -943,7 +943,7 @@ func TestSubmitTurnJobWaitReturnsRunningAfterBoundedTimeout(t *testing.T) {
 
 func TestJobWaitDeadlineReloadDoesNotMarkTerminalJobTimedOut(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	sessionID := "job-wait-terminal-deadline"
 	jobID := "job_wait_terminal_deadline"
 	k, err := New(Config{
@@ -992,7 +992,7 @@ func TestJobWaitDeadlineReloadDoesNotMarkTerminalJobTimedOut(t *testing.T) {
 
 func TestSubmitTurnJobCancelTerminalJobReturnsCurrentStateWithoutCompetingTerminalEvent(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	sessionID := "job-cancel-terminal"
 	jobID := submitCompletedManagedJobForTest(t, ledgerPath, workspace, sessionID)
 	arguments, err := json.Marshal(map[string]string{"job_id": jobID, "reason": "no longer needed"})
@@ -1042,7 +1042,7 @@ func TestSubmitTurnJobCancelTerminalJobReturnsCurrentStateWithoutCompetingTermin
 
 func TestSubmitTurnJobCancelLedgerOnlyRunningJobRecordsRequestWithoutForgingTerminalFact(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	sessionID := "job-cancel-running"
 	jobID := "job_running_cancel"
 	cancelArgs, err := json.Marshal(map[string]string{"job_id": jobID, "reason": "user requested stop"})
@@ -1144,7 +1144,7 @@ func TestSubmitTurnJobCancelLedgerOnlyRunningJobRecordsRequestWithoutForgingTerm
 
 func TestSubmitTurnJobCancelPlanModeReturnsPermissionDeniedWithoutCancelEvent(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	sessionID := "job-cancel-plan-denied"
 	jobID := "job_plan_denied"
 	cancelArgs, err := json.Marshal(map[string]string{"job_id": jobID, "reason": "should be denied"})
@@ -1205,7 +1205,7 @@ func TestSubmitTurnJobCancelPlanModeReturnsPermissionDeniedWithoutCancelEvent(t 
 
 func TestSubmitTurnJobCancelReachesLiveManagedExecutor(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	sessionID := "job-cancel-live-executor"
 	startArgs, err := json.Marshal(map[string]interface{}{
 		"cwd":         workspace,
@@ -1304,7 +1304,7 @@ func TestSubmitTurnRejectsJobControlToolControlPlaneFields(t *testing.T) {
 				final: "repair observed",
 			}
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 				Provider:     provider,
 				RuntimeToken: testRuntimeToken,
 				ToolPolicy:   ToolPolicy{PermissionMode: PermissionModePlan},

@@ -22,7 +22,7 @@ func TestKernelInjectsBudgetedSkillIndexWithoutSkillBodies(t *testing.T) {
 	writeMalformedSkillForTest(t, root, "broken")
 	provider := &capturingProvider{text: "skill-aware answer"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		SkillRoots:   []string{root, filepath.Join(root, "missing")},
@@ -79,7 +79,7 @@ func TestTurnEvidenceRecordsModelInputKindsWithoutSkillPaths(t *testing.T) {
 	skillPath := writeSkillForTest(t, root, "lark-im", "lark-im", "Send and read chat messages", "FULL LARK BODY MUST NOT BE PROJECTED")
 	provider := &capturingProvider{text: "context provenance answer"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		SkillRoots:   []string{root},
@@ -165,7 +165,7 @@ func TestMissingAndMalformedSkillCatalogDoesNotBlockTurn(t *testing.T) {
 	writeMalformedSkillForTest(t, root, "broken")
 	provider := &capturingProvider{text: "plain answer"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		SkillRoots:   []string{root, filepath.Join(root, "missing")},
@@ -187,7 +187,7 @@ func TestMissingAndMalformedSkillCatalogDoesNotBlockTurn(t *testing.T) {
 }
 
 func TestHTTPCapabilitiesRequiresRuntimeAuth(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -201,7 +201,7 @@ func TestHTTPCapabilitiesRequiresRuntimeAuth(t *testing.T) {
 }
 
 func TestToolCapabilitySideEffectLevelDefaultsUnknown(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	if got := toolCapabilitySideEffectLevel(k.toolRegistry, "shell_exec"); got != ToolSideEffectWrite {
 		t.Fatalf("shell_exec side-effect level = %q, want write", got)
 	}
@@ -214,7 +214,7 @@ func TestHTTPCapabilitiesProjectsToolsAndSkillCatalogWithoutPaths(t *testing.T) 
 	root := testTempDir(t)
 	skillPath := writeSkillForTest(t, root, "lark-im", "lark-im", "Send and read chat messages", "FULL BODY MUST NOT BE PROJECTED")
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     FakeProvider{},
 		RuntimeToken: testRuntimeToken,
 		SkillRoots:   []string{root},
@@ -283,7 +283,7 @@ func TestHTTPCapabilitiesProjectsToolsAndSkillCatalogWithoutPaths(t *testing.T) 
 func TestHTTPCapabilitiesSanitizesProviderInspectionStatus(t *testing.T) {
 	unsafeReason := filepath.Join(testTempDir(t), "models.json") + " secret://provider Authorization: Bearer tokentest123456"
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     unsafeReadinessProvider{reason: unsafeReason},
 		RuntimeToken: testRuntimeToken,
 	})
@@ -355,7 +355,7 @@ func TestHTTPCapabilitiesSanitizesCredentialShapedProviderTokens(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name+"_"+tc.reason, func(t *testing.T) {
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 				Provider:     unsafeReadinessProvider{name: tc.name, reason: tc.reason},
 				RuntimeToken: testRuntimeToken,
 			})
@@ -414,7 +414,7 @@ func TestHTTPCapabilitiesReportsPathFreeSkillExclusions(t *testing.T) {
 		linkedReasonRequired = false
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     FakeProvider{},
 		RuntimeToken: testRuntimeToken,
 		SkillRoots:   []string{root, filepath.Join(root, "missing")},
@@ -531,7 +531,7 @@ func TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext(t *t
 	writeSkillForTest(t, root, "lark-im", "lark-im", "Send and read chat messages", "Run lark-cli im send after reading channel context.\nGENESIS_PROVIDER_API_KEY=sk-secret123")
 	provider := &capturingProvider{text: "skill catalog only"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		SkillRoots:   []string{root},
@@ -634,7 +634,7 @@ func TestSkillIndexContextHonorsConfiguredRootPriorityUnderBudget(t *testing.T) 
 
 	provider := &capturingProvider{text: "focused skill answer"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		SkillRoots:   []string{targetRoot, globalRoot},
@@ -676,7 +676,7 @@ func TestSkillCatalogProjectionReportsRootStatusAndBudgetWarnings(t *testing.T) 
 	writeSkillForTest(t, root, "beta", "beta", "B", "beta body")
 	missingRoot := filepath.Join(root, "missing")
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     FakeProvider{},
 		RuntimeToken: testRuntimeToken,
 		SkillRoots:   []string{root, missingRoot},
@@ -744,7 +744,7 @@ func TestSessionDebugReportsSkillIndexBudgetWarnings(t *testing.T) {
 	writeSkillForTest(t, root, "beta", "beta", "B", "beta body")
 	missingRoot := filepath.Join(root, "missing")
 	k, err := New(Config{
-		LedgerPath:           filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:           filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:             &recordingTextProvider{text: "debug skill final"},
 		RuntimeToken:         testRuntimeToken,
 		MaterialStorePath:    testTempDir(t),

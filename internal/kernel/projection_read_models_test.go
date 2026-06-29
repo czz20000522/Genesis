@@ -28,7 +28,7 @@ func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
 		}},
 		final: "timeline final",
 	}
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
@@ -122,7 +122,7 @@ func TestUITimelineProjectionMergesToolEventsWithoutAuditFields(t *testing.T) {
 }
 
 func TestTurnAndInspectionProjectionsUseExplicitStateAxes(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
@@ -482,7 +482,7 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	root := testTempDir(t)
 	skillPath := writeSkillForTest(t, root, "lark-im", "lark-im", "Send chat messages through installed CLI", "FULL SKILL BODY MUST NOT BE PROJECTED")
 	provider := &capturingProvider{text: "context inspected"}
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
@@ -602,7 +602,7 @@ func TestInspectionRedactsUnsafeProviderToolCallID(t *testing.T) {
 	workspace := testTempDir(t)
 	providerCallID := `C:\secrets\sk-providersecret123`
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{{
 				ToolCallID: providerCallID,

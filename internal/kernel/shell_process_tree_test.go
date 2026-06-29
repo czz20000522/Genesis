@@ -22,7 +22,7 @@ func TestForegroundShellTimeoutTerminatesDescendantProcessTree(t *testing.T) {
 	workspace := testTempDir(t)
 	marker := filepath.Join(workspace, "timeout-descendant-survived.txt")
 	ready := filepath.Join(workspace, "timeout-descendant-ready.txt")
-	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
 	})
@@ -67,7 +67,7 @@ func TestForegroundShellInterruptHandsOffDescendantProcessTree(t *testing.T) {
 		final: "must not reach final provider step",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{

@@ -674,13 +674,13 @@ func ledgerPathUnderFile(t *testing.T) string {
 	if err := os.WriteFile(filePath, []byte("not a directory"), 0o644); err != nil {
 		t.Fatalf("write non-directory ledger parent: %v", err)
 	}
-	return filepath.Join(filePath, "events.jsonl")
+	return filepath.Join(filePath, "events.sqlite")
 }
 
 func corruptLedgerPath(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(testTempDir(t), "events.jsonl")
-	if err := os.WriteFile(path, []byte("{bad json\n"), 0o644); err != nil {
+	path := filepath.Join(testTempDir(t), "events.sqlite")
+	if err := os.WriteFile(path, []byte("not a sqlite database\n"), 0o644); err != nil {
 		t.Fatalf("write corrupt ledger: %v", err)
 	}
 	return path

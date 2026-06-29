@@ -22,7 +22,7 @@ func TestReadinessDTOsDoNotExposeGenericStatusTags(t *testing.T) {
 
 func TestReadinessSurfacesUseReadinessAxis(t *testing.T) {
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:   NewBlockedProvider("blocked-provider", "provider_api_key_missing"),
 	})
 	if err != nil {
@@ -80,7 +80,7 @@ func TestReadinessSurfacesUseReadinessAxis(t *testing.T) {
 
 func TestContextRuntimeReadinessDoesNotUseProviderStatus(t *testing.T) {
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:   NewBlockedProvider("unsafe provider name", "provider_api_key_missing"),
 	})
 	if err != nil {
@@ -104,7 +104,7 @@ func TestContextRuntimeReadinessDoesNotUseProviderStatus(t *testing.T) {
 
 func TestToolDenialMayStillUseBlockedAsModelVisibleOutcome(t *testing.T) {
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:   FakeProvider{},
 		ToolPolicy: ToolPolicy{
 			PermissionMode: PermissionModePlan,

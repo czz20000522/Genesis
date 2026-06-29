@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -79,7 +80,7 @@ func New(config Config) (*Kernel, error) {
 	}
 	skillCatalog := loadSkillCatalogWithDiagnostics(config.SkillRoots)
 	k := &Kernel{
-		ledger:             NewJSONLLedger(config.LedgerPath),
+		ledger:             NewSQLiteLedger(config.LedgerPath),
 		provider:           provider,
 		jobExecutor:        jobExecutor,
 		runtimeToken:       strings.TrimSpace(config.RuntimeToken),
@@ -472,6 +473,37 @@ func (k *Kernel) Session(sessionID string) (SessionProjection, error) {
 		return SessionProjection{}, err
 	}
 	return localSessionProjection(projection), nil
+}
+
+func (k *Kernel) ListSessions() (SessionListResponse, error) {
+	events, err := k.loadEvents()
+	if err != nil {
+		return SessionListResponse{}, err
+	}
+	updatedAtBySession := map[string]time.Time{}
+	for _, event := range events {
+		sessionID := strings.TrimSpace(event.SessionID)
+		if sessionID == "" {
+			continue
+		}
+		if current, ok := updatedAtBySession[sessionID]; !ok || event.CreatedAt.After(current) {
+			updatedAtBySession[sessionID] = event.CreatedAt
+		}
+	}
+	items := make([]SessionListItem, 0, len(updatedAtBySession))
+	for sessionID, updatedAt := range updatedAtBySession {
+		items = append(items, SessionListItem{
+			SessionID: sessionID,
+			UpdatedAt: updatedAt,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].SessionID < items[j].SessionID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+	return SessionListResponse{Items: items}, nil
 }
 
 var ErrSessionNotFound = errors.New("session not found")

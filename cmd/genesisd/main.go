@@ -16,7 +16,7 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8765", "HTTP listen address")
-	ledgerPath := flag.String("ledger", defaultLedgerPath(), "append-only event ledger path")
+	ledgerPath := flag.String("ledger", defaultLedgerPath(), "SQLite event index path")
 	runtimeToken := flag.String("runtime-token", os.Getenv("GENESIS_RUNTIME_TOKEN"), "runtime bearer token for protected routes")
 	permissionMode := flag.String("permission-mode", envOrDefault("GENESIS_PERMISSION_MODE", kernel.PermissionModePlan), "tool permission mode: plan, default, or yolo")
 	workspaceRoot := flag.String("workspace-root", os.Getenv("GENESIS_WORKSPACE_ROOT"), "workspace root for default tool permission mode")
@@ -113,7 +113,7 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	fmt.Printf("genesisd listening on http://%s\n", *addr)
-	fmt.Printf("ledger: %s\n", *ledgerPath)
+	fmt.Printf("ledger index: %s\n", *ledgerPath)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("serve: %v", err)
 	}
@@ -210,9 +210,9 @@ func defaultLedgerPath() string {
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil || dir == "" {
-		return filepath.Join(".genesis", "events.jsonl")
+		return filepath.Join(".genesis", "events.sqlite")
 	}
-	return filepath.Join(dir, "Genesis", "kernel", "events.jsonl")
+	return filepath.Join(dir, "Genesis", "kernel", "events.sqlite")
 }
 
 func envOrDefault(name string, fallback string) string {

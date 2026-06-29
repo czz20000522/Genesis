@@ -6,7 +6,7 @@
 
 **Architecture:** Keep `shell_exec` as the generic tool. Add `timeout_sec` to the model-visible schema and request type. Foreground requests run through the existing shell path with a caller-selected timeout. Requests above the foreground cap create append-only job events and an immediate receipt-style `tool.result` without pretending final command output is available.
 
-**Tech Stack:** Go, existing append-only JSONL ledger, `ToolRegistry`, `ToolGateway`, `ExecShell`, provider tool loop tests.
+**Tech Stack:** Go, file-backed event ledger with SQLite index, `ToolRegistry`, `ToolGateway`, `ExecShell`, provider tool loop tests.
 
 ---
 

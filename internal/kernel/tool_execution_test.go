@@ -13,7 +13,7 @@ import (
 )
 
 func TestExecuteToolBatchesKeepsEffectfulSerialProviderOrder(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-order"), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-order"), "events.sqlite"))
 	sessionID := "session_tool_execution_order"
 	turnID := "turn_tool_execution_order"
 	toolCallEventIDs := map[string]string{
@@ -102,7 +102,7 @@ func serialWorkspaceWriteAccessPlan(name string) ToolAccessPlan {
 }
 
 func TestExecuteToolBatchesCommitsCompletedSerialResultBeforeLaterError(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-partial-error"), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-partial-error"), "events.sqlite"))
 	sessionID := "session_tool_execution_partial_error"
 	turnID := "turn_tool_execution_partial_error"
 	toolCallEventIDs := map[string]string{
@@ -157,7 +157,7 @@ func TestExecuteToolBatchesCommitsCompletedSerialResultBeforeLaterError(t *testi
 }
 
 func TestExecuteToolBatchesCommitsOutOfOrderBatchResultsInProviderOrder(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-out-of-order"), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-out-of-order"), "events.sqlite"))
 	sessionID := "session_tool_execution_out_of_order"
 	turnID := "turn_tool_execution_out_of_order"
 	toolCallEventIDs := map[string]string{
@@ -233,7 +233,7 @@ func TestExecuteToolBatchesCommitsOutOfOrderBatchResultsInProviderOrder(t *testi
 }
 
 func TestExecuteToolBatchesCommitsConcurrentPerCallFailureWithSiblingSuccess(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-per-call-failure"), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-per-call-failure"), "events.sqlite"))
 	sessionID := "session_tool_execution_parallel_per_call_failure"
 	turnID := "turn_tool_execution_parallel_per_call_failure"
 	toolCallEventIDs := map[string]string{
@@ -374,7 +374,7 @@ func TestExecuteToolBatchesRecordsFatalRunnerShapeFailuresWithoutForgingResults(
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-runner-shape-failure"), strings.ReplaceAll(tc.name, " ", "-"), "events.jsonl"))
+			k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-runner-shape-failure"), strings.ReplaceAll(tc.name, " ", "-"), "events.sqlite"))
 			toolCallEventIDs := map[string]string{
 				"call_event_a": "evt_call_a",
 				"call_event_b": "evt_call_b",
@@ -421,7 +421,7 @@ func TestExecuteToolBatchesRecordsFatalRunnerShapeFailuresWithoutForgingResults(
 }
 
 func TestExecuteToolBatchesInterruptedParallelBatchDoesNotForgeSiblingResults(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-interrupted"), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-interrupted"), "events.sqlite"))
 	sessionID := "session_tool_execution_parallel_interrupted"
 	turnID := "turn_tool_execution_parallel_interrupted"
 	toolCallEventIDs := map[string]string{
@@ -487,7 +487,7 @@ func TestExecuteToolBatchesInterruptedParallelBatchDoesNotForgeSiblingResults(t 
 }
 
 func TestExecuteToolBatchesRunsPureReadBatchConcurrently(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-pure-read"), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-pure-read"), "events.sqlite"))
 	sessionID := "session_tool_execution_parallel_pure_read"
 	turnID := "turn_tool_execution_parallel_pure_read"
 	toolCallEventIDs := map[string]string{
@@ -549,7 +549,7 @@ func TestExecuteToolBatchesRunsPureReadBatchConcurrently(t *testing.T) {
 }
 
 func TestExecuteToolBatchesKeepsProcessIOBatchSerialByDefault(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-process-io-serial"), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-process-io-serial"), "events.sqlite"))
 	sessionID := "session_tool_execution_process_io_serial"
 	turnID := "turn_tool_execution_process_io_serial"
 	toolCallEventIDs := map[string]string{

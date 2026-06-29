@@ -28,6 +28,18 @@ func handleGetSession(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	writeJSON(w, http.StatusOK, projection)
 }
 
+func handleListSessions(w http.ResponseWriter, _ *http.Request, k *Kernel) {
+	projection, err := k.ListSessions()
+	if writeKernelUnavailable(w, err) {
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, projection)
+}
+
 func isSessionTimelinePath(path string) bool {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")

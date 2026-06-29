@@ -16,7 +16,7 @@ import (
 func TestAutoCompactionProjectsSummaryPlusRecentTail(t *testing.T) {
 	provider := &compactionProvider{}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -103,7 +103,7 @@ func TestAutoCompactionProjectsSummaryPlusRecentTail(t *testing.T) {
 func TestManualCompactionControlSurfaceRunsSharedRunnerWhenIdle(t *testing.T) {
 	provider := &compactionProvider{}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -186,7 +186,7 @@ func TestManualCompactionControlSurfaceRunsSharedRunnerWhenIdle(t *testing.T) {
 
 func TestManualCompactionControlSurfaceRefusesRunningSession(t *testing.T) {
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     &compactionProvider{},
 		RuntimeToken: testRuntimeToken,
 	})
@@ -228,7 +228,7 @@ func TestManualCompactionControlSurfaceRefusesRunningSession(t *testing.T) {
 
 func TestManualCompactionAdmissionChecksActiveTurnOwnership(t *testing.T) {
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     &compactionProvider{},
 		RuntimeToken: testRuntimeToken,
 	})
@@ -258,7 +258,7 @@ func TestManualCompactionAdmissionChecksActiveTurnOwnership(t *testing.T) {
 
 func TestSubmitTurnRefusesWhileManualCompactionOwnsSession(t *testing.T) {
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     &compactionProvider{},
 		RuntimeToken: testRuntimeToken,
 	})
@@ -291,7 +291,7 @@ func TestSubmitTurnRefusesWhileManualCompactionOwnsSession(t *testing.T) {
 
 func TestManualCompactionControlSurfaceRejectsCallerControlFields(t *testing.T) {
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     &compactionProvider{},
 		RuntimeToken: testRuntimeToken,
 	})
@@ -308,7 +308,7 @@ func TestManualCompactionControlSurfaceRejectsCallerControlFields(t *testing.T) 
 func TestCompactionFailureDoesNotFailUserTurn(t *testing.T) {
 	provider := &compactionProvider{failCompactionAttempts: 1}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -354,7 +354,7 @@ func TestCompactionFailureDoesNotFailUserTurn(t *testing.T) {
 func TestAutoCompactionFailureIsRecordedAndRetried(t *testing.T) {
 	provider := &compactionProvider{failCompactionAttempts: 1}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -407,7 +407,7 @@ func TestAutoCompactionFailureIsRecordedAndRetried(t *testing.T) {
 func TestAutoCompactionBacksOffAfterSummarizerFailure(t *testing.T) {
 	provider := &compactionProvider{failCompactionAttempts: 1}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -463,7 +463,7 @@ func TestModelGatewayRecordsProviderBackedContextAccounting(t *testing.T) {
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -535,7 +535,7 @@ func TestModelGatewayAccountsToolRoundBoundaries(t *testing.T) {
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -586,7 +586,7 @@ func TestAutoCompactionUsesProviderBackedExchangeAccountingForRecentTail(t *test
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -642,7 +642,7 @@ func TestAutoCompactionRecordsUsageEconomicsAndCacheStability(t *testing.T) {
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -696,7 +696,7 @@ func TestAutoCompactionRecordsUsageEconomicsAndCacheStability(t *testing.T) {
 func TestCompactionSourcePreservesCompletedToolCallResultPairs(t *testing.T) {
 	provider := &compactionToolPairProvider{}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{

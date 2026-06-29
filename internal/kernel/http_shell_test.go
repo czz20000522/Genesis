@@ -14,7 +14,7 @@ import (
 )
 
 func TestHTTPShellExecAndSessionProjection(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
@@ -69,7 +69,7 @@ func TestHTTPShellExecAndSessionProjection(t *testing.T) {
 
 func TestHTTPShellExecLongTimeoutReturnsManagedJobReceipt(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
@@ -151,7 +151,7 @@ func TestHTTPShellExecLongTimeoutReturnsManagedJobReceipt(t *testing.T) {
 func TestHTTPShellExecLongTimeoutDoesNotBypassDefaultSandbox(t *testing.T) {
 	workspace := testTempDir(t)
 	outside := filepath.Join(testTempDir(t), "managed-bypass.txt")
-	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
 	})
@@ -197,7 +197,7 @@ func TestHTTPShellExecLongTimeoutDoesNotBypassDefaultSandbox(t *testing.T) {
 
 func TestHTTPShellExecManagedJobRetryPreservesTerminalOutputProjection(t *testing.T) {
 	workspace := testTempDir(t)
-	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
 	})
@@ -252,7 +252,7 @@ func TestHTTPShellExecManagedJobRetryPreservesTerminalOutputProjection(t *testin
 
 func TestHTTPShellExecRejectsExplicitZeroTimeout(t *testing.T) {
 	workspace := testTempDir(t)
-	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
 	})
@@ -275,7 +275,7 @@ func TestHTTPShellExecRejectsExplicitZeroTimeout(t *testing.T) {
 
 func TestHTTPShellExecIdempotencyKeyDoesNotCrossFromOperationToJob(t *testing.T) {
 	workspace := testTempDir(t)
-	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
 	})
@@ -340,7 +340,7 @@ func TestHTTPShellExecIdempotencyKeyDoesNotCrossFromOperationToJob(t *testing.T)
 
 func TestHTTPShellExecIdempotencyKeyDoesNotCrossFromJobToOperation(t *testing.T) {
 	workspace := testTempDir(t)
-	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  workspace,
 	})
@@ -408,7 +408,7 @@ func TestHTTPShellExecIdempotencyKeyDoesNotCrossFromJobToOperation(t *testing.T)
 
 func TestHTTPShellExecIdempotencyKeyReturnsExistingOperation(t *testing.T) {
 	workspace := testTempDir(t)
-	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeDefault,
 		WorkspaceRoot:  workspace,
 	})
@@ -484,7 +484,7 @@ func TestHTTPShellExecIdempotencyKeyReturnsExistingOperation(t *testing.T) {
 }
 
 func TestHTTPShellExecStaleRunningIdempotencyKeyReturnsFailedOperation(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	workspace := testTempDir(t)
 	k := newTestKernelWithPolicy(t, ledgerPath, ToolPolicy{
 		PermissionMode: PermissionModeDefault,
@@ -542,7 +542,7 @@ func TestHTTPShellExecStaleRunningIdempotencyKeyReturnsFailedOperation(t *testin
 }
 
 func TestHTTPRejectsUnknownShellFields(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()

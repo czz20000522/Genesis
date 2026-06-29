@@ -226,7 +226,7 @@ func TestCommandProviderDoesNotInheritDaemonEnvironment(t *testing.T) {
 }
 
 func TestProviderCommandFailureRedactsStderrFromTurnAndHTTP(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	provider := NewCommandProvider(ProviderCommandConfig{
 		Command:        os.Args[0],
 		Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "stderr-secret"},
@@ -271,9 +271,13 @@ func TestProviderCommandFailureRedactsStderrFromTurnAndHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal session projection: %v", err)
 	}
-	ledgerData, err := os.ReadFile(ledgerPath)
+	ledgerEvents, err := k.loadEvents()
 	if err != nil {
-		t.Fatalf("read ledger: %v", err)
+		t.Fatalf("load ledger events: %v", err)
+	}
+	ledgerData, err := json.Marshal(ledgerEvents)
+	if err != nil {
+		t.Fatalf("marshal ledger events: %v", err)
 	}
 	for _, leaked := range []string{"sk-provider-stderr", "tokentest123456", "sk-jsonstderr"} {
 		if strings.Contains(string(sessionJSON), leaked) {
@@ -297,7 +301,7 @@ func TestProviderCommandRequestOmitsKernelEventIdentity(t *testing.T) {
 		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
 	})
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -354,7 +358,7 @@ func TestCommandProviderToolLoopThroughKernel(t *testing.T) {
 		Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
 	})
 
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     provider,
@@ -423,7 +427,7 @@ func TestCommandProviderMalformedArgumentsReturnRepairFeedback(t *testing.T) {
 	})
 
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -531,7 +535,7 @@ func TestOpenAICompatibleMalformedToolArgumentsReturnRepairFeedback(t *testing.T
 	defer server.Close()
 
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
 			BaseURL: server.URL,
 			APIKey:  "test-key",
@@ -595,7 +599,7 @@ func TestLiveOpenAICompatibleProviderThroughKernel(t *testing.T) {
 	}
 
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     NewOpenAICompatibleProvider(providerConfig),
 		RuntimeToken: testRuntimeToken,
 	})
@@ -644,7 +648,7 @@ func TestLiveOpenAICompatibleProviderToolLoopThroughKernel(t *testing.T) {
 
 	workspace := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     NewOpenAICompatibleProvider(providerConfig),
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -917,7 +921,7 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 }
 
 func TestHTTPReportsBlockedProvider(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     NewOpenAICompatibleProvider(OpenAICompatibleConfig{}),

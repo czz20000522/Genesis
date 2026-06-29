@@ -18,7 +18,7 @@ func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing
 	provider := &capturingProvider{text: "hydrated answer"}
 	body := "FULL SKILL BODY Authorization: Bearer local-token should stay literal and bounded"
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		Resources: []ResourceDescriptor{{
@@ -132,7 +132,7 @@ func TestContextHydrationRefusesResourcesWithoutPromptSplicing(t *testing.T) {
 	oversize := strings.Repeat("OVERSIZE-CONTENT-", 500)
 	provider := &capturingProvider{text: "plain answer"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		Resources: []ResourceDescriptor{
@@ -245,7 +245,7 @@ func TestContextHydrationRefusesResourcesWithoutPromptSplicing(t *testing.T) {
 
 func TestContextHydrationRefusesScopeMismatch(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "context-hydration-scope")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "cf:scoped",
 		MimeType: "text/plain",
 		Text:     "scoped body",
@@ -278,7 +278,7 @@ func TestContextHydrationRefusesTurnScopedAdmissionUntilProjectionCanConsumeIt(t
 	dir := testsupport.ProjectTempDir(t, "context-hydration-turn-scope")
 	provider := &capturingProvider{text: "initial answer"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		Resources: []ResourceDescriptor{{
@@ -317,7 +317,7 @@ func TestContextHydrationRefusesTurnScopedAdmissionUntilProjectionCanConsumeIt(t
 
 func TestContextHydrationRejectsCallerOwnedControlFieldsOverHTTP(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "context-hydration-http")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "cf:control",
 		MimeType: "text/plain",
 		Text:     "control body",
@@ -372,7 +372,7 @@ func TestContextHydrationDefaultSkillBodyAbsentAndForbiddenToolsRemainAbsent(t *
 	writeSkillForTest(t, root, "lark-im", "lark-im", "Send chat messages", "FULL BODY MUST REQUIRE GENERIC HYDRATION")
 	provider := &capturingProvider{text: "skill index answer"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testsupport.ProjectTempDir(t, "context-hydration-skill-ledger"), "events.jsonl"),
+		LedgerPath:   filepath.Join(testsupport.ProjectTempDir(t, "context-hydration-skill-ledger"), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		SkillRoots:   []string{root},

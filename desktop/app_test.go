@@ -308,7 +308,7 @@ func TestDesktopGoDoesNotImportKernelInternals(t *testing.T) {
 		text := string(body)
 		for _, forbidden := range []string{
 			"genesis/internal/kernel",
-			"NewJSONLLedger",
+			"NewSQLiteLedger",
 			"MemoryCandidate",
 			"ToolResult",
 			"ProviderContext",

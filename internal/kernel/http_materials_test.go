@@ -21,7 +21,7 @@ func TestHTTPMaterialIntakeLocalPathReturnsSourceSnapshot(t *testing.T) {
 	writeKernelZipFixture(t, zipPath, map[string]string{"README.md": "hello"})
 	provider := &recordingTextProvider{text: "done"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -73,7 +73,7 @@ func TestHTTPMaterialIntakeLocalPathReturnsSourceSnapshot(t *testing.T) {
 
 func TestHTTPMaterialUploadStoresByGeneratedPathAndParsesZip(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "http-material-upload")
-	k := newTestKernel(t, filepath.Join(dir, "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(dir, "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -117,7 +117,7 @@ func TestMaterialSourceSnapshotPersistenceIsDeclaredProcessLifetimeOnly(t *testi
 	dir := testsupport.ProjectTempDir(t, "http-material-process-lifetime")
 	storePath := filepath.Join(dir, "material-store")
 	k, err := New(Config{
-		LedgerPath:        filepath.Join(dir, "events.jsonl"),
+		LedgerPath:        filepath.Join(dir, "events.sqlite"),
 		Provider:          FakeProvider{},
 		RuntimeToken:      testRuntimeToken,
 		MaterialStorePath: storePath,
@@ -143,7 +143,7 @@ func TestMaterialSourceSnapshotPersistenceIsDeclaredProcessLifetimeOnly(t *testi
 	}
 
 	restarted, err := New(Config{
-		LedgerPath:        filepath.Join(dir, "events.jsonl"),
+		LedgerPath:        filepath.Join(dir, "events.sqlite"),
 		Provider:          FakeProvider{},
 		RuntimeToken:      testRuntimeToken,
 		MaterialStorePath: storePath,
@@ -163,7 +163,7 @@ func TestMaterialSourceSnapshotPersistenceIsDeclaredProcessLifetimeOnly(t *testi
 
 func TestHTTPMaterialUploadRejectsNonZipBinary(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "http-material-upload-binary")
-	k := newTestKernel(t, filepath.Join(dir, "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(dir, "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 

@@ -130,7 +130,7 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath: ledgerPath,
 		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
@@ -245,7 +245,7 @@ func TestSubmitTurnUsesToolCallEventIDWhenProviderIDMissing(t *testing.T) {
 		final: "event id tool slot observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -303,7 +303,7 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 		final: "repair feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -360,7 +360,7 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellArguments(t *testing.T) {
 func TestSubmitTurnUsesKernelEventIDForUnsafeProviderToolCallID(t *testing.T) {
 	workspace := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{{
 				ToolCallID: "bad tool call id",
@@ -408,7 +408,7 @@ func TestSubmitTurnRejectsProviderSuppliedKernelToolEventID(t *testing.T) {
 	workspace := testTempDir(t)
 	outputPath := filepath.Join(workspace, "forged-event-id.txt")
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{{
 				ToolCallID:      "call_provider_visible",
@@ -465,7 +465,7 @@ func TestSubmitTurnFeedsNonZeroShellExitToModel(t *testing.T) {
 		final: "command failure observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -524,7 +524,7 @@ func TestSubmitTurnReturnsMinimalPermissionDeniedToolResult(t *testing.T) {
 		final: "permission feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -586,7 +586,7 @@ func TestSubmitTurnBlocksUnavailableSandboxProfileBeforeExecution(t *testing.T) 
 		final: "sandbox feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -654,7 +654,7 @@ func TestSubmitTurnBlocksReadOnlySandboxOverrideBeforeExecution(t *testing.T) {
 				final: "read-only sandbox feedback received",
 			}
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 				Provider:     provider,
 				RuntimeToken: testRuntimeToken,
 				ToolPolicy: ToolPolicy{
@@ -714,7 +714,7 @@ func TestSubmitTurnBlocksApprovalRequiredBeforeExecution(t *testing.T) {
 		final: "approval feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -779,7 +779,7 @@ func TestSubmitTurnPlanOnRequestKeepsReadOnlyDenialBeforeApproval(t *testing.T) 
 		final: "plan denial feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -841,7 +841,7 @@ func TestSubmitTurnAcceptsForegroundShellTimeoutSeconds(t *testing.T) {
 				final: "foreground timeout accepted",
 			}
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 				Provider:     provider,
 				RuntimeToken: testRuntimeToken,
 				ToolPolicy: ToolPolicy{
@@ -897,7 +897,7 @@ func TestSubmitTurnForegroundShellTimeoutRecordsTerminalOutcome(t *testing.T) {
 		final: "timeout outcome observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -972,7 +972,7 @@ func TestSubmitTurnDefaultsShellTimeoutToThirtySeconds(t *testing.T) {
 		final: "default timeout accepted",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -1035,7 +1035,7 @@ func TestSubmitTurnReturnsRepairFeedbackForInvalidShellTimeoutSeconds(t *testing
 				final: "invalid timeout repair received",
 			}
 			k, err := New(Config{
-				LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+				LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 				Provider:     provider,
 				RuntimeToken: testRuntimeToken,
 				ToolPolicy: ToolPolicy{
@@ -1079,7 +1079,7 @@ func TestSubmitTurnReportsToolInfrastructureFailureSeparately(t *testing.T) {
 		t.Fatalf("marshal shell args: %v", err)
 	}
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{
 				{ToolCallID: "call_infra_failure", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
@@ -1120,7 +1120,7 @@ func TestSubmitTurnReportsToolInfrastructureFailureSeparately(t *testing.T) {
 }
 
 func TestSubmitTurnReturnsRepairFeedbackForUnsupportedModelToolCall(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
 			{
@@ -1194,7 +1194,7 @@ func TestSubmitTurnReturnsRepairFeedbackForMixedModelToolBatchBeforeAnyEffect(t 
 	if err != nil {
 		t.Fatalf("marshal tool args: %v", err)
 	}
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{
 			{ToolCallID: "call_write", Name: "shell_exec", Arguments: json.RawMessage(toolArgs)},
@@ -1261,7 +1261,7 @@ func TestSubmitTurnRejectsDuplicateToolCallIDBeforeAnyEffect(t *testing.T) {
 		t.Fatalf("marshal second args: %v", err)
 	}
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider: &toolFeedbackProvider{
 			calls: []ModelToolCall{
 				{ToolCallID: "call_duplicate", Name: "shell_exec", Arguments: json.RawMessage(firstArgs)},
@@ -1325,7 +1325,7 @@ func TestSubmitTurnReturnsRepairFeedbackForUnknownModelToolArgumentFields(t *tes
 		t.Run(field, func(t *testing.T) {
 			workspace := testTempDir(t)
 			arguments := json.RawMessage(`{"cwd":"` + filepath.ToSlash(workspace) + `","command":"` + writeFileCommand("unknown-arg-effect.txt", "effect") + `","` + field + `":"model-supplied"}`)
-			ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+			ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 			provider := &toolFeedbackProvider{
 				calls: []ModelToolCall{
 					{

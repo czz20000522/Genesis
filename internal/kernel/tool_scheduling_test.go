@@ -164,7 +164,7 @@ func TestPlanToolExecutionBatchesKeepsProcessStartAdmissionSerial(t *testing.T) 
 
 func TestPrepareBatchAssignsDefaultToolAccessPlans(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "tool-scheduling-prepare")
-	k := newTestKernel(t, filepath.Join(dir, "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(dir, "events.sqlite"))
 	shellArgs, err := json.Marshal(map[string]interface{}{
 		"command": "echo schedule",
 		"cwd":     dir,
@@ -191,7 +191,7 @@ func TestPrepareBatchAssignsDefaultToolAccessPlans(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal resource args: %v", err)
 	}
-	k = newTestKernelWithResources(t, filepath.Join(dir, "resource-events.jsonl"), []ResourceDescriptor{{
+	k = newTestKernelWithResources(t, filepath.Join(dir, "resource-events.sqlite"), []ResourceDescriptor{{
 		Ref:      "res_schedule",
 		MimeType: "text/plain",
 		Text:     "schedule",
@@ -219,7 +219,7 @@ func TestPrepareBatchAssignsDefaultToolAccessPlans(t *testing.T) {
 }
 
 func TestToolSchedulingMetadataStaysOutOfModelVisibleManifest(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-scheduling-manifest"), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-scheduling-manifest"), "events.sqlite"))
 	payload, err := json.Marshal(k.toolGateway().ToolManifest())
 	if err != nil {
 		t.Fatalf("marshal tool manifest: %v", err)

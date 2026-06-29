@@ -122,7 +122,7 @@ Start the kernel through Genesis-owned config:
 $token = "local-live-acceptance-token"
 "$root\bin\genesisd.exe" `
   -addr 127.0.0.1:8765 `
-  -ledger "$root\events.jsonl" `
+  -ledger "$root\events.sqlite" `
   -runtime-token $token `
   -provider genesis-config `
   -config-root "$root\config" `

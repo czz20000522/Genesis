@@ -12,7 +12,7 @@ func TestApprovedMemoryProviderContextUsesExplicitEgressBoundaryWithoutMutatingT
 	secretMemory := "prefer concise answers; GENESIS_PROVIDER_API_KEY=sk-memory-secret; Authorization: Bearer tokentest123456"
 	provider := &recordingTextProvider{text: "memory context observed"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})

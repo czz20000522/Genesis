@@ -44,7 +44,7 @@ func TestOpenAICompatibleReasoningContentIsResponseOnly(t *testing.T) {
 	defer server.Close()
 
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
 			BaseURL: server.URL,
 			APIKey:  "test-key",

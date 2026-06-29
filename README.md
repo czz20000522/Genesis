@@ -90,7 +90,7 @@ Run it with an explicit ledger path:
 ```powershell
 "$root\bin\genesisd.exe" `
   -addr 127.0.0.1:8765 `
-  -ledger "$root\events.jsonl" `
+  -ledger "$root\events.sqlite" `
   -runtime-token local-dev-token
 ```
 

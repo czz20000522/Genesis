@@ -18,7 +18,7 @@ func TestAutoCompactionDefersWhenSuccessfulCompactionsStayAboveLimit(t *testing.
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{
@@ -97,7 +97,7 @@ func TestAutoCompactionDoesNotPauseHealthySeparatedCompactions(t *testing.T) {
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ContextPolicy: ContextPolicy{

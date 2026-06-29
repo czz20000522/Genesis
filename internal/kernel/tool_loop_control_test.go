@@ -22,7 +22,7 @@ func TestSubmitTurnPausesToolLoopBudgetWithoutExecutingOverBudgetBatch(t *testin
 			})
 		},
 	}
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "cf:tool-loop-pause",
 		MimeType: "text/plain",
 		Text:     "RESOURCE LOOP VALUE",
@@ -90,7 +90,7 @@ func TestSubmitTurnUsesConfiguredBudgetLeaseForToolRounds(t *testing.T) {
 		steps: steps,
 		final: "finished after configured lease",
 	}
-	k := newTestKernelWithBudgetAndResources(t, filepath.Join(dir, "events.jsonl"), BudgetPolicy{
+	k := newTestKernelWithBudgetAndResources(t, filepath.Join(dir, "events.sqlite"), BudgetPolicy{
 		ModelToolRoundBudget: 6,
 	}, []ResourceDescriptor{{
 		Ref:      "cf:tool-loop-lease",
@@ -133,7 +133,7 @@ func TestSubmitTurnNormalizesZeroBudgetLeaseToDefault(t *testing.T) {
 			})
 		},
 	}
-	k := newTestKernelWithBudgetAndResources(t, filepath.Join(dir, "events.jsonl"), BudgetPolicy{
+	k := newTestKernelWithBudgetAndResources(t, filepath.Join(dir, "events.sqlite"), BudgetPolicy{
 		ModelToolRoundBudget: 0,
 	}, []ResourceDescriptor{{
 		Ref:      "cf:tool-loop-default-lease",
@@ -162,7 +162,7 @@ func TestSubmitTurnNormalizesZeroBudgetLeaseToDefault(t *testing.T) {
 
 func TestBudgetLeaseIsInspectableButNotModelVisible(t *testing.T) {
 	dir := testTempDir(t)
-	k := newTestKernelWithBudgetAndResources(t, filepath.Join(dir, "events.jsonl"), BudgetPolicy{
+	k := newTestKernelWithBudgetAndResources(t, filepath.Join(dir, "events.sqlite"), BudgetPolicy{
 		ModelToolRoundBudget:  7,
 		ModelToolRoundCeiling: 9,
 	}, nil)
@@ -200,7 +200,7 @@ func TestBudgetLeaseIsInspectableButNotModelVisible(t *testing.T) {
 }
 
 func TestBudgetLeaseClampsConfiguredBudgetToCeiling(t *testing.T) {
-	k := newTestKernelWithBudgetAndResources(t, filepath.Join(testTempDir(t), "events.jsonl"), BudgetPolicy{
+	k := newTestKernelWithBudgetAndResources(t, filepath.Join(testTempDir(t), "events.sqlite"), BudgetPolicy{
 		ModelToolRoundBudget:  50,
 		ModelToolRoundCeiling: 6,
 	}, nil)
@@ -239,7 +239,7 @@ func TestPausedTurnContinuationIncludesCommittedToolRoundsInProviderContext(t *t
 			})
 		},
 	}
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "cf:tool-loop-resume",
 		MimeType: "text/plain",
 		Text:     "PAUSED RESOURCE CONTEXT",
@@ -297,7 +297,7 @@ func TestToolLoopStormGuardAugmentsRepeatedFailureFeedback(t *testing.T) {
 		},
 		final: "changed approach after guard",
 	}
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	k.provider = provider
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
@@ -338,7 +338,7 @@ func TestToolLoopStormGuardBlocksRepeatedWriteSuccessBeforeEffect(t *testing.T) 
 		final: "write loop stopped",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -386,7 +386,7 @@ func TestToolLoopStormGuardBlocksRepeatedWriteSuccessBeforeEffect(t *testing.T) 
 
 func TestToolLoopStormGuardResetsAfterSuccessfulProgress(t *testing.T) {
 	dir := testTempDir(t)
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "cf:tool-loop-reset",
 		MimeType: "text/plain",
 		Text:     "RESET PROGRESS",
@@ -431,7 +431,7 @@ func TestToolLoopRepeatSuccessGuardResetsAfterReadProgress(t *testing.T) {
 		final: "read reset write guard",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -485,7 +485,7 @@ func TestToolLoopRepeatSuccessGuardResetsAfterDifferentWriteProgress(t *testing.
 		final: "different write reset guard",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{

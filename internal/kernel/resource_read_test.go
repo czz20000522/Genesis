@@ -13,7 +13,7 @@ import (
 
 func TestResourceReadReturnsBoundedText(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{
 		{
 			Ref:      "res_alpha",
 			MimeType: "text/plain",
@@ -56,7 +56,7 @@ func TestResourceReadReturnsBoundedText(t *testing.T) {
 
 func TestResourceReadUnknownRefReturnsRepairFeedback(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read-unknown")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "res_known",
 		MimeType: "text/plain",
 		Text:     "known",
@@ -92,7 +92,7 @@ func TestResourceReadUnknownRefReturnsRepairFeedback(t *testing.T) {
 
 func TestResourceReadUnsupportedMimeReturnsRepairFeedback(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read-unsupported-mime")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "res_json",
 		MimeType: "application/json",
 		Text:     `{"body":"not text/plain"}`,
@@ -142,7 +142,7 @@ func TestResourceReadPreservesKeyShapedTextInLocalAndModelInternalProjection(t *
 		final: "resource content observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -241,7 +241,7 @@ func TestResourceReadOffsetUsesBudgetSliceWithoutCredentialMasking(t *testing.T)
 	if offset < 0 {
 		t.Fatal("test fixture missing partial secret")
 	}
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "res_secret",
 		MimeType: "text/plain",
 		Text:     rawText,
@@ -277,7 +277,7 @@ func TestResourceReadOffsetUsesBudgetSliceWithoutCredentialMasking(t *testing.T)
 
 func TestResourceReadPreparesPureReadAccessPlan(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read-scheduling")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{
 		{Ref: "res_a", MimeType: "text/plain", Text: "a"},
 		{Ref: "res_b", MimeType: "text/plain", Text: "b"},
 	})
@@ -312,7 +312,7 @@ func TestResourceReadPreparesPureReadAccessPlan(t *testing.T) {
 
 func TestResourceReadUsesReferenceAdmission(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read-reference-admission")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "res_alpha",
 		MimeType: "text/plain",
 		Text:     "alpha",
@@ -340,7 +340,7 @@ func TestResourceReadUsesReferenceAdmission(t *testing.T) {
 
 func TestResourceReadRefusesRuntimeHandles(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read-runtime-handles")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "res_alpha",
 		MimeType: "text/plain",
 		Text:     "alpha",
@@ -364,7 +364,7 @@ func TestResourceReadRefusesRuntimeHandles(t *testing.T) {
 
 func TestResourceReadRefusesOwnerInternalRefs(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read-internal-refs")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "res_alpha",
 		MimeType: "text/plain",
 		Text:     "alpha",
@@ -388,7 +388,7 @@ func TestResourceReadRefusesOwnerInternalRefs(t *testing.T) {
 
 func TestResourceReadDoesNotFallbackToHostPath(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read-host-path")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "res_alpha",
 		MimeType: "text/plain",
 		Text:     "alpha",
@@ -404,7 +404,7 @@ func TestResourceReadDoesNotFallbackToHostPath(t *testing.T) {
 
 func TestResourceReadRevalidatesDescriptorAvailabilityAtCallTime(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read-revalidate")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "res_dynamic",
 		MimeType: "text/plain",
 		Text:     "dynamic text",
@@ -437,7 +437,7 @@ func TestResourceReadRevalidatesDescriptorAvailabilityAtCallTime(t *testing.T) {
 
 func TestResourceReadSuccessfulResultShapeIsStable(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "resource-read-result-shape")
-	k := newTestKernelWithResources(t, filepath.Join(dir, "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "res_shape",
 		MimeType: "text/plain",
 		Text:     "stable shape",

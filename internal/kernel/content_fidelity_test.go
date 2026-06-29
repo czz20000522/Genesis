@@ -9,7 +9,7 @@ import (
 )
 
 func TestSemanticTextFieldsAllowSecretShapedContent(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 

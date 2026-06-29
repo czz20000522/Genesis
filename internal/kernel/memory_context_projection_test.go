@@ -52,7 +52,7 @@ func TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider(t *test
 	}))
 	defer server.Close()
 
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath: ledgerPath,
 		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{

@@ -16,7 +16,7 @@ func TestJobOutputSnapshotIsDurableButNotProviderObservation(t *testing.T) {
 	jobID := "job_output_snapshot_001"
 	provider := &recordingTextProvider{text: "continued"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -106,7 +106,7 @@ func TestManagedJobExecutorCanReportOutputSnapshot(t *testing.T) {
 		final: "progress observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		JobExecutor:  progressReportingManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
@@ -161,7 +161,7 @@ func TestManagedJobExecutorOutputSnapshotIsBounded(t *testing.T) {
 		final: "bounded progress observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		JobExecutor:  longProgressManagedJobExecutor{},
 		RuntimeToken: testRuntimeToken,
@@ -219,7 +219,7 @@ func TestManagedJobExecutorCannotRedirectOutputSnapshotIdentity(t *testing.T) {
 		final: "poison ignored",
 	}
 	k, err := New(Config{
-		LedgerPath: filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:   provider,
 		JobExecutor: redirectingProgressManagedJobExecutor{
 			targetSessionID: "victim-session",
@@ -299,7 +299,7 @@ func TestLocalManagedJobExecutorEmitsSparseOutputSnapshot(t *testing.T) {
 		final: "local progress observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -453,7 +453,7 @@ func TestUITimelineFoldsDirectManagedJobEventsByJobID(t *testing.T) {
 	sessionID := "direct-job-timeline"
 	jobID := "direct-job-001"
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     &recordingTextProvider{text: "unused"},
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{

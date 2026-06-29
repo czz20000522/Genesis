@@ -33,7 +33,7 @@ func TestCommandProviderStrictlyRejectsUnknownResponseFields(t *testing.T) {
 }
 
 func TestCommandProviderStrictShapeFailureDoesNotAdmitToolCall(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	k.provider = strictProviderCommandHelper(t, "tool-lease-id")
 
 	_, err := k.SubmitTurn(context.Background(), TurnRequest{
@@ -64,7 +64,7 @@ func TestCommandProviderStrictDecoderPreservesValidResponses(t *testing.T) {
 		t.Fatalf("final text = %q, want strict final", resp.Text)
 	}
 
-	k := newTestKernelWithResources(t, filepath.Join(testTempDir(t), "events.jsonl"), []ResourceDescriptor{{
+	k := newTestKernelWithResources(t, filepath.Join(testTempDir(t), "events.sqlite"), []ResourceDescriptor{{
 		Ref:      "cf:strict-provider-command",
 		MimeType: "text/plain",
 		Text:     "STRICT PROVIDER COMMAND RESOURCE",

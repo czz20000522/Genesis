@@ -33,7 +33,7 @@ func TestInterruptSessionCancelsActiveProviderTurnWithoutCancellingBackgroundJob
 		final: "background job started",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     startProvider,
 		JobExecutor:  executor,
 		RuntimeToken: testRuntimeToken,
@@ -131,7 +131,7 @@ func TestInterruptSessionDuringForegroundShellWritesManagedJobReceipt(t *testing
 		final: "must not reach final provider step",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -444,7 +444,7 @@ func TestForegroundAttachCapabilityRequiresAttachMethod(t *testing.T) {
 
 func TestForegroundInterruptReasonUsesExecutorCapabilities(t *testing.T) {
 	k, err := New(Config{
-		LedgerPath:  filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:  filepath.Join(testTempDir(t), "events.sqlite"),
 		JobExecutor: attachAdvertisingManagedJobExecutor{},
 	})
 	if err != nil {
@@ -458,7 +458,7 @@ func TestForegroundInterruptReasonUsesExecutorCapabilities(t *testing.T) {
 func TestHTTPInterruptSessionRequestsActiveTurnCancellation(t *testing.T) {
 	provider := newBlockingProvider()
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -673,7 +673,7 @@ func submitInterruptedForegroundShellTurn(t *testing.T, sessionID string, worksp
 		final: "must not reach final provider step",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		JobExecutor:  executor,
 		RuntimeToken: testRuntimeToken,

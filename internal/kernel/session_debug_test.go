@@ -16,7 +16,7 @@ import (
 func TestSessionDebugDefaultOffDoesNotCreateArtifactOrBreakResume(t *testing.T) {
 	sessionID := "debug-default-off"
 	materialRoot := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath:        ledgerPath,
 		MaterialStorePath: materialRoot,
@@ -86,7 +86,7 @@ func TestSessionDebugCapturesProviderStepsAndToolLoopWithoutHostPaths(t *testing
 		},
 	}
 	k, err := New(Config{
-		LedgerPath:        filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:        filepath.Join(testTempDir(t), "events.sqlite"),
 		MaterialStorePath: materialRoot,
 		Provider:          provider,
 		RuntimeToken:      testRuntimeToken,
@@ -154,7 +154,7 @@ func TestSessionDebugExportIsStepBoundedAndUTF8Safe(t *testing.T) {
 	sessionID := "debug-bounds"
 	materialRoot := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath:        filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:        filepath.Join(testTempDir(t), "events.sqlite"),
 		MaterialStorePath: materialRoot,
 		Provider:          &recordingTextProvider{text: strings.Repeat("界", sessionDebugTextBytes)},
 		RuntimeToken:      testRuntimeToken,
@@ -194,7 +194,7 @@ func TestSessionDebugArtifactDeletionDoesNotAffectSessionOrInspection(t *testing
 	sessionID := "debug-delete-artifact"
 	materialRoot := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath:        filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:        filepath.Join(testTempDir(t), "events.sqlite"),
 		MaterialStorePath: materialRoot,
 		Provider:          &recordingTextProvider{text: "kept final"},
 		RuntimeToken:      testRuntimeToken,
@@ -238,7 +238,7 @@ func TestSessionDebugArtifactDeletionDoesNotAffectSessionOrInspection(t *testing
 func TestSessionDebugHTTPEnableAndExport(t *testing.T) {
 	sessionID := "debug-http"
 	k, err := New(Config{
-		LedgerPath:        filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:        filepath.Join(testTempDir(t), "events.sqlite"),
 		MaterialStorePath: testTempDir(t),
 		Provider:          &recordingTextProvider{text: "http debug final"},
 		RuntimeToken:      testRuntimeToken,
@@ -285,7 +285,7 @@ func TestSessionDebugCapturesProviderAuthFailureWithoutSecret(t *testing.T) {
 	sessionID := "debug-provider-auth"
 	const secret = "sk-debug-auth-secret"
 	k, err := New(Config{
-		LedgerPath:        filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:        filepath.Join(testTempDir(t), "events.sqlite"),
 		MaterialStorePath: testTempDir(t),
 		Provider:          sessionDebugFailingProvider{err: newProviderStatusError(http.StatusUnauthorized, "invalid "+secret, 0)},
 		RuntimeToken:      testRuntimeToken,

@@ -76,7 +76,7 @@ func TestApprovalRequiredValidatesControlledWorkspaceBeforeApproval(t *testing.T
 		final: "controlled workspace preflight feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -428,7 +428,7 @@ func TestUnavailableSandboxRecordsReadinessAndCannotBeApprovedIntoHost(t *testin
 		final: "sandbox unavailable feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -553,7 +553,7 @@ func TestApprovalHTTPSurfaceListsPendingAndSubmitsDecisionCommand(t *testing.T) 
 }
 
 func TestApprovalHTTPListRejectsUnknownStatusFilter(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	t.Cleanup(server.Close)
 
@@ -588,7 +588,7 @@ func newApprovalRequiredTurnKernelWithClock(t *testing.T, workspace string, targ
 		final: "approval owner feedback received",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{

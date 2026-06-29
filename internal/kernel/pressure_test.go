@@ -13,7 +13,7 @@ import (
 )
 
 func TestKernelPressureLongRunningClosedLoop(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	workspace := testTempDir(t)
 	outsideWorkspace := testTempDir(t)
 	provider := newKernelPressureProvider(workspace, outsideWorkspace)

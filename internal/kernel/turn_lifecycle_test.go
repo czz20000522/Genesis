@@ -9,7 +9,7 @@ import (
 )
 
 func TestSubmitTurnPersistsAndProjectsAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
@@ -54,7 +54,7 @@ func TestSubmitTurnPersistsAndProjectsAfterRestart(t *testing.T) {
 func TestSubmitTurnProviderContextIncludesSameSessionHistory(t *testing.T) {
 	provider := &capturingProvider{text: "assistant recorded alpha"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -111,7 +111,7 @@ func TestSubmitTurnProviderContextIncludesSameSessionHistory(t *testing.T) {
 }
 
 func TestSubmitTurnRejectsInvalidInput(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 
 	_, err := k.SubmitTurn(context.Background(), TurnRequest{})
 	if err == nil {
@@ -127,7 +127,7 @@ func TestSubmitTurnRejectsInvalidInput(t *testing.T) {
 }
 
 func TestSubmitTurnRecordsIngressRiskWithoutBlocking(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
@@ -153,7 +153,7 @@ func TestSubmitTurnRecordsIngressRiskWithoutBlocking(t *testing.T) {
 }
 
 func TestSubmitTurnAllowsBenignSystemDiscussion(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
 		SessionID:  "benign-ingress",

@@ -9,7 +9,7 @@ import (
 )
 
 func TestPublicProjectionArraysMarshalAsNonNullArrays(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
 		SessionID: "projection-array-session",
 		InputItems: []InputItem{{

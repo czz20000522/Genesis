@@ -13,7 +13,7 @@ import (
 )
 
 func TestHTTPReadyTurnAndSession(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -74,7 +74,7 @@ func TestHTTPReadyTurnAndSession(t *testing.T) {
 }
 
 func TestHTTPReadyDoesNotExposeInspectionDetails(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	unsafeReason := filepath.Join(testTempDir(t), "models.json") + " secret://provider Authorization: Bearer tokentest123456"
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
@@ -116,7 +116,7 @@ func TestHTTPReadyDoesNotExposeInspectionDetails(t *testing.T) {
 }
 
 func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingTurnAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	firstProvider := &countingTextProvider{text: "first answer"}
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
@@ -188,7 +188,7 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingTurnAfterRestart(t *testing.
 }
 
 func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath:   ledgerPath,
 		Provider:     NewBlockedProvider("blocked-test", "no_provider"),
@@ -264,7 +264,7 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testi
 }
 
 func TestHTTPTurnSubmitIdempotencyKeyRequiresValidExplicitSession(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -294,7 +294,7 @@ func TestHTTPFinalUsageSummarySurvivesSessionReplay(t *testing.T) {
 	}))
 	defer providerServer.Close()
 
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
 		LedgerPath: ledgerPath,
 		Provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
@@ -353,7 +353,7 @@ func TestHTTPFinalUsageSummarySurvivesSessionReplay(t *testing.T) {
 }
 
 func TestHTTPTurnEventsAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -411,7 +411,7 @@ func TestHTTPTurnEventsAfterRestart(t *testing.T) {
 }
 
 func TestHTTPRejectsUnknownTurnFields(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -431,7 +431,7 @@ func TestHTTPRejectsUnknownTurnFields(t *testing.T) {
 }
 
 func TestHTTPRejectsTrailingJSON(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -451,7 +451,7 @@ func TestHTTPRejectsTrailingJSON(t *testing.T) {
 }
 
 func TestHTTPRejectsOversizedTurnRequest(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -468,7 +468,7 @@ func TestHTTPRejectsOversizedTurnRequest(t *testing.T) {
 }
 
 func TestHTTPAcceptsRiskyUserDataAndRecordsMetadata(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -499,7 +499,7 @@ func TestHTTPAcceptsRiskyUserDataAndRecordsMetadata(t *testing.T) {
 }
 
 func TestHTTPBlocksInvisibleIngressMarker(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -524,7 +524,7 @@ func TestHTTPBlocksInvisibleIngressMarker(t *testing.T) {
 }
 
 func TestHTTPRejectsNestedControlFieldBeforeAdmission(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -544,7 +544,7 @@ func TestHTTPRejectsNestedControlFieldBeforeAdmission(t *testing.T) {
 }
 
 func TestHTTPProtectedRoutesRequireRuntimeToken(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -560,7 +560,7 @@ func TestHTTPProtectedRoutesRequireRuntimeToken(t *testing.T) {
 }
 
 func TestHTTPProtectedRoutesFailClosedWithoutConfiguredRuntimeToken(t *testing.T) {
-	k := newTestKernelWithRuntimeToken(t, filepath.Join(testTempDir(t), "events.jsonl"), "")
+	k := newTestKernelWithRuntimeToken(t, filepath.Join(testTempDir(t), "events.sqlite"), "")
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -691,7 +691,7 @@ func TestHTTPCorruptLedgerBlocksReadyReplayAndAppend(t *testing.T) {
 }
 
 func TestHTTPRejectsNonJSONContentType(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 

@@ -21,7 +21,7 @@ func TestSourceSnapshotContextOmitsHostPathAndAdvertisesTypedTools(t *testing.T)
 	})
 	provider := &recordingTextProvider{text: "ready"}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -83,7 +83,7 @@ func TestSourceTreeAndReadToolLoopUsesOpaqueRefs(t *testing.T) {
 	})
 	provider := &sourceSnapshotToolProvider{}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 	})
@@ -136,7 +136,7 @@ func TestSourceTreeTruncationProvidesModelContinuationContract(t *testing.T) {
 		"d.txt": "d",
 	})
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     FakeProvider{},
 		RuntimeToken: testRuntimeToken,
 		SourceSnapshotPolicy: SourceSnapshotPolicy{
@@ -200,7 +200,7 @@ func TestSourceTreeAtMaxEntriesLimitReturnsTerminalContinuationHint(t *testing.T
 		"d.txt": "d",
 	})
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     FakeProvider{},
 		RuntimeToken: testRuntimeToken,
 		SourceSnapshotPolicy: SourceSnapshotPolicy{
@@ -255,7 +255,7 @@ func TestSourceTreeAtMaxEntriesLimitReturnsTerminalContinuationHint(t *testing.T
 }
 
 func TestSourceTreeUnknownOffsetEntriesReturnsRepairableContinuationHint(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 
 	prepared, err := k.toolGateway().PrepareBatch([]ModelToolCall{{
 		ToolCallID:      "call_source_tree_invalid",
@@ -289,7 +289,7 @@ func TestSourceToolsRejectHostPathsAsModelArguments(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "source-tools-host-path")
 	zipPath := filepath.Join(dir, "package.zip")
 	writeKernelZipFixture(t, zipPath, map[string]string{"README.md": "hello"})
-	k := newTestKernel(t, filepath.Join(dir, "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(dir, "events.sqlite"))
 
 	for _, tc := range []struct {
 		name     string

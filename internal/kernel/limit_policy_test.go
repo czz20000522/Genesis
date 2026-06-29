@@ -15,7 +15,7 @@ import (
 
 func TestShellTimeoutPolicyDrivesManifestSchedulingAndInspection(t *testing.T) {
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     FakeProvider{},
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -92,7 +92,7 @@ func TestShellTimeoutPolicyDrivesManifestSchedulingAndInspection(t *testing.T) {
 func TestDirectHTTPShellUsesConfiguredTimeoutPolicy(t *testing.T) {
 	workspace := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     FakeProvider{},
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -147,7 +147,7 @@ func TestDirectHTTPShellUsesConfiguredTimeoutPolicy(t *testing.T) {
 }
 
 func TestKernelLimitClassificationCoversActiveBudgetGuardAndProjectionCaps(t *testing.T) {
-	k := newTestKernelWithBudgetAndResources(t, filepath.Join(testTempDir(t), "events.jsonl"), BudgetPolicy{
+	k := newTestKernelWithBudgetAndResources(t, filepath.Join(testTempDir(t), "events.sqlite"), BudgetPolicy{
 		ModelToolRoundBudget:  5,
 		ModelToolRoundCeiling: 8,
 	}, nil)
@@ -174,7 +174,7 @@ func TestKernelLimitClassificationCoversActiveBudgetGuardAndProjectionCaps(t *te
 func TestSourceSnapshotPolicyIsInspectableRuntimeLimit(t *testing.T) {
 	dir := testTempDir(t)
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(dir, "events.jsonl"),
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
 		Provider:     FakeProvider{},
 		RuntimeToken: testRuntimeToken,
 		SourceSnapshotPolicy: SourceSnapshotPolicy{
@@ -224,7 +224,7 @@ func TestShellTimeoutPolicyRejectsInvalidTimeoutBeforeSideEffects(t *testing.T) 
 	workspace := testTempDir(t)
 	target := filepath.Join(workspace, "should-not-exist.txt")
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     FakeProvider{},
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{

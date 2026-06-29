@@ -115,7 +115,7 @@ func TestLocalForegroundHandoffJobCancelTerminatesRealProcess(t *testing.T) {
 func TestRestartMarksLocalManagedJobLostOwnershipWithoutRerun(t *testing.T) {
 	requireProcessTreeShellSupport(t)
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	startedMarker := filepath.Join(workspace, "lost-ownership-started.txt")
 	command := foregroundLostOwnershipCommand(startedMarker)
 	startArgs, err := json.Marshal(map[string]interface{}{
@@ -184,7 +184,7 @@ func TestRestartMarksLocalManagedJobLostOwnershipWithoutRerun(t *testing.T) {
 
 func TestRestartDoesNotMarkForeignExecutorJobLostOwnership(t *testing.T) {
 	workspace := testTempDir(t)
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	seed, err := New(Config{
 		LedgerPath:   ledgerPath,
 		RuntimeToken: testRuntimeToken,
@@ -362,7 +362,7 @@ func submitLocalForegroundShellAndInterrupt(t *testing.T, sessionID string, work
 		final: "must not reach final provider step",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{

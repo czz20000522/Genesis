@@ -24,7 +24,7 @@ func TestFakeFeishuSourceCommandLongSessionUsesKernelContextQuality(t *testing.T
 	writeConnectorContextQualityZip(t, zipPath)
 	provider := &connectorContextQualityProvider{}
 	k, err := kernelpkg.New(kernelpkg.Config{
-		LedgerPath:        filepath.Join(dir, "events.jsonl"),
+		LedgerPath:        filepath.Join(dir, "events.sqlite"),
 		MaterialStorePath: filepath.Join(dir, "materials"),
 		Provider:          provider,
 		RuntimeToken:      "connector-context-quality-token",

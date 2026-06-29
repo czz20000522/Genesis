@@ -12,7 +12,7 @@ import (
 )
 
 func TestUnapprovedMemoryCandidateIsNotRecalled(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	_, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-source",
@@ -36,7 +36,7 @@ func TestUnapprovedMemoryCandidateIsNotRecalled(t *testing.T) {
 }
 
 func TestCreateMemoryCandidateRequiresSourceRef(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 
 	_, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-source",
@@ -48,7 +48,7 @@ func TestCreateMemoryCandidateRequiresSourceRef(t *testing.T) {
 }
 
 func TestHTTPCreateMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -88,7 +88,7 @@ func TestHTTPCreateMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
 }
 
 func TestApprovedMemoryCandidateRecallsAcrossSessionsAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-source",
@@ -153,7 +153,7 @@ func TestApprovedMemoryCandidateRecallsAcrossSessionsAfterRestart(t *testing.T) 
 }
 
 func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
@@ -218,7 +218,7 @@ func TestHTTPMemoryCandidateApproveAndRecall(t *testing.T) {
 }
 
 func TestHTTPMemoryRecallReturnsApprovedOnlyAfterRestartWithoutLedgerAppend(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -313,7 +313,7 @@ func TestHTTPMemoryRecallReturnsApprovedOnlyAfterRestartWithoutLedgerAppend(t *t
 }
 
 func TestHTTPMemoryRecallRejectsBadInputAndAuth(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -346,7 +346,7 @@ func TestHTTPMemoryRecallRejectsBadInputAndAuth(t *testing.T) {
 }
 
 func TestHTTPMemoryCandidateListAndReadAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -427,7 +427,7 @@ func TestHTTPMemoryCandidateListAndReadAfterRestart(t *testing.T) {
 }
 
 func TestHTTPMemoryCandidateRejectAndReadAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -541,7 +541,7 @@ func TestHTTPMemoryCandidateRejectAndReadAfterRestart(t *testing.T) {
 }
 
 func TestHTTPRejectedMemoryCandidateCannotBeApproved(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -587,7 +587,7 @@ func TestHTTPRejectedMemoryCandidateCannotBeApproved(t *testing.T) {
 }
 
 func TestHTTPApprovedMemoryCandidateCannotBeRejected(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -633,7 +633,7 @@ func TestHTTPApprovedMemoryCandidateCannotBeRejected(t *testing.T) {
 }
 
 func TestHTTPMemoryCandidateSupersedeCreatesPendingReplacementAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -760,7 +760,7 @@ func TestHTTPMemoryCandidateSupersedeCreatesPendingReplacementAfterRestart(t *te
 }
 
 func TestSupersedeMemoryCandidateIsIdempotentWithoutAppendingDuplicateReplacement(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-supersede-idempotent",
 		Text:      "old candidate",
@@ -811,7 +811,7 @@ func TestSupersedeMemoryCandidateIsIdempotentWithoutAppendingDuplicateReplacemen
 }
 
 func TestHTTPMemoryCandidateSupersedeRejectsMissingEvidence(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -980,7 +980,7 @@ func TestMemoryReplayRejectsDuplicateSupersedeWithModifiedReplacement(t *testing
 }
 
 func TestHTTPSupersededMemoryCandidateCannotBeApprovedOrRejected(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -1022,7 +1022,7 @@ func TestHTTPSupersededMemoryCandidateCannotBeApprovedOrRejected(t *testing.T) {
 }
 
 func TestHTTPMemoryCandidateSupersedeRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -1054,7 +1054,7 @@ func TestHTTPMemoryCandidateSupersedeRejectsInvalidControlRefs(t *testing.T) {
 }
 
 func TestRejectMemoryCandidateIsIdempotentWithoutAppendingDuplicateEvent(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "memory-duplicate-reject",
@@ -1217,7 +1217,7 @@ func TestConcurrentMemorySupersedeWritesOnlyOneTerminalDecision(t *testing.T) {
 }
 
 func TestHTTPRejectMemoryCandidateRejectsMissingEvidence(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -1232,7 +1232,7 @@ func TestHTTPRejectMemoryCandidateRejectsMissingEvidence(t *testing.T) {
 }
 
 func TestHTTPRejectMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -1282,7 +1282,7 @@ func TestHTTPRejectMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
 }
 
 func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -1301,7 +1301,7 @@ func TestHTTPApproveUnknownMemoryCandidateReturnsNotFound(t *testing.T) {
 }
 
 func TestHTTPApproveMemoryCandidateRejectsMissingEvidence(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -1316,7 +1316,7 @@ func TestHTTPApproveMemoryCandidateRejectsMissingEvidence(t *testing.T) {
 }
 
 func TestHTTPApproveMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 

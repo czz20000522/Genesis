@@ -51,7 +51,7 @@ func TestArchitectureBoundarySemanticFieldsDoNotUseSecretRejector(t *testing.T) 
 }
 
 func TestArchitectureBoundaryModelVisibleToolsStayGeneric(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	manifest := k.toolGateway().ToolManifest()
 	if len(manifest) == 0 {
 		t.Fatal("model tool manifest is empty")
@@ -77,7 +77,7 @@ func TestArchitectureBoundaryModelVisibleToolsStayGeneric(t *testing.T) {
 }
 
 func TestArchitectureBoundaryNoSkillSpecificHydrationTools(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	manifest := k.toolGateway().ToolManifest()
 	if len(manifest) == 0 {
 		t.Fatal("model tool manifest is empty")
@@ -97,7 +97,7 @@ func TestArchitectureBoundaryNoSkillSpecificHydrationTools(t *testing.T) {
 }
 
 func TestToolManifestDoesNotExposeUniversalRefRead(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	manifest := k.toolGateway().ToolManifest()
 	if len(manifest) == 0 {
 		t.Fatal("model tool manifest is empty")
@@ -113,7 +113,7 @@ func TestToolManifestDoesNotExposeUniversalRefRead(t *testing.T) {
 }
 
 func TestResourceReadSchemaRemainsTyped(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	var resourceRead ToolSpec
 	for _, tool := range k.toolGateway().ToolManifest() {
 		if tool.Name == "resource_read" {
@@ -148,7 +148,7 @@ func TestResourceReadSchemaRemainsTyped(t *testing.T) {
 }
 
 func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	manifest := k.toolGateway().ToolManifest()
 	if len(manifest) == 0 {
 		t.Fatal("tool registry is empty")
@@ -191,7 +191,7 @@ func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
 }
 
 func TestArchitectureBoundaryCapabilitiesProjectFromToolRegistry(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	manifest := k.toolGateway().ToolManifest()
 	if len(manifest) == 0 {
 		t.Fatal("tool manifest is empty")
@@ -209,7 +209,7 @@ func TestArchitectureBoundaryCapabilitiesProjectFromToolRegistry(t *testing.T) {
 }
 
 func TestArchitectureBoundaryAuthorityGateUsesToolSideEffectLevel(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	shell, ok := k.toolRegistry.Resolve("shell_exec")
 	if !ok {
 		t.Fatal("shell_exec is not registered")
@@ -1004,6 +1004,7 @@ func TestArchitectureBoundaryHTTPHandlersLiveInSurfaceFiles(t *testing.T) {
 		"handleApproveMemoryCandidate":   "http_memory.go",
 		"handleRejectMemoryCandidate":    "http_memory.go",
 		"handleSupersedeMemoryCandidate": "http_memory.go",
+		"handleListSessions":             "http_inspection.go",
 		"handleGetSession":               "http_inspection.go",
 		"handleGetSessionTimeline":       "http_inspection.go",
 		"handleGetSessionTimelineDetail": "http_inspection.go",

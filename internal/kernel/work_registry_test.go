@@ -11,7 +11,7 @@ import (
 )
 
 func TestHTTPWorkSubmitCancelReadAndSessionProjectionAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -96,7 +96,7 @@ func TestHTTPWorkSubmitCancelReadAndSessionProjectionAfterRestart(t *testing.T) 
 }
 
 func TestHTTPCancelWorkIsIdempotentWithoutOverwritingEvidence(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -157,7 +157,7 @@ func TestHTTPCancelWorkIsIdempotentWithoutOverwritingEvidence(t *testing.T) {
 }
 
 func TestHTTPWorkSubmitIdempotencyKeyReturnsExistingWorkAfterRestart(t *testing.T) {
-	ledgerPath := filepath.Join(testTempDir(t), "events.jsonl")
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k := newTestKernel(t, ledgerPath)
 	server := httptest.NewServer(Handler(k))
 
@@ -283,7 +283,7 @@ func TestWorkReplayRejectsCompetingCancelEvidence(t *testing.T) {
 }
 
 func TestConcurrentWorkCancelWritesOnlyOneTerminalDecision(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	work, err := k.SubmitWork(WorkSubmitRequest{
 		SessionID: "work-cancel-race",
 		Title:     "race cancel",
@@ -340,7 +340,7 @@ func TestConcurrentWorkCancelWritesOnlyOneTerminalDecision(t *testing.T) {
 }
 
 func TestHTTPCancelWorkRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -379,7 +379,7 @@ func TestHTTPCancelWorkRejectsInvalidControlRefs(t *testing.T) {
 }
 
 func TestHTTPCreateWorkRejectsInvalidIdempotencyKey(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -394,7 +394,7 @@ func TestHTTPCreateWorkRejectsInvalidIdempotencyKey(t *testing.T) {
 }
 
 func TestHTTPCreateWorkRequiresSourceRef(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 
@@ -409,7 +409,7 @@ func TestHTTPCreateWorkRequiresSourceRef(t *testing.T) {
 }
 
 func TestHTTPCreateWorkRejectsInvalidControlRefs(t *testing.T) {
-	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.jsonl"))
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
 	defer server.Close()
 

@@ -12,7 +12,7 @@ import (
 func TestShellExecHostEnvironmentDoesNotInheritSecretShapedDaemonEnv(t *testing.T) {
 	t.Setenv("GENESIS_SHELL_ENV_SECRET", "sk-shell-env-secret")
 	t.Setenv("GENESIS_SHELL_ENV_TOKEN", "token-shell-env-secret")
-	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  testTempDir(t),
 	})
@@ -54,7 +54,7 @@ func TestManagedJobHostEnvironmentDoesNotInheritSecretShapedDaemonEnv(t *testing
 		final: "managed env observed",
 	}
 	k, err := New(Config{
-		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
 		Provider:     provider,
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -86,7 +86,7 @@ func TestManagedJobHostEnvironmentDoesNotInheritSecretShapedDaemonEnv(t *testing
 }
 
 func TestShellEnvironmentPolicyKeepsOrdinaryHostShellUsable(t *testing.T) {
-	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.jsonl"), ToolPolicy{
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
 		WorkspaceRoot:  testTempDir(t),
 	})

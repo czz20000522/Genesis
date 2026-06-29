@@ -563,5 +563,5 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 ### recvndDo1ECC5O - P1 - Corrupt ledger replay must block readiness
 
 - Status: ready_for_acceptance.
-- Conclusion: `go test ./...` passed; build passed; `TestHTTPCorruptLedgerBlocksReadyReplayAndAppend` proves a corrupt JSONL ledger makes `/ready.status=blocked` with `ledger.reason=ledger_corrupt`, and `/turn`, `/sessions/{id}`, and `/memory/candidates` return 503 `ledger_corrupt` rather than `ledger_unwritable` or `invalid_request`.
+- Conclusion: `go test ./...` passed; build passed; `TestHTTPCorruptLedgerBlocksReadyReplayAndAppend` proves a corrupt ledger store makes `/ready.status=blocked` with `ledger.reason=ledger_corrupt`, and `/turn`, `/sessions/{id}`, and `/memory/candidates` return 503 `ledger_corrupt` rather than `ledger_unwritable` or `invalid_request`.
 - Evidence: Fix commit: `9ad48a7fd`.

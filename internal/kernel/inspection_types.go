@@ -127,3 +127,12 @@ type SessionProjection struct {
 	MemoryCandidates []MemoryCandidateProjection  `json:"memory_candidates"`
 	Events           []EventProjection            `json:"events"`
 }
+
+type SessionListResponse struct {
+	Items []SessionListItem `json:"items"`
+}
+
+type SessionListItem struct {
+	SessionID string    `json:"session_id"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
