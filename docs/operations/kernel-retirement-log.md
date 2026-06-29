@@ -565,3 +565,9 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Status: ready_for_acceptance.
 - Conclusion: `go test ./...` passed; build passed; `TestHTTPCorruptLedgerBlocksReadyReplayAndAppend` proves a corrupt ledger store makes `/ready.status=blocked` with `ledger.reason=ledger_corrupt`, and `/turn`, `/sessions/{id}`, and `/memory/candidates` return 503 `ledger_corrupt` rather than `ledger_unwritable` or `invalid_request`.
 - Evidence: Fix commit: `9ad48a7fd`.
+
+### KERNEL-SESSION-STORE-PRODUCTION-CLOSURE-20260630 - P2 - File-backed SQLite session store production closure
+
+- Status: ready_for_acceptance.
+- Conclusion: SQLite is now a minimal index/read model over file-backed session event frames: startup reconciles orphan frames into the index, `/sessions` uses the SQLite session list instead of replaying full event bodies, and stale single-writer lock recovery follows the connector lock guard.
+- Evidence: Fix commit: `8582d1d11`; tests: `go test ./internal/kernel -run "SQLiteLedger|ListSessions" -count=1`, `go test ./internal/kernel -count=1`, `go test ./... -count=1`, `go build ./...`, `git diff --check`.
