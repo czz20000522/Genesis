@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { compactSessionContext, decideApproval, enableSessionDebug, getSessionDebug, getTimelineDetail, kernelConfig, kernelUrl, listApprovals, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
@@ -14,6 +16,11 @@ const storage = {
   setItem(key: string, value: string) {
     values.set(key, value)
   },
+}
+
+for (const file of vueFiles(join(import.meta.dirname, '..', 'src'))) {
+  const source = readFileSync(file, 'utf8')
+  assert.equal(/\bfetch\s*\(/.test(source), false, `${file} must use src/api/kernelApi.ts instead of fetch`)
 }
 
 saveKernelConfig({ baseUrl: 'http://127.0.0.1:8765/', runtimeToken: ' token ' }, storage)
@@ -51,6 +58,14 @@ try {
   assert.deepEqual(detail.item, { kind: 'operation_detail', visible_output: 'done' })
 } finally {
   globalThis.fetch = originalFetch
+}
+
+function vueFiles(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(root, entry.name)
+    if (entry.isDirectory()) return vueFiles(path)
+    return entry.isFile() && entry.name.endsWith('.vue') ? [path] : []
+  })
 }
 
 assert.deepEqual(timelineDetailEntries([

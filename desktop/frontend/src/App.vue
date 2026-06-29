@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, listApprovals, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
-import { approvalSummary } from './approvalView'
+import ActionDock from './components/ActionDock.vue'
+import ConversationPane from './components/ConversationPane.vue'
+import InspectorDrawer from './components/InspectorDrawer.vue'
+import KernelTopBar from './components/KernelTopBar.vue'
+import SessionRail from './components/SessionRail.vue'
 import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
@@ -23,7 +27,6 @@ const approvalReason = ref('')
 const debugExport = ref<SessionDebugExport | null>(null)
 const compaction = ref<ContextCompactionResponse | null>(null)
 const detailEntries = computed(() => timelineDetailEntries(timeline.value?.items))
-const detailItem = computed(() => detail.value?.item ?? {})
 const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
 const debugSummaryRows = computed(() => debugExport.value ? debugSummary(debugExport.value) : [])
 const compactionSummaryRows = computed(() => compaction.value ? compactionSummary(compaction.value) : [])
@@ -82,10 +85,6 @@ async function loadDetail(detailRef = selectedDetailRef.value) {
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
-}
-
-function detailField(name: string) {
-  return String(detailItem.value[name] ?? '').trim()
 }
 
 function selectMaterial(event: Event) {
@@ -191,180 +190,58 @@ function newDesktopIdempotencyKey() {
 </script>
 
 <template>
-  <main>
-    <section class="shell">
-      <header>
-        <p class="eyebrow">Genesis Desktop</p>
-        <h1>Local kernel shell</h1>
-      </header>
+  <main class="workbench">
+    <KernelTopBar
+      :base-url="config.baseUrl"
+      :runtime-token="config.runtimeToken"
+      :readiness="readiness"
+      :error="error"
+      @update:base-url="config.baseUrl = $event"
+      @update:runtime-token="config.runtimeToken = $event"
+      @check-ready="checkReady"
+    />
 
-      <label>
-        Kernel URL
-        <input v-model="config.baseUrl" spellcheck="false" />
-      </label>
+    <section class="workbench-grid">
+      <SessionRail
+        :session-id="sessionId"
+        :debug-export-ready="Boolean(debugExport)"
+        @update:session-id="sessionId = $event"
+        @load-timeline="loadTimeline"
+        @select-material="selectMaterial"
+        @upload-material="uploadSelectedMaterial"
+        @enable-debug="enableDebug"
+        @export-debug="exportDebug"
+        @download-debug="downloadDebugExport"
+        @compact-context="compactContext"
+      />
 
-      <label>
-        Runtime token
-        <input v-model="config.runtimeToken" type="password" spellcheck="false" />
-      </label>
+      <ConversationPane
+        :message-text="messageText"
+        :last-turn="lastTurn"
+        :timeline="timeline"
+        :detail-entries="detailEntries"
+        @update:message-text="messageText = $event"
+        @send-message="sendMessage"
+        @load-detail="loadDetail"
+      />
 
-      <button type="button" @click="checkReady">Check kernel</button>
+      <ActionDock
+        :approvals="approvals"
+        :approval-reason="approvalReason"
+        @update:approval-reason="approvalReason = $event"
+        @load-approvals="loadApprovals"
+        @decide-approval="submitApprovalDecision"
+      />
 
-      <p class="status">readiness: {{ readiness }}</p>
-      <p v-if="error" class="error">{{ error }}</p>
-
-      <div class="divider"></div>
-
-      <label>
-        Session ID
-        <input v-model="sessionId" spellcheck="false" />
-      </label>
-
-      <label>
-        Message
-        <textarea v-model="messageText" rows="4" spellcheck="true"></textarea>
-      </label>
-
-      <button type="button" @click="sendMessage">Send turn</button>
-
-      <aside v-if="lastTurn" class="detail-panel">
-        <p class="eyebrow">Turn result</p>
-        <dl>
-          <dt>Turn</dt>
-          <dd><code>{{ lastTurn.turn_id || 'unknown' }}</code></dd>
-          <template v-if="lastTurn.final?.text">
-            <dt>Final</dt>
-            <dd><pre>{{ lastTurn.final.text }}</pre></dd>
-          </template>
-          <template v-if="lastTurn.pause">
-            <dt>Pause</dt>
-            <dd>{{ lastTurn.pause.reason || lastTurn.pause.wait_reason || 'paused' }}</dd>
-          </template>
-          <template v-if="lastTurn.error">
-            <dt>Error</dt>
-            <dd>{{ lastTurn.error.code }} {{ lastTurn.error.message }}</dd>
-          </template>
-        </dl>
-      </aside>
-
-      <label>
-        Material zip
-        <input type="file" accept=".zip,application/zip,application/x-zip-compressed" @change="selectMaterial" />
-      </label>
-
-      <button type="button" @click="uploadSelectedMaterial">Upload material</button>
-
-      <aside v-if="material" class="detail-panel">
-        <p class="eyebrow">Material intake</p>
-        <dl>
-          <dt>Admission</dt>
-          <dd>{{ materialSummary[0] }}</dd>
-          <dt>Source/refusal</dt>
-          <dd><code>{{ materialSummary[1] }}</code></dd>
-          <dt>Operations</dt>
-          <dd>{{ materialSummary[2] }}</dd>
-        </dl>
-      </aside>
-
-      <button type="button" @click="loadTimeline">Load timeline</button>
-
-      <div class="divider"></div>
-
-      <button type="button" @click="loadApprovals">Load pending approvals</button>
-
-      <div class="detail-list">
-        <button type="button" @click="enableDebug">Enable debug</button>
-        <button type="button" @click="exportDebug">Export debug</button>
-        <button type="button" :disabled="!debugExport" @click="downloadDebugExport">Download debug JSON</button>
-        <button type="button" @click="compactContext">Compact context</button>
-      </div>
-
-      <aside v-if="compaction" class="detail-panel">
-        <p class="eyebrow">Context compaction</p>
-        <dl>
-          <dt>Admission</dt>
-          <dd>{{ compactionSummaryRows[0] }}</dd>
-          <dt>Reason</dt>
-          <dd>{{ compactionSummaryRows[1] || 'none' }}</dd>
-        </dl>
-      </aside>
-
-      <aside v-if="debugExport" class="detail-panel">
-        <p class="eyebrow">Session debug</p>
-        <dl>
-          <dt>Readiness</dt>
-          <dd>{{ debugSummaryRows[0] }}</dd>
-          <dt>Steps</dt>
-          <dd>{{ debugSummaryRows[1] }}</dd>
-          <dt>Input kinds</dt>
-          <dd>{{ debugSummaryRows[2] }}</dd>
-          <dt>Models</dt>
-          <dd>{{ debugSummaryRows[3] }}</dd>
-        </dl>
-      </aside>
-
-      <label>
-        Decision reason
-        <input v-model="approvalReason" spellcheck="true" />
-      </label>
-
-      <aside v-if="approvals.length" class="detail-panel">
-        <p class="eyebrow">Pending approvals</p>
-        <article v-for="approval in approvals" :key="approval.approval_id" class="approval-row">
-          <dl>
-            <dt>Status</dt>
-            <dd>{{ approvalSummary(approval)[0] }}</dd>
-            <dt>Tool</dt>
-            <dd>{{ approvalSummary(approval)[1] }}</dd>
-            <dt>Effect</dt>
-            <dd><code>{{ approvalSummary(approval)[2] }}</code></dd>
-          </dl>
-          <div class="detail-list">
-            <button type="button" @click="submitApprovalDecision(String(approval.approval_id), 'approved')">Approve</button>
-            <button type="button" class="danger" @click="submitApprovalDecision(String(approval.approval_id), 'denied')">Deny</button>
-          </div>
-        </article>
-      </aside>
-
-      <div v-if="detailEntries.length" class="detail-list">
-        <button v-for="entry in detailEntries" :key="entry.detailRef" type="button" @click="loadDetail(entry.detailRef)">
-          {{ entry.label }}
-        </button>
-      </div>
-
-      <label>
-        Detail ref
-        <input v-model="selectedDetailRef" spellcheck="false" />
-      </label>
-
-      <button type="button" @click="loadDetail()">Load detail</button>
-
-      <aside v-if="detail" class="detail-panel">
-        <p class="eyebrow">Timeline detail</p>
-        <h2>{{ detailField('kind') || 'detail' }}</h2>
-        <dl>
-          <template v-if="detailField('tool')">
-            <dt>Tool</dt>
-            <dd>{{ detailField('tool') }}</dd>
-          </template>
-          <template v-if="detailField('command_preview')">
-            <dt>Command</dt>
-            <dd><code>{{ detailField('command_preview') }}</code></dd>
-          </template>
-          <template v-if="detailField('duration_ms')">
-            <dt>Duration</dt>
-            <dd>{{ detailField('duration_ms') }} ms</dd>
-          </template>
-          <template v-if="detailField('output_truncation')">
-            <dt>Truncation</dt>
-            <dd>{{ detailField('output_truncation') }}</dd>
-          </template>
-          <template v-if="detailField('visible_output') || detailField('output_preview')">
-            <dt>Output</dt>
-            <dd><pre>{{ detailField('visible_output') || detailField('output_preview') }}</pre></dd>
-          </template>
-        </dl>
-      </aside>
+      <InspectorDrawer
+        :detail="detail"
+        :selected-detail-ref="selectedDetailRef"
+        :material-summary="materialSummary"
+        :debug-summary-rows="debugSummaryRows"
+        :compaction-summary-rows="compactionSummaryRows"
+        @update:selected-detail-ref="selectedDetailRef = $event"
+        @load-detail="loadDetail"
+      />
     </section>
   </main>
 </template>
