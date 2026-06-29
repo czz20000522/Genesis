@@ -22,12 +22,27 @@ import (
 const ledgerFrameHeaderBytes = 8
 
 type SQLiteLedger struct {
-	path string
-	mu   sync.Mutex
+	path         string
+	mu           sync.Mutex
+	lockKey      string
+	lockAcquired bool
 }
 
 func NewSQLiteLedger(path string) *SQLiteLedger {
 	return &SQLiteLedger{path: path}
+}
+
+type sqliteLedgerLockHolder struct {
+	file     *os.File
+	lockPath string
+	refs     int
+}
+
+var sqliteLedgerLockRegistry = struct {
+	sync.Mutex
+	holders map[string]*sqliteLedgerLockHolder
+}{
+	holders: make(map[string]*sqliteLedgerLockHolder),
 }
 
 func (l *SQLiteLedger) Path() string {
@@ -103,6 +118,40 @@ func (l *SQLiteLedger) Load() ([]StoredEvent, error) {
 	return l.loadLocked()
 }
 
+func (l *SQLiteLedger) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if !l.lockAcquired || l.lockKey == "" {
+		return nil
+	}
+	sqliteLedgerLockRegistry.Lock()
+	defer sqliteLedgerLockRegistry.Unlock()
+
+	holder := sqliteLedgerLockRegistry.holders[l.lockKey]
+	if holder == nil {
+		l.lockAcquired = false
+		l.lockKey = ""
+		return nil
+	}
+	holder.refs--
+	var closeErr error
+	if holder.refs <= 0 {
+		closeErr = holder.file.Close()
+		removeErr := os.Remove(holder.lockPath)
+		if closeErr == nil && removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			closeErr = removeErr
+		}
+		delete(sqliteLedgerLockRegistry.holders, l.lockKey)
+	}
+	l.lockAcquired = false
+	l.lockKey = ""
+	if closeErr != nil {
+		return fmt.Errorf("%w: release ledger lock: %w", ErrLedgerUnwritable, closeErr)
+	}
+	return nil
+}
+
 func (l *SQLiteLedger) loadLocked() ([]StoredEvent, error) {
 	db, err := l.openDBLocked()
 	if err != nil {
@@ -150,6 +199,9 @@ func (l *SQLiteLedger) openDBLocked() (*sql.DB, error) {
 	if strings.TrimSpace(l.path) == "" {
 		return nil, fmt.Errorf("%w: ledger path is required", ErrLedgerUnwritable)
 	}
+	if err := l.ensureSingleWriterLocked(); err != nil {
+		return nil, err
+	}
 	if err := l.failIfIndexMissingButEventFilesExist(); err != nil {
 		return nil, err
 	}
@@ -192,6 +244,51 @@ func (l *SQLiteLedger) openDBLocked() (*sql.DB, error) {
 		return nil, classifySQLiteError(err, ErrLedgerUnwritable)
 	}
 	return db, nil
+}
+
+func (l *SQLiteLedger) ensureSingleWriterLocked() error {
+	if l.lockAcquired {
+		return nil
+	}
+	absPath, err := filepath.Abs(filepath.Clean(l.path))
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrLedgerUnwritable, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+		return fmt.Errorf("%w: %w", ErrLedgerUnwritable, err)
+	}
+	lockPath := absPath + ".lock"
+
+	sqliteLedgerLockRegistry.Lock()
+	defer sqliteLedgerLockRegistry.Unlock()
+
+	if holder := sqliteLedgerLockRegistry.holders[absPath]; holder != nil {
+		holder.refs++
+		l.lockKey = absPath
+		l.lockAcquired = true
+		return nil
+	}
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("%w: %s", ErrLedgerLocked, lockPath)
+		}
+		return fmt.Errorf("%w: %w", ErrLedgerUnwritable, err)
+	}
+	if _, err := fmt.Fprintf(file, "pid=%d\nledger=%s\n", os.Getpid(), absPath); err != nil {
+		file.Close()
+		os.Remove(lockPath)
+		return fmt.Errorf("%w: %w", ErrLedgerUnwritable, err)
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		os.Remove(lockPath)
+		return fmt.Errorf("%w: %w", ErrLedgerUnwritable, err)
+	}
+	sqliteLedgerLockRegistry.holders[absPath] = &sqliteLedgerLockHolder{file: file, lockPath: lockPath, refs: 1}
+	l.lockKey = absPath
+	l.lockAcquired = true
+	return nil
 }
 
 func (l *SQLiteLedger) failIfIndexMissingButEventFilesExist() error {

@@ -98,6 +98,57 @@ func TestSQLiteLedgerFailsClosedWhenIndexedEventFileIsMissing(t *testing.T) {
 	}
 }
 
+func TestSQLiteLedgerFailsClosedWhenExternalWriterLockExists(t *testing.T) {
+	dir := testTempDir(t)
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	lockFile, err := os.OpenFile(ledgerPath+".lock", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("create external lock: %v", err)
+	}
+	defer lockFile.Close()
+
+	ledger := NewSQLiteLedger(ledgerPath)
+	ready := ledger.Ready()
+	if ready.Readiness != ReadinessNotReady || ready.ReadinessReason != "ledger_locked" {
+		t.Fatalf("ready = %+v, want ledger_locked", ready)
+	}
+	err = ledger.Append(StoredEvent{
+		EventID:   "evt_external_lock",
+		SessionID: "session-external-lock",
+		TurnID:    "turn-external-lock",
+		Type:      "turn.submitted",
+		CreatedAt: time.Date(2026, 6, 30, 1, 2, 3, 0, time.UTC),
+		Data:      EventData{InputItems: []InputItem{{Type: "text", Text: "hello"}}},
+	})
+	if !errors.Is(err, ErrLedgerLocked) {
+		t.Fatalf("Append error = %v, want ErrLedgerLocked", err)
+	}
+}
+
+func TestKernelReadyReportsLedgerLocked(t *testing.T) {
+	dir := testTempDir(t)
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	lockFile, err := os.OpenFile(ledgerPath+".lock", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("create external lock: %v", err)
+	}
+	defer lockFile.Close()
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     FakeProvider{},
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	defer k.Close()
+
+	ready := k.Ready()
+	if ready.Ledger.Readiness != ReadinessNotReady || ready.Ledger.ReadinessReason != "ledger_locked" {
+		t.Fatalf("ledger ready = %+v, want ledger_locked", ready.Ledger)
+	}
+}
+
 func TestHTTPListSessionsDerivesMinimalIndexFromEvents(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	first := time.Date(2026, 6, 29, 3, 0, 0, 0, time.UTC)

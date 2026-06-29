@@ -105,6 +105,9 @@ func (k *Kernel) Close() {
 	if closer, ok := k.jobExecutor.(interface{ Close() }); ok {
 		closer.Close()
 	}
+	if closer, ok := k.ledger.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
 }
 
 func (k *Kernel) Ready() ReadyResponse {
@@ -1080,6 +1083,8 @@ func (k *Kernel) ensureLedgerReady() error {
 		return wrapLedgerUnavailable(ErrLedgerCorrupt)
 	case "ledger_unreadable":
 		return wrapLedgerUnavailable(ErrLedgerUnreadable)
+	case "ledger_locked":
+		return wrapLedgerUnavailable(ErrLedgerLocked)
 	default:
 		return wrapLedgerUnavailable(ErrLedgerUnwritable)
 	}
@@ -1098,6 +1103,8 @@ func ledgerErrorCode(err error) string {
 		return "ledger_corrupt"
 	case errors.Is(err, ErrLedgerUnreadable):
 		return "ledger_unreadable"
+	case errors.Is(err, ErrLedgerLocked):
+		return "ledger_locked"
 	case errors.Is(err, ErrLedgerUnwritable):
 		return "ledger_unwritable"
 	default:

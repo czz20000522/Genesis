@@ -576,6 +576,7 @@ func newTestKernelWithRuntimeTokenAndPolicy(t *testing.T, ledgerPath string, tok
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
+	t.Cleanup(k.Close)
 	return k
 }
 
