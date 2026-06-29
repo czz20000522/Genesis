@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
+import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, pickMaterialFile, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialFileSelection, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -18,11 +18,11 @@ const error = ref('')
 const sessionId = ref(newDesktopSessionId())
 const messageText = ref('')
 const lastTurn = ref<TurnResponse | null>(null)
-const pendingApproval = ref<ApprovalProjection | null>(null)
+const pendingApprovals = ref<ApprovalProjection[]>([])
 const selectedDetailRef = ref('')
 const timeline = ref<KernelTimeline | null>(null)
 const detail = ref<KernelTimelineDetail | null>(null)
-const selectedFile = ref<File | null>(null)
+const selectedFile = ref<File | MaterialFileSelection | null>(null)
 const material = ref<MaterialIntakeProjection | null>(null)
 const debugExport = ref<SessionDebugExport | null>(null)
 const compaction = ref<ContextCompactionResponse | null>(null)
@@ -30,7 +30,7 @@ const inspectorOpen = ref(false)
 
 const conversationRows = computed(() => timelineRows(timeline.value?.items))
 const detailEntries = computed(() => timelineDetailEntries(timeline.value?.items))
-const selectedFileName = computed(() => selectedFile.value?.name ?? '')
+const selectedFileName = computed(() => selectedFile.value ? ('name' in selectedFile.value ? selectedFile.value.name : selectedFile.value.filename) : '')
 const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
 const debugSummaryRows = computed(() => debugExport.value ? debugSummary(debugExport.value) : [])
 const compactionSummaryRows = computed(() => compaction.value ? compactionSummary(compaction.value) : [])
@@ -58,7 +58,7 @@ function resetSessionViewState() {
   timeline.value = null
   detail.value = null
   lastTurn.value = null
-  pendingApproval.value = null
+  pendingApprovals.value = []
   selectedDetailRef.value = ''
   selectedFile.value = null
   material.value = null
@@ -134,14 +134,14 @@ async function sendMessage() {
 async function loadSessionApproval(session = currentSession()) {
   if (!session) return
   const projection = await getSession(config.value, session)
-  pendingApproval.value = (projection.approvals ?? []).find((approval) => {
+  pendingApprovals.value = (projection.approvals ?? []).filter((approval) => {
     const approvalSession = String(approval.session_id ?? session).trim()
     return approval.status === 'pending' && approvalSession === session
-  }) ?? null
+  })
 }
 
-async function answerApproval(decision: ApprovalDecision) {
-  const approvalID = String(pendingApproval.value?.approval_id ?? '').trim()
+async function answerApproval(approvalID: string, decision: ApprovalDecision) {
+  approvalID = String(approvalID || '').trim()
   if (!approvalID) return
   error.value = ''
   saveKernelConfig(config.value)
@@ -149,7 +149,7 @@ async function answerApproval(decision: ApprovalDecision) {
   if (!session) return
   try {
     await decideApproval(config.value, approvalID, decision, decision === 'approved' ? 'desktop approved once' : 'desktop denied')
-    pendingApproval.value = null
+    pendingApprovals.value = pendingApprovals.value.filter((approval) => approval.approval_id !== approvalID)
     timeline.value = await getTimeline(config.value, session)
     await loadSessionApproval(session)
   } catch (err) {
@@ -173,6 +173,11 @@ async function loadDetail(detailRef = selectedDetailRef.value) {
 
 function selectMaterial(event: Event) {
   selectedFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
+}
+
+async function pickMaterial() {
+  const picked = await pickMaterialFile()
+  if (picked) selectedFile.value = picked
 }
 
 async function enableDebug() {
@@ -262,10 +267,11 @@ function newDesktopIdempotencyKey() {
         :detail-entries="detailEntries"
         :selected-file-name="selectedFileName"
         :readiness="readiness"
-        :approval="pendingApproval"
+        :approvals="pendingApprovals"
         @update:message-text="messageText = $event"
         @send-message="sendMessage"
         @decide-approval="answerApproval"
+        @pick-material="pickMaterial"
         @load-detail="loadDetail"
         @select-material="selectMaterial"
       />

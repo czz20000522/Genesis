@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -52,7 +50,7 @@ func TestKernelHTTPClientUsesKernelHTTPPrimitive(t *testing.T) {
 	}
 }
 
-func TestKernelRequestBridgePostsJSONThroughGoChokePoint(t *testing.T) {
+func TestTypedSubmitTurnBridgePostsKernelTurn(t *testing.T) {
 	var gotPath string
 	var gotMethod string
 	var gotBody string
@@ -68,19 +66,15 @@ func TestKernelRequestBridgePostsJSONThroughGoChokePoint(t *testing.T) {
 
 	app := NewApp()
 	app.client = NewKernelHTTPClient(server.URL, "token", server.Client())
-	payload, err := app.KernelRequest(KernelBridgeRequest{
-		Method: http.MethodPost,
-		Path:   "/turn",
-		Body:   json.RawMessage(`{"session_id":"s1"}`),
-	})
+	payload, err := app.SubmitTurn("s1", "hello", "idem-1")
 	if err != nil {
-		t.Fatalf("KernelRequest returned error: %v", err)
+		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
 
 	if gotPath != "/turn" || gotMethod != http.MethodPost {
 		t.Fatalf("request = %s %s, want POST /turn", gotMethod, gotPath)
 	}
-	if gotBody != `{"session_id":"s1"}` {
+	if !strings.Contains(gotBody, `"session_id":"s1"`) || !strings.Contains(gotBody, `"text":"hello"`) {
 		t.Fatalf("body = %q", gotBody)
 	}
 	if payload["ok"] != true {
@@ -89,6 +83,10 @@ func TestKernelRequestBridgePostsJSONThroughGoChokePoint(t *testing.T) {
 }
 
 func TestUploadMaterialBridgePostsMultipartThroughGoChokePoint(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "package.zip")
+	if err := os.WriteFile(source, []byte("zip"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
 	var gotSession string
 	var gotPurpose string
 	var gotFilename string
@@ -115,10 +113,9 @@ func TestUploadMaterialBridgePostsMultipartThroughGoChokePoint(t *testing.T) {
 	app := NewApp()
 	app.client = NewKernelHTTPClient(server.URL, "token", server.Client())
 	payload, err := app.UploadMaterial(MaterialBridgeRequest{
-		SessionID:     "session-1",
-		Purpose:       "source_analysis",
-		Filename:      "package.zip",
-		ContentBase64: base64.StdEncoding.EncodeToString([]byte("zip")),
+		SessionID: "session-1",
+		Purpose:   "source_analysis",
+		FilePath:  source,
 	})
 	if err != nil {
 		t.Fatalf("UploadMaterial returned error: %v", err)

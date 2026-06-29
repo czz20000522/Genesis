@@ -13,18 +13,22 @@ const props = defineProps<{
   detailEntries: Array<{ detailRef: string; label: string }>
   selectedFileName: string
   readiness: string
-  approval: ApprovalProjection | null
+  approvals: ApprovalProjection[]
 }>()
 
 const emit = defineEmits<{
   'update:messageText': [value: string]
   sendMessage: []
-  decideApproval: [decision: ApprovalDecision]
+  decideApproval: [approvalId: string, decision: ApprovalDecision]
+  pickMaterial: []
   selectMaterial: [event: Event]
   loadDetail: [detailRef: string]
 }>()
 
-const approvalRows = computed(() => props.approval ? approvalSummary(props.approval) : [])
+const approvalRows = computed(() => props.approvals.map((approval) => ({
+  approval,
+  rows: approvalSummary(approval),
+})))
 
 const turnStatus = computed(() => {
   if (props.lastTurn?.error) return [props.lastTurn.error.code, props.lastTurn.error.message].filter(Boolean).join(': ')
@@ -76,15 +80,15 @@ function useStarter(text: string) {
     </div>
 
     <div class="composer-wrap">
-      <div v-if="approval" class="approval-prompt" role="status" aria-live="polite">
+      <div v-for="entry in approvalRows" :key="entry.approval.approval_id" class="approval-prompt" role="status" aria-live="polite">
         <div>
-          <strong>{{ approvalRows[0] }}</strong>
-          <span>{{ approvalRows[1] }}</span>
-          <small>{{ approvalRows[2] }}</small>
+          <strong>{{ entry.rows[0] }}</strong>
+          <span>{{ entry.rows[1] }}</span>
+          <small>{{ entry.rows[2] }}</small>
         </div>
         <div class="approval-actions">
-          <button type="button" class="secondary-button" @click="$emit('decideApproval', 'denied')">拒绝</button>
-          <button type="button" class="send-button" @click="$emit('decideApproval', 'approved')">允许一次</button>
+          <button type="button" class="secondary-button" @click="$emit('decideApproval', String(entry.approval.approval_id || ''), 'denied')">拒绝</button>
+          <button type="button" class="send-button" @click="$emit('decideApproval', String(entry.approval.approval_id || ''), 'approved')">允许一次</button>
         </div>
       </div>
       <p v-if="turnStatus" class="turn-status">{{ turnStatus }}</p>
@@ -100,7 +104,7 @@ function useStarter(text: string) {
         <div class="composer-actions">
           <label class="file-action">
             ＋
-            <input type="file" accept=".zip,application/zip,application/x-zip-compressed" @change="$emit('selectMaterial', $event)" />
+            <input type="file" accept=".zip,application/zip,application/x-zip-compressed" @click="$emit('pickMaterial')" @change="$emit('selectMaterial', $event)" />
           </label>
           <button type="button" class="send-button" @click="$emit('sendMessage')">发送</button>
         </div>

@@ -101,6 +101,11 @@ export type ContextCompactionResponse = {
   refusal_reason_class?: string
 }
 
+export type MaterialFileSelection = {
+  file_path: string
+  filename: string
+}
+
 export function kernelConfig(storage: Pick<Storage, 'getItem'> | null = safeLocalStorage()): KernelConfig {
   return {
     baseUrl: String(storage?.getItem(baseUrlKey) ?? 'http://127.0.0.1:8765').trim(),
@@ -114,6 +119,8 @@ export function saveKernelConfig(config: KernelConfig, storage: Pick<Storage, 's
 }
 
 export async function getReady(config = kernelConfig()) {
+  const bridge = wailsAppBridge()
+  if (bridge?.Ready) return bridge.Ready() as Promise<Record<string, unknown>>
   return requestKernel(config, '/ready')
 }
 
@@ -123,33 +130,45 @@ export async function getCapabilities(config = kernelConfig()) {
 
 export async function getTimeline(config: KernelConfig, sessionId: string) {
   const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (bridge?.ReadTimeline) return bridge.ReadTimeline(session) as Promise<KernelTimeline>
   return requestKernel<KernelTimeline>(config, `/sessions/${encodeURIComponent(session)}/timeline`)
 }
 
 export async function getSession(config: KernelConfig, sessionId: string) {
   const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (bridge?.ReadSession) return bridge.ReadSession(session) as Promise<SessionProjection>
   return requestKernel<SessionProjection>(config, `/sessions/${encodeURIComponent(session)}`)
 }
 
 export async function getTimelineDetail(config: KernelConfig, sessionId: string, detailRef: string) {
   const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (bridge?.ReadTimelineDetail) return bridge.ReadTimelineDetail(session, detailRef) as Promise<KernelTimelineDetail>
   return requestKernel<KernelTimelineDetail>(
     config,
     `/sessions/${encodeURIComponent(session)}/timeline/details/${encodeURIComponent(detailRef)}`,
   )
 }
 
-export async function uploadMaterial(config: KernelConfig, sessionId: string, file: File) {
+export async function pickMaterialFile(): Promise<MaterialFileSelection | null> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.PickMaterialFile) return null
+  return bridge.PickMaterialFile()
+}
+
+export async function uploadMaterial(config: KernelConfig, sessionId: string, file: File | MaterialFileSelection) {
   const session = requiredSessionId(sessionId)
   const bridge = wailsAppBridge()
-  if (bridge?.UploadMaterial) {
+  if (bridge?.UploadMaterial && isMaterialFileSelection(file)) {
     return bridge.UploadMaterial({
       session_id: session,
       purpose: 'source_analysis',
-      filename: file.name,
-      content_base64: await fileToBase64(file),
+      file_path: file.file_path,
     }) as Promise<MaterialIntakeProjection>
   }
+  if (!(file instanceof File)) throw new Error('desktop material upload requires a selected file path')
   const form = new FormData()
   form.set('session_id', session)
   form.set('purpose', 'source_analysis')
@@ -162,6 +181,8 @@ export async function uploadMaterial(config: KernelConfig, sessionId: string, fi
 
 export async function submitTurn(config: KernelConfig, sessionId: string, text: string, idempotencyKey: string) {
   const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (bridge?.SubmitTurn) return bridge.SubmitTurn(session, text, idempotencyKey) as Promise<TurnResponse>
   return requestKernel<TurnResponse>(config, '/turn', {
     method: 'POST',
     body: JSON.stringify({
@@ -177,6 +198,8 @@ export async function listApprovals(config: KernelConfig, status = 'pending') {
 }
 
 export async function decideApproval(config: KernelConfig, approvalId: string, decision: ApprovalDecision, reason: string) {
+  const bridge = wailsAppBridge()
+  if (bridge?.DecideApproval) return bridge.DecideApproval(approvalId, decision, String(reason || decision).trim()) as Promise<ApprovalProjection>
   return requestKernel<ApprovalProjection>(config, `/approvals/${encodeURIComponent(approvalId)}/decision`, {
     method: 'POST',
     body: JSON.stringify({
@@ -190,6 +213,8 @@ export async function decideApproval(config: KernelConfig, approvalId: string, d
 
 export async function enableSessionDebug(config: KernelConfig, sessionId: string) {
   const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (bridge?.EnableSessionDebug) return bridge.EnableSessionDebug(session) as Promise<SessionDebugExport>
   return requestKernel<SessionDebugExport>(config, `/sessions/${encodeURIComponent(session)}/debug/enable`, {
     method: 'POST',
     body: JSON.stringify({}),
@@ -198,11 +223,15 @@ export async function enableSessionDebug(config: KernelConfig, sessionId: string
 
 export async function getSessionDebug(config: KernelConfig, sessionId: string) {
   const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (bridge?.ExportSessionDebug) return bridge.ExportSessionDebug(session) as Promise<SessionDebugExport>
   return requestKernel<SessionDebugExport>(config, `/sessions/${encodeURIComponent(session)}/debug`)
 }
 
 export async function compactSessionContext(config: KernelConfig, sessionId: string) {
   const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (bridge?.CompactSessionContext) return bridge.CompactSessionContext(session) as Promise<ContextCompactionResponse>
   return requestKernel<ContextCompactionResponse>(config, `/sessions/${encodeURIComponent(session)}/context/compact`, {
     method: 'POST',
     body: JSON.stringify({}),
@@ -210,14 +239,6 @@ export async function compactSessionContext(config: KernelConfig, sessionId: str
 }
 
 export async function requestKernel<T = Record<string, unknown>>(config: KernelConfig, path: string, init: RequestInit = {}): Promise<T> {
-  const bridge = wailsAppBridge()
-  if (bridge?.KernelRequest && bridgeRequestBodySupported(init.body)) {
-    return bridge.KernelRequest({
-      method: String(init.method ?? 'GET'),
-      path,
-      body: bridgeRequestBody(init.body),
-    }) as Promise<T>
-  }
   const response = await fetch(kernelUrl(config.baseUrl, path), {
     ...init,
     headers: mergeHeaders(kernelHeaders(config.runtimeToken, init.body), init.headers),
@@ -228,22 +249,24 @@ export async function requestKernel<T = Record<string, unknown>>(config: KernelC
   return (await response.json()) as T
 }
 
-type KernelBridgeRequest = {
-  method: string
-  path: string
-  body?: Record<string, unknown> | null
-}
-
 type MaterialBridgeRequest = {
   session_id: string
   purpose: string
-  filename: string
-  content_base64: string
+  file_path: string
 }
 
 type WailsAppBridge = {
-  KernelRequest?: (request: KernelBridgeRequest) => Promise<unknown>
+  Ready?: () => Promise<unknown>
+  SubmitTurn?: (sessionId: string, text: string, idempotencyKey: string) => Promise<unknown>
+  ReadTimeline?: (sessionId: string) => Promise<unknown>
+  ReadTimelineDetail?: (sessionId: string, detailRef: string) => Promise<unknown>
+  ReadSession?: (sessionId: string) => Promise<unknown>
+  DecideApproval?: (approvalId: string, decision: ApprovalDecision, reason: string) => Promise<unknown>
+  PickMaterialFile?: () => Promise<MaterialFileSelection | null>
   UploadMaterial?: (request: MaterialBridgeRequest) => Promise<unknown>
+  EnableSessionDebug?: (sessionId: string) => Promise<unknown>
+  ExportSessionDebug?: (sessionId: string) => Promise<unknown>
+  CompactSessionContext?: (sessionId: string) => Promise<unknown>
 }
 
 declare global {
@@ -254,20 +277,8 @@ function wailsAppBridge(): WailsAppBridge | undefined {
   return globalThis.go?.main?.App
 }
 
-function bridgeRequestBodySupported(body: BodyInit | null | undefined) {
-  return body === undefined || body === null || typeof body === 'string'
-}
-
-function bridgeRequestBody(body: BodyInit | null | undefined) {
-  if (typeof body !== 'string' || body.trim() === '') return null
-  return JSON.parse(body) as Record<string, unknown>
-}
-
-async function fileToBase64(file: File) {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary)
+function isMaterialFileSelection(value: File | MaterialFileSelection): value is MaterialFileSelection {
+  return !(value instanceof File) && typeof value.file_path === 'string'
 }
 
 export function kernelUrl(baseUrl: string, path: string) {

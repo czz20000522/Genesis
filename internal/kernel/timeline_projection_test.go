@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -492,6 +493,62 @@ func TestUITimelineApprovalRequiredProjectsUserActionNode(t *testing.T) {
 	}
 	if timelineChild(turn, "tool") != nil {
 		t.Fatalf("turn children = %+v, want no generic tool row for approval", turn.Children)
+	}
+}
+
+func TestUITimelineKeepsDistinctPendingApprovalsByApprovalID(t *testing.T) {
+	startedAt := time.Date(2026, 6, 29, 9, 0, 0, 0, time.UTC)
+	k := &Kernel{
+		ledger: newStaticLedger(
+			StoredEvent{
+				EventID:   "evt_two_approval_submitted",
+				SessionID: "timeline-two-approval-session",
+				TurnID:    "turn_two_approval",
+				Type:      "turn.submitted",
+				CreatedAt: startedAt,
+				Data:      EventData{InputItems: []InputItem{{Type: "text", Text: "write two files"}}},
+			},
+			timelineApprovalRequestedEvent("approval_one", "timeline-two-approval-session", "turn_two_approval", startedAt.Add(time.Second)),
+			timelineApprovalRequestedEvent("approval_two", "timeline-two-approval-session", "turn_two_approval", startedAt.Add(2*time.Second)),
+		),
+		clock: func() time.Time { return startedAt.Add(10 * time.Second) },
+	}
+
+	timeline, err := k.UITimeline("timeline-two-approval-session")
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	turn := requireSingleTimelineTurn(t, timeline, "turn_two_approval")
+	var approvals []string
+	for _, child := range turn.Children {
+		if child.Kind == "user_action_request" {
+			approvals = append(approvals, child.ApprovalID)
+		}
+	}
+	if fmt.Sprint(approvals) != "[approval_one approval_two]" {
+		t.Fatalf("approval action handles = %+v, want both approvals", approvals)
+	}
+}
+
+func timelineApprovalRequestedEvent(approvalID string, sessionID string, turnID string, createdAt time.Time) StoredEvent {
+	return StoredEvent{
+		EventID:    "evt_" + approvalID,
+		SessionID:  sessionID,
+		TurnID:     turnID,
+		ApprovalID: approvalID,
+		Type:       "approval.requested",
+		CreatedAt:  createdAt,
+		Data: EventData{Approval: &ApprovalProjection{
+			ApprovalID: approvalID,
+			SessionID:  sessionID,
+			TurnID:     turnID,
+			Status:     ApprovalStatusPending,
+			Tool:       "shell_exec",
+			Effect: ApprovalEffectSummary{
+				Tool:           "shell_exec",
+				CommandPreview: "write",
+			},
+		}},
 	}
 }
 

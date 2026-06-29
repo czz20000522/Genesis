@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,8 +10,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
@@ -64,59 +65,116 @@ func (a *App) KernelReady() (map[string]any, error) {
 	return a.client.Get(ctx, "/ready", false)
 }
 
-type KernelBridgeRequest struct {
-	Method string          `json:"method"`
-	Path   string          `json:"path"`
-	Body   json.RawMessage `json:"body,omitempty"`
-}
-
 type MaterialBridgeRequest struct {
-	SessionID     string `json:"session_id"`
-	Purpose       string `json:"purpose"`
-	Filename      string `json:"filename"`
-	ContentBase64 string `json:"content_base64"`
+	SessionID string `json:"session_id"`
+	Purpose   string `json:"purpose"`
+	FilePath  string `json:"file_path"`
 }
 
-func (a *App) KernelRequest(req KernelBridgeRequest) (map[string]any, error) {
+type MaterialFileSelection struct {
+	FilePath string `json:"file_path"`
+	Filename string `json:"filename"`
+}
+
+func (a *App) Ready() (map[string]any, error) {
 	ctx, cancel := a.requestContext()
 	defer cancel()
-	method := strings.TrimSpace(req.Method)
-	if method == "" {
-		method = http.MethodGet
+	return a.client.Get(ctx, "/ready", false)
+}
+
+func (a *App) SubmitTurn(sessionID string, text string, idempotencyKey string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	body, _ := json.Marshal(map[string]any{
+		"session_id":      strings.TrimSpace(sessionID),
+		"idempotency_key": strings.TrimSpace(idempotencyKey),
+		"input_items":     []map[string]string{{"type": "text", "text": text}},
+	})
+	return a.client.RequestJSON(ctx, http.MethodPost, "/turn", true, body)
+}
+
+func (a *App) ReadTimeline(sessionID string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	return a.client.Get(ctx, "/sessions/"+url.PathEscape(strings.TrimSpace(sessionID))+"/timeline", true)
+}
+
+func (a *App) ReadTimelineDetail(sessionID string, detailRef string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	return a.client.Get(ctx, "/sessions/"+url.PathEscape(strings.TrimSpace(sessionID))+"/timeline/details/"+url.PathEscape(strings.TrimSpace(detailRef)), true)
+}
+
+func (a *App) ReadSession(sessionID string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	return a.client.Get(ctx, "/sessions/"+url.PathEscape(strings.TrimSpace(sessionID)), true)
+}
+
+func (a *App) DecideApproval(approvalID string, decision string, reason string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	body, _ := json.Marshal(map[string]any{
+		"decision":              strings.TrimSpace(decision),
+		"decision_authority":    "desktop:operator",
+		"decision_reason":       strings.TrimSpace(reason),
+		"decision_evidence_ref": "approval:desktop-operator",
+	})
+	return a.client.RequestJSON(ctx, http.MethodPost, "/approvals/"+url.PathEscape(strings.TrimSpace(approvalID))+"/decision", true, body)
+}
+
+func (a *App) PickMaterialFile() (*MaterialFileSelection, error) {
+	if a.ctx == nil {
+		return nil, errors.New("desktop window is not ready")
 	}
-	return a.client.RequestJSON(ctx, method, req.Path, true, req.Body)
+	path, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "选择资料",
+		Filters: []wailsruntime.FileFilter{{
+			DisplayName: "Archives",
+			Pattern:     "*.zip",
+		}},
+	})
+	if err != nil || strings.TrimSpace(path) == "" {
+		return nil, err
+	}
+	return &MaterialFileSelection{FilePath: path, Filename: filepath.Base(path)}, nil
 }
 
 func (a *App) UploadMaterial(req MaterialBridgeRequest) (map[string]any, error) {
 	ctx, cancel := a.requestContext()
 	defer cancel()
 	sessionID := strings.TrimSpace(req.SessionID)
-	filename := strings.TrimSpace(req.Filename)
+	filePath := strings.TrimSpace(req.FilePath)
 	if sessionID == "" {
 		return nil, errors.New("session_id is required")
 	}
-	if filename == "" {
-		return nil, errors.New("filename is required")
+	if filePath == "" {
+		return nil, errors.New("file_path is required")
 	}
-	content, err := base64.StdEncoding.DecodeString(strings.TrimSpace(req.ContentBase64))
-	if err != nil {
-		return nil, fmt.Errorf("decode upload content: %w", err)
-	}
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	_ = writer.WriteField("session_id", sessionID)
-	_ = writer.WriteField("purpose", strings.TrimSpace(req.Purpose))
-	part, err := writer.CreateFormFile("file", filename)
+	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := part.Write(content); err != nil {
-		return nil, err
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-	return a.client.PostMultipart(ctx, "/materials/upload", true, writer.FormDataContentType(), &body)
+	defer file.Close()
+	return a.client.PostMultipartFile(ctx, "/materials/upload", true, sessionID, strings.TrimSpace(req.Purpose), filepath.Base(filePath), file)
+}
+
+func (a *App) EnableSessionDebug(sessionID string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	return a.client.RequestJSON(ctx, http.MethodPost, "/sessions/"+url.PathEscape(strings.TrimSpace(sessionID))+"/debug/enable", true, json.RawMessage(`{}`))
+}
+
+func (a *App) ExportSessionDebug(sessionID string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	return a.client.Get(ctx, "/sessions/"+url.PathEscape(strings.TrimSpace(sessionID))+"/debug", true)
+}
+
+func (a *App) CompactSessionContext(sessionID string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	return a.client.RequestJSON(ctx, http.MethodPost, "/sessions/"+url.PathEscape(strings.TrimSpace(sessionID))+"/context/compact", true, json.RawMessage(`{}`))
 }
 
 func (a *App) requestContext() (context.Context, context.CancelFunc) {
@@ -166,13 +224,43 @@ func (c *KernelHTTPClient) Get(ctx context.Context, path string, auth bool) (map
 func (c *KernelHTTPClient) RequestJSON(ctx context.Context, method string, path string, auth bool, body json.RawMessage) (map[string]any, error) {
 	var reader io.Reader
 	if len(body) > 0 && string(body) != "null" {
-		reader = bytes.NewReader(body)
+		reader = strings.NewReader(string(body))
 	}
 	return c.do(ctx, method, path, auth, "application/json", reader)
 }
 
 func (c *KernelHTTPClient) PostMultipart(ctx context.Context, path string, auth bool, contentType string, body io.Reader) (map[string]any, error) {
 	return c.do(ctx, http.MethodPost, path, auth, contentType, body)
+}
+
+func (c *KernelHTTPClient) PostMultipartFile(ctx context.Context, path string, auth bool, sessionID string, purpose string, filename string, file io.Reader) (map[string]any, error) {
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+	go func() {
+		var err error
+		defer func() {
+			if err != nil {
+				_ = pw.CloseWithError(err)
+				return
+			}
+			_ = pw.Close()
+		}()
+		if err = writer.WriteField("session_id", sessionID); err != nil {
+			return
+		}
+		if err = writer.WriteField("purpose", purpose); err != nil {
+			return
+		}
+		var part io.Writer
+		if part, err = writer.CreateFormFile("file", filename); err != nil {
+			return
+		}
+		if _, err = io.Copy(part, file); err != nil {
+			return
+		}
+		err = writer.Close()
+	}()
+	return c.PostMultipart(ctx, path, auth, writer.FormDataContentType(), pr)
 }
 
 func (c *KernelHTTPClient) do(ctx context.Context, method string, path string, auth bool, contentType string, body io.Reader) (map[string]any, error) {

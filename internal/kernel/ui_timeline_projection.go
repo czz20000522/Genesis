@@ -416,11 +416,19 @@ func (b *timelineTurnBuilder) appendUserActionRequest(status string, tool string
 	approvalID = strings.TrimSpace(approvalID)
 	for i := range b.item.Children {
 		child := &b.item.Children[i]
-		if child.Kind == "user_action_request" && child.WaitReason == WaitReasonApprovalRequired && child.Tool == tool {
-			if child.ApprovalID == "" && approvalID != "" {
-				child.ApprovalID = approvalID
-				child.DetailRef = approvalID
-			}
+		if child.Kind != "user_action_request" || child.WaitReason != WaitReasonApprovalRequired {
+			continue
+		}
+		if approvalID != "" && child.ApprovalID == approvalID {
+			return
+		}
+		if approvalID != "" && child.ApprovalID == "" && child.Tool == tool {
+			child.ApprovalID = approvalID
+			child.DetailRef = approvalID
+			child.DetailAvailable = true
+			return
+		}
+		if approvalID == "" && child.ApprovalID == "" && child.Tool == tool {
 			return
 		}
 	}

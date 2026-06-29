@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, requestKernel, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
+import { compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -27,11 +27,13 @@ for (const file of vueFiles(join(import.meta.dirname, '..', 'src'))) {
 }
 
 const appSource = readFileSync(join(import.meta.dirname, '..', 'src', 'App.vue'), 'utf8')
+const apiSource = readFileSync(join(import.meta.dirname, '..', 'src', 'api', 'kernelApi.ts'), 'utf8')
 const conversationSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'ConversationPane.vue'), 'utf8')
 assert.equal(appSource.includes('listApprovals'), false, 'App.vue must not load global pending approvals into the current conversation')
 assert.equal(appSource.includes('localSessions'), false, 'App.vue must not keep frontend-local sessions as history truth')
-assert.equal(conversationSource.includes('approvals:'), false, 'ConversationPane must not accept global approvals as chat rows')
-assert.equal(conversationSource.includes('approval:'), true, 'ConversationPane may accept only one current-session approval prompt')
+assert.equal(conversationSource.includes('approvals: ApprovalProjection[]'), true, 'ConversationPane must render a current-session approval queue')
+assert.equal(apiSource.includes('KernelRequest'), false, 'desktop production bridge must not expose a generic HTTP proxy')
+assert.equal(apiSource.includes('content_base64'), false, 'desktop upload bridge must not pass whole files as base64')
 
 saveKernelConfig({ baseUrl: 'http://127.0.0.1:8765/', runtimeToken: ' token ' }, storage)
 assert.deepEqual(kernelConfig(storage), {
@@ -188,8 +190,10 @@ const originalGo = globalThis.go
 globalThis.go = {
   main: {
     App: {
-      KernelRequest: async (request: Record<string, unknown>) => {
-        assert.deepEqual(request, { method: 'POST', path: '/turn', body: { session_id: 'bridge-session' } })
+      SubmitTurn: async (sessionId: string, text: string, idempotencyKey: string) => {
+        assert.equal(sessionId, 'bridge-session')
+        assert.equal(text, 'hello')
+        assert.equal(idempotencyKey, 'idem-bridge')
         return { ok: true }
       },
     },
@@ -200,12 +204,37 @@ globalThis.fetch = async () => {
   return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
 }
 try {
-  const payload = await requestKernel({ baseUrl: 'http://127.0.0.1:8765', runtimeToken: 'secret' }, '/turn', {
-    method: 'POST',
-    body: JSON.stringify({ session_id: 'bridge-session' }),
-  })
+  const payload = await submitTurn({ baseUrl: 'http://127.0.0.1:8765', runtimeToken: 'secret' }, 'bridge-session', 'hello', 'idem-bridge')
   assert.deepEqual(payload, { ok: true })
-  assert.equal(directFetchCalls, 0, 'Wails bridge must be the production request choke point when present')
+  assert.equal(directFetchCalls, 0, 'typed Wails bridge must be the production request choke point when present')
+} finally {
+  globalThis.go = originalGo
+  globalThis.fetch = originalFetch
+}
+
+globalThis.go = {
+  main: {
+    App: {
+      UploadMaterial: async (request: Record<string, unknown>) => {
+        assert.deepEqual(request, { session_id: 'session-upload', purpose: 'source_analysis', file_path: 'D:\\tmp\\package.zip' })
+        assert.equal(Object.hasOwn(request, 'content_base64'), false)
+        return { source_snapshot_ref: 'source:snapshot:bridge' }
+      },
+    },
+  },
+}
+globalThis.fetch = async () => {
+  directFetchCalls += 1
+  return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+}
+try {
+  directFetchCalls = 0
+  const projection = await uploadMaterial({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'session-upload', { file_path: 'D:\\tmp\\package.zip', filename: 'package.zip' })
+  assert.equal(projection.source_snapshot_ref, 'source:snapshot:bridge')
+  assert.equal(directFetchCalls, 0, 'Wails material upload must use typed file-path bridge')
 } finally {
   globalThis.go = originalGo
   globalThis.fetch = originalFetch
