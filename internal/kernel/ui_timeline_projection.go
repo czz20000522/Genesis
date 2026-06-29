@@ -43,6 +43,17 @@ func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UIT
 				continue
 			}
 			turn.applyToolResult(*event.Data.ToolResult, event.CreatedAt)
+		case "approval.requested":
+			if event.Data.Approval == nil {
+				continue
+			}
+			approval := *event.Data.Approval
+			tool := approval.Tool
+			if strings.TrimSpace(tool) == "" {
+				tool = approval.Effect.Tool
+			}
+			turn.pendingAction = true
+			turn.appendUserActionRequest("approval_required", tool, approval.ApprovalID, event.CreatedAt)
 		case "job.started", "job.output", "job.completed", "job.failed", "job.cancelled":
 			if event.Data.Job == nil {
 				continue
@@ -110,6 +121,7 @@ func timelineHandlesEvent(eventType string) bool {
 	case "turn.submitted",
 		"tool.call",
 		"tool.result",
+		"approval.requested",
 		"job.started",
 		"job.output",
 		"job.completed",
@@ -301,7 +313,7 @@ func (b *timelineTurnBuilder) applyToolResult(result ToolResultProjection, creat
 	detail.UpdatedAt = createdAt
 	if result.Status == "approval_required" {
 		b.pendingAction = true
-		b.appendUserActionRequest("approval_required", result.Tool, createdAt)
+		b.appendUserActionRequest("approval_required", result.Tool, "", createdAt)
 	}
 }
 
@@ -320,6 +332,7 @@ func (b *timelineTurnBuilder) toolGroupForCall(callEventID string, tool string, 
 
 func (b *timelineTurnBuilder) applyJob(eventType string, job JobProjection, createdAt time.Time) {
 	group := b.toolGroupForJob(job, createdAt)
+	group.JobID = strings.TrimSpace(job.JobID)
 	applyTimelineItemState(group, runtimeAxesFromOwnerOutcome(job.Status))
 	group.Tool = job.Tool
 	group.OutputPreview = jobOutputPreview(job)
@@ -328,6 +341,7 @@ func (b *timelineTurnBuilder) applyJob(eventType string, job JobProjection, crea
 	group.FullOutputAvailable = strings.TrimSpace(job.Stdout) != "" || strings.TrimSpace(job.Stderr) != "" || strings.TrimSpace(job.Receipt) != "" || strings.TrimSpace(job.FailureReason) != ""
 	group.UpdatedAt = createdAt
 	detail := b.ensureOperationDetail(group, createdAt)
+	detail.JobID = strings.TrimSpace(job.JobID)
 	applyTimelineItemState(detail, runtimeAxesFromOwnerOutcome(job.Status))
 	detail.Tool = job.Tool
 	detail.OutputPreview = group.OutputPreview
@@ -398,9 +412,15 @@ func (b *timelineTurnBuilder) ensureOperationDetail(group *UITimelineItem, creat
 	return &group.Children[len(group.Children)-1]
 }
 
-func (b *timelineTurnBuilder) appendUserActionRequest(status string, tool string, createdAt time.Time) {
-	for _, child := range b.item.Children {
+func (b *timelineTurnBuilder) appendUserActionRequest(status string, tool string, approvalID string, createdAt time.Time) {
+	approvalID = strings.TrimSpace(approvalID)
+	for i := range b.item.Children {
+		child := &b.item.Children[i]
 		if child.Kind == "user_action_request" && child.WaitReason == WaitReasonApprovalRequired && child.Tool == tool {
+			if child.ApprovalID == "" && approvalID != "" {
+				child.ApprovalID = approvalID
+				child.DetailRef = approvalID
+			}
 			return
 		}
 	}
@@ -409,8 +429,10 @@ func (b *timelineTurnBuilder) appendUserActionRequest(status string, tool string
 		TurnID:          b.item.TurnID,
 		Kind:            "user_action_request",
 		Tool:            tool,
+		ApprovalID:      approvalID,
 		Text:            "需要用户批准",
-		DetailAvailable: true,
+		DetailRef:       approvalID,
+		DetailAvailable: approvalID != "",
 		CreatedAt:       createdAt,
 	}
 	applyTimelineItemState(&item, runtimeAxesFromOwnerOutcome(status))

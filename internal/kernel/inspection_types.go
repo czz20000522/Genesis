@@ -58,6 +58,8 @@ type UITimelineItem struct {
 	TerminalCause       string           `json:"terminal_cause,omitempty"`
 	Text                string           `json:"text,omitempty"`
 	Tool                string           `json:"tool,omitempty"`
+	ApprovalID          string           `json:"approval_id,omitempty"`
+	JobID               string           `json:"job_id,omitempty"`
 	CommandPreview      string           `json:"command_preview,omitempty"`
 	OutputPreview       string           `json:"output_preview,omitempty"`
 	VisibleOutput       string           `json:"visible_output,omitempty"`

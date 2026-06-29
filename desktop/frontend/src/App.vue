@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { compactSessionContext, enableSessionDebug, getReady, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, saveKernelConfig, submitTurn, uploadMaterial, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
+import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -16,9 +16,9 @@ const config = ref(kernelConfig())
 const readiness = ref('unchecked')
 const error = ref('')
 const sessionId = ref(newDesktopSessionId())
-const localSessions = ref([sessionId.value])
 const messageText = ref('')
 const lastTurn = ref<TurnResponse | null>(null)
+const pendingApproval = ref<ApprovalProjection | null>(null)
 const selectedDetailRef = ref('')
 const timeline = ref<KernelTimeline | null>(null)
 const detail = ref<KernelTimelineDetail | null>(null)
@@ -41,7 +41,6 @@ function currentSession() {
     error.value = '请先选择或新建会话'
     return ''
   }
-  if (!localSessions.value.includes(session)) localSessions.value = [session, ...localSessions.value]
   return session
 }
 
@@ -52,23 +51,14 @@ function newSession() {
   }
   const next = newDesktopSessionId()
   sessionId.value = next
-  localSessions.value = [next, ...localSessions.value]
   resetSessionViewState()
-}
-
-async function selectSession(value: string) {
-  const session = value.trim()
-  if (!session) return
-  sessionId.value = session
-  if (!localSessions.value.includes(session)) localSessions.value = [session, ...localSessions.value]
-  resetSessionViewState()
-  await loadTimeline()
 }
 
 function resetSessionViewState() {
   timeline.value = null
   detail.value = null
   lastTurn.value = null
+  pendingApproval.value = null
   selectedDetailRef.value = ''
   selectedFile.value = null
   material.value = null
@@ -111,6 +101,7 @@ async function loadTimeline() {
   if (!session) return
   try {
     timeline.value = await getTimeline(config.value, session)
+    await loadSessionApproval(session)
     lastTurn.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -134,6 +125,33 @@ async function sendMessage() {
     messageText.value = ''
     if (fileWasSelected) selectedFile.value = null
     timeline.value = await getTimeline(config.value, session)
+    await loadSessionApproval(session)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function loadSessionApproval(session = currentSession()) {
+  if (!session) return
+  const projection = await getSession(config.value, session)
+  pendingApproval.value = (projection.approvals ?? []).find((approval) => {
+    const approvalSession = String(approval.session_id ?? session).trim()
+    return approval.status === 'pending' && approvalSession === session
+  }) ?? null
+}
+
+async function answerApproval(decision: ApprovalDecision) {
+  const approvalID = String(pendingApproval.value?.approval_id ?? '').trim()
+  if (!approvalID) return
+  error.value = ''
+  saveKernelConfig(config.value)
+  const session = currentSession()
+  if (!session) return
+  try {
+    await decideApproval(config.value, approvalID, decision, decision === 'approved' ? 'desktop approved once' : 'desktop denied')
+    pendingApproval.value = null
+    timeline.value = await getTimeline(config.value, session)
+    await loadSessionApproval(session)
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -223,10 +241,7 @@ function newDesktopIdempotencyKey() {
   <main :class="['chat-shell', { 'chat-shell--inspector-open': inspectorOpen }]">
     <SessionRail
       :session-id="sessionId"
-      :sessions="localSessions"
       @new-session="newSession"
-      @select-session="selectSession"
-      @load-timeline="loadTimeline"
     />
 
     <section class="session-workspace">
@@ -247,8 +262,10 @@ function newDesktopIdempotencyKey() {
         :detail-entries="detailEntries"
         :selected-file-name="selectedFileName"
         :readiness="readiness"
+        :approval="pendingApproval"
         @update:message-text="messageText = $event"
         @send-message="sendMessage"
+        @decide-approval="answerApproval"
         @load-detail="loadDetail"
         @select-material="selectMaterial"
       />

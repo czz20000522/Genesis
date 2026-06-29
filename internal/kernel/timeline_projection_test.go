@@ -244,11 +244,14 @@ func TestUITimelineJobTerminalDoesNotSettleTurnBeforeAssistantFinal(t *testing.T
 	if operation.Phase != RuntimePhaseEnded || operation.TerminalOutcome != TerminalOutcomeSucceeded || !strings.Contains(operation.OutputPreview, "download complete") {
 		t.Fatalf("operation detail = %+v, want completed job detail under running turn", operation)
 	}
+	if operation.JobID != "job_download" {
+		t.Fatalf("operation job_id = %q, want safe kernel job handle", operation.JobID)
+	}
 	timelineJSON, err := json.Marshal(timeline)
 	if err != nil {
 		t.Fatalf("marshal timeline: %v", err)
 	}
-	for _, forbidden := range []string{"command_preview", "visible_output"} {
+	for _, forbidden := range []string{"command_preview", "visible_output", "pid", "signal", "process_handle"} {
 		if strings.Contains(string(timelineJSON), forbidden) {
 			t.Fatalf("main timeline leaked job detail-only field %q: %s", forbidden, string(timelineJSON))
 		}
@@ -447,6 +450,25 @@ func TestUITimelineApprovalRequiredProjectsUserActionNode(t *testing.T) {
 					Content:         `{"status":"approval_required","executed":false,"error":{"code":"approval_required","message":"approval required"}}`,
 				}},
 			},
+			StoredEvent{
+				EventID:    "evt_approval_requested",
+				SessionID:  "timeline-approval-session",
+				TurnID:     "turn_approval",
+				ApprovalID: "approval_timeline",
+				Type:       "approval.requested",
+				CreatedAt:  startedAt.Add(3 * time.Second),
+				Data: EventData{Approval: &ApprovalProjection{
+					ApprovalID: "approval_timeline",
+					SessionID:  "timeline-approval-session",
+					TurnID:     "turn_approval",
+					Status:     ApprovalStatusPending,
+					Tool:       "shell_exec",
+					Effect: ApprovalEffectSummary{
+						Tool:           "shell_exec",
+						CommandPreview: "write",
+					},
+				}},
+			},
 		),
 		clock: func() time.Time {
 			return startedAt.Add(30 * time.Second)
@@ -461,6 +483,9 @@ func TestUITimelineApprovalRequiredProjectsUserActionNode(t *testing.T) {
 	action := requireTimelineChild(t, turn, "user_action_request")
 	if action.Phase != RuntimePhaseWaiting || action.WaitReason != WaitReasonApprovalRequired || action.Tool != "shell_exec" {
 		t.Fatalf("user action = %+v, want shell approval request", action)
+	}
+	if action.ApprovalID != "approval_timeline" || action.DetailRef != "approval_timeline" {
+		t.Fatalf("user action handle = approval_id %q detail_ref %q, want safe approval handle", action.ApprovalID, action.DetailRef)
 	}
 	if timelineChild(turn, "assistant_message") != nil {
 		t.Fatalf("turn children = %+v, want no assistant-authored approval prompt", turn.Children)

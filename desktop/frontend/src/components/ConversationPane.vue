@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { TurnResponse } from '../api/kernelApi'
+import type { ApprovalDecision, ApprovalProjection, TurnResponse } from '../api/kernelApi'
+import { approvalSummary } from '../approvalView'
 import { readinessLabel, sessionLabel } from '../display'
 import type { TimelineRow } from '../timelineView'
 
@@ -12,14 +13,18 @@ const props = defineProps<{
   detailEntries: Array<{ detailRef: string; label: string }>
   selectedFileName: string
   readiness: string
+  approval: ApprovalProjection | null
 }>()
 
 const emit = defineEmits<{
   'update:messageText': [value: string]
   sendMessage: []
+  decideApproval: [decision: ApprovalDecision]
   selectMaterial: [event: Event]
   loadDetail: [detailRef: string]
 }>()
+
+const approvalRows = computed(() => props.approval ? approvalSummary(props.approval) : [])
 
 const turnStatus = computed(() => {
   if (props.lastTurn?.error) return [props.lastTurn.error.code, props.lastTurn.error.message].filter(Boolean).join(': ')
@@ -71,6 +76,17 @@ function useStarter(text: string) {
     </div>
 
     <div class="composer-wrap">
+      <div v-if="approval" class="approval-prompt" role="status" aria-live="polite">
+        <div>
+          <strong>{{ approvalRows[0] }}</strong>
+          <span>{{ approvalRows[1] }}</span>
+          <small>{{ approvalRows[2] }}</small>
+        </div>
+        <div class="approval-actions">
+          <button type="button" class="secondary-button" @click="$emit('decideApproval', 'denied')">拒绝</button>
+          <button type="button" class="send-button" @click="$emit('decideApproval', 'approved')">允许一次</button>
+        </div>
+      </div>
       <p v-if="turnStatus" class="turn-status">{{ turnStatus }}</p>
       <div class="composer-card">
         <textarea

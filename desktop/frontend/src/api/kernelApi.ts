@@ -28,6 +28,8 @@ export type UITimelineItem = {
   terminal_cause?: string
   text?: string
   tool?: string
+  approval_id?: string
+  job_id?: string
   command_preview?: string
   output_preview?: string
   visible_output?: string
@@ -69,6 +71,8 @@ export type TurnResponse = {
 
 export type ApprovalProjection = {
   approval_id?: string
+  session_id?: string
+  turn_id?: string
   status?: string
   effect?: {
     tool?: string
@@ -80,6 +84,11 @@ export type ApprovalProjection = {
 
 export type ApprovalListResponse = {
   items?: ApprovalProjection[]
+}
+
+export type SessionProjection = {
+  session_id?: string
+  approvals?: ApprovalProjection[]
 }
 
 export type ApprovalDecision = 'approved' | 'denied'
@@ -117,6 +126,11 @@ export async function getTimeline(config: KernelConfig, sessionId: string) {
   return requestKernel<KernelTimeline>(config, `/sessions/${encodeURIComponent(session)}/timeline`)
 }
 
+export async function getSession(config: KernelConfig, sessionId: string) {
+  const session = requiredSessionId(sessionId)
+  return requestKernel<SessionProjection>(config, `/sessions/${encodeURIComponent(session)}`)
+}
+
 export async function getTimelineDetail(config: KernelConfig, sessionId: string, detailRef: string) {
   const session = requiredSessionId(sessionId)
   return requestKernel<KernelTimelineDetail>(
@@ -127,6 +141,15 @@ export async function getTimelineDetail(config: KernelConfig, sessionId: string,
 
 export async function uploadMaterial(config: KernelConfig, sessionId: string, file: File) {
   const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (bridge?.UploadMaterial) {
+    return bridge.UploadMaterial({
+      session_id: session,
+      purpose: 'source_analysis',
+      filename: file.name,
+      content_base64: await fileToBase64(file),
+    }) as Promise<MaterialIntakeProjection>
+  }
   const form = new FormData()
   form.set('session_id', session)
   form.set('purpose', 'source_analysis')
@@ -187,6 +210,14 @@ export async function compactSessionContext(config: KernelConfig, sessionId: str
 }
 
 export async function requestKernel<T = Record<string, unknown>>(config: KernelConfig, path: string, init: RequestInit = {}): Promise<T> {
+  const bridge = wailsAppBridge()
+  if (bridge?.KernelRequest && bridgeRequestBodySupported(init.body)) {
+    return bridge.KernelRequest({
+      method: String(init.method ?? 'GET'),
+      path,
+      body: bridgeRequestBody(init.body),
+    }) as Promise<T>
+  }
   const response = await fetch(kernelUrl(config.baseUrl, path), {
     ...init,
     headers: mergeHeaders(kernelHeaders(config.runtimeToken, init.body), init.headers),
@@ -195,6 +226,48 @@ export async function requestKernel<T = Record<string, unknown>>(config: KernelC
     throw new Error(await responseMessage(response))
   }
   return (await response.json()) as T
+}
+
+type KernelBridgeRequest = {
+  method: string
+  path: string
+  body?: Record<string, unknown> | null
+}
+
+type MaterialBridgeRequest = {
+  session_id: string
+  purpose: string
+  filename: string
+  content_base64: string
+}
+
+type WailsAppBridge = {
+  KernelRequest?: (request: KernelBridgeRequest) => Promise<unknown>
+  UploadMaterial?: (request: MaterialBridgeRequest) => Promise<unknown>
+}
+
+declare global {
+  var go: { main?: { App?: WailsAppBridge } } | undefined
+}
+
+function wailsAppBridge(): WailsAppBridge | undefined {
+  return globalThis.go?.main?.App
+}
+
+function bridgeRequestBodySupported(body: BodyInit | null | undefined) {
+  return body === undefined || body === null || typeof body === 'string'
+}
+
+function bridgeRequestBody(body: BodyInit | null | undefined) {
+  if (typeof body !== 'string' || body.trim() === '') return null
+  return JSON.parse(body) as Record<string, unknown>
+}
+
+async function fileToBase64(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
 }
 
 export function kernelUrl(baseUrl: string, path: string) {

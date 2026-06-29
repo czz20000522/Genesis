@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { compactSessionContext, decideApproval, enableSessionDebug, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, listApprovals, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
+import { compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, requestKernel, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -29,7 +29,9 @@ for (const file of vueFiles(join(import.meta.dirname, '..', 'src'))) {
 const appSource = readFileSync(join(import.meta.dirname, '..', 'src', 'App.vue'), 'utf8')
 const conversationSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'ConversationPane.vue'), 'utf8')
 assert.equal(appSource.includes('listApprovals'), false, 'App.vue must not load global pending approvals into the current conversation')
+assert.equal(appSource.includes('localSessions'), false, 'App.vue must not keep frontend-local sessions as history truth')
 assert.equal(conversationSource.includes('approvals:'), false, 'ConversationPane must not accept global approvals as chat rows')
+assert.equal(conversationSource.includes('approval:'), true, 'ConversationPane may accept only one current-session approval prompt')
 
 saveKernelConfig({ baseUrl: 'http://127.0.0.1:8765/', runtimeToken: ' token ' }, storage)
 assert.deepEqual(kernelConfig(storage), {
@@ -46,7 +48,7 @@ assert.equal(readinessLabel('unchecked'), '未连接')
 assert.equal(sessionLabel('desktop-full-id'), '当前会话')
 assert.equal(sessionLabel(''), '未选择会话')
 assert.equal(sessionStatus('a', 'a'), '正在使用')
-assert.equal(sessionStatus('a', 'b'), '本地会话')
+assert.equal(sessionStatus('a', 'b'), '未打开')
 assert.equal(connectionErrorLabel('Failed to fetch'), '连接失败，请检查本地服务')
 assert.equal(connectionErrorLabel(''), '')
 assert.equal(isBlankSessionDraft({}), true)
@@ -155,6 +157,60 @@ assert.deepEqual(timelineRows([
   ['action', '需要用户批准', '需要确认'],
 ])
 
+assert.deepEqual(timelineRows([
+  {
+    item_id: 'turn-a',
+    kind: 'turn',
+    children: [
+      { item_id: 'action-a', kind: 'user_action_request', text: '需要用户批准', approval_id: 'approval-a', tool: 'shell_exec' },
+    ],
+  },
+  {
+    item_id: 'turn-b',
+    kind: 'turn',
+    children: [
+      { item_id: 'assistant-b', kind: 'assistant_message', text: 'session B is clean' },
+    ],
+  },
+]).filter((row) => row.kind === 'action').length, 1, 'timeline actions are projection rows, not a global approval queue')
+
+const safeActionMetadata = JSON.stringify({
+  approval_id: 'approval-safe',
+  job_id: 'job-safe',
+  detail_ref: 'approval-safe',
+})
+for (const forbidden of ['pid', 'signal', 'process_handle', 'C:\\\\Users\\\\Tomczz', 'evt_raw']) {
+  assert.equal(safeActionMetadata.includes(forbidden), false, `action metadata must not leak ${forbidden}`)
+}
+
+let directFetchCalls = 0
+const originalGo = globalThis.go
+globalThis.go = {
+  main: {
+    App: {
+      KernelRequest: async (request: Record<string, unknown>) => {
+        assert.deepEqual(request, { method: 'POST', path: '/turn', body: { session_id: 'bridge-session' } })
+        return { ok: true }
+      },
+    },
+  },
+}
+globalThis.fetch = async () => {
+  directFetchCalls += 1
+  return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+}
+try {
+  const payload = await requestKernel({ baseUrl: 'http://127.0.0.1:8765', runtimeToken: 'secret' }, '/turn', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: 'bridge-session' }),
+  })
+  assert.deepEqual(payload, { ok: true })
+  assert.equal(directFetchCalls, 0, 'Wails bridge must be the production request choke point when present')
+} finally {
+  globalThis.go = originalGo
+  globalThis.fetch = originalFetch
+}
+
 let uploadedUrl = ''
 let uploadedSession = ''
 let uploadedPurpose = ''
@@ -207,8 +263,10 @@ globalThis.fetch = async (input, init) => {
   approvalsUrl = String(input)
   requestedAuth = new Headers(init?.headers).get('Authorization') ?? ''
   return new Response(JSON.stringify({
-    items: [{
+    session_id: 'session/approval',
+    approvals: [{
       approval_id: 'approval/needs encoding',
+      session_id: 'session/approval',
       status: 'pending',
       effect: { tool: 'shell_exec', command_preview: 'echo ok' },
     }],
@@ -219,14 +277,15 @@ globalThis.fetch = async (input, init) => {
 }
 
 try {
-  const approvals = await listApprovals({
+  const session = await getSession({
     baseUrl: 'http://127.0.0.1:8765/',
     runtimeToken: 'secret',
-  })
+  }, 'session/approval')
 
-  assert.equal(approvalsUrl, 'http://127.0.0.1:8765/approvals?status=pending')
+  assert.equal(approvalsUrl, 'http://127.0.0.1:8765/sessions/session%2Fapproval')
   assert.equal(requestedAuth, 'Bearer secret')
-  assert.equal(approvals.items?.[0]?.approval_id, 'approval/needs encoding')
+  assert.equal(session.approvals?.[0]?.approval_id, 'approval/needs encoding')
+  assert.equal(session.approvals?.[0]?.session_id, 'session/approval')
 } finally {
   globalThis.fetch = originalFetch
 }

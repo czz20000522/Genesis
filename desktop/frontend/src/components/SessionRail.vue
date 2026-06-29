@@ -1,15 +1,12 @@
 <script setup lang="ts">
-import { sessionLabel, sessionStatus } from '../display'
+import { sessionLabel } from '../display'
 
 defineProps<{
   sessionId: string
-  sessions: string[]
 }>()
 
 defineEmits<{
   newSession: []
-  selectSession: [value: string]
-  loadTimeline: []
 }>()
 
 </script>
@@ -28,20 +25,13 @@ defineEmits<{
 
     <nav class="session-list" aria-label="会话">
       <button
-        v-for="session in sessions"
-        :key="session"
         type="button"
-        :class="['session-link', { 'session-link-active': session === sessionId }]"
-        :title="sessionLabel(session)"
-        @click="$emit('selectSession', session)"
+        class="session-link session-link-active"
+        :title="sessionLabel(sessionId)"
       >
-        <span>{{ session === sessionId ? '当前会话' : '本地会话' }}</span>
-        <small>{{ sessionStatus(session, sessionId) }} · 刚刚</small>
+        <span>当前对话</span>
+        <small>{{ sessionLabel(sessionId) }}</small>
       </button>
     </nav>
-
-    <div class="rail-footer">
-      <button type="button" class="secondary-button" @click="$emit('loadTimeline')">重新载入</button>
-    </div>
   </aside>
 </template>

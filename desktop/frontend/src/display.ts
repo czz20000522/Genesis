@@ -11,7 +11,7 @@ export function sessionLabel(sessionId: string) {
 }
 
 export function sessionStatus(sessionId: string, currentSessionId: string) {
-  return sessionId === currentSessionId ? '正在使用' : '本地会话'
+  return sessionId === currentSessionId ? '正在使用' : '未打开'
 }
 
 export function connectionErrorLabel(error: string) {
