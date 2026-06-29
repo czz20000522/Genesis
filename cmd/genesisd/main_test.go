@@ -157,6 +157,46 @@ func TestBuildProviderBlocksSecretShapedCommandEnvironment(t *testing.T) {
 	}
 }
 
+func TestBuildToolPolicyAcceptsApprovalOnRequest(t *testing.T) {
+	policy, err := buildToolPolicy(kernel.PermissionModeYolo, "workspace", kernel.ApprovalPolicyOnRequest)
+	if err != nil {
+		t.Fatalf("buildToolPolicy returned error: %v", err)
+	}
+	if policy.PermissionMode != kernel.PermissionModeYolo || policy.WorkspaceRoot != "workspace" || policy.ApprovalPolicy != kernel.ApprovalPolicyOnRequest {
+		t.Fatalf("policy = %+v, want yolo workspace on_request", policy)
+	}
+}
+
+func TestBuildToolPolicyLeavesEmptyApprovalPolicyAsKernelDefault(t *testing.T) {
+	for _, value := range []string{"", "default"} {
+		policy, err := buildToolPolicy(kernel.PermissionModeDefault, "workspace", value)
+		if err != nil {
+			t.Fatalf("buildToolPolicy(%q) returned error: %v", value, err)
+		}
+		if policy.ApprovalPolicy != "" {
+			t.Fatalf("approval policy for %q = %q, want empty kernel default", value, policy.ApprovalPolicy)
+		}
+	}
+}
+
+func TestBuildToolPolicyRejectsUnknownApprovalPolicy(t *testing.T) {
+	_, err := buildToolPolicy(kernel.PermissionModeYolo, "workspace", "approve_everything")
+	if err == nil || !strings.Contains(err.Error(), "unknown approval policy") {
+		t.Fatalf("buildToolPolicy error = %v, want unknown approval policy", err)
+	}
+}
+
+func TestApprovalPolicyEnvCanSelectOnRequest(t *testing.T) {
+	t.Setenv("GENESIS_APPROVAL_POLICY", kernel.ApprovalPolicyOnRequest)
+	policy, err := buildToolPolicy(kernel.PermissionModeDefault, "workspace", envOrDefault("GENESIS_APPROVAL_POLICY", ""))
+	if err != nil {
+		t.Fatalf("buildToolPolicy returned error: %v", err)
+	}
+	if policy.ApprovalPolicy != kernel.ApprovalPolicyOnRequest {
+		t.Fatalf("approval policy = %q, want on_request", policy.ApprovalPolicy)
+	}
+}
+
 func TestEffectiveSkillRootsPrioritizesExplicitAndCanDisableDefaults(t *testing.T) {
 	defaults := []string{"global-a", "global-b", "focused-a"}
 	explicit := []string{"focused-a", "focused-b", "global-a"}

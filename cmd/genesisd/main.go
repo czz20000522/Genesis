@@ -20,6 +20,7 @@ func main() {
 	runtimeToken := flag.String("runtime-token", os.Getenv("GENESIS_RUNTIME_TOKEN"), "runtime bearer token for protected routes")
 	permissionMode := flag.String("permission-mode", envOrDefault("GENESIS_PERMISSION_MODE", kernel.PermissionModePlan), "tool permission mode: plan, default, or yolo")
 	workspaceRoot := flag.String("workspace-root", os.Getenv("GENESIS_WORKSPACE_ROOT"), "workspace root for default tool permission mode")
+	approvalPolicy := flag.String("approval-policy", envOrDefault("GENESIS_APPROVAL_POLICY", ""), "tool approval policy: default, never, or on_request")
 	providerName := flag.String("provider", envOrDefault("GENESIS_PROVIDER", "genesis-config"), "provider name: genesis-config, fake, provider_command, or openai-compatible")
 	allowLabFakeProvider := flag.Bool("allow-lab-fake-provider", envBoolOrDefault("GENESIS_ALLOW_LAB_FAKE_PROVIDER", false), "allow lab-only fake provider readiness")
 	providerBaseURL := flag.String("provider-base-url", os.Getenv("GENESIS_PROVIDER_BASE_URL"), "OpenAI-compatible provider base URL")
@@ -53,6 +54,10 @@ func main() {
 	flag.Var(&skillRoots, "skill-root", "external skill root to scan for SKILL.md metadata; repeatable")
 	flag.Parse()
 	effectiveSkills := effectiveSkillRoots(defaultSkillRoots(), skillRoots.Values(), *disableDefaultSkillRoots)
+	toolPolicy, err := buildToolPolicy(*permissionMode, *workspaceRoot, *approvalPolicy)
+	if err != nil {
+		log.Fatalf("create tool policy: %v", err)
+	}
 
 	provider, err := buildProvider(providerBuildRequest{
 		name:                 *providerName,
@@ -75,10 +80,7 @@ func main() {
 		LedgerPath:   *ledgerPath,
 		Provider:     provider,
 		RuntimeToken: *runtimeToken,
-		ToolPolicy: kernel.ToolPolicy{
-			PermissionMode: *permissionMode,
-			WorkspaceRoot:  *workspaceRoot,
-		},
+		ToolPolicy:   toolPolicy,
 		ContextPolicy: kernel.ContextPolicy{
 			ContextWindowTokens: *contextWindowTokens,
 			AutoCompactRatio:    *autoCompactRatio,
@@ -180,6 +182,25 @@ func buildProvider(req providerBuildRequest) (kernel.Provider, error) {
 		}), nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q", req.name)
+	}
+}
+
+func buildToolPolicy(permissionMode string, workspaceRoot string, approvalPolicy string) (kernel.ToolPolicy, error) {
+	policy := kernel.ToolPolicy{
+		PermissionMode: permissionMode,
+		WorkspaceRoot:  workspaceRoot,
+	}
+	switch strings.ToLower(strings.TrimSpace(approvalPolicy)) {
+	case "", "default":
+		return policy, nil
+	case kernel.ApprovalPolicyNever:
+		policy.ApprovalPolicy = kernel.ApprovalPolicyNever
+		return policy, nil
+	case kernel.ApprovalPolicyOnRequest:
+		policy.ApprovalPolicy = kernel.ApprovalPolicyOnRequest
+		return policy, nil
+	default:
+		return kernel.ToolPolicy{}, fmt.Errorf("unknown approval policy %q", approvalPolicy)
 	}
 }
 
