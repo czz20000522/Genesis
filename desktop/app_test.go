@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -33,7 +36,7 @@ func TestKernelHTTPClientUsesKernelHTTPPrimitive(t *testing.T) {
 	defer server.Close()
 
 	client := NewKernelHTTPClient(server.URL, "test-token", server.Client())
-	payload, err := client.RequestJSON(context.Background(), http.MethodGet, "/capabilities", true)
+	payload, err := client.RequestJSON(context.Background(), http.MethodGet, "/capabilities", true, nil)
 	if err != nil {
 		t.Fatalf("RequestJSON returned error: %v", err)
 	}
@@ -45,6 +48,86 @@ func TestKernelHTTPClientUsesKernelHTTPPrimitive(t *testing.T) {
 		t.Fatalf("authorization = %q, want bearer runtime token", gotAuth)
 	}
 	if payload["readiness"] != "ready" {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestKernelRequestBridgePostsJSONThroughGoChokePoint(t *testing.T) {
+	var gotPath string
+	var gotMethod string
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	app := NewApp()
+	app.client = NewKernelHTTPClient(server.URL, "token", server.Client())
+	payload, err := app.KernelRequest(KernelBridgeRequest{
+		Method: http.MethodPost,
+		Path:   "/turn",
+		Body:   json.RawMessage(`{"session_id":"s1"}`),
+	})
+	if err != nil {
+		t.Fatalf("KernelRequest returned error: %v", err)
+	}
+
+	if gotPath != "/turn" || gotMethod != http.MethodPost {
+		t.Fatalf("request = %s %s, want POST /turn", gotMethod, gotPath)
+	}
+	if gotBody != `{"session_id":"s1"}` {
+		t.Fatalf("body = %q", gotBody)
+	}
+	if payload["ok"] != true {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestUploadMaterialBridgePostsMultipartThroughGoChokePoint(t *testing.T) {
+	var gotSession string
+	var gotPurpose string
+	var gotFilename string
+	var gotContent string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		gotSession = r.FormValue("session_id")
+		gotPurpose = r.FormValue("purpose")
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("FormFile: %v", err)
+		}
+		defer file.Close()
+		gotFilename = header.Filename
+		body, _ := io.ReadAll(file)
+		gotContent = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"admission_result":"admitted"}`))
+	}))
+	defer server.Close()
+
+	app := NewApp()
+	app.client = NewKernelHTTPClient(server.URL, "token", server.Client())
+	payload, err := app.UploadMaterial(MaterialBridgeRequest{
+		SessionID:     "session-1",
+		Purpose:       "source_analysis",
+		Filename:      "package.zip",
+		ContentBase64: base64.StdEncoding.EncodeToString([]byte("zip")),
+	})
+	if err != nil {
+		t.Fatalf("UploadMaterial returned error: %v", err)
+	}
+
+	if gotSession != "session-1" || gotPurpose != "source_analysis" || gotFilename != "package.zip" || gotContent != "zip" {
+		t.Fatalf("multipart = session %q purpose %q file %q content %q", gotSession, gotPurpose, gotFilename, gotContent)
+	}
+	if payload["admission_result"] != "admitted" {
 		t.Fatalf("payload = %+v", payload)
 	}
 }

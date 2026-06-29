@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -60,6 +64,69 @@ func (a *App) KernelReady() (map[string]any, error) {
 	return a.client.Get(ctx, "/ready", false)
 }
 
+type KernelBridgeRequest struct {
+	Method string          `json:"method"`
+	Path   string          `json:"path"`
+	Body   json.RawMessage `json:"body,omitempty"`
+}
+
+type MaterialBridgeRequest struct {
+	SessionID     string `json:"session_id"`
+	Purpose       string `json:"purpose"`
+	Filename      string `json:"filename"`
+	ContentBase64 string `json:"content_base64"`
+}
+
+func (a *App) KernelRequest(req KernelBridgeRequest) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	method := strings.TrimSpace(req.Method)
+	if method == "" {
+		method = http.MethodGet
+	}
+	return a.client.RequestJSON(ctx, method, req.Path, true, req.Body)
+}
+
+func (a *App) UploadMaterial(req MaterialBridgeRequest) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	sessionID := strings.TrimSpace(req.SessionID)
+	filename := strings.TrimSpace(req.Filename)
+	if sessionID == "" {
+		return nil, errors.New("session_id is required")
+	}
+	if filename == "" {
+		return nil, errors.New("filename is required")
+	}
+	content, err := base64.StdEncoding.DecodeString(strings.TrimSpace(req.ContentBase64))
+	if err != nil {
+		return nil, fmt.Errorf("decode upload content: %w", err)
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("session_id", sessionID)
+	_ = writer.WriteField("purpose", strings.TrimSpace(req.Purpose))
+	part, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := part.Write(content); err != nil {
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return a.client.PostMultipart(ctx, "/materials/upload", true, writer.FormDataContentType(), &body)
+}
+
+func (a *App) requestContext() (context.Context, context.CancelFunc) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, 30*time.Second)
+}
+
 func loadDesktopConfig() DesktopConfig {
 	baseURL := strings.TrimSpace(os.Getenv("GENESIS_KERNEL_BASE_URL"))
 	if baseURL == "" {
@@ -93,10 +160,22 @@ func NewKernelHTTPClient(baseURL string, token string, client *http.Client) *Ker
 }
 
 func (c *KernelHTTPClient) Get(ctx context.Context, path string, auth bool) (map[string]any, error) {
-	return c.RequestJSON(ctx, http.MethodGet, path, auth)
+	return c.RequestJSON(ctx, http.MethodGet, path, auth, nil)
 }
 
-func (c *KernelHTTPClient) RequestJSON(ctx context.Context, method string, path string, auth bool) (map[string]any, error) {
+func (c *KernelHTTPClient) RequestJSON(ctx context.Context, method string, path string, auth bool, body json.RawMessage) (map[string]any, error) {
+	var reader io.Reader
+	if len(body) > 0 && string(body) != "null" {
+		reader = bytes.NewReader(body)
+	}
+	return c.do(ctx, method, path, auth, "application/json", reader)
+}
+
+func (c *KernelHTTPClient) PostMultipart(ctx context.Context, path string, auth bool, contentType string, body io.Reader) (map[string]any, error) {
+	return c.do(ctx, http.MethodPost, path, auth, contentType, body)
+}
+
+func (c *KernelHTTPClient) do(ctx context.Context, method string, path string, auth bool, contentType string, body io.Reader) (map[string]any, error) {
 	if c.baseURL == "" {
 		return nil, errors.New("kernel base URL is required")
 	}
@@ -104,12 +183,15 @@ func (c *KernelHTTPClient) RequestJSON(ctx context.Context, method string, path 
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, nil)
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, err
 	}
 	if auth && c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if body != nil && contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
