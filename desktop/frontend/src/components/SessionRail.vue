@@ -42,7 +42,7 @@ function shortSession(value: string) {
     </nav>
 
     <div class="rail-footer">
-      <button type="button" class="secondary-button" @click="$emit('loadTimeline')">刷新时间线</button>
+      <button type="button" class="secondary-button" @click="$emit('loadTimeline')">同步会话</button>
     </div>
   </aside>
 </template>

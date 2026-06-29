@@ -11,9 +11,9 @@
   --green: #17745f;
   --amber: #8a5a00;
   --red: #b42318;
-  --rail: #15181d;
-  --rail-soft: #20252c;
-  --rail-ink: #eef2f5;
+  --rail: #ffffff;
+  --rail-soft: #eef3f7;
+  --rail-ink: #20252b;
 }
 
 * {
@@ -24,7 +24,7 @@ body {
   margin: 0;
   font-family: Aptos, "Segoe UI", system-ui, sans-serif;
   color: var(--ink);
-  background: var(--rail);
+  background: #f4f6f8;
 }
 
 button,
@@ -109,8 +109,8 @@ label {
   min-width: 0;
   padding: 18px 12px;
   color: var(--rail-ink);
-  border-right: 1px solid #252b33;
-  background: linear-gradient(180deg, #15181d, #101317);
+  border-right: 1px solid var(--border);
+  background: #ffffff;
 }
 
 .rail-brand {
@@ -128,7 +128,7 @@ label {
 .rail-brand span,
 .session-link small,
 .rail .eyebrow {
-  color: #9aa5b1;
+  color: var(--muted);
 }
 
 .composer-meta,
@@ -142,7 +142,7 @@ label {
   place-items: center;
   width: 32px;
   height: 32px;
-  border: 1px solid rgb(255 255 255 / 14%);
+  border: 1px solid #d4dde6;
   border-radius: 10px;
   color: #ffffff;
   background: linear-gradient(135deg, #1f8a70, #4768d6);
@@ -151,8 +151,8 @@ label {
 
 .new-session-button {
   width: 100%;
-  color: var(--rail-ink);
-  background: #286bff;
+  color: #ffffff;
+  background: var(--primary);
 }
 
 .session-list {
@@ -187,12 +187,12 @@ label {
 
 .rail-footer {
   padding: 8px;
-  border-top: 1px solid #2a3038;
+  border-top: 1px solid var(--border);
 }
 
 .rail .secondary-button {
-  color: var(--rail-ink);
-  background: #222832;
+  color: var(--ink);
+  background: #edf1f4;
 }
 
 .session-workspace {

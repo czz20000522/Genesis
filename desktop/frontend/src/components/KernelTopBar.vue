@@ -17,14 +17,14 @@ defineEmits<{
   <header class="topbar">
     <div class="topbar-status">
       <strong>Genesis</strong>
-      <span>内核 {{ readiness }}</span>
+      <span>连接 {{ readiness }}</span>
       <span>{{ sessionId || '未选择会话' }}</span>
       <p v-if="error" class="error">{{ error }}</p>
     </div>
     <div class="topbar-actions">
-      <button type="button" @click="$emit('checkReady')">检查</button>
+      <button type="button" @click="$emit('checkReady')">检查连接</button>
       <button type="button" @click="$emit('loadApprovals')">审批</button>
-      <button type="button" @click="$emit('toggleInspector')">{{ inspectorOpen ? '收起' : '检查器' }}</button>
+      <button type="button" @click="$emit('toggleInspector')">{{ inspectorOpen ? '收起详情' : '详情' }}</button>
     </div>
   </header>
 </template>
