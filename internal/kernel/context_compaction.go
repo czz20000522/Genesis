@@ -14,6 +14,7 @@ const (
 
 const (
 	contextCompactionTriggerAuto     = "auto"
+	contextCompactionTriggerManual   = "manual"
 	contextCompactionStatusRunning   = "running"
 	contextCompactionStatusCompleted = "completed"
 	contextCompactionStatusFailed    = "failed"

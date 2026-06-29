@@ -1,8 +1,11 @@
 package kernel
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -93,6 +96,194 @@ func TestAutoCompactionProjectsSummaryPlusRecentTail(t *testing.T) {
 	}
 	if noticeCount == 0 {
 		t.Fatalf("timeline items = %+v, want completed compaction notice", timeline.Items)
+	}
+}
+
+func TestManualCompactionControlSurfaceRunsSharedRunnerWhenIdle(t *testing.T) {
+	provider := &compactionProvider{}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	for _, text := range []string{"first manual compaction fact", "second manual compaction fact", "third manual tail"} {
+		if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+			SessionID:  "manual-compact-idle",
+			InputItems: []InputItem{{Type: "text", Text: text}},
+		}); err != nil {
+			t.Fatalf("SubmitTurn(%q) returned error: %v", text, err)
+		}
+	}
+
+	status, body := postSessionContextCompact(t, k, "manual-compact-idle", `{}`)
+	if status != http.StatusOK {
+		t.Fatalf("manual compact status = %d body=%v, want 200", status, body)
+	}
+	if body["admission_result"] != "admitted" {
+		t.Fatalf("manual compact body = %+v, want admitted", body)
+	}
+
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	var started, completed *ContextCompactionProjection
+	for _, event := range events {
+		switch event.Type {
+		case "context.compaction.started":
+			started = event.Data.ContextCompaction
+		case "context.compaction.completed":
+			completed = event.Data.ContextCompaction
+		}
+	}
+	if started == nil || completed == nil {
+		t.Fatalf("events = %+v, want manual compaction started/completed", events)
+	}
+	if started.Trigger != "manual" || started.Status != contextCompactionStatusRunning {
+		t.Fatalf("started compaction = %+v, want manual running event shape", started)
+	}
+	if completed.Trigger != "manual" || completed.Status != contextCompactionStatusCompleted || completed.Summary != "summary of compacted earlier context" {
+		t.Fatalf("completed compaction = %+v, want manual completed summary", completed)
+	}
+	if len(provider.compactionRequests) != 1 {
+		t.Fatalf("compaction requests = %d, want manual request through existing runner", len(provider.compactionRequests))
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "manual-compact-idle",
+		InputItems: []InputItem{{Type: "text", Text: "read manual compaction context"}},
+	})
+	if err != nil {
+		t.Fatalf("post-manual SubmitTurn returned error: %v", err)
+	}
+	contextProjection, err := k.ProviderContextProjection(resp.TurnID)
+	if err != nil {
+		t.Fatalf("ProviderContextProjection returned error: %v", err)
+	}
+	contextText := modelUserText(contextProjection.InputItems)
+	if !strings.Contains(contextText, "summary of compacted earlier context") || !strings.Contains(contextText, "third manual tail") {
+		t.Fatalf("provider context = %q, want manual summary plus recent tail", contextText)
+	}
+
+	timeline, err := k.UITimeline("manual-compact-idle")
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	if timelineAnyItem(timeline.Items, func(item UITimelineItem) bool {
+		if strings.Contains(item.Text, "summary of compacted earlier context") {
+			t.Fatalf("timeline leaked compaction summary: %+v", item)
+		}
+		return false
+	}) {
+		t.Fatalf("unexpected timeline match")
+	}
+}
+
+func TestManualCompactionControlSurfaceRefusesRunningSession(t *testing.T) {
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		Provider:     &compactionProvider{},
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	now := k.clock()
+	if err := k.appendEvent(StoredEvent{
+		EventID:   newID("evt", now),
+		SessionID: "manual-compact-running",
+		TurnID:    "turn_manual_compact_running",
+		Type:      "turn.submitted",
+		CreatedAt: now,
+		Data: EventData{
+			InputItems:      []InputItem{{Type: "text", Text: "active turn"}},
+			ModelInputKinds: []string{ModelInputKindUserText},
+		},
+	}); err != nil {
+		t.Fatalf("append active turn: %v", err)
+	}
+
+	status, body := postSessionContextCompact(t, k, "manual-compact-running", `{}`)
+	if status != http.StatusConflict {
+		t.Fatalf("manual compact status = %d body=%v, want 409", status, body)
+	}
+	if body["admission_result"] != "refused" || body["reason_class"] != "active_turn_running" {
+		t.Fatalf("manual compact body = %+v, want active_turn_running refusal", body)
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	for _, event := range events {
+		if strings.HasPrefix(event.Type, "context.compaction.") {
+			t.Fatalf("running-session refusal wrote compaction event: %+v", event)
+		}
+	}
+}
+
+func TestManualCompactionControlSurfaceRejectsCallerControlFields(t *testing.T) {
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		Provider:     &compactionProvider{},
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	status, body := postSessionContextCompact(t, k, "manual-compact-control-fields", `{"turn_id":"caller-owned","event_id":"caller-owned","compacted_through_turn_id":"caller-owned"}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("manual compact status = %d body=%v, want 400 for caller control fields", status, body)
+	}
+}
+
+func TestCompactionFailureDoesNotFailUserTurn(t *testing.T) {
+	provider := &compactionProvider{failCompactionAttempts: 1}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.jsonl"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	for _, text := range []string{"first user turn survives", "second user turn survives", "third user turn survives"} {
+		if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+			SessionID:  "manual-compact-failure",
+			InputItems: []InputItem{{Type: "text", Text: text}},
+		}); err != nil {
+			t.Fatalf("SubmitTurn(%q) returned error: %v", text, err)
+		}
+	}
+
+	status, body := postSessionContextCompact(t, k, "manual-compact-failure", `{}`)
+	if status != http.StatusOK || body["admission_result"] != "admitted" {
+		t.Fatalf("manual compact status=%d body=%v, want admitted even when runner records failure", status, body)
+	}
+	session, err := k.Session("manual-compact-failure")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	for _, turn := range session.Turns {
+		if turn.TerminalOutcome != TerminalOutcomeSucceeded {
+			t.Fatalf("turn = %+v, compaction failure must not fail completed user turn", turn)
+		}
+	}
+	var failedCompaction bool
+	for _, event := range session.Events {
+		if event.Type == "turn.failed" {
+			t.Fatalf("session events = %+v, compaction failure must not write turn.failed", session.Events)
+		}
+		if event.Type == "context.compaction.failed" {
+			failedCompaction = true
+		}
+	}
+	if !failedCompaction {
+		t.Fatalf("session events = %+v, want context.compaction.failed evidence", session.Events)
 	}
 }
 
@@ -472,4 +663,22 @@ func TestCompactionSourcePreservesCompletedToolCallResultPairs(t *testing.T) {
 			t.Fatalf("compaction source = %q, want %q", source, want)
 		}
 	}
+}
+
+func postSessionContextCompact(t *testing.T, k *Kernel, sessionID string, body string) (int, map[string]interface{}) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/sessions/"+sessionID+"/context/compact", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testRuntimeToken)
+	recorder := httptest.NewRecorder()
+
+	Handler(k).ServeHTTP(recorder, req)
+
+	var decoded map[string]interface{}
+	if strings.TrimSpace(recorder.Body.String()) != "" {
+		if err := json.Unmarshal(recorder.Body.Bytes(), &decoded); err != nil {
+			t.Fatalf("decode compact response %q: %v", recorder.Body.String(), err)
+		}
+	}
+	return recorder.Code, decoded
 }

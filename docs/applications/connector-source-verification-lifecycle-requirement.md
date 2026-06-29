@@ -73,6 +73,12 @@ external threads to kernel sessions, does not choose skills, does not call
 `turn.submit`, and does not build provider context. Those remain the
 Application Connector Runtime and kernel responsibilities.
 
+This owner also does not own context quality. A Feishu, WeChat, email, webhook,
+or console source may deliver a normalized application request, but it must not
+summarize, truncate, compact, or rewrite provider context. Long inbound sessions
+are handled by kernel/session compaction commands and provider-context
+projections after the request reaches the kernel.
+
 ## Users And Roles
 
 Operators inspect source runs, source attempts, readiness, blocked reasons,

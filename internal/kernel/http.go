@@ -128,6 +128,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleEnableSessionDebug(w, r, k)
+		case r.Method == http.MethodPost && isSessionContextCompactRequestPath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
+			handleCompactSessionContext(w, r, k)
 		case r.Method == http.MethodGet && isSessionDebugExportPath(r.URL.Path):
 			if !authorizeRuntimeRequest(w, r, k) {
 				return

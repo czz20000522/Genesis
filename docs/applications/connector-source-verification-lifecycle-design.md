@@ -43,6 +43,12 @@ This owner records source readiness, lifecycle, cursor, failure, and event
 authenticity evidence. It does not own application policy, session mapping,
 outbox delivery, reconciliation probes, or kernel facts.
 
+It also does not own context quality. Source adapters and supervisors must not
+summarize inbound history, truncate provider context, emit
+`context.compaction.*` events, or rewrite kernel history. Their output stops at
+validated source facts and normalized `ExternalEvent` values; any compaction is
+admitted later by the kernel/session owner.
+
 The source adapter owns external protocol translation. For Feishu, that means
 the adapter can know how to call `lark-cli`, an SDK, HTTP API, or webhook
 server. The connector runtime cannot know those command lines, protocol keys,
