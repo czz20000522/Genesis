@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { getReady, getTimeline, getTimelineDetail, kernelConfig, saveKernelConfig, submitTurn, uploadMaterial, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type TurnResponse } from './api/kernelApi'
+import { decideApproval, getReady, getTimeline, getTimelineDetail, kernelConfig, listApprovals, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type KernelTimeline, type KernelTimelineDetail, type MaterialIntakeProjection, type TurnResponse } from './api/kernelApi'
+import { approvalSummary } from './approvalView'
 import { materialIntakeSummary } from './materialIntake'
 import { timelineDetailEntries } from './timelineDetail'
 
@@ -15,6 +16,8 @@ const timeline = ref<KernelTimeline | null>(null)
 const detail = ref<KernelTimelineDetail | null>(null)
 const selectedFile = ref<File | null>(null)
 const material = ref<MaterialIntakeProjection | null>(null)
+const approvals = ref<ApprovalProjection[]>([])
+const approvalReason = ref('')
 const detailEntries = computed(() => timelineDetailEntries(timeline.value?.items))
 const detailItem = computed(() => detail.value?.item ?? {})
 const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
@@ -92,6 +95,31 @@ async function uploadSelectedMaterial() {
   }
   try {
     material.value = await uploadMaterial(config.value, sessionId.value, selectedFile.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function loadApprovals() {
+  error.value = ''
+  saveKernelConfig(config.value)
+  try {
+    approvals.value = (await listApprovals(config.value)).items ?? []
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function submitApprovalDecision(approvalId: string, decision: 'approved' | 'denied') {
+  error.value = ''
+  saveKernelConfig(config.value)
+  try {
+    await decideApproval(config.value, approvalId, decision, approvalReason.value || decision)
+    approvalReason.value = ''
+    await loadApprovals()
+    if (sessionId.value.trim()) {
+      timeline.value = await getTimeline(config.value, sessionId.value)
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -181,6 +209,33 @@ function newDesktopIdempotencyKey() {
       </aside>
 
       <button type="button" @click="loadTimeline">Load timeline</button>
+
+      <div class="divider"></div>
+
+      <button type="button" @click="loadApprovals">Load pending approvals</button>
+
+      <label>
+        Decision reason
+        <input v-model="approvalReason" spellcheck="true" />
+      </label>
+
+      <aside v-if="approvals.length" class="detail-panel">
+        <p class="eyebrow">Pending approvals</p>
+        <article v-for="approval in approvals" :key="approval.approval_id" class="approval-row">
+          <dl>
+            <dt>Status</dt>
+            <dd>{{ approvalSummary(approval)[0] }}</dd>
+            <dt>Tool</dt>
+            <dd>{{ approvalSummary(approval)[1] }}</dd>
+            <dt>Effect</dt>
+            <dd><code>{{ approvalSummary(approval)[2] }}</code></dd>
+          </dl>
+          <div class="detail-list">
+            <button type="button" @click="submitApprovalDecision(String(approval.approval_id), 'approved')">Approve</button>
+            <button type="button" class="danger" @click="submitApprovalDecision(String(approval.approval_id), 'denied')">Deny</button>
+          </div>
+        </article>
+      </aside>
 
       <div v-if="detailEntries.length" class="detail-list">
         <button v-for="entry in detailEntries" :key="entry.detailRef" type="button" @click="loadDetail(entry.detailRef)">

@@ -40,6 +40,23 @@ export type TurnResponse = {
   }
 }
 
+export type ApprovalProjection = {
+  approval_id?: string
+  status?: string
+  effect?: {
+    tool?: string
+    command_preview?: string
+    cwd?: string
+  }
+  blocked_reason?: string
+}
+
+export type ApprovalListResponse = {
+  items?: ApprovalProjection[]
+}
+
+export type ApprovalDecision = 'approved' | 'denied'
+
 export function kernelConfig(storage: Pick<Storage, 'getItem'> | null = safeLocalStorage()): KernelConfig {
   return {
     baseUrl: String(storage?.getItem(baseUrlKey) ?? 'http://127.0.0.1:8765').trim(),
@@ -89,6 +106,22 @@ export async function submitTurn(config: KernelConfig, sessionId: string, text: 
       session_id: sessionId,
       idempotency_key: idempotencyKey,
       input_items: [{ type: 'text', text }],
+    }),
+  })
+}
+
+export async function listApprovals(config: KernelConfig, status = 'pending') {
+  return requestKernel<ApprovalListResponse>(config, `/approvals?status=${encodeURIComponent(status)}`)
+}
+
+export async function decideApproval(config: KernelConfig, approvalId: string, decision: ApprovalDecision, reason: string) {
+  return requestKernel<ApprovalProjection>(config, `/approvals/${encodeURIComponent(approvalId)}/decision`, {
+    method: 'POST',
+    body: JSON.stringify({
+      decision,
+      decision_authority: 'desktop:operator',
+      decision_reason: String(reason || decision).trim(),
+      decision_evidence_ref: 'approval:desktop-operator',
     }),
   })
 }

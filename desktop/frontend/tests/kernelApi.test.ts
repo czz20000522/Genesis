@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { getTimelineDetail, kernelConfig, kernelUrl, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
+import { decideApproval, getTimelineDetail, kernelConfig, kernelUrl, listApprovals, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
+import { approvalSummary } from '../src/approvalView.ts'
 import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
 
@@ -117,6 +118,84 @@ assert.deepEqual(materialIntakeSummary({
   'source:snapshot:1',
   'source_tree, source_read',
 ])
+
+let approvalsUrl = ''
+globalThis.fetch = async (input, init) => {
+  approvalsUrl = String(input)
+  requestedAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  return new Response(JSON.stringify({
+    items: [{
+      approval_id: 'approval/needs encoding',
+      status: 'pending',
+      effect: { tool: 'shell_exec', command_preview: 'echo ok' },
+    }],
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const approvals = await listApprovals({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  })
+
+  assert.equal(approvalsUrl, 'http://127.0.0.1:8765/approvals?status=pending')
+  assert.equal(requestedAuth, 'Bearer secret')
+  assert.equal(approvals.items?.[0]?.approval_id, 'approval/needs encoding')
+} finally {
+  globalThis.fetch = originalFetch
+}
+
+let decisionUrl = ''
+let decisionMethod = ''
+let decisionContentType = ''
+let decisionBody: Record<string, unknown> = {}
+globalThis.fetch = async (input, init) => {
+  decisionUrl = String(input)
+  decisionMethod = String(init?.method ?? '')
+  requestedAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  decisionContentType = new Headers(init?.headers).get('Content-Type') ?? ''
+  decisionBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+  return new Response(JSON.stringify({
+    approval_id: 'approval/needs encoding',
+    status: 'approved',
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const approval = await decideApproval({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'approval/needs encoding', 'approved', 'looks correct')
+
+  assert.equal(decisionUrl, 'http://127.0.0.1:8765/approvals/approval%2Fneeds%20encoding/decision')
+  assert.equal(decisionMethod, 'POST')
+  assert.equal(requestedAuth, 'Bearer secret')
+  assert.equal(decisionContentType, 'application/json')
+  assert.deepEqual(decisionBody, {
+    decision: 'approved',
+    decision_authority: 'desktop:operator',
+    decision_reason: 'looks correct',
+    decision_evidence_ref: 'approval:desktop-operator',
+  })
+  assert.equal(approval.status, 'approved')
+} finally {
+  globalThis.fetch = originalFetch
+}
+
+assert.deepEqual(approvalSummary({
+  approval_id: 'approval-1',
+  status: 'pending',
+  effect: {
+    tool: 'shell_exec',
+    command_preview: 'echo ok',
+  },
+}), ['pending', 'shell_exec', 'echo ok'])
 
 let turnUrl = ''
 let turnMethod = ''
