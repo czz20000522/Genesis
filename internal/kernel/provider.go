@@ -13,6 +13,14 @@ type Provider interface {
 	Complete(ctx context.Context, req ModelRequest) (ModelResponse, error)
 }
 
+type StreamingProvider interface {
+	StreamComplete(ctx context.Context, req ModelRequest, emit func(ModelStreamDelta) error) (ModelResponse, error)
+}
+
+type ModelStreamDelta struct {
+	Text string
+}
+
 var ErrProviderUnavailable = errors.New("provider unavailable")
 
 type ModelRequest struct {
@@ -46,7 +54,6 @@ func (p ProviderContextProjection) ModelRequest() ModelRequest {
 
 const (
 	ModelInputKindUserText                   = "user_text"
-	ModelInputKindApprovedMemoryContext      = "approved_memory_context"
 	ModelInputKindSkillIndexContext          = "skill_index_context"
 	ModelInputKindConversationHistoryContext = "conversation_history_context"
 	ModelInputKindKernelObservationContext   = "kernel_observation_context"

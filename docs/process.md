@@ -111,6 +111,35 @@ For every non-trivial capability:
 
 Obvious bugs and test gaps may skip a new requirement or design document when the current approved requirement/design already covers the expected behavior. The issue must state that it is using the bug/test-gap exception.
 
+## Dependency Boundary Gate
+
+Genesis should not hand-write mature application-layer infrastructure merely to
+avoid dependencies. The kernel may keep authority-critical protocol, ledger,
+permission, budget, and projection code small and hand-written so the owner
+contracts remain explicit. User-space applications, desktop UI, connectors,
+capability packages, and developer tools should use mature third-party
+libraries when they reduce parser, renderer, protocol, packaging, or platform
+risk.
+
+If a third-party library shape does not match Genesis fields, add a thin
+adapter at the application boundary instead of leaking library-specific DTOs
+into kernel contracts. The adapter owns translation, validation, and any
+library-specific configuration. Kernel DTOs and events remain Genesis-owned.
+
+Dependency decisions must state:
+
+- which layer owns the dependency;
+- why a mature dependency is safer or faster than hand-written code;
+- which adapter isolates library-specific fields;
+- whether the dependency affects the kernel authority boundary;
+- how behavior is tested without coupling tests to the dependency internals.
+
+Component libraries, design systems, embedded runtimes, or SDKs that would
+reshape product architecture still need explicit design approval. Small
+application-layer libraries such as Markdown renderers, file pickers, archive
+helpers, protocol clients, and desktop platform helpers can be added inside the
+owning application package when tests preserve Genesis behavior.
+
 ## Reference Scan Gate
 
 Every non-trivial implementation must first look for comparable behavior in:
@@ -290,7 +319,7 @@ Runtime can produce many events, but long-term storage stays sparse. A runtime e
 - it changes kernel-owned state;
 - it records a permission, credential, security, risk, or control-plane decision;
 - it records failure, blocking, degradation, or abnormal termination;
-- it is an input to provider context, compaction, memory recall, or observation delivery.
+- it is an input to provider context, compaction, future memory recall, or observation delivery.
 
 Everything else stays in realtime transport, debug trace, or aggregate metrics. Audit is not an info log. It records authority changes, risk decisions, control-plane writes, credential use, dangerous-operation decisions, and security failures.
 

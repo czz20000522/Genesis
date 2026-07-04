@@ -69,6 +69,16 @@ export type TurnResponse = {
   }
 }
 
+export type TurnStreamEvent = {
+  type?: string
+  delta?: string
+  response?: TurnResponse
+  error?: {
+    code?: string
+    message?: string
+  }
+}
+
 export type ApprovalProjection = {
   approval_id?: string
   session_id?: string
@@ -193,6 +203,85 @@ export async function submitTurn(config: KernelConfig, sessionId: string, text: 
   })
 }
 
+export async function submitTurnStream(
+  config: KernelConfig,
+  sessionId: string,
+  text: string,
+  idempotencyKey: string,
+  onEvent: (event: TurnStreamEvent) => void,
+) {
+  const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (bridge?.SubmitTurnStream) {
+    let finalResponse: TurnResponse | null = null
+    let streamError: Error | null = null
+    const unsubscribe = await subscribeTurnStreamEvents(idempotencyKey, (event) => {
+      onEvent(event)
+      if (event.type === 'turn_failed' && event.error) {
+        streamError = new Error([event.error.code, event.error.message].filter(Boolean).join(': ') || 'turn failed')
+      }
+      if (event.type === 'turn_completed' && event.response) finalResponse = event.response
+    })
+    try {
+      const payload = await bridge.SubmitTurnStream(session, text, idempotencyKey) as { response?: TurnResponse }
+      if (streamError) throw streamError
+      finalResponse = finalResponse ?? payload.response ?? null
+      if (!finalResponse) throw new Error('stream ended before turn_completed')
+      return finalResponse
+    } finally {
+      unsubscribe()
+    }
+  }
+  const response = await fetch(kernelUrl(config.baseUrl, '/turn/stream'), {
+    method: 'POST',
+    headers: kernelHeaders(config.runtimeToken, JSON.stringify({})),
+    body: JSON.stringify({
+      session_id: session,
+      idempotency_key: idempotencyKey,
+      input_items: [{ type: 'text', text }],
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(await responseMessage(response))
+  }
+  if (!response.body) {
+    throw new Error('streaming response body is unavailable')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let finalResponse: TurnResponse | null = null
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (value) {
+      buffer += decoder.decode(value, { stream: !done })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        const event = parseTurnStreamEvent(line)
+        if (!event) continue
+        onEvent(event)
+        if (event.type === 'turn_failed' && event.error) {
+          throw new Error([event.error.code, event.error.message].filter(Boolean).join(': ') || 'turn failed')
+        }
+        if (event.type === 'turn_completed' && event.response) finalResponse = event.response
+      }
+    }
+    if (done) break
+  }
+  const tail = parseTurnStreamEvent(buffer)
+  if (tail) {
+    onEvent(tail)
+    if (tail.type === 'turn_failed' && tail.error) {
+      throw new Error([tail.error.code, tail.error.message].filter(Boolean).join(': ') || 'turn failed')
+    }
+    if (tail.type === 'turn_completed' && tail.response) finalResponse = tail.response
+  }
+  if (!finalResponse) throw new Error('stream ended before turn_completed')
+  return finalResponse
+}
+
 export async function listApprovals(config: KernelConfig, status = 'pending') {
   return requestKernel<ApprovalListResponse>(config, `/approvals?status=${encodeURIComponent(status)}`)
 }
@@ -258,6 +347,7 @@ type MaterialBridgeRequest = {
 type WailsAppBridge = {
   Ready?: () => Promise<unknown>
   SubmitTurn?: (sessionId: string, text: string, idempotencyKey: string) => Promise<unknown>
+  SubmitTurnStream?: (sessionId: string, text: string, idempotencyKey: string) => Promise<unknown>
   ReadTimeline?: (sessionId: string) => Promise<unknown>
   ReadTimelineDetail?: (sessionId: string, detailRef: string) => Promise<unknown>
   ReadSession?: (sessionId: string) => Promise<unknown>
@@ -269,16 +359,47 @@ type WailsAppBridge = {
   CompactSessionContext?: (sessionId: string) => Promise<unknown>
 }
 
+type WailsRuntimeBridge = {
+  EventsOnMultiple?: (eventName: string, callback: (...payload: unknown[]) => void, maxCallbacks: number) => () => void
+}
+
 declare global {
   var go: { main?: { App?: WailsAppBridge } } | undefined
+  interface Window {
+    runtime?: WailsRuntimeBridge
+  }
 }
 
 function wailsAppBridge(): WailsAppBridge | undefined {
   return globalThis.go?.main?.App
 }
 
+function wailsRuntimeBridge(): WailsRuntimeBridge | undefined {
+  return typeof window === 'undefined' ? undefined : window.runtime
+}
+
 function isMaterialFileSelection(value: File | MaterialFileSelection): value is MaterialFileSelection {
   return !(value instanceof File) && typeof value.file_path === 'string'
+}
+
+export function parseTurnStreamEvent(line: string): TurnStreamEvent | null {
+  const trimmed = String(line || '').trim()
+  if (!trimmed) return null
+  return JSON.parse(trimmed) as TurnStreamEvent
+}
+
+export function turnStreamEventName(idempotencyKey: string) {
+  const key = String(idempotencyKey || '').trim() || 'anonymous'
+  return `genesis:turn-stream:${key}`
+}
+
+async function subscribeTurnStreamEvents(idempotencyKey: string, onEvent: (event: TurnStreamEvent) => void) {
+  const runtime = wailsRuntimeBridge()
+  if (!runtime?.EventsOnMultiple) throw new Error('Wails runtime event bridge is unavailable')
+  return runtime.EventsOnMultiple(turnStreamEventName(idempotencyKey), (payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return
+    onEvent(payload as TurnStreamEvent)
+  }, -1)
 }
 
 export function kernelUrl(baseUrl: string, path: string) {

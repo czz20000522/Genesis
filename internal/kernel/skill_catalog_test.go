@@ -106,7 +106,7 @@ func TestTurnEvidenceRecordsModelInputKindsWithoutSkillPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
-	wantKinds := []string{ModelInputKindSkillIndexContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}
+	wantKinds := []string{ModelInputKindSkillIndexContext, ModelInputKindUserText}
 	if got := strings.Join(provider.InputKinds(), ","); got != strings.Join(wantKinds, ",") {
 		t.Fatalf("provider input kinds = %v, want %v", provider.InputKinds(), wantKinds)
 	}
@@ -125,10 +125,6 @@ func TestTurnEvidenceRecordsModelInputKindsWithoutSkillPaths(t *testing.T) {
 	if len(turn.InputItems) != 1 || turn.InputItems[0].Text != "Do you remember prefer concise replies?" {
 		t.Fatalf("projection input items = %+v, want public user input only", turn.InputItems)
 	}
-	if len(turn.RecalledMemories) != 1 || turn.RecalledMemories[0].Source != "turn:context-provenance-source" {
-		t.Fatalf("projection recalled memories = %+v, want approved memory evidence", turn.RecalledMemories)
-	}
-
 	events, err := k.TurnEvents(resp.TurnID)
 	if err != nil {
 		t.Fatalf("TurnEvents returned error: %v", err)

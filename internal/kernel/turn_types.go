@@ -22,6 +22,13 @@ type TurnResponse struct {
 	Error     *TurnError           `json:"error,omitempty"`
 }
 
+type TurnStreamEvent struct {
+	Type     string        `json:"type"`
+	Delta    string        `json:"delta,omitempty"`
+	Response *TurnResponse `json:"response,omitempty"`
+	Error    *TurnError    `json:"error,omitempty"`
+}
+
 type TurnInterruptRequest struct {
 	Reason string `json:"reason,omitempty"`
 }
@@ -59,22 +66,21 @@ type FinalMessage struct {
 }
 
 type TurnProjection struct {
-	TurnID           string                      `json:"turn_id"`
-	IdempotencyKey   string                      `json:"idempotency_key,omitempty"`
-	Phase            string                      `json:"phase"`
-	WaitReason       string                      `json:"wait_reason,omitempty"`
-	TerminalOutcome  string                      `json:"terminal_outcome,omitempty"`
-	TerminalCause    string                      `json:"terminal_cause,omitempty"`
-	InputItems       []InputItem                 `json:"input_items"`
-	IngressRisks     []IngressRisk               `json:"ingress_risks,omitempty"`
-	ModelInputKinds  []string                    `json:"model_input_kinds,omitempty"`
-	RecalledMemories []MemoryRecall              `json:"recalled_memories,omitempty"`
-	FinalMessage     FinalMessage                `json:"final,omitempty"`
-	Pause            *TurnPauseProjection        `json:"pause,omitempty"`
-	Error            *TurnError                  `json:"error,omitempty"`
-	Interruption     *TurnInterruptionProjection `json:"interruption,omitempty"`
-	StartedAt        time.Time                   `json:"started_at"`
-	CompletedAt      time.Time                   `json:"completed_at,omitempty"`
+	TurnID          string                      `json:"turn_id"`
+	IdempotencyKey  string                      `json:"idempotency_key,omitempty"`
+	Phase           string                      `json:"phase"`
+	WaitReason      string                      `json:"wait_reason,omitempty"`
+	TerminalOutcome string                      `json:"terminal_outcome,omitempty"`
+	TerminalCause   string                      `json:"terminal_cause,omitempty"`
+	InputItems      []InputItem                 `json:"input_items"`
+	IngressRisks    []IngressRisk               `json:"ingress_risks,omitempty"`
+	ModelInputKinds []string                    `json:"model_input_kinds,omitempty"`
+	FinalMessage    FinalMessage                `json:"final,omitempty"`
+	Pause           *TurnPauseProjection        `json:"pause,omitempty"`
+	Error           *TurnError                  `json:"error,omitempty"`
+	Interruption    *TurnInterruptionProjection `json:"interruption,omitempty"`
+	StartedAt       time.Time                   `json:"started_at"`
+	CompletedAt     time.Time                   `json:"completed_at,omitempty"`
 }
 
 type TurnError struct {

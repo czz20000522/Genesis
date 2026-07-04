@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -149,6 +151,113 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 	}, nil
 }
 
+func (p *OpenAICompatibleProvider) StreamComplete(ctx context.Context, req ModelRequest, emit func(ModelStreamDelta) error) (ModelResponse, error) {
+	if status := p.Ready(); status.Readiness != ReadinessReady {
+		return ModelResponse{}, fmt.Errorf("%w: %s", ErrProviderUnavailable, status.ReadinessReason)
+	}
+
+	payload := chatCompletionRequest{
+		Model:    p.model,
+		Messages: chatMessagesFromModelRequest(req),
+		Tools:    chatToolsFromManifest(req.ToolManifest),
+		Stream:   true,
+	}
+	if len(payload.Tools) > 0 {
+		payload.ToolChoice = "auto"
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return ModelResponse{}, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(encoded))
+	if err != nil {
+		return ModelResponse{}, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ModelResponse{}, err
+		}
+		return ModelResponse{}, newProviderTransportError(err)
+	}
+	defer resp.Body.Close()
+
+	retryAfter := parseProviderRetryAfter(resp)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+		if readErr != nil {
+			return ModelResponse{}, readErr
+		}
+		return ModelResponse{}, newProviderStatusError(resp.StatusCode, string(body), retryAfter)
+	}
+	return p.decodeChatStream(resp.Body, emit)
+}
+
+func (p *OpenAICompatibleProvider) decodeChatStream(body io.Reader, emit func(ModelStreamDelta) error) (ModelResponse, error) {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var content strings.Builder
+	model := p.model
+	toolCalls := map[int]*chatToolCall{}
+	var usage *TokenUsage
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			break
+		}
+		var chunk chatCompletionStreamChunk
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			return ModelResponse{}, err
+		}
+		if strings.TrimSpace(chunk.Model) != "" {
+			model = chunk.Model
+		}
+		if chunk.Usage != nil {
+			usage = tokenUsageFromChatUsage(chunk.Usage)
+		}
+		for _, choice := range chunk.Choices {
+			if err := p.handleVendorHiddenReasoning(choice.Delta); err != nil {
+				return ModelResponse{}, err
+			}
+			if choice.Delta.Content != "" {
+				content.WriteString(choice.Delta.Content)
+				if emit != nil {
+					if err := emit(ModelStreamDelta{Text: choice.Delta.Content}); err != nil {
+						return ModelResponse{}, err
+					}
+				}
+			}
+			mergeStreamToolCalls(toolCalls, choice.Delta.ToolCalls)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return ModelResponse{}, newProviderTransportError(err)
+	}
+	if len(toolCalls) > 0 {
+		calls, err := modelToolCallsFromChat(orderedStreamToolCalls(toolCalls))
+		if err != nil {
+			return ModelResponse{}, err
+		}
+		return ModelResponse{Model: model, ToolCalls: calls, Usage: usage}, nil
+	}
+	text := content.String()
+	if strings.TrimSpace(text) == "" {
+		return ModelResponse{}, newProviderVisibleFinalRequiredError()
+	}
+	return ModelResponse{Text: text, Model: model, Usage: usage}, nil
+}
+
 func (p *OpenAICompatibleProvider) handleVendorHiddenReasoning(message chatMessage) error {
 	if strings.TrimSpace(message.ReasoningContent) == "" {
 		return nil
@@ -212,6 +321,7 @@ type chatCompletionRequest struct {
 	Messages   []chatMessage `json:"messages"`
 	Tools      []chatTool    `json:"tools,omitempty"`
 	ToolChoice string        `json:"tool_choice,omitempty"`
+	Stream     bool          `json:"stream,omitempty"`
 }
 
 type chatMessage struct {
@@ -226,6 +336,16 @@ type chatCompletionResponse struct {
 	Model   string       `json:"model"`
 	Choices []chatChoice `json:"choices"`
 	Usage   *chatUsage   `json:"usage,omitempty"`
+}
+
+type chatCompletionStreamChunk struct {
+	Model   string             `json:"model"`
+	Choices []chatStreamChoice `json:"choices"`
+	Usage   *chatUsage         `json:"usage,omitempty"`
+}
+
+type chatStreamChoice struct {
+	Delta chatMessage `json:"delta"`
 }
 
 type chatChoice struct {
@@ -244,6 +364,7 @@ type chatToolFunction struct {
 }
 
 type chatToolCall struct {
+	Index    int                  `json:"index,omitempty"`
 	ID       string               `json:"id"`
 	Type     string               `json:"type"`
 	Function chatToolCallFunction `json:"function"`
@@ -358,6 +479,45 @@ func modelToolCallsFromChat(calls []chatToolCall) ([]ModelToolCall, error) {
 		})
 	}
 	return converted, nil
+}
+
+func mergeStreamToolCalls(calls map[int]*chatToolCall, deltas []chatToolCall) {
+	for _, delta := range deltas {
+		call := calls[delta.Index]
+		if call == nil {
+			call = &chatToolCall{}
+			calls[delta.Index] = call
+		}
+		if delta.ID != "" {
+			call.ID = delta.ID
+		}
+		if delta.Type != "" {
+			call.Type = delta.Type
+		}
+		if delta.Function.Name != "" {
+			call.Function.Name += delta.Function.Name
+		}
+		if delta.Function.Arguments != "" {
+			call.Function.Arguments += delta.Function.Arguments
+		}
+	}
+}
+
+func orderedStreamToolCalls(calls map[int]*chatToolCall) []chatToolCall {
+	indexes := make([]int, 0, len(calls))
+	for index := range calls {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	ordered := make([]chatToolCall, 0, len(indexes))
+	for _, index := range indexes {
+		call := *calls[index]
+		if strings.TrimSpace(call.Type) == "" {
+			call.Type = "function"
+		}
+		ordered = append(ordered, call)
+	}
+	return ordered
 }
 
 func providerToolCallIDForReplay(call ModelToolCall) string {

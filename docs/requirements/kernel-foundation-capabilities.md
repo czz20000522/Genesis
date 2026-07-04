@@ -19,7 +19,7 @@ The production target is:
 - every admitted effect has a kernel-owned fact trail;
 - every model-visible context fragment comes from an owner projection;
 - every tool call goes through registry, validation, permission, execution, and evidence;
-- every memory truth flows through candidate, review, and recall policy;
+- every memory truth flows through candidate, review, and supersession policy;
 - every shell and application is user-space and cannot bypass kernel truth;
 - every inspection surface is bounded, purpose-specific, and non-lossy for
   user-owned local content by default.
@@ -43,7 +43,7 @@ Reviewer:
 
 LLM:
 
-- sees kernel-projected context, approved memory context, safe skill metadata, and registered model-visible tools;
+- sees kernel-projected context, safe skill metadata, and registered model-visible tools;
 - proposes semantic tool arguments and memory/work content;
 - does not create kernel ids, permission modes, sandbox profiles, credential refs, checkpoints, audit refs, or ledger facts.
 
@@ -62,7 +62,7 @@ Application:
 
 1. The event ledger is the system fact layer. Session, timeline, audit, context, operation, memory, and readiness views are projections.
 2. Control-plane fields are generated, bound, and validated by the kernel. The model can propose semantic content, not event ids, operation ids, session authority, sandbox profiles, approval policies, credential refs, checkpoint refs, or audit refs.
-3. Provider context is assembled by the Model Gateway from ledger-backed facts. Same-session conversation history, approved memory, tool call/result rounds, skill index metadata, and compaction summaries are not synthesized by adapters.
+3. Provider context is assembled by the Model Gateway from ledger-backed facts. Same-session conversation history, tool call/result rounds, skill index metadata, hydrated context, and compaction summaries are not synthesized by adapters. Approved memory is not automatically injected into provider context in the current contract.
 4. Tools are registry-owned generic effects. Application-specific verbs do not enter the kernel as tool names.
 5. Inspection surfaces expose bounded, path-safe, purpose-specific projections.
    They are not hidden owner paths for provider credentials, daemon-local
@@ -125,7 +125,7 @@ Genesis separates runtime output into five layers:
 4. Security and control audit is strong-persistence and low-noise. It records authority changes, permission denials, credential use, dangerous-operation decisions, control-plane writes, governance publication or intake, break-glass actions, boundary-crossing access, and security failures. Ordinary success info and UI actions do not enter this audit layer.
 5. Debug trace is opt-in. It may record provider projection summaries, response summaries, internal spans, chunk-level diagnostics, and gateway decisions, but it must have explicit enablement, bounded retention, quota, access controls, and any audience-specific egress policy. Debug trace does not participate in replay, memory, provider context, or audit decisions.
 
-A runtime event can enter long-term facts only when it is user-visible or model-visible, required for replay/recovery/idempotency/checkpointing, changes kernel-owned state, records a permission or risk decision, records failure or abnormal termination, or feeds provider context, compaction, memory recall, or observation delivery. Otherwise it stays in realtime transport, debug trace, or aggregate metrics.
+A runtime event can enter long-term facts only when it is user-visible or model-visible, required for replay/recovery/idempotency/checkpointing, changes kernel-owned state, records a permission or risk decision, records failure or abnormal termination, or feeds provider context, compaction, future memory recall, or observation delivery. Otherwise it stays in realtime transport, debug trace, or aggregate metrics.
 
 Any new field, table, ledger event, sidecar file, projection cache, or long-term
 debug artifact must pass the Persistence Promotion Gate in
@@ -426,19 +426,16 @@ records decision evidence before execution.
 ### Accumulation
 
 - Memory enters the kernel as a candidate, not as a silent model promise.
-- Pending candidates require source refs and remain out of recall until approved.
+- Pending candidates require source refs and remain out of provider context.
 - Approval, rejection, and supersession are durable owner decisions with authority, reason, and evidence.
-- Rejected and superseded candidates are excluded from recall.
+- Rejected and superseded candidates are excluded from future recall designs.
 - Supersession creates a replacement pending candidate; it is not hidden approval or direct text mutation.
-- `memory.recall` is a read-only observation surface. It does not run a model, append review evidence, or mutate candidates.
-- Turn submission may record recalled approved memory refs on the admitted turn event.
-- Approved memory truth and provider-visible memory context are separate projections. Approval allows recall eligibility; it does not guarantee that raw text is safe to replay to every future provider request.
-- Provider-visible approved memory context is an external egress projection. It
-  is bounded by context budget and governed by the Model Gateway egress policy;
-  it does not mutate Accumulation owner truth and does not imply that local UI
-  must hide key-shaped user content. Until an explicit egress policy can decide
-  a fragment safely, the gateway should omit, summarize, or require approval
-  rather than silently replacing local memory text with irreversible markers.
+- The current automatic recall path is retired. Approval does not inject memory
+  into a future provider request, session turn projection, or context
+  inspection.
+- A future memory recall capability must be reintroduced with explicit
+  requirement/design coverage for consumer, scope, purpose, budget, egress
+  policy, projection shape, and negative tests.
 
 ### Readiness And Inspection
 
@@ -446,7 +443,7 @@ records decision evidence before execution.
 - Capability inspection reports provider/runtime/ledger status, canonical kernel tool names, and safe skill metadata.
 - Timeline, raw events, audit, and context inspection are separate projections for different audiences.
 - Context inspection reports provider-visible input kinds, tool manifest names,
-  skill metadata summaries, approved memory refs, provider status, and resolved
+  skill metadata summaries, hydrated context refs, provider status, and resolved
   permission profile without exposing full rendered prompts, provider
   credentials, connector credentials, or daemon-local secrets.
 - Audit inspection reports event types, operation status, provider context input kinds, usage, failure codes, and truncation metadata.
@@ -498,7 +495,7 @@ Phase B: tool runtime, permission profile, shell execution, and terminal-equival
 
 Phase C: work registry, accumulation, credential plane, and protected inspection.
 
-- Proves: memory candidate/review/recall, work submit/cancel, runtime token, credential blockers, capabilities, timeline, audit, and context projections.
+- Proves: memory candidate/review/supersession, work submit/cancel, runtime token, credential blockers, capabilities, timeline, audit, and context projections.
 - Still short of production: richer memory selection, approval, stronger sandbox, and broader recovery policy remain future work.
 
 Phase D: real provider boundary, provider-backed usage accounting, multi-turn projection, skill metadata, and compaction.
@@ -519,7 +516,7 @@ Positive cases:
 - fake and real provider paths return structured final responses;
 - valid governed shell execution returns terminal-equivalent result evidence;
 - compatible pure-read tool calls can be planned into one parallel batch without changing provider-visible result order;
-- approved memory can be recalled in a later turn;
+- approved memory remains durable review truth without being automatically injected into a later turn;
 - protected inspection surfaces show readiness, capability, timeline, audit, and context projections;
 - ordinary timeline can present a turn as user message, processing group, final assistant message, and optional user-action request without exposing raw events or control-plane ids.
 
@@ -536,7 +533,7 @@ Negative cases:
   in context, logs, readiness, events, or model-visible results merely because a
   caller supplied or the daemon inherited them;
 - unsafe skill metadata is excluded;
-- rejected and superseded memories do not enter recall.
+- rejected and superseded memories do not enter future recall designs.
 
 Fail-closed and recovery:
 

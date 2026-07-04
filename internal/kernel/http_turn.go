@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -40,6 +41,42 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func handleSubmitTurnStream(w http.ResponseWriter, r *http.Request, k *Kernel) {
+	var req TurnRequest
+	if !decodeRequest(w, r, &req) {
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming_unavailable", "streaming unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	emit := func(event TurnStreamEvent) error {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(append(payload, '\n')); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+	resp, err := k.SubmitTurnStream(r.Context(), req, emit)
+	if err != nil {
+		streamErr := TurnError{Code: "turn_failed", Message: err.Error()}
+		if resp.Error != nil {
+			streamErr = *resp.Error
+		}
+		_ = emit(TurnStreamEvent{Type: "turn_failed", Error: &streamErr})
+		return
+	}
+	_ = emit(TurnStreamEvent{Type: "turn_completed", Response: &resp})
 }
 
 func turnErrorHTTPStatus(err TurnError) int {

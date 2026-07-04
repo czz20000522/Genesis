@@ -358,7 +358,8 @@ Feature files live under `features/kernel/` for kernel behavior and `features/ap
 
 ### Tech Stack
 - Vue 3 Composition API (`<script setup lang="ts">`) + TypeScript + Vite, plain CSS.
-- No component library, no design-system dependency.
+- Mature application-layer libraries are allowed behind thin adapters when they reduce parser, renderer, protocol, packaging, or platform risk.
+- No component library or design-system dependency without explicit design approval.
 - No router — single-screen workbench.
 - No global state library — component-local state only.
 

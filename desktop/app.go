@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -113,6 +114,31 @@ func (a *App) SubmitTurn(sessionID string, text string, idempotencyKey string) (
 		"input_items":     []map[string]string{{"type": "text", "text": text}},
 	})
 	return a.client.RequestJSON(ctx, http.MethodPost, "/turn", true, body)
+}
+
+func (a *App) SubmitTurnStream(sessionID string, text string, idempotencyKey string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	body, _ := json.Marshal(map[string]any{
+		"session_id":      strings.TrimSpace(sessionID),
+		"idempotency_key": idempotencyKey,
+		"input_items":     []map[string]string{{"type": "text", "text": text}},
+	})
+	eventName := desktopTurnStreamEventName(idempotencyKey)
+	final, err := a.client.StreamJSONLines(ctx, "/turn/stream", true, body, func(payload map[string]any) error {
+		if a.ctx != nil {
+			wailsruntime.EventsEmit(a.ctx, eventName, payload)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"stream_id": eventName,
+		"response":  final,
+	}, nil
 }
 
 func (a *App) ReadTimeline(sessionID string) (map[string]any, error) {
@@ -256,8 +282,88 @@ func (c *KernelHTTPClient) RequestJSON(ctx context.Context, method string, path 
 	return c.do(ctx, method, path, auth, "application/json", reader)
 }
 
+func (c *KernelHTTPClient) StreamJSONLines(ctx context.Context, path string, auth bool, body json.RawMessage, emit func(map[string]any) error) (map[string]any, error) {
+	if c.baseURL == "" {
+		return nil, errors.New("kernel base URL is required")
+	}
+	u, err := url.JoinPath(c.baseURL, strings.TrimLeft(path, "/"))
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	if auth && c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/x-ndjson")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("kernel HTTP %d", resp.StatusCode)
+	}
+	var final map[string]any
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(line), &payload); err != nil {
+			return nil, err
+		}
+		if emit != nil {
+			if err := emit(payload); err != nil {
+				return nil, err
+			}
+		}
+		switch payload["type"] {
+		case "turn_completed":
+			if response, ok := payload["response"].(map[string]any); ok {
+				final = response
+			}
+		case "turn_failed":
+			return nil, desktopTurnStreamFailure(payload)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if final == nil {
+		return nil, errors.New("stream ended before turn_completed")
+	}
+	return final, nil
+}
+
 func (c *KernelHTTPClient) PostMultipart(ctx context.Context, path string, auth bool, contentType string, body io.Reader) (map[string]any, error) {
 	return c.do(ctx, http.MethodPost, path, auth, contentType, body)
+}
+
+func desktopTurnStreamEventName(idempotencyKey string) string {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" {
+		idempotencyKey = "anonymous"
+	}
+	return "genesis:turn-stream:" + idempotencyKey
+}
+
+func desktopTurnStreamFailure(payload map[string]any) error {
+	errPayload, _ := payload["error"].(map[string]any)
+	code, _ := errPayload["code"].(string)
+	message, _ := errPayload["message"].(string)
+	text := strings.TrimSpace(strings.Join([]string{strings.TrimSpace(code), strings.TrimSpace(message)}, ": "))
+	text = strings.Trim(text, ": ")
+	if text == "" {
+		text = "turn failed"
+	}
+	return errors.New(text)
 }
 
 func (c *KernelHTTPClient) PostMultipartFile(ctx context.Context, path string, auth bool, sessionID string, purpose string, filename string, file io.Reader) (map[string]any, error) {

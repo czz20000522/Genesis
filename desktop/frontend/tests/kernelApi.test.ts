@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, saveKernelConfig, submitTurn, uploadMaterial } from '../src/api/kernelApi.ts'
+import { compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, parseTurnStreamEvent, saveKernelConfig, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -103,6 +103,54 @@ try {
 } finally {
   globalThis.fetch = originalFetch
 }
+
+let streamUrl = ''
+let streamBody: Record<string, unknown> = {}
+globalThis.fetch = async (input, init) => {
+  streamUrl = String(input)
+  requestedAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  streamBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+  const encoder = new TextEncoder()
+  return new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('{"type":"assistant_delta","delta":"你"}\n'))
+      controller.enqueue(encoder.encode('{"type":"assistant_delta","delta":"好"}\n'))
+      controller.enqueue(encoder.encode('{"type":"turn_completed","response":{"session_id":"desktop-session","turn_id":"turn-stream","final":{"text":"你好","model":"m"}}}\n'))
+      controller.close()
+    },
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/x-ndjson' },
+  })
+}
+
+try {
+  const events: string[] = []
+  const turn = await submitTurnStream({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'desktop-session', 'hello streaming', 'desktop-idem-stream', (event) => {
+    if (event.type === 'assistant_delta') events.push(event.delta ?? '')
+  })
+
+  assert.equal(streamUrl, 'http://127.0.0.1:8765/turn/stream')
+  assert.equal(requestedAuth, 'Bearer secret')
+  assert.deepEqual(streamBody, {
+    session_id: 'desktop-session',
+    idempotency_key: 'desktop-idem-stream',
+    input_items: [{ type: 'text', text: 'hello streaming' }],
+  })
+  assert.deepEqual(events, ['你', '好'])
+  assert.equal(turn.final?.text, '你好')
+} finally {
+  globalThis.fetch = originalFetch
+}
+
+assert.equal(parseTurnStreamEvent(''), null)
+assert.deepEqual(parseTurnStreamEvent('{"type":"assistant_delta","delta":"x"}'), {
+  type: 'assistant_delta',
+  delta: 'x',
+})
 
 function vueFiles(root: string): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
@@ -209,6 +257,69 @@ try {
   assert.equal(directFetchCalls, 0, 'typed Wails bridge must be the production request choke point when present')
 } finally {
   globalThis.go = originalGo
+  globalThis.fetch = originalFetch
+}
+
+const listeners = new Map<string, (...payload: unknown[]) => void>()
+const originalWindow = (globalThis as Record<string, unknown>).window
+;(globalThis as Record<string, unknown>).window = {
+  runtime: {
+    EventsOnMultiple(eventName: string, callback: (...payload: unknown[]) => void) {
+      listeners.set(eventName, callback)
+      return () => listeners.delete(eventName)
+    },
+  },
+}
+globalThis.go = {
+  main: {
+    App: {
+      SubmitTurnStream: async (sessionId: string, text: string, idempotencyKey: string) => {
+        assert.equal(sessionId, 'bridge-stream-session')
+        assert.equal(text, 'hello bridge stream')
+        assert.equal(idempotencyKey, 'idem-bridge-stream')
+        const listener = listeners.get(turnStreamEventName(idempotencyKey))
+        assert.ok(listener, 'Wails stream listener must be registered before bridge call')
+        listener({ type: 'assistant_delta', delta: '桥' })
+        listener({ type: 'assistant_delta', delta: '接' })
+        listener({
+          type: 'turn_completed',
+          response: {
+            session_id: sessionId,
+            turn_id: 'turn-bridge-stream',
+            final: { text: '桥接', model: 'm' },
+          },
+        })
+        return {
+          response: {
+            session_id: sessionId,
+            turn_id: 'turn-bridge-stream',
+            final: { text: '桥接', model: 'm' },
+          },
+        }
+      },
+    },
+  },
+}
+globalThis.fetch = async () => {
+  directFetchCalls += 1
+  return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+}
+try {
+  directFetchCalls = 0
+  const events: string[] = []
+  const turn = await submitTurnStream({
+    baseUrl: 'http://127.0.0.1:8765',
+    runtimeToken: 'secret',
+  }, 'bridge-stream-session', 'hello bridge stream', 'idem-bridge-stream', (event) => {
+    if (event.type === 'assistant_delta') events.push(event.delta ?? '')
+  })
+  assert.deepEqual(events, ['桥', '接'])
+  assert.equal(turn.final?.text, '桥接')
+  assert.equal(directFetchCalls, 0, 'Wails streaming must use typed bridge plus runtime events when present')
+  assert.equal(listeners.size, 0, 'stream listener must be unsubscribed after completion')
+} finally {
+  globalThis.go = originalGo
+  ;(globalThis as Record<string, unknown>).window = originalWindow
   globalThis.fetch = originalFetch
 }
 

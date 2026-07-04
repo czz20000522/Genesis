@@ -11,7 +11,7 @@ Architecture Governance owns structure rules and guards. Runtime owners still ow
 - Interface Kernel owns turns and session entry.
 - Tool Runtime owns tool calls, operations, jobs, and tool results.
 - Work Registry owns work records.
-- Accumulation owns memory candidates, review decisions, and recall.
+- Accumulation owns memory candidates, review decisions, and supersession.
 - Readiness and Inspection own safe projections for humans and operators.
 
 Governance does not own those facts. It only prevents central files and adapters from becoming hidden owners.
@@ -34,7 +34,7 @@ still allowed to extract gradually.
 | Shell and process execution | `shell.go`, `controlled_shell.go`, `controlled_shell_links_*.go`, `shell_environment.go`, `process_runtime.go`, `process_termination_*.go`, `managed_job_executor.go`, related shell/process tests | Shell is a generic execution primitive. It is not a place for app-specific CLI protocols. |
 | Job and observation owner | `jobs.go`, `observations.go`, `jobruntime/types.go`, `job_progress_test.go`, `interrupt_test.go` | Jobs and observations own managed job status, sparse output facts, terminal observations, and delivery to later turns. The first extracted slice is job/observation DTOs under `internal/kernel/jobruntime`. |
 | Resource and skill metadata | `resource/registry.go`, `resource/types.go`, `resource/registry_test.go`, root aliases in `resource_types.go`, `resource_read_test.go`, `skill_catalog.go`, `skill_catalog_types.go`, `skill_catalog_test.go` | Resource read is a generic primitive. Skill catalog exposes bounded metadata only; skill bodies remain user-space assets unless admitted through a generic resource/context contract. |
-| Accumulation and memory | `memory.go`, `memory_types.go`, `memory_context_test.go` | Memory owner owns candidates, review decisions, recall eligibility, and model-visible safe projection. |
+| Accumulation and memory | `memory.go`, `memory_types.go`, `memory_context_test.go` | Memory owner owns candidates, review decisions, and supersession. Automatic recall and model-visible memory projection are retired until redesigned. |
 | Work Registry | `work.go`, `work_types.go`, `workregistry/types.go` | Work owner records generic work state and cancellation, not application task semantics. The first extracted slice is work DTOs under `internal/kernel/workregistry`. |
 | Context compaction | `context_compaction.go`, `context_compaction_types.go`, `context_compaction_stuck_test.go` | Compaction runner is kernel-owned context control. Triggers submit kernel commands; shells and apps do not summarize history. |
 | Projection and inspection | `session_projection.go`, `projections.go`, `ui_timeline_projection.go`, `inspection_types.go`, `evidence_redaction.go`, `timeline_projection_test.go`, `projection_shape_test.go` | These files build safe read models. UI shells must consume projections, not reinterpret raw events. |
@@ -80,7 +80,7 @@ contract tests before moving callers.
 | `internal/kernel/resource` | resource registry, resource read, future generic context hydration | Resource refs, bounded reads, grants, and hydration facts have a stable owner API. Phase A has moved descriptor/result types and registry/read logic here while the root package keeps compatibility aliases. |
 | `internal/kernel/authority` | approval/readiness DTOs first; later authority gate, sandbox readiness, approval owner | Approval/sandbox command path is stable enough to expose an authority-plane port. |
 | `internal/kernel/jobruntime` | job/observation DTOs first; later managed jobs, observations, process executor integration | Attach/detach, progress snapshots, cancellation, and observation delivery have stable replay semantics. |
-| `internal/kernel/accumulation` | memory candidate/review/recall | Memory owner has a stable store and projection port independent of session projection. |
+| `internal/kernel/accumulation` | memory candidate/review/supersession | Memory owner has a stable store and projection port independent of session projection. Future recall requires a fresh requirement/design. |
 | `internal/kernel/workregistry` | work DTOs first; later work records and cancellation behavior | Work owner needs no direct access to `Kernel` internals beyond event append/replay ports. |
 | `internal/kernel/transport/http` | HTTP route files | Route handlers can import owner ports without creating an import cycle or duplicating owner policy. |
 

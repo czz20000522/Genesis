@@ -5,6 +5,7 @@ export type TimelineRow = {
   meta: string
   detailRef: string
   detailAvailable: boolean
+  streaming?: boolean
 }
 
 type TimelineItemLike = {

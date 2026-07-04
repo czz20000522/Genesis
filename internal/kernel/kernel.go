@@ -162,6 +162,17 @@ func (k *Kernel) sourceSnapshotPersistence() ReadyCheck {
 }
 
 func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse, error) {
+	return k.submitTurn(ctx, req, nil)
+}
+
+func (k *Kernel) SubmitTurnStream(ctx context.Context, req TurnRequest, emit func(TurnStreamEvent) error) (TurnResponse, error) {
+	if emit == nil {
+		return k.SubmitTurn(ctx, req)
+	}
+	return k.submitTurn(ctx, req, emit)
+}
+
+func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(TurnStreamEvent) error) (TurnResponse, error) {
 	if err := validateTurnRequest(req); err != nil {
 		return TurnResponse{}, err
 	}
@@ -190,7 +201,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 			if !admitted {
 				err = ErrSessionActive
 			} else {
-				_, _, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now)
+				_, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now)
 				if err != nil {
 					finishActiveTurn()
 				}
@@ -207,7 +218,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		if !admitted {
 			return TurnResponse{}, ErrSessionActive
 		}
-		_, _, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now)
+		_, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now)
 		if err != nil {
 			finishActiveTurn()
 			return TurnResponse{}, err
@@ -223,7 +234,7 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 		if err != nil {
 			return TurnResponse{}, err
 		}
-		modelResp, err := k.completeProviderStep(runCtx, sessionID, turnID, roundIndex, providerContext)
+		modelResp, err := k.completeProviderStep(runCtx, sessionID, turnID, roundIndex, providerContext, emit)
 		if err != nil {
 			if isTurnContextInterrupted(runCtx, err) {
 				return k.completeInterruptedTurn(sessionID, turnID)
@@ -319,21 +330,17 @@ func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse,
 	return TurnResponse{}, errors.New("unreachable model tool loop state")
 }
 
-func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string, idempotencyKey string, ingressRisks []IngressRisk, now time.Time) ([]MemoryRecall, []ModelInputItem, error) {
+func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string, idempotencyKey string, ingressRisks []IngressRisk, now time.Time) ([]ModelInputItem, error) {
 	events, err := k.loadEvents()
 	if err != nil {
-		return nil, nil, err
-	}
-	recalledMemories, err := k.recallMemories(req.InputItems)
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	historyContext := sameSessionConversationHistoryContext(events, sessionID, "")
 	skillIndex := k.skillCatalogProjection().Items
 	sourceSnapshots := k.resourceRegistry.ListSourceSnapshotDescriptors(sessionID)
 	hydratedContexts := pendingContextHydrationsForNewTurn(events, sessionID, turnID)
 	providerHydratedContexts := k.providerHydratedContextFragments(hydratedContexts)
-	modelInputs := modelInputItemsWithHistoryAndHydration(req.InputItems, recalledMemories, skillIndex, providerHydratedContexts, sourceSnapshots, k.contextPolicy.SkillIndexChars, historyContext, "")
+	modelInputs := modelInputItemsWithHistoryAndHydration(req.InputItems, skillIndex, providerHydratedContexts, sourceSnapshots, k.contextPolicy.SkillIndexChars, historyContext, "")
 	submitted := StoredEvent{
 		EventID:   newID("evt", now),
 		SessionID: sessionID,
@@ -349,17 +356,16 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 			SkillCatalog:     skillIndex,
 			SourceSnapshots:  sourceSnapshots,
 			RuntimeContext:   k.contextRuntimeSnapshot(),
-			RecalledMemories: recalledMemories,
 			HydratedContexts: hydratedContexts,
 		},
 	}
 	if err := k.appendEvent(submitted); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return recalledMemories, modelInputs, nil
+	return modelInputs, nil
 }
 
-func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, turnID string, roundIndex int, providerContext ProviderContextProjection) (ModelResponse, error) {
+func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, turnID string, roundIndex int, providerContext ProviderContextProjection, emit func(TurnStreamEvent) error) (ModelResponse, error) {
 	baseRequest := providerContext.ModelRequest()
 	transientAttempt := 1
 	visibleRepairCount := 0
@@ -371,7 +377,7 @@ func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, tur
 				Text: providerVisibleFinalRepairPrompt,
 			})
 		}
-		modelResp, err := k.provider.Complete(ctx, request)
+		modelResp, streamedDelta, err := k.completeModel(ctx, request, emit)
 		if err == nil && modelResponseNeedsVisibleFinalRepair(modelResp) {
 			err = newProviderVisibleFinalRequiredError()
 		}
@@ -380,6 +386,16 @@ func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, tur
 			return modelResp, nil
 		}
 		if isTurnContextInterrupted(ctx, err) {
+			return ModelResponse{}, err
+		}
+		if streamedDelta {
+			failure := providerFailureFromError(err)
+			failure.RoundIndex = roundIndex
+			failure.Attempt = transientAttempt
+			failure.MaxAttempts = maxProviderTransientAttempts
+			if appendErr := k.appendProviderAttempt(sessionID, turnID, "model.provider_attempt", failure); appendErr != nil {
+				return ModelResponse{}, appendErr
+			}
 			return ModelResponse{}, err
 		}
 		if errors.Is(err, ErrProviderVisibleFinalRequired) && visibleRepairCount < maxProviderVisibleFinalRepairs {
@@ -434,6 +450,23 @@ func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, tur
 		}
 		return ModelResponse{}, err
 	}
+}
+
+func (k *Kernel) completeModel(ctx context.Context, request ModelRequest, emit func(TurnStreamEvent) error) (ModelResponse, bool, error) {
+	streamer, ok := k.provider.(StreamingProvider)
+	if emit == nil || !ok {
+		resp, err := k.provider.Complete(ctx, request)
+		return resp, false, err
+	}
+	streamedDelta := false
+	resp, err := streamer.StreamComplete(ctx, request, func(delta ModelStreamDelta) error {
+		if strings.TrimSpace(delta.Text) == "" {
+			return nil
+		}
+		streamedDelta = true
+		return emit(TurnStreamEvent{Type: "assistant_delta", Delta: delta.Text})
+	})
+	return resp, streamedDelta, err
 }
 
 func cloneModelRequest(req ModelRequest) ModelRequest {
@@ -897,7 +930,7 @@ func (k *Kernel) providerContextProjectionFromStoredEvents(events []StoredEvent,
 }
 
 func (k *Kernel) modelInputItemsFromSubmittedEvent(data EventData, historyContext string, skillIndexBudget int, observationContext string) []ModelInputItem {
-	return modelInputItemsWithHistoryAndHydration(data.InputItems, data.RecalledMemories, data.SkillCatalog, k.providerHydratedContextFragments(data.HydratedContexts), data.SourceSnapshots, skillIndexBudget, historyContext, observationContext)
+	return modelInputItemsWithHistoryAndHydration(data.InputItems, data.SkillCatalog, k.providerHydratedContextFragments(data.HydratedContexts), data.SourceSnapshots, skillIndexBudget, historyContext, observationContext)
 }
 
 func sameSessionConversationHistoryContext(events []StoredEvent, sessionID string, beforeTurnID string) string {
@@ -963,7 +996,7 @@ func sameSessionCompletedConversationTurns(events []StoredEvent, sessionID strin
 			if event.Data.Final == nil {
 				continue
 			}
-			userText := inputText(submittedInputs[event.TurnID])
+			userText := inputItemsText(submittedInputs[event.TurnID])
 			assistantText := strings.TrimSpace(event.Data.Final.Text)
 			toolExchanges := pairedConversationToolExchanges(toolCallsByTurn[event.TurnID], toolResultsByTurn[event.TurnID])
 			if strings.TrimSpace(userText) != "" || len(toolExchanges) > 0 || assistantText != "" {
@@ -981,7 +1014,7 @@ func sameSessionCompletedConversationTurns(events []StoredEvent, sessionID strin
 			if event.Data.TurnPause == nil {
 				continue
 			}
-			userText := inputText(submittedInputs[event.TurnID])
+			userText := inputItemsText(submittedInputs[event.TurnID])
 			toolExchanges := pairedConversationToolExchanges(toolCallsByTurn[event.TurnID], toolResultsByTurn[event.TurnID])
 			assistantText := toolLoopPausedHistoryText(*event.Data.TurnPause)
 			if strings.TrimSpace(userText) != "" || len(toolExchanges) > 0 {

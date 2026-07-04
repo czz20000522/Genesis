@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ApprovalDecision, ApprovalProjection, TurnResponse } from '../api/kernelApi'
+import { assistantMarkdown } from '../assistantMarkdown'
 import { approvalSummary } from '../approvalView'
 import { readinessLabel, sessionLabel } from '../display'
 import type { TimelineRow } from '../timelineView'
@@ -72,7 +73,8 @@ function useStarter(text: string) {
           </div>
           <template v-else>
             <p v-if="row.meta" class="eyebrow">{{ row.meta }}</p>
-            <pre>{{ row.text || row.kind }}</pre>
+            <div v-if="row.kind === 'assistant'" class="assistant-markdown" :class="{ 'assistant-markdown--streaming': row.streaming }" v-html="assistantMarkdown(row.text || row.kind)" />
+            <pre v-else>{{ row.text || row.kind }}</pre>
           </template>
           <button v-if="row.detailAvailable" type="button" class="secondary-button" @click="$emit('loadDetail', row.detailRef)">详情</button>
         </div>

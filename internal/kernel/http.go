@@ -28,6 +28,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleSubmitTurn(w, r, k)
+		case r.Method == http.MethodPost && r.URL.Path == "/turn/stream":
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
+			handleSubmitTurnStream(w, r, k)
 		case r.Method == http.MethodPost && isSessionInterruptPath(r.URL.Path):
 			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
 				return
@@ -93,11 +98,6 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleGetMemoryCandidate(w, r, k)
-		case r.Method == http.MethodPost && r.URL.Path == "/memory/recall":
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleRecallMemories(w, r, k)
 		case r.Method == http.MethodPost && isMemoryApprovePath(r.URL.Path):
 			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
 				return

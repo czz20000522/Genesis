@@ -45,7 +45,6 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 				ToolManifest:      cloneToolSpecs(nil),
 				SkillCatalog:      cloneSkillCatalogItems(nil),
 				SourceSnapshots:   cloneSourceSnapshotDescriptors(event.Data.SourceSnapshots),
-				RecalledMemories:  cloneMemoryRecalls(event.Data.RecalledMemories),
 				HydratedContexts:  cloneContextHydrationProjections(event.Data.HydratedContexts),
 				UnavailableReason: "turn context snapshot was not recorded for this turn",
 			}, nil
@@ -59,7 +58,6 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 			ToolManifest:     cloneToolSpecs(event.Data.ToolManifest),
 			SkillCatalog:     cloneSkillCatalogItems(event.Data.SkillCatalog),
 			SourceSnapshots:  cloneSourceSnapshotDescriptors(event.Data.SourceSnapshots),
-			RecalledMemories: cloneMemoryRecalls(event.Data.RecalledMemories),
 			HydratedContexts: cloneContextHydrationProjections(event.Data.HydratedContexts),
 			Runtime:          cloneContextRuntimeSnapshot(event.Data.RuntimeContext),
 		}, nil
@@ -196,18 +194,9 @@ func cloneProjectionInputItems(items []InputItem) []InputItem {
 	return out
 }
 
-func cloneMemoryRecalls(items []MemoryRecall) []MemoryRecall {
-	out := make([]MemoryRecall, 0, len(items))
-	for _, item := range items {
-		out = append(out, item)
-	}
-	return out
-}
-
 func localSessionProjection(projection SessionProjection) SessionProjection {
 	for i := range projection.Turns {
 		projection.Turns[i].InputItems = cloneProjectionInputItems(projection.Turns[i].InputItems)
-		projection.Turns[i].RecalledMemories = cloneMemoryRecalls(projection.Turns[i].RecalledMemories)
 		projection.Turns[i].FinalMessage = cloneFinalMessage(projection.Turns[i].FinalMessage)
 		if projection.Turns[i].Error != nil {
 			copied := cloneTurnError(*projection.Turns[i].Error)
@@ -332,7 +321,6 @@ func toInspectionEvent(event StoredEvent) Event {
 func inspectionEventData(data EventData) EventData {
 	next := data
 	next.InputItems = cloneProjectionInputItems(data.InputItems)
-	next.RecalledMemories = cloneMemoryRecalls(data.RecalledMemories)
 	next.HydratedContexts = cloneContextHydrationProjections(data.HydratedContexts)
 	next.SourceSnapshots = cloneSourceSnapshotDescriptors(data.SourceSnapshots)
 	if data.ContextHydration != nil {

@@ -12,27 +12,18 @@ import (
 	"time"
 )
 
-func TestModelInputItemsInjectsApprovedMemoryContextBeforeProvider(t *testing.T) {
-	items := modelInputItems(
-		[]InputItem{{Type: "text", Text: "你记得我的回答偏好吗？"}},
-		[]MemoryRecall{
-			{Text: "我偏好中文回答", Source: "turn:memory-source"},
-			{Text: "  "},
-		},
-	)
+func TestModelInputItemsOnlyProjectUserInputWithoutMemoryRecall(t *testing.T) {
+	items := modelInputItems([]InputItem{{Type: "text", Text: "你记得我的回答偏好吗？"}})
 
-	if len(items) != 2 {
-		t.Fatalf("len(items) = %d, want 2", len(items))
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
 	}
-	if items[0].Kind != ModelInputKindApprovedMemoryContext || items[0].Text != "Approved memories:\n- 我偏好中文回答" {
-		t.Fatalf("memory context item = %+v", items[0])
-	}
-	if items[1].Kind != ModelInputKindUserText || items[1].Text != "你记得我的回答偏好吗？" {
-		t.Fatalf("user item = %+v", items[1])
+	if items[0].Kind != ModelInputKindUserText || items[0].Text != "你记得我的回答偏好吗？" {
+		t.Fatalf("user item = %+v", items[0])
 	}
 }
 
-func TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider(t *testing.T) {
+func TestKernelDoesNotAutoInjectApprovedMemoryIntoOpenAICompatibleProvider(t *testing.T) {
 	var providerContent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -70,7 +61,7 @@ func TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider(t *test
 	}
 	candidate, err := k.CreateMemoryCandidate(MemoryCandidateRequest{
 		SessionID: "provider-context-source",
-		Text:      "prefer concise answers",
+		Text:      "memory-only preference: blue style",
 		SourceRef: "turn:provider-context-source",
 	})
 	if err != nil {
@@ -82,7 +73,7 @@ func TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider(t *test
 
 	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
 		SessionID:  "provider-context-consumer",
-		InputItems: []InputItem{{Type: "text", Text: "Do you remember prefer concise answers?"}},
+		InputItems: []InputItem{{Type: "text", Text: "Do you remember my preference?"}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitTurn returned error: %v", err)
@@ -90,21 +81,18 @@ func TestKernelBuildsApprovedMemoryContextBeforeOpenAICompatibleProvider(t *test
 	if resp.Final.Text != "provider answer" {
 		t.Fatalf("final text = %q, want provider answer", resp.Final.Text)
 	}
-	if !strings.Contains(providerContent, "Approved memories:\n- prefer concise answers") {
-		t.Fatalf("provider content = %q, want approved memory context", providerContent)
+	if strings.Contains(providerContent, "Approved memories:") || strings.Contains(providerContent, "memory-only preference: blue style") {
+		t.Fatalf("provider content = %q, want approved memory omitted from automatic provider context", providerContent)
 	}
-	if !strings.Contains(providerContent, "Do you remember prefer concise answers?") {
+	if !strings.Contains(providerContent, "Do you remember my preference?") {
 		t.Fatalf("provider content = %q, want user text", providerContent)
 	}
 
-	projection, err := k.Session("provider-context-consumer")
+	stored, err := k.MemoryCandidate(candidate.CandidateID)
 	if err != nil {
-		t.Fatalf("Session returned error: %v", err)
+		t.Fatalf("MemoryCandidate returned error: %v", err)
 	}
-	if len(projection.Turns) != 1 || len(projection.Turns[0].RecalledMemories) != 1 {
-		t.Fatalf("projection turns = %+v, want recalled memory", projection.Turns)
-	}
-	if projection.Turns[0].RecalledMemories[0].Source != "turn:provider-context-source" {
-		t.Fatalf("recall source = %q, want turn:provider-context-source", projection.Turns[0].RecalledMemories[0].Source)
+	if stored.Status != "approved" || stored.Text != "memory-only preference: blue style" {
+		t.Fatalf("stored memory = %+v, want approved owner fact preserved", stored)
 	}
 }

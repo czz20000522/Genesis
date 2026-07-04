@@ -12,14 +12,6 @@ type MemoryCandidateListResponse struct {
 	Items []MemoryCandidateProjection `json:"items"`
 }
 
-type MemoryRecallRequest struct {
-	InputItems []InputItem `json:"input_items"`
-}
-
-type MemoryRecallResponse struct {
-	Items []MemoryRecall `json:"items"`
-}
-
 type MemoryApprovalRequest struct {
 	ApprovalAuthority   string `json:"approval_authority"`
 	ApprovalReason      string `json:"approval_reason"`
@@ -65,10 +57,4 @@ type MemoryCandidateProjection struct {
 	SupersessionEvidenceRef string     `json:"supersession_evidence_ref,omitempty"`
 	ReplacementCandidateID  string     `json:"replacement_candidate_id,omitempty"`
 	SupersededAt            *time.Time `json:"superseded_at,omitempty"`
-}
-
-type MemoryRecall struct {
-	CandidateID string `json:"candidate_id"`
-	Text        string `json:"text"`
-	Source      string `json:"source"`
 }

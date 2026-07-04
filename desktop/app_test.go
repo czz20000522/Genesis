@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -242,6 +243,44 @@ func TestTypedSubmitTurnBridgePostsKernelTurn(t *testing.T) {
 	}
 	if payload["ok"] != true {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestKernelHTTPClientStreamsTurnEventsFromKernelPrimitive(t *testing.T) {
+	var gotPath string
+	var gotMethod string
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"type":"assistant_delta","delta":"你"}` + "\n"))
+		_, _ = w.Write([]byte(`{"type":"assistant_delta","delta":"好"}` + "\n"))
+		_, _ = w.Write([]byte(`{"type":"turn_completed","response":{"session_id":"s1","turn_id":"t1","final":{"text":"你好","model":"m"}}}` + "\n"))
+	}))
+	defer server.Close()
+
+	client := NewKernelHTTPClient(server.URL, "token", server.Client())
+	var deltas []string
+	final, err := client.StreamJSONLines(context.Background(), "/turn/stream", true, json.RawMessage(`{"session_id":"s1"}`), func(payload map[string]any) error {
+		if payload["type"] == "assistant_delta" {
+			deltas = append(deltas, payload["delta"].(string))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("StreamJSONLines returned error: %v", err)
+	}
+
+	if gotPath != "/turn/stream" || gotMethod != http.MethodPost || gotAuth != "Bearer token" {
+		t.Fatalf("request = %s %s auth %q, want POST /turn/stream with token", gotMethod, gotPath, gotAuth)
+	}
+	if strings.Join(deltas, "") != "你好" {
+		t.Fatalf("deltas = %v, want 你好", deltas)
+	}
+	if final["turn_id"] != "t1" {
+		t.Fatalf("final = %+v, want turn response", final)
 	}
 }
 

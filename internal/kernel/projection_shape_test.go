@@ -41,7 +41,7 @@ func TestPublicProjectionArraysMarshalAsNonNullArrays(t *testing.T) {
 		t.Fatalf("ContextInspection returned error: %v", err)
 	}
 	assertJSONArrays(t, "context inspection", contextInspection,
-		"input_items", "model_input_kinds", "tool_manifest", "skill_catalog", "recalled_memories",
+		"input_items", "model_input_kinds", "tool_manifest", "skill_catalog",
 	)
 
 	audit, err := k.AuditReplay(resp.TurnID)
@@ -65,15 +65,6 @@ func TestPublicProjectionArraysMarshalAsNonNullArrays(t *testing.T) {
 		t.Fatalf("MemoryCandidates returned error: %v", err)
 	}
 	assertJSONArrays(t, "memory candidates", MemoryCandidateListResponse{Items: candidates}, "items")
-
-	recalls, err := k.RecallMemories(MemoryRecallRequest{InputItems: []InputItem{{
-		Type: "text",
-		Text: "nothing approved here",
-	}}})
-	if err != nil {
-		t.Fatalf("RecallMemories returned error: %v", err)
-	}
-	assertJSONArrays(t, "memory recall", recalls, "items")
 }
 
 func assertJSONArrays(t *testing.T, name string, payload any, fields ...string) {

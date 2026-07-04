@@ -18,17 +18,16 @@ type conversationToolExchange struct {
 	ResultContent string
 }
 
-func modelInputItems(userItems []InputItem, memories []MemoryRecall) []ModelInputItem {
-	return modelInputItemsWithHistory(userItems, memories, nil, 0, "")
+func modelInputItems(userItems []InputItem) []ModelInputItem {
+	return modelInputItemsWithHistory(userItems, nil, 0, "")
 }
 
-func modelInputItemsWithHistory(userItems []InputItem, memories []MemoryRecall, skills []SkillCatalogItemProjection, skillIndexBudget int, historyContext string) []ModelInputItem {
-	return modelInputItemsWithHistoryAndHydration(userItems, memories, skills, nil, nil, skillIndexBudget, historyContext, "")
+func modelInputItemsWithHistory(userItems []InputItem, skills []SkillCatalogItemProjection, skillIndexBudget int, historyContext string) []ModelInputItem {
+	return modelInputItemsWithHistoryAndHydration(userItems, skills, nil, nil, skillIndexBudget, historyContext, "")
 }
 
-func modelInputItemsWithHistoryAndHydration(userItems []InputItem, memories []MemoryRecall, skills []SkillCatalogItemProjection, hydratedContexts []providerHydratedContextFragment, sourceSnapshots []SourceSnapshotDescriptor, skillIndexBudget int, historyContext string, observationContext string) []ModelInputItem {
+func modelInputItemsWithHistoryAndHydration(userItems []InputItem, skills []SkillCatalogItemProjection, hydratedContexts []providerHydratedContextFragment, sourceSnapshots []SourceSnapshotDescriptor, skillIndexBudget int, historyContext string, observationContext string) []ModelInputItem {
 	skillContext := skillIndexContext(skills, skillIndexBudget)
-	memoryContext := approvedMemoryContext(memories)
 	sourceContext := sourceSnapshotContext(sourceSnapshots)
 	withContext := make([]ModelInputItem, 0, len(userItems)+5+len(hydratedContexts))
 	if strings.TrimSpace(historyContext) != "" {
@@ -36,9 +35,6 @@ func modelInputItemsWithHistoryAndHydration(userItems []InputItem, memories []Me
 	}
 	if skillContext != "" {
 		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindSkillIndexContext, Text: skillContext})
-	}
-	if memoryContext != "" {
-		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindApprovedMemoryContext, Text: memoryContext})
 	}
 	if context := strings.TrimSpace(observationContext); context != "" {
 		withContext = append(withContext, ModelInputItem{Kind: ModelInputKindKernelObservationContext, Text: context})
@@ -199,23 +195,6 @@ func skillIndexContext(skills []SkillCatalogItemProjection, budget int) string {
 
 func oneLine(text string) string {
 	return strings.Join(strings.Fields(text), " ")
-}
-
-func approvedMemoryContext(memories []MemoryRecall) string {
-	var memoryLines []string
-	for _, memory := range memories {
-		text := strings.TrimSpace(memory.Text)
-		if containsCredentialShapedText(text) {
-			continue
-		}
-		if text != "" {
-			memoryLines = append(memoryLines, "- "+text)
-		}
-	}
-	if len(memoryLines) == 0 {
-		return ""
-	}
-	return "Approved memories:\n" + strings.Join(memoryLines, "\n")
 }
 
 func cloneInputItems(items []InputItem) []InputItem {

@@ -55,7 +55,6 @@ type EventData struct {
 	SkillCatalog               []SkillCatalogItemProjection         `json:"skill_catalog,omitempty"`
 	SourceSnapshots            []SourceSnapshotDescriptor           `json:"source_snapshots,omitempty"`
 	RuntimeContext             *ContextRuntimeSnapshot              `json:"runtime_context,omitempty"`
-	RecalledMemories           []MemoryRecall                       `json:"recalled_memories,omitempty"`
 	HydratedContexts           []ContextHydrationProjection         `json:"hydrated_contexts,omitempty"`
 	ContextHydration           *ContextHydrationProjection          `json:"context_hydration,omitempty"`
 	ToolCall                   *ToolCallProjection                  `json:"tool_call,omitempty"`

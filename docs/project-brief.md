@@ -75,7 +75,7 @@ Secondary actors:
 - desktop chat usability: history, streaming, Markdown rendering, detail panel,
   attachment entry, and readable status;
 - Feishu ingress and egress for mobile interaction;
-- memory review, recall, supersession, and user-visible accumulation;
+- memory review, supersession, and a redesigned user-visible accumulation path;
 - more real capability packages under `~/.genesis/capabilities`;
 - clear movement between files, capability outputs, session context, and memory.
 

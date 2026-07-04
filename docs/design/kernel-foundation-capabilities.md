@@ -14,7 +14,7 @@ User-space owns shells, UI, daemons, provider commands, external applications, d
 
 1. A shell or application submits a typed turn or kernel command.
 2. The Interface Kernel validates transport shape, session identity, idempotency, and hidden-control boundaries.
-3. The Model Gateway builds provider context from ledger-backed history, approved memory, skill metadata, tool rounds, and compaction state.
+3. The Model Gateway builds provider context from ledger-backed history, skill metadata, owner-admitted hydrated context, tool rounds, and compaction state.
 4. The provider returns a final answer or canonical tool calls.
 5. ToolGateway validates tool calls, resolves authority, executes through registered executors, and records operation/tool events.
 6. Accumulation and Work Registry record their own owner facts through kernel commands.
@@ -33,7 +33,6 @@ Core conceptual commands and projections:
 - `work.cancel`
 - `memory.propose`
 - `memory.review`
-- `memory.recall`
 - `credential.resolve`
 - `audit.replay`
 - capability, context, timeline, audit, and session projections.
@@ -44,7 +43,7 @@ Public projection responses keep collection fields stable for shells and
 operator clients. Top-level collection fields that are part of a read-model
 contract serialize as JSON arrays, including the empty case, rather than
 `null` or omitted fields. Projection-tree child collections, capability skill
-catalog collections, context input/tool/skill/memory collections, memory list
+catalog collections, context input/tool/skill/hydrated-context collections, memory list
 collections, audit item collections, and turn-event item collections follow the
 same rule when clients are expected to iterate them. Optional scalar fields and
 diagnostic-only nested collections may still be omitted when absence is the
@@ -532,35 +531,28 @@ Reference alignment:
   concrete executor can enforce it; no silent host fallback is allowed for a
   configured stronger profile.
 
-## Memory Context Egress
+## Memory Review Boundary
 
-Accumulation owns raw memory candidate truth, review decisions, and recall
-eligibility. The Model Gateway owns the provider-visible memory fragment derived
-from those facts. These are not the same surface.
+Accumulation owns raw memory candidate truth, review decisions, and
+supersession. It does not currently own live automatic recall. Approved memory
+is durable owner truth for future accumulation design, but it is not injected
+into provider context, not recorded as `recalled_memories` on turns, and not
+projected through context inspection as if it had influenced the model.
 
-The provider-context flow is:
+The retired `approved_memory_context` path proved too early: it coupled memory
+review, search policy, egress policy, and provider context injection before
+Genesis had a clear recall consumer. A future memory recall capability must
+start from a fresh requirement and design that names the consumer, scope,
+purpose, budget, external egress policy, projection shape, and negative tests.
 
-1. Accumulation replays approved candidates and returns recall records with raw
-   candidate text and source refs as owner truth.
-2. Turn admission records the recalled refs on the turn event.
-3. Before building `approved_memory_context`, the Model Gateway applies the
-   model-visible egress and budget policy.
-4. The projection keeps useful semantic text only when the policy can send it
-   without turning local user content into an irreversible lossy view. If the
-   gateway cannot decide safely, it omits, summarizes, or requests approval
-   rather than replacing the owner text with markers.
-5. Session, context inspection, timeline, and provider-command projections are
-   separate read models. Local user-facing projections preserve authorized
-   content subject to budget; provider egress may be stricter because it crosses
-   an external boundary.
-6. The raw memory candidate remains unchanged inside the Accumulation owner
-   store and review surfaces that are explicitly owner-authorized.
+Until that design exists:
 
-Approval therefore means "eligible for recall," not "safe to replay raw to the
-provider forever." A future egress or credential-grant owner may add explicit
-grants, scopes, or credential handles, but the default policy remains
-conservative and does not rely on prompt instructions telling the model to
-ignore credentials.
+1. Memory candidates can be proposed, approved, rejected, and superseded.
+2. Review facts remain inspectable through memory candidate surfaces.
+3. Provider context receives no automatic approved-memory fragment.
+4. Session and context projections do not claim a memory was recalled.
+5. Local owner truth is preserved without lossy replacement or hidden
+   redaction.
 
 ## Recovery And Observability
 

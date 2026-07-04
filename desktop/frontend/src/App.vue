@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, pickMaterialFile, saveKernelConfig, submitTurn, uploadMaterial, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialFileSelection, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
+import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, pickMaterialFile, saveKernelConfig, submitTurnStream, uploadMaterial, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialFileSelection, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -10,7 +10,7 @@ import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
 import { isBlankSessionDraft } from './sessionDraft'
 import { timelineDetailEntries } from './timelineDetail'
-import { timelineRows } from './timelineView'
+import { timelineRows, type TimelineRow } from './timelineView'
 
 const config = ref(kernelConfig())
 const readiness = ref('unchecked')
@@ -27,8 +27,36 @@ const material = ref<MaterialIntakeProjection | null>(null)
 const debugExport = ref<SessionDebugExport | null>(null)
 const compaction = ref<ContextCompactionResponse | null>(null)
 const inspectorOpen = ref(false)
+const liveUserText = ref('')
+const liveAssistantText = ref('')
+const liveStreaming = ref(false)
 
 const conversationRows = computed(() => timelineRows(timeline.value?.items))
+const displayedRows = computed(() => {
+  const rows: TimelineRow[] = [...conversationRows.value]
+  if (liveUserText.value) {
+    rows.push({
+      id: 'live-user',
+      kind: 'user',
+      text: liveUserText.value,
+      meta: '',
+      detailRef: '',
+      detailAvailable: false,
+    })
+  }
+  if (liveStreaming.value || liveAssistantText.value) {
+    rows.push({
+      id: 'live-assistant',
+      kind: 'assistant',
+      text: liveAssistantText.value || '正在生成...',
+      meta: liveStreaming.value ? '正在生成' : '',
+      detailRef: '',
+      detailAvailable: false,
+      streaming: liveStreaming.value,
+    })
+  }
+  return rows
+})
 const detailEntries = computed(() => timelineDetailEntries(timeline.value?.items))
 const selectedFileName = computed(() => selectedFile.value ? ('name' in selectedFile.value ? selectedFile.value.name : selectedFile.value.filename) : '')
 const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
@@ -65,6 +93,9 @@ function resetSessionViewState() {
   debugExport.value = null
   compaction.value = null
   messageText.value = ''
+  liveUserText.value = ''
+  liveAssistantText.value = ''
+  liveStreaming.value = false
   error.value = ''
   inspectorOpen.value = false
 }
@@ -121,13 +152,24 @@ async function sendMessage() {
   try {
     const fileWasSelected = selectedFile.value
     if (fileWasSelected) material.value = await uploadMaterial(config.value, session, fileWasSelected)
-    lastTurn.value = await submitTurn(config.value, session, text || '请查看我上传的资料。', newDesktopIdempotencyKey())
+    const submittedText = text || '请查看我上传的资料。'
+    liveUserText.value = submittedText
+    liveAssistantText.value = ''
+    liveStreaming.value = true
+    lastTurn.value = await submitTurnStream(config.value, session, submittedText, newDesktopIdempotencyKey(), (event) => {
+      if (event.type === 'assistant_delta') liveAssistantText.value += event.delta ?? ''
+      if (event.type === 'turn_completed' && event.response) lastTurn.value = event.response
+    })
     messageText.value = ''
     if (fileWasSelected) selectedFile.value = null
     timeline.value = await getTimeline(config.value, session)
     await loadSessionApproval(session)
+    liveUserText.value = ''
+    liveAssistantText.value = ''
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    liveStreaming.value = false
   }
 }
 
@@ -263,7 +305,7 @@ function newDesktopIdempotencyKey() {
         :session-id="sessionId"
         :message-text="messageText"
         :last-turn="lastTurn"
-        :rows="conversationRows"
+        :rows="displayedRows"
         :detail-entries="detailEntries"
         :selected-file-name="selectedFileName"
         :readiness="readiness"

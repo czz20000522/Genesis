@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
 )
 
 const (
@@ -235,20 +234,6 @@ func (k *Kernel) MemoryCandidate(candidateID string) (MemoryCandidateProjection,
 		return MemoryCandidateProjection{}, ErrMemoryCandidateNotFound
 	}
 	return candidate, nil
-}
-
-func (k *Kernel) RecallMemories(req MemoryRecallRequest) (MemoryRecallResponse, error) {
-	if err := validateTurnRequest(TurnRequest{InputItems: req.InputItems}); err != nil {
-		return MemoryRecallResponse{}, err
-	}
-	if _, err := scanTurnIngressSecurity(req.InputItems); err != nil {
-		return MemoryRecallResponse{}, err
-	}
-	recalls, err := k.recallMemories(req.InputItems)
-	if err != nil {
-		return MemoryRecallResponse{}, err
-	}
-	return MemoryRecallResponse{Items: recalls}, nil
 }
 
 func validateMemoryCandidateRequest(req MemoryCandidateRequest) error {
@@ -500,82 +485,4 @@ func existingMemorySupersession(candidate MemoryCandidateProjection, candidates 
 		return MemorySupersessionProjection{}, errors.New("superseded memory candidate replacement not found")
 	}
 	return MemorySupersessionProjection{Superseded: candidate, Replacement: replacement}, nil
-}
-
-func (k *Kernel) recallMemories(items []InputItem) ([]MemoryRecall, error) {
-	candidates, _, err := k.memoryCandidateList()
-	if err != nil {
-		return nil, err
-	}
-	query := inputText(items)
-	recalls := []MemoryRecall{}
-	for _, candidate := range candidates {
-		if candidate.Status != MemoryCandidateApproved {
-			continue
-		}
-		if memoryMatchesTurn(candidate.Text, query) {
-			recalls = append(recalls, MemoryRecall{
-				CandidateID: candidate.CandidateID,
-				Text:        candidate.Text,
-				Source:      candidate.SourceRef,
-			})
-		}
-	}
-	return recalls, nil
-}
-
-func inputText(items []InputItem) string {
-	var parts []string
-	for _, item := range items {
-		if item.Type == "text" && strings.TrimSpace(item.Text) != "" {
-			parts = append(parts, item.Text)
-		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-func memoryMatchesTurn(memoryText string, query string) bool {
-	memoryNorm := normalizeSearchText(memoryText)
-	queryNorm := normalizeSearchText(query)
-	if memoryNorm == "" || queryNorm == "" {
-		return false
-	}
-	if strings.Contains(queryNorm, memoryNorm) || strings.Contains(memoryNorm, queryNorm) {
-		return true
-	}
-	memoryBigrams := cjkBigrams(memoryNorm)
-	for _, bigram := range memoryBigrams {
-		if strings.Contains(queryNorm, bigram) {
-			return true
-		}
-	}
-	return false
-}
-
-func normalizeSearchText(text string) string {
-	var builder strings.Builder
-	for _, r := range strings.ToLower(text) {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			builder.WriteRune(r)
-		}
-	}
-	return builder.String()
-}
-
-func cjkBigrams(text string) []string {
-	runes := []rune(text)
-	if len(runes) < 2 {
-		return nil
-	}
-	var bigrams []string
-	for i := 0; i < len(runes)-1; i++ {
-		if isCJK(runes[i]) || isCJK(runes[i+1]) {
-			bigrams = append(bigrams, string(runes[i:i+2]))
-		}
-	}
-	return bigrams
-}
-
-func isCJK(r rune) bool {
-	return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
 }

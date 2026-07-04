@@ -56,26 +56,6 @@ func handleGetMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kernel)
 	writeJSON(w, http.StatusOK, candidate)
 }
 
-func handleRecallMemories(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	var req MemoryRecallRequest
-	if !decodeRequest(w, r, &req) {
-		return
-	}
-	recalls, err := k.RecallMemories(req)
-	if writeKernelUnavailable(w, err) {
-		return
-	}
-	if errors.Is(err, ErrIngressSecurityBlocked) {
-		writeError(w, http.StatusForbidden, "memory_recall_blocked_by_ingress_security", err.Error())
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, recalls)
-}
-
 func handleApproveMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	var req MemoryApprovalRequest
 	if !decodeRequest(w, r, &req) {

@@ -425,6 +425,65 @@ label {
   background: #fff8f1;
 }
 
+.assistant-markdown {
+  display: grid;
+  gap: 8px;
+  line-height: 1.68;
+  word-break: break-word;
+}
+
+.assistant-markdown p,
+.assistant-markdown ul,
+.assistant-markdown pre,
+.assistant-markdown h3,
+.assistant-markdown h4,
+.assistant-markdown h5 {
+  margin: 0;
+}
+
+.assistant-markdown ul {
+  padding-left: 18px;
+}
+
+.assistant-markdown code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--panel-soft);
+}
+
+.assistant-markdown pre {
+  max-height: 360px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f5f7fa;
+}
+
+.assistant-markdown a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.assistant-markdown a:hover {
+  text-decoration: underline;
+}
+
+.assistant-markdown--streaming::after {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--primary);
+  content: "";
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
 .approval-prompt {
   display: flex;
   gap: 12px;

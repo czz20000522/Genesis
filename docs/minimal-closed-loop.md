@@ -12,7 +12,7 @@ The first implementation must prove the kernel loop before adding shells or appl
 6. Tool results return to the model loop as structured evidence.
 7. The final answer and provider usage/evidence summary are emitted and replay after restart.
 8. WorkRegistry can show the turn/work status after restart.
-9. Accumulation can create a memory candidate, approve it, and recall it in a later turn.
+9. Accumulation can create, approve, reject, and supersede memory candidates without automatically injecting them into later turns.
 10. Configured user-space skill roots can make installed external skill metadata visible as a bounded model index and protected inspection projection without adding application-specific kernel code.
 11. Authorized shells and daemons can inspect the current kernel capability surface without parsing prompts, local files, or application-specific code.
 

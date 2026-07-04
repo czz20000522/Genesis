@@ -391,8 +391,7 @@ func TestSessionProjectionPreservesUserOwnedLocalContent(t *testing.T) {
 			Type:      "turn.submitted",
 			CreatedAt: now,
 			Data: EventData{
-				InputItems:       []InputItem{{Type: "text", Text: "user text " + secret}},
-				RecalledMemories: []MemoryRecall{{CandidateID: "mem_session", Text: "memory " + jwt, Source: "turn:source"}},
+				InputItems: []InputItem{{Type: "text", Text: "user text " + secret}},
 			},
 		},
 		StoredEvent{
@@ -514,7 +513,7 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if err != nil {
 		t.Fatalf("SubmitTurn returned error: %v", err)
 	}
-	if got := strings.Join(provider.InputKinds(), ","); got != strings.Join([]string{ModelInputKindSkillIndexContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}, ",") {
+	if got := strings.Join(provider.InputKinds(), ","); got != strings.Join([]string{ModelInputKindSkillIndexContext, ModelInputKindUserText}, ",") {
 		t.Fatalf("provider input kinds = %v", provider.InputKinds())
 	}
 
@@ -539,7 +538,7 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if len(inspection.InputItems) != 1 || !strings.Contains(inspection.InputItems[0].Text, "Authorization: Bearer tokentest123456") {
 		t.Fatalf("input items = %+v, want local user input preserved", inspection.InputItems)
 	}
-	if got := strings.Join(inspection.ModelInputKinds, ","); got != strings.Join([]string{ModelInputKindSkillIndexContext, ModelInputKindApprovedMemoryContext, ModelInputKindUserText}, ",") {
+	if got := strings.Join(inspection.ModelInputKinds, ","); got != strings.Join([]string{ModelInputKindSkillIndexContext, ModelInputKindUserText}, ",") {
 		t.Fatalf("model input kinds = %v", inspection.ModelInputKinds)
 	}
 	toolNames := toolSpecNames(inspection.ToolManifest)
@@ -553,9 +552,6 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	}
 	if len(inspection.SkillCatalog) != 1 || inspection.SkillCatalog[0].Name != "lark-im" {
 		t.Fatalf("skill catalog = %+v, want persisted lark-im summary", inspection.SkillCatalog)
-	}
-	if len(inspection.RecalledMemories) != 1 || inspection.RecalledMemories[0].Source != "turn:context-inspection-source" {
-		t.Fatalf("recalled memories = %+v, want source refs", inspection.RecalledMemories)
 	}
 	if inspection.Runtime == nil || inspection.Runtime.Provider.Name != "capturing" {
 		t.Fatalf("runtime snapshot = %+v, want original provider", inspection.Runtime)

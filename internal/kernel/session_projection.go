@@ -136,14 +136,13 @@ func (b *sessionProjectionBuilder) applyTurnEvent(event StoredEvent) {
 	case "turn.submitted":
 		b.turnByID[event.TurnID] = len(b.projection.Turns)
 		b.projection.Turns = append(b.projection.Turns, TurnProjection{
-			TurnID:           event.TurnID,
-			IdempotencyKey:   event.Data.IdempotencyKey,
-			Phase:            RuntimePhaseRunning,
-			InputItems:       event.Data.InputItems,
-			IngressRisks:     event.Data.IngressRisks,
-			ModelInputKinds:  event.Data.ModelInputKinds,
-			RecalledMemories: event.Data.RecalledMemories,
-			StartedAt:        event.CreatedAt,
+			TurnID:          event.TurnID,
+			IdempotencyKey:  event.Data.IdempotencyKey,
+			Phase:           RuntimePhaseRunning,
+			InputItems:      event.Data.InputItems,
+			IngressRisks:    event.Data.IngressRisks,
+			ModelInputKinds: event.Data.ModelInputKinds,
+			StartedAt:       event.CreatedAt,
 		})
 	case "model.final":
 		idx, ok := b.turnByID[event.TurnID]

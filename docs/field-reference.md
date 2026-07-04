@@ -130,7 +130,7 @@ Observed live probe with `deepseek-v4-flash`:
 | --- | --- | --- | --- |
 | `conversation_history_context` | Ledger completed turns in the same session. | Same-session user, assistant, and model-visible tool call/result history selected for the provider request. | Model Gateway projection. |
 | `skill_index_context` | Skill catalog metadata. | Budgeted skill names and descriptions only; no skill bodies or paths. | Model Gateway projection. |
-| `approved_memory_context` | Approved memory recalls. | User-approved accumulation facts selected for this turn. | Accumulation plus Model Gateway projection. |
+| `hydrated_context` | Owner-admitted resource or instruction context. | Bounded content admitted through generic context hydration. | Resource/context owner plus Model Gateway projection. |
 | `kernel_observation_context` | Undelivered kernel observation facts such as terminal job events. | System facts delivered at a provider checkpoint and marked delivered only after provider success. | Interface Kernel / Model Gateway projection. |
 | `user_text` | Current `turn.submit` input item. | User or external-application text content. | Interface Kernel admission. |
 
