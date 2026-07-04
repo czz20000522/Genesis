@@ -12,6 +12,14 @@ Core principle:
 
 ## Document Roles
 
+The project brief answers:
+
+- what Genesis is building;
+- why it exists;
+- who uses it;
+- the feature roadmap and priorities;
+- success standards and non-goals.
+
 Requirement documents answer:
 
 - what the kernel capability must be;
@@ -79,6 +87,12 @@ Architecture, feature, directory, and document reviews are one periodic governan
 - document sets still contain only active requirements, living designs, useful phase summaries, active issues, and retirement evidence.
 
 When a document no longer serves one of those roles, delete it or condense it into the current positive contract. Do not keep stale implementation notes, temporary checklists, or obsolete architecture narratives as active documents.
+
+Each long-lived concept must have one canonical source. Other documents may
+summarize that concept, but they should link to the source instead of copying
+the full definition. Product purpose and roadmap belong in
+`docs/project-brief.md`; kernel authority belongs in `docs/kernel-contract.md`;
+current gaps belong in `docs/operations/`.
 
 ## Required Flow
 
