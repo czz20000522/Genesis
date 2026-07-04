@@ -130,3 +130,6 @@ issues remain in `docs/operations/kernel-issues.md`.
 - `workflow-runtime-design.md`: the owner split, data shapes, execution model,
   config compilation, generated flowchart projection, failure behavior, and
   log-driven optimization model for user-space Workflow Runtime.
+- `user-capability-package-design.md`: the user-home and package layout for
+  organizing small user-defined external capabilities under `~/.genesis`
+  without turning them into kernel features.
