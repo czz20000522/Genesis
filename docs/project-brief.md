@@ -20,6 +20,10 @@ environment around an LLM:
 - a `~/.genesis` user home for config, credentials, models, accumulation,
   skills, capabilities, and runtime state.
 
+The core product idea is an agent kernel / harness runtime: the LLM can touch
+local files, external CLIs, capability packages, mobile messages, and the
+desktop shell only through governed boundaries.
+
 The product goal is a practical personal digital self: something the user can
 talk to, give files to, ask to use local tools, reach from mobile channels, and
 trust to preserve evidence and boundaries.
@@ -123,6 +127,8 @@ Genesis is successful when:
 
 - Kernel: Go.
 - Kernel distribution target: local `genesisd` binary.
+- Product distribution target: local desktop app experience; shells,
+  connectors, and capabilities stay in user space.
 - Session store: file-backed event frames with SQLite index/read model.
 - Desktop: Wails + Vue/Vite + Go bridge over kernel HTTP.
 - Provider boundary: Genesis model gateway, `provider_command`, and current
