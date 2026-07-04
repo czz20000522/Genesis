@@ -89,6 +89,19 @@ The manifest is for system discovery and health checks. `SKILL.md` is for model
 guidance: when to use the capability, what inputs are valid, what command shape
 is expected, and how to interpret failures.
 
+Current local operator surface:
+
+```text
+genesisctl capability list
+genesisctl capability doctor <capability-id>
+genesisctl capability run <capability-id> -- <capability arguments>
+```
+
+These commands are a thin user-space facade over `~/.genesis/capabilities`.
+They do not create a marketplace, do not scan arbitrary local paths, and do not
+grant kernel tool authority. `run` executes only the manifest entrypoint inside
+the selected capability package.
+
 Skills and capabilities remain orthogonal:
 
 - installing a skill does not grant tool authority;

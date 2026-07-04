@@ -495,13 +495,26 @@ label {
   background: #fff8f1;
 }
 
-.approval-prompt div:first-child {
+.approval-copy {
   display: grid;
-  gap: 2px;
+  min-width: 0;
+  gap: 4px;
 }
 
 .approval-prompt small {
   color: var(--muted);
+}
+
+.approval-prompt code {
+  max-width: min(620px, 58vw);
+  overflow: hidden;
+  padding: 6px 8px;
+  border: 1px solid #efd9c5;
+  border-radius: 7px;
+  background: #fffdf9;
+  color: #5f3d20;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .approval-actions {

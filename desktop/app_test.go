@@ -246,6 +246,33 @@ func TestTypedSubmitTurnBridgePostsKernelTurn(t *testing.T) {
 	}
 }
 
+func TestTypedListSessionsBridgeReadsKernelSessionIndex(t *testing.T) {
+	var gotPath string
+	var gotMethod string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"items":[{"session_id":"s1","title":"first"}]}`))
+	}))
+	defer server.Close()
+
+	app := NewApp()
+	app.client = NewKernelHTTPClient(server.URL, "token", server.Client())
+	payload, err := app.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions returned error: %v", err)
+	}
+
+	if gotPath != "/sessions" || gotMethod != http.MethodGet {
+		t.Fatalf("request = %s %s, want GET /sessions", gotMethod, gotPath)
+	}
+	items, ok := payload["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("payload = %+v, want one session item", payload)
+	}
+}
+
 func TestKernelHTTPClientStreamsTurnEventsFromKernelPrimitive(t *testing.T) {
 	var gotPath string
 	var gotMethod string

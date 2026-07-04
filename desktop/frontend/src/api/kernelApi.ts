@@ -96,6 +96,16 @@ export type ApprovalListResponse = {
   items?: ApprovalProjection[]
 }
 
+export type SessionListItem = {
+  session_id?: string
+  title?: string
+  updated_at?: string
+}
+
+export type SessionListResponse = {
+  items?: SessionListItem[]
+}
+
 export type SessionProjection = {
   session_id?: string
   approvals?: ApprovalProjection[]
@@ -136,6 +146,12 @@ export async function getReady(config = kernelConfig()) {
 
 export async function getCapabilities(config = kernelConfig()) {
   return requestKernel(config, '/capabilities')
+}
+
+export async function listSessions(config = kernelConfig()) {
+  const bridge = wailsAppBridge()
+  if (bridge?.ListSessions) return bridge.ListSessions() as Promise<SessionListResponse>
+  return requestKernel<SessionListResponse>(config, '/sessions')
 }
 
 export async function getTimeline(config: KernelConfig, sessionId: string) {
@@ -346,6 +362,7 @@ type MaterialBridgeRequest = {
 
 type WailsAppBridge = {
   Ready?: () => Promise<unknown>
+  ListSessions?: () => Promise<unknown>
   SubmitTurn?: (sessionId: string, text: string, idempotencyKey: string) => Promise<unknown>
   SubmitTurnStream?: (sessionId: string, text: string, idempotencyKey: string) => Promise<unknown>
   ReadTimeline?: (sessionId: string) => Promise<unknown>

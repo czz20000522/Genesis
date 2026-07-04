@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -60,6 +61,21 @@ func TestSourceCommandFramesAcceptEventThenAdvanceCursor(t *testing.T) {
 	}
 	if len(failures) != 0 {
 		t.Fatalf("failures = %+v, want no source failures", failures)
+	}
+}
+
+func TestSourceCommandFramesIdleTimeoutFailsWithoutEmittingEvent(t *testing.T) {
+	ctx := context.Background()
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	err := ConsumeSourceCommandFrames(ctx, reader, SourceCommandFrameConsumer{
+		IdleTimeout: 10 * time.Millisecond,
+	}, func(event ExternalEvent) error {
+		t.Fatalf("idle source must not emit event: %+v", event)
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "idle timeout") {
+		t.Fatalf("ConsumeSourceCommandFrames error = %v, want idle timeout", err)
 	}
 }
 

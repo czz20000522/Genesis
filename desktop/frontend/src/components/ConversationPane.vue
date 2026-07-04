@@ -83,10 +83,11 @@ function useStarter(text: string) {
 
     <div class="composer-wrap">
       <div v-for="entry in approvalRows" :key="entry.approval.approval_id" class="approval-prompt" role="status" aria-live="polite">
-        <div>
-          <strong>{{ entry.rows[0] }}</strong>
-          <span>{{ entry.rows[1] }}</span>
-          <small>{{ entry.rows[2] }}</small>
+        <div class="approval-copy">
+          <p class="eyebrow">当前会话需要确认</p>
+          <strong>{{ entry.rows[1] }}</strong>
+          <code v-if="entry.rows[2]">{{ entry.rows[2] }}</code>
+          <small v-else>{{ entry.rows[0] }}</small>
         </div>
         <div class="approval-actions">
           <button type="button" class="secondary-button" @click="$emit('decideApproval', String(entry.approval.approval_id || ''), 'denied')">拒绝</button>

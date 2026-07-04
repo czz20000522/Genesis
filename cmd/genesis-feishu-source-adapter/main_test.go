@@ -57,21 +57,21 @@ func TestFeishuSourceAdapterMalformedPayloadEmitsFailedFrame(t *testing.T) {
 }
 
 func TestFeishuEventCommandOwnsLarkCLIEventSyntax(t *testing.T) {
-	executable, args, err := feishuEventCommand("lark-cli", "genesis", defaultFeishuMessageEventKey, "bot", 1, "30s")
+	executable, args, err := feishuEventCommand("lark-cli", "genesis", defaultFeishuMessageEventKey, "evt_last", "bot", 1, "30s")
 	if err != nil {
 		t.Fatalf("feishuEventCommand returned error: %v", err)
 	}
 	if executable != "lark-cli" {
 		t.Fatalf("executable = %q, want lark-cli", executable)
 	}
-	want := []string{"--profile", "genesis", "event", "consume", defaultFeishuMessageEventKey, "--as", "bot", "--max-events", "1", "--timeout", "30s"}
+	want := []string{"--profile", "genesis", "event", "consume", defaultFeishuMessageEventKey, "--as", "bot", "--after-event-id", "evt_last", "--max-events", "1", "--timeout", "30s"}
 	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("args = %#v, want %#v", args, want)
 	}
 }
 
 func TestFeishuEventCommandRequiresExplicitProfile(t *testing.T) {
-	_, _, err := feishuEventCommand("lark-cli", "", defaultFeishuMessageEventKey, "bot", 1, "30s")
+	_, _, err := feishuEventCommand("lark-cli", "", defaultFeishuMessageEventKey, "", "bot", 1, "30s")
 	if err == nil {
 		t.Fatal("feishuEventCommand should reject missing explicit profile")
 	}

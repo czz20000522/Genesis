@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const maxSourceCommandBackoff = 30 * time.Second
+
 var (
 	ErrSourceCommandBlocked       = errors.New("source command blocked")
 	ErrSourceCommandRuntimeFailed = errors.New("source command runtime failed")
@@ -38,12 +40,12 @@ func (s SourceCommandIntake) Run(ctx context.Context, handle func(ExternalEvent)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if policy.Backoff > 0 {
+		if delay := sourceCommandBackoffDelay(policy, attempt); delay > 0 {
 			sleep := s.Sleep
 			if sleep == nil {
 				sleep = sleepSourceCommandBackoff
 			}
-			if err := sleep(ctx, policy.Backoff); err != nil {
+			if err := sleep(ctx, delay); err != nil {
 				return err
 			}
 		}
@@ -59,6 +61,23 @@ func normalizeSourceCommandRetryPolicy(policy SourceCommandRetryPolicy) SourceCo
 		policy.Backoff = 0
 	}
 	return policy
+}
+
+func sourceCommandBackoffDelay(policy SourceCommandRetryPolicy, failedAttempt int) time.Duration {
+	if policy.Backoff <= 0 || failedAttempt < 1 {
+		return 0
+	}
+	delay := policy.Backoff
+	for i := 1; i < failedAttempt; i++ {
+		if delay >= maxSourceCommandBackoff/2 {
+			return maxSourceCommandBackoff
+		}
+		delay *= 2
+	}
+	if delay > maxSourceCommandBackoff {
+		return maxSourceCommandBackoff
+	}
+	return delay
 }
 
 func sourceCommandBlockedError(err error) error {

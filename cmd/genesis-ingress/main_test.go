@@ -550,6 +550,59 @@ func TestFeishuListenRetriesRecoverableSourceCommandFailure(t *testing.T) {
 	}
 }
 
+func TestFeishuListenPassesPersistedCursorToSourceAdapter(t *testing.T) {
+	var submitCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/turn" {
+			t.Fatalf("path = %q, want /turn", r.URL.Path)
+		}
+		submitCount++
+		_ = json.NewEncoder(w).Encode(connectorruntime.TurnSubmitResponse{
+			SessionID: "session-1",
+			TurnID:    "turn-1",
+			Final:     connectorruntime.FinalAnswer{Text: "listener final"},
+		})
+	}))
+	t.Cleanup(server.Close)
+	dir := testsupport.ProjectTempDir(t, "feishu-listen-source-cursor-resume")
+	sourceLifecyclePath := filepath.Join(dir, "source-lifecycle.json")
+	store, err := connectorruntime.NewFileSourceLifecycleStore(sourceLifecyclePath)
+	if err != nil {
+		t.Fatalf("NewFileSourceLifecycleStore returned error: %v", err)
+	}
+	if err := store.SaveSourceCursor(context.Background(), connectorruntime.SourceCursor{
+		SourceID:    "source_feishu_chat",
+		CursorKind:  connectorruntime.SourceCursorKindExternalEventID,
+		CursorValue: "evt_previous",
+		UpdatedAt:   time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("SaveSourceCursor returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = runWithIO(context.Background(), []string{
+		"feishu-listen",
+		"--kernel-url", server.URL,
+		"--runtime-token", "token",
+		"--state", filepath.Join(dir, "state.json"),
+		"--source-command", os.Args[0],
+		"--profile", "genesis",
+		"--source-command-arg", "-test.run=TestFeishuListenSourceCommandHelper",
+		"--source-command-arg", "--",
+		"--source-command-arg", "require-after-event-id-then-event",
+		"--source-command-arg", "evt_previous",
+		"--source-id", "source_feishu_chat",
+		"--source-state", filepath.Join(dir, "source-failures.json"),
+		"--source-lifecycle-state", sourceLifecyclePath,
+	}, strings.NewReader(""), &stdout, io.Discard)
+	if err != nil {
+		t.Fatalf("runWithIO returned error: %v\n%s", err, stdout.String())
+	}
+	if submitCount != 1 {
+		t.Fatalf("submit count = %d, want one kernel turn after cursor resume", submitCount)
+	}
+}
+
 func TestFeishuProbeReportsInstalledAdapterReadiness(t *testing.T) {
 	var stdout bytes.Buffer
 	if err := runWithIO(context.Background(), []string{
@@ -771,10 +824,52 @@ func TestFeishuListenSourceCommandHelper(t *testing.T) {
 		if err := os.WriteFile(attemptFile, []byte("started"), 0o600); err != nil {
 			t.Fatalf("write started file: %v", err)
 		}
+	case "require-after-event-id-then-event":
+		want := attemptFile
+		if want == "" {
+			t.Fatal("expected after-event-id argument is required")
+		}
+		got := sourceCommandHelperFlagValue("--after-event-id")
+		if got != want {
+			t.Fatalf("after-event-id = %q, want %q in args %#v", got, want, os.Args)
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		frames := []connectorruntime.SourceCommandFrame{
+			{Kind: connectorruntime.SourceFrameKindReady, SourceID: "source_feishu_chat", Connector: "feishu", AdapterRef: "feishu-source-adapter"},
+			{
+				Kind:     connectorruntime.SourceFrameKindEvent,
+				SourceID: "source_feishu_chat",
+				Event: &connectorruntime.ExternalEvent{
+					Connector:        "feishu",
+					ExternalEventID:  "evt_after_resume",
+					EventType:        "message.created",
+					ThreadRef:        connectorruntime.ExternalThreadRef{Connector: "feishu", Kind: "chat", ExternalID: "oc_1"},
+					SenderRef:        connectorruntime.ExternalRef{Connector: "feishu", Kind: "user", ExternalID: "ou_1"},
+					MessageRef:       connectorruntime.ExternalRef{Connector: "feishu", Kind: "message", ExternalID: "om_1"},
+					Body:             "hello after resume",
+					SourceValidation: connectorruntime.SourceValidationUnchecked,
+				},
+			},
+			{Kind: connectorruntime.SourceFrameKindStopped, SourceID: "source_feishu_chat", Connector: "feishu", AdapterRef: "feishu-source-adapter"},
+		}
+		for _, frame := range frames {
+			if err := encoder.Encode(frame); err != nil {
+				t.Fatalf("encode frame: %v", err)
+			}
+		}
 	default:
 		t.Fatalf("unknown helper mode %q", mode)
 	}
 	os.Exit(0)
+}
+
+func sourceCommandHelperFlagValue(flag string) string {
+	for i, arg := range os.Args {
+		if arg == flag && i+1 < len(os.Args) {
+			return os.Args[i+1]
+		}
+	}
+	return ""
 }
 
 func TestFeishuProfileProbeHelper(t *testing.T) {

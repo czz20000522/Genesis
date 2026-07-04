@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, pickMaterialFile, saveKernelConfig, submitTurnStream, uploadMaterial, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialFileSelection, type MaterialIntakeProjection, type SessionDebugExport, type TurnResponse } from './api/kernelApi'
+import { computed, onMounted, ref } from 'vue'
+import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, listSessions, pickMaterialFile, saveKernelConfig, submitTurnStream, uploadMaterial, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialFileSelection, type MaterialIntakeProjection, type SessionDebugExport, type SessionListItem, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -16,6 +16,7 @@ const config = ref(kernelConfig())
 const readiness = ref('unchecked')
 const error = ref('')
 const sessionId = ref(newDesktopSessionId())
+const sessions = ref<SessionListItem[]>([])
 const messageText = ref('')
 const lastTurn = ref<TurnResponse | null>(null)
 const pendingApprovals = ref<ApprovalProjection[]>([])
@@ -118,10 +119,25 @@ async function checkReady() {
   try {
     const payload = await getReady(config.value)
     readiness.value = String(payload.readiness ?? payload.status ?? 'unknown')
+    await loadSessions()
   } catch (err) {
     readiness.value = 'not_ready'
     error.value = err instanceof Error ? err.message : String(err)
   }
+}
+
+async function loadSessions() {
+  saveKernelConfig(config.value)
+  const payload = await listSessions(config.value)
+  sessions.value = (payload.items ?? []).filter((item) => String(item.session_id || '').trim())
+}
+
+async function selectSession(nextSessionId: string) {
+  const next = String(nextSessionId || '').trim()
+  if (!next || next === sessionId.value) return
+  sessionId.value = next
+  resetSessionViewState()
+  await loadTimeline()
 }
 
 async function loadTimeline() {
@@ -164,6 +180,7 @@ async function sendMessage() {
     if (fileWasSelected) selectedFile.value = null
     timeline.value = await getTimeline(config.value, session)
     await loadSessionApproval(session)
+    await loadSessions()
     liveUserText.value = ''
     liveAssistantText.value = ''
   } catch (err) {
@@ -282,13 +299,19 @@ function newDesktopIdempotencyKey() {
   if (randomUUID) return `desktop-turn-${randomUUID}`
   return `desktop-turn-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
+
+onMounted(() => {
+  void checkReady()
+})
 </script>
 
 <template>
   <main :class="['chat-shell', { 'chat-shell--inspector-open': inspectorOpen }]">
     <SessionRail
       :session-id="sessionId"
+      :sessions="sessions"
       @new-session="newSession"
+      @select-session="selectSession"
     />
 
     <section class="session-workspace">

@@ -25,6 +25,8 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 		return errors.New("command is required: provider-setup or provider")
 	}
 	switch args[0] {
+	case "capability":
+		return runCapability(args[1:], stdout)
 	case "provider-setup":
 		return runProviderSetup(args[1:], stdin, stdout)
 	case "provider":

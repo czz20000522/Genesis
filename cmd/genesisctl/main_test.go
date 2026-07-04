@@ -44,6 +44,106 @@ func TestProviderUseDeepSeekPresetDryRunDoesNotRequireAPIKey(t *testing.T) {
 	}
 }
 
+func TestCapabilityListDoctorAndRunUseUserCapabilityRoot(t *testing.T) {
+	root := testsupport.ProjectTempDir(t, "genesisctl-capability-root")
+	pkg := filepath.Join(root, "video-transcript")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatalf("mkdir capability package: %v", err)
+	}
+	runnerName := "runner"
+	if runtime.GOOS == "windows" {
+		runnerName += ".exe"
+	}
+	source, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatalf("read test executable: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, runnerName), source, 0o755); err != nil {
+		t.Fatalf("write helper runner: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "SKILL.md"), []byte("# Video transcript\n"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	manifest := `{
+  "id": "video-transcript",
+  "name": "视频字幕提取",
+  "description": "从链接生成字幕文件。",
+  "entrypoint": "` + runnerName + `",
+  "skill": "SKILL.md",
+  "inputs": ["url"],
+  "outputs": ["txt"]
+}`
+	if err := os.WriteFile(filepath.Join(pkg, "genesis.capability.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	var listOut bytes.Buffer
+	if err := run([]string{"capability", "list", "-root", root}, strings.NewReader(""), &listOut); err != nil {
+		t.Fatalf("capability list returned error: %v", err)
+	}
+	if !strings.Contains(listOut.String(), `"id": "video-transcript"`) || !strings.Contains(listOut.String(), `"readiness": "ready"`) {
+		t.Fatalf("list output = %s", listOut.String())
+	}
+
+	var doctorOut bytes.Buffer
+	if err := run([]string{"capability", "doctor", "video-transcript", "-root", root}, strings.NewReader(""), &doctorOut); err != nil {
+		t.Fatalf("capability doctor returned error: %v\n%s", err, doctorOut.String())
+	}
+	if !strings.Contains(doctorOut.String(), `"readiness": "ready"`) {
+		t.Fatalf("doctor output = %s", doctorOut.String())
+	}
+
+	var runOut bytes.Buffer
+	if err := run([]string{
+		"capability", "run", "video-transcript",
+		"-root", root,
+		"--",
+		"-test.run=TestCapabilityRunnerHelper",
+		"--",
+		"capability-helper",
+		"https://example.com/video",
+	}, strings.NewReader(""), &runOut); err != nil {
+		t.Fatalf("capability run returned error: %v\n%s", err, runOut.String())
+	}
+	if strings.TrimSpace(runOut.String()) != "capability:https://example.com/video" {
+		t.Fatalf("run output = %q", runOut.String())
+	}
+}
+
+func TestCapabilityDoctorFailsClosedForUnsafeManifest(t *testing.T) {
+	root := testsupport.ProjectTempDir(t, "genesisctl-capability-unsafe")
+	pkg := filepath.Join(root, "bad")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatalf("mkdir capability package: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "genesis.capability.json"), []byte(`{"id":"bad","entrypoint":"../escape.ps1"}`), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run([]string{"capability", "doctor", "bad", "-root", root}, strings.NewReader(""), &stdout)
+	if err == nil {
+		t.Fatal("capability doctor should reject unsafe entrypoint")
+	}
+	if !strings.Contains(stdout.String(), `"reason": "entrypoint_unsafe"`) {
+		t.Fatalf("doctor output = %s", stdout.String())
+	}
+}
+
+func TestCapabilityRunnerHelper(t *testing.T) {
+	args := os.Args
+	for i, arg := range args {
+		if arg == "capability-helper" {
+			if i+1 >= len(args) {
+				t.Fatal("capability-helper missing payload")
+			}
+			t.Log("capability helper executed")
+			os.Stdout.WriteString("capability:" + args[i+1] + "\n")
+			os.Exit(0)
+		}
+	}
+}
+
 func TestProviderUseDeepSeekPresetWritesConfigWithoutPrintingSecret(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("real local credential setup uses Windows DPAPI")

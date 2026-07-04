@@ -81,6 +81,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	sourceAdapterRef := fs.String("source-adapter-ref", "feishu-source-adapter", "connector-local source adapter reference")
 	sourceAttempts := fs.Int("source-attempts", 1, "maximum source_command attempts after recoverable runtime failures")
 	sourceBackoff := fs.Duration("source-backoff", time.Second, "backoff between recoverable source_command attempts")
+	sourceIdleTimeout := fs.Duration("source-idle-timeout", 0, "maximum time without a source frame before killing and retrying the source command; 0 disables idle timeout")
 	deliverFinal := fs.Bool("deliver-final", false, "enqueue and deliver kernel final_text back through the connector outbox")
 	outboxPath := fs.String("outbox-state", envOrDefault("GENESIS_CONNECTOR_OUTBOX_STATE", filepath.Join(".genesis_ingress", "outbox.json")), "connector outbox state file")
 	sourceFailurePath := fs.String("source-state", envOrDefault("GENESIS_CONNECTOR_SOURCE_STATE", filepath.Join(".genesis_ingress", "source_failures.json")), "connector source failure state file")
@@ -101,6 +102,9 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	}
 	if *sourceBackoff < 0 {
 		return fmt.Errorf("feishu-listen --source-backoff must not be negative")
+	}
+	if *sourceIdleTimeout < 0 {
+		return fmt.Errorf("feishu-listen --source-idle-timeout must not be negative")
 	}
 	_, runtime, err := buildRuntime(flags, stdin)
 	if err != nil {
@@ -141,7 +145,11 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	if strings.TrimSpace(*sourceCommand) != "" {
 		sourceReadinessBlockReason = profileBlockedReason
 		if sourceReadinessBlockReason == "" {
-			sourceArgs = feishuSourceCommandArgs(sourceArgs, *profile, *larkCLI, *sourceID)
+			resumeAfterEventID, err := sourceResumeAfterEventID(ctx, sourceLifecycleStore, *sourceID)
+			if err != nil {
+				return err
+			}
+			sourceArgs = feishuSourceCommandArgs(sourceArgs, *profile, *larkCLI, *sourceID, resumeAfterEventID)
 		} else {
 			sourceReadinessBlockDescription = sourceReadinessBlockReason
 		}
@@ -157,6 +165,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		IgnoreSenderIDs:           append([]string(nil), ignoreSenderIDs...),
 		ReadinessBlockReasonCode:  sourceReadinessBlockReason,
 		ReadinessBlockDescription: sourceReadinessBlockDescription,
+		IdleTimeout:               *sourceIdleTimeout,
 	}
 	intake := connectorruntime.SourceCommandIntake{
 		Adapter: adapter,
@@ -201,7 +210,7 @@ func runFeishuProbe(ctx context.Context, args []string, stdout io.Writer) error 
 	if strings.TrimSpace(*sourceCommand) != "" {
 		sourceBlockedReason = finalDeliveryBlockedReason
 		if sourceBlockedReason == "" {
-			sourceArgs = feishuSourceCommandArgs(sourceArgs, *profile, *larkCLI, "feishu.im.message.receive")
+			sourceArgs = feishuSourceCommandArgs(sourceArgs, *profile, *larkCLI, "feishu.im.message.receive", "")
 		}
 	}
 	finalDeliveryArgs := []string(nil)
@@ -251,13 +260,30 @@ func feishuConnectorCommandArgs(prefix []string, profile string, larkCLI string)
 	return args
 }
 
-func feishuSourceCommandArgs(prefix []string, profile string, larkCLI string, sourceID string) []string {
+func feishuSourceCommandArgs(prefix []string, profile string, larkCLI string, sourceID string, afterEventID string) []string {
 	args := append([]string(nil), prefix...)
 	args = append(args, "--profile", strings.TrimSpace(profile), "--source-id", strings.TrimSpace(sourceID))
 	if strings.TrimSpace(larkCLI) != "" {
 		args = append(args, "--lark-cli", strings.TrimSpace(larkCLI))
 	}
+	if strings.TrimSpace(afterEventID) != "" {
+		args = append(args, "--after-event-id", strings.TrimSpace(afterEventID))
+	}
 	return args
+}
+
+func sourceResumeAfterEventID(ctx context.Context, store connectorruntime.SourceLifecycleStore, sourceID string) (string, error) {
+	if store == nil {
+		return "", nil
+	}
+	cursor, ok, err := store.GetSourceCursor(ctx, strings.TrimSpace(sourceID), connectorruntime.SourceCursorKindExternalEventID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", nil
+	}
+	return strings.TrimSpace(cursor.CursorValue), nil
 }
 
 func feishuProfileReadinessBlockReason(ctx context.Context, profile string, readiness string, probeCommand string, probeArgs []string, probeTimeout time.Duration) (string, error) {

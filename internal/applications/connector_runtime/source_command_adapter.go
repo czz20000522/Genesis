@@ -28,6 +28,7 @@ type SourceCommandFrameConsumer struct {
 	SourceStore        SourceLifecycleStore
 	FailureStore       SourceFailureStore
 	IgnoreSenderIDs    []string
+	IdleTimeout        time.Duration
 	Now                func() time.Time
 }
 
@@ -45,6 +46,7 @@ type SourceCommandAdapter struct {
 	IgnoreSenderIDs           []string
 	ReadinessBlockReasonCode  string
 	ReadinessBlockDescription string
+	IdleTimeout               time.Duration
 	Now                       func() time.Time
 }
 
@@ -154,6 +156,7 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 		SourceStore:        a.SourceStore,
 		FailureStore:       a.FailureStore,
 		IgnoreSenderIDs:    append([]string(nil), a.IgnoreSenderIDs...),
+		IdleTimeout:        a.IdleTimeout,
 		Now:                a.Now,
 	}
 	consumeErr := ConsumeSourceCommandFrames(ctx, stdout, consumer, handle)
@@ -215,19 +218,15 @@ func ConsumeSourceCommandFrames(ctx context.Context, reader io.Reader, consumer 
 	if handle == nil {
 		return errors.New("source command event handler is required")
 	}
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	acceptedEvents := map[string]struct{}{}
 	ignoredSenderIDs := ignoreSenderIDSet(consumer.IgnoreSenderIDs)
-	lineNumber := 0
-	for scanner.Scan() {
+	processLine := func(lineNumber int, line string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		lineNumber++
-		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimSpace(line)
 		if line == "" {
-			continue
+			return nil
 		}
 		frame, err := decodeSourceCommandFrame(line)
 		if err != nil {
@@ -240,7 +239,7 @@ func ConsumeSourceCommandFrames(ctx context.Context, reader io.Reader, consumer 
 			}, line); recordErr != nil {
 				return recordErr
 			}
-			continue
+			return nil
 		}
 		switch frame.Kind {
 		case SourceFrameKindReady:
@@ -278,8 +277,78 @@ func ConsumeSourceCommandFrames(ctx context.Context, reader io.Reader, consumer 
 				return err
 			}
 		}
+		return nil
+	}
+	if consumer.IdleTimeout > 0 {
+		return consumeSourceCommandFrameLinesWithIdle(ctx, reader, consumer.IdleTimeout, processLine)
+	}
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		if err := processLine(lineNumber, scanner.Text()); err != nil {
+			return err
+		}
 	}
 	return scanner.Err()
+}
+
+type sourceCommandLineResult struct {
+	line   string
+	number int
+	err    error
+}
+
+func consumeSourceCommandFrameLinesWithIdle(ctx context.Context, reader io.Reader, idleTimeout time.Duration, process func(int, string) error) error {
+	lines := make(chan sourceCommandLineResult)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(reader)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		lineNumber := 0
+		for scanner.Scan() {
+			lineNumber++
+			select {
+			case lines <- sourceCommandLineResult{line: scanner.Text(), number: lineNumber}:
+			case <-ctx.Done():
+				return
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			select {
+			case lines <- sourceCommandLineResult{err: err}:
+			case <-ctx.Done():
+			}
+		}
+	}()
+	timer := time.NewTimer(idleTimeout)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case item, ok := <-lines:
+			if !ok {
+				return nil
+			}
+			if item.err != nil {
+				return item.err
+			}
+			if err := process(item.number, item.line); err != nil {
+				return err
+			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(idleTimeout)
+		case <-timer.C:
+			return errors.New("source command idle timeout")
+		}
+	}
 }
 
 func (a SourceCommandAdapter) resolveExecutable() (string, error) {

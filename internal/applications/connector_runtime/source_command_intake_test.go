@@ -75,6 +75,19 @@ func TestSourceCommandIntakeRetriesRuntimeFailureAndConsumesEvent(t *testing.T) 
 	}
 }
 
+func TestSourceCommandBackoffDelayUsesBoundedExponentialSchedule(t *testing.T) {
+	policy := SourceCommandRetryPolicy{Backoff: 100 * time.Millisecond}
+	if got := sourceCommandBackoffDelay(policy, 1); got != 100*time.Millisecond {
+		t.Fatalf("attempt 1 delay = %s, want 100ms", got)
+	}
+	if got := sourceCommandBackoffDelay(policy, 2); got != 200*time.Millisecond {
+		t.Fatalf("attempt 2 delay = %s, want 200ms", got)
+	}
+	if got := sourceCommandBackoffDelay(SourceCommandRetryPolicy{Backoff: 20 * time.Second}, 2); got != maxSourceCommandBackoff {
+		t.Fatalf("capped delay = %s, want %s", got, maxSourceCommandBackoff)
+	}
+}
+
 func TestSourceCommandIntakeDoesNotRetryBlockedSource(t *testing.T) {
 	ctx := context.Background()
 	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-intake-blocked")

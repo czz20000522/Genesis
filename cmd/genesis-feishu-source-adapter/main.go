@@ -53,6 +53,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable")
 	sourceID := fs.String("source-id", "", "stable connector source id supplied by the connector runtime")
 	eventKey := fs.String("event-key", defaultFeishuMessageEventKey, "Feishu event key consumed by this adapter")
+	afterEventID := fs.String("after-event-id", "", "connector-owned resume cursor; passed to lark-cli without exposing it to the kernel")
 	identity := fs.String("as", defaultFeishuEventIdentity, "Feishu event source identity: bot, user, or auto")
 	maxEvents := fs.Int("max-events", 0, "stop Feishu source after N events; 0 means unlimited")
 	eventTimeout := fs.String("event-timeout", "", "stop Feishu source after duration such as 30s or 10m")
@@ -67,7 +68,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	if *stdinJSONL {
 		return consumeRawFeishuEventLines(ctx, stdinSource{reader: os.Stdin}, encoder, *sourceID, true)
 	}
-	executable, argv, err := feishuEventCommand(*larkCLI, *profile, *eventKey, *identity, *maxEvents, *eventTimeout)
+	executable, argv, err := feishuEventCommand(*larkCLI, *profile, *eventKey, *afterEventID, *identity, *maxEvents, *eventTimeout)
 	if err != nil {
 		emitSourceFailed(encoder, *sourceID, "source_not_ready", err.Error(), "", 0)
 		return err
@@ -166,7 +167,7 @@ func consumeRawFeishuEventLines(ctx context.Context, source stdinSource, encoder
 	return nil
 }
 
-func feishuEventCommand(executable string, profile string, eventKey string, identity string, maxEvents int, timeout string) (string, []string, error) {
+func feishuEventCommand(executable string, profile string, eventKey string, afterEventID string, identity string, maxEvents int, timeout string) (string, []string, error) {
 	profile = strings.TrimSpace(profile)
 	if profile == "" {
 		return "", nil, errors.New("Feishu source adapter requires explicit --profile")
@@ -190,6 +191,9 @@ func feishuEventCommand(executable string, profile string, eventKey string, iden
 	}
 	executable = feishucli.SelectExecutable(executable, feishucli.InstalledOfficialExecutable())
 	argv := []string{"--profile", profile, "event", "consume", eventKey, "--as", identity}
+	if strings.TrimSpace(afterEventID) != "" {
+		argv = append(argv, "--after-event-id", strings.TrimSpace(afterEventID))
+	}
 	if maxEvents > 0 {
 		argv = append(argv, "--max-events", strconv.Itoa(maxEvents))
 	}

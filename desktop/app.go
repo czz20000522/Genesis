@@ -105,6 +105,12 @@ func (a *App) Ready() (map[string]any, error) {
 	return a.client.Get(ctx, "/ready", false)
 }
 
+func (a *App) ListSessions() (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	return a.client.Get(ctx, "/sessions", true)
+}
+
 func (a *App) SubmitTurn(sessionID string, text string, idempotencyKey string) (map[string]any, error) {
 	ctx, cancel := a.requestContext()
 	defer cancel()

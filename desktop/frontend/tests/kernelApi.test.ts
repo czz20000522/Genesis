@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, parseTurnStreamEvent, saveKernelConfig, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial } from '../src/api/kernelApi.ts'
+import { compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, saveKernelConfig, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -58,6 +58,32 @@ assert.equal(isBlankSessionDraft({ messageText: 'hello' }), false)
 assert.equal(isBlankSessionDraft({ selectedFileName: 'package.zip' }), false)
 assert.equal(isBlankSessionDraft({ timelineRowCount: 1 }), false)
 assert.equal(isBlankSessionDraft({ hasMaterial: true }), false)
+
+let sessionsUrl = ''
+let sessionsAuth = ''
+const originalFetchForSessions = globalThis.fetch
+globalThis.fetch = async (input, init) => {
+  sessionsUrl = String(input)
+  sessionsAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  return new Response(JSON.stringify({
+    items: [{ session_id: 'session-2', title: '第二个会话', updated_at: '2026-07-05T01:00:00Z' }],
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const sessions = await listSessions({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  })
+  assert.equal(sessionsUrl, 'http://127.0.0.1:8765/sessions')
+  assert.equal(sessionsAuth, 'Bearer secret')
+  assert.equal(sessions.items?.[0]?.session_id, 'session-2')
+} finally {
+  globalThis.fetch = originalFetchForSessions
+}
 
 let emptySessionRequests = 0
 const originalFetchForEmptySession = globalThis.fetch
