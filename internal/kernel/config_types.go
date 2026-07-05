@@ -3,19 +3,20 @@ package kernel
 import "time"
 
 type Config struct {
-	LedgerPath           string
-	Provider             Provider
-	JobExecutor          ManagedJobExecutor
-	RuntimeToken         string
-	ToolPolicy           ToolPolicy
-	ContextPolicy        ContextPolicy
-	BudgetPolicy         BudgetPolicy
-	ShellTimeoutPolicy   ShellTimeoutPolicy
-	SourceSnapshotPolicy SourceSnapshotPolicy
-	SkillRoots           []string
-	Resources            []ResourceDescriptor
-	MaterialStorePath    string
-	Clock                func() time.Time
+	LedgerPath            string
+	Provider              Provider
+	JobExecutor           ManagedJobExecutor
+	RuntimeToken          string
+	ToolPolicy            ToolPolicy
+	ContextPolicy         ContextPolicy
+	BudgetPolicy          BudgetPolicy
+	ShellTimeoutPolicy    ShellTimeoutPolicy
+	SourceSnapshotPolicy  SourceSnapshotPolicy
+	SkillRoots            []string
+	CapabilityDescriptors []CapabilityDescriptor
+	Resources             []ResourceDescriptor
+	MaterialStorePath     string
+	Clock                 func() time.Time
 }
 
 type ToolPolicy struct {

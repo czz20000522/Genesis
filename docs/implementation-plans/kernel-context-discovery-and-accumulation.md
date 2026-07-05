@@ -4,7 +4,7 @@
 
 **Goal:** Build a low-context discovery and accumulation path without letting long-term memory rewrite provider context or bypass kernel authority.
 
-**Architecture:** Phase 1 reuses the existing memory candidate/review owner as the first accumulation owner surface. Later phases can add bounded discovery queries and capability descriptors, but only after this owner lifecycle is stable.
+**Architecture:** Phase 1 reuses the existing memory candidate/review owner as the first accumulation owner surface. Phase 2/3 add a bounded discovery surface over approved accumulation and skill catalog descriptors. Discovery remains a projection and never grants authority.
 
 **Tech Stack:** Go kernel package, existing SQLite ledger, existing `/memory/candidates` control surface, existing session projection.
 
@@ -80,18 +80,67 @@ Tests:
 - A replay stream that tries to approve after forgetting is rejected as competing review evidence.
 - Session projection includes forgotten entries as owner facts without putting them in provider context.
 
-## Future Phases
+## Phase 2: Bounded Discovery Query
 
-Phase 2:
+Files:
 
-- Add a bounded discovery query projection that returns candidate summaries, not authority.
-- Add negative tests proving discovery results do not grant tool, connector, resource, or provider-context authority.
+- Add `internal/kernel/discovery_types.go`.
+- Add `internal/kernel/discovery.go`.
+- Add `internal/kernel/http_discovery.go`.
+- Modify `internal/kernel/config_types.go`.
+- Modify `internal/kernel/kernel.go`.
+- Modify `internal/kernel/http.go`.
+- Modify `internal/kernel/tool_registry.go`.
+- Modify `internal/kernel/model_tools.go`.
+- Modify `internal/kernel/tool_scheduling.go`.
+- Modify `internal/kernel/architecture_boundary_test.go`.
+- Add `internal/kernel/discovery_test.go`.
 
-Phase 3:
+Behavior:
 
-- Add capability descriptors from user-space capability packages.
-- Keep capability manifests and runner truth in the capability runtime, not the kernel.
+- Add `POST /discovery/query` for operator/application inspection.
+- Add the model-visible `context_discover` kernel-control tool.
+- Return bounded candidate summaries from approved accumulation only.
+- Exclude pending, rejected, superseded, and forgotten candidates from active discovery.
+- Reject unknown request fields and unsupported requested kinds.
+- Keep discovery as `state_read`; it is not a parallel pure-read primitive because it reads current owner facts.
+- Discovery results are hints only. They do not grant tool, connector, resource, provider-context, approval, or credential authority.
 
-Phase 4:
+Tests:
 
-- Consider automatic provider-context activation only after a separate requirement defines the consumer, budget, egress policy, conflict handling, and negative tests.
+- Approved accumulation can be discovered by semantic query.
+- Non-approved terminal or pending candidates do not appear.
+- Discovery does not auto-inject accumulation into provider context.
+- HTTP unknown control fields are rejected.
+- `context_discover` returns bounded hint results through the normal tool loop without exposing control fields.
+
+## Phase 3: Capability Descriptor Discovery
+
+Files:
+
+- Add `CapabilityDescriptor` as a safe descriptor input from user-space capability runtime.
+- Reuse `internal/kernel/skill_catalog.go` as an additional metadata-only capability hint source.
+- Reuse `internal/kernel/capabilities.go`.
+- Reuse `internal/kernel/discovery.go`.
+- Extend `internal/kernel/discovery_test.go`.
+
+Behavior:
+
+- Treat user-space capability runtime descriptors as capability discovery candidates.
+- Treat skill catalog metadata as an additional capability hint source.
+- Return only skill name, short summary, capability ref, scope, confidence, and source summary.
+- Do not project skill root paths, instruction paths, skill bodies, manifests, manifest paths, entrypoints, or runner details.
+- Keep manifest truth and runner truth outside the kernel.
+
+Tests:
+
+- User-space capability descriptors can be discovered by intent.
+- Capability refs reject host-path-shaped values.
+- Capability descriptor discovery returns a matching skill by name/description.
+- Discovery output does not leak root path, skill file path, skill body, manifest path, entrypoint, or runner truth.
+
+## Phase 4: Activation Gate
+
+- Automatic provider-context activation remains out of scope.
+- Do not add automatic recall, automatic context injection, or discovery-to-provider promotion in this plan.
+- A future activation requirement must define the consumer, budget, egress policy, conflict handling, override order, debug evidence, and negative tests before implementation.

@@ -23,6 +23,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			writeJSON(w, http.StatusOK, k.Capabilities())
+		case r.Method == http.MethodPost && r.URL.Path == "/discovery/query":
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
+			handleDiscoveryQuery(w, r, k)
 		case r.Method == http.MethodPost && r.URL.Path == "/turn":
 			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
 				return

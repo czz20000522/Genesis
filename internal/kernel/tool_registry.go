@@ -23,6 +23,7 @@ type registeredTool struct {
 type toolInvocationContext interface {
 	prepareShellExecToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareResourceReadToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	prepareContextDiscoverToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareSourceTreeToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareSourceReadToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobStatusToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
@@ -127,6 +128,44 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			},
 			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 				return ctx.prepareResourceReadToolCall(eventID, providerCallID, name, arguments)
+			},
+		},
+		{
+			Spec: ToolSpec{
+				Name:        "context_discover",
+				Description: "Discover bounded user-level accumulation and capability descriptors relevant to the current intent. Results are hints only and do not grant tool, resource, connector, or provider-context authority.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"intent": map[string]interface{}{
+							"type":        "string",
+							"description": "Current semantic intent to search for relevant accumulation or capability descriptors.",
+						},
+						"current_context_summary": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional short summary of the current task context.",
+						},
+						"requested_kinds": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]interface{}{"type": "string"},
+							"description": "Optional memory kinds to search, such as preference, heuristic, method, lesson, project_overlay, capability_hint, or memory_fact.",
+						},
+						"limit": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     1,
+							"maximum":     maxDiscoveryLimit,
+							"description": "Optional maximum number of discovery candidates to return.",
+						},
+					},
+					"required":             []string{"intent"},
+					"additionalProperties": false,
+				},
+				SideEffectLevel: ToolSideEffectRead,
+				ExecutionKind:   ToolExecutionKindKernelControl,
+				Scheduling:      contextDiscoveryToolSchedulingSpec(),
+			},
+			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+				return ctx.prepareContextDiscoverToolCall(eventID, providerCallID, name, arguments)
 			},
 		},
 		{

@@ -16,29 +16,30 @@ import (
 )
 
 type Kernel struct {
-	ledger             Ledger
-	provider           Provider
-	jobExecutor        ManagedJobExecutor
-	runtimeToken       string
-	toolPolicy         ToolPolicy
-	contextPolicy      ContextPolicy
-	budgetPolicy       BudgetPolicy
-	shellTimeoutPolicy ShellTimeoutPolicy
-	toolRegistry       *ToolRegistry
-	resourceRegistry   *resource.Registry
-	materialStorePath  string
-	skillCatalog       []SkillDescriptor
-	skillRoots         []SkillCatalogRootProjection
-	skillExclusions    []SkillCatalogExclusionProjection
-	clock              func() time.Time
-	turnMu             sync.Mutex
-	activeTurnMu       sync.Mutex
-	activeTurns        map[string]*activeTurn
-	operationMu        sync.Mutex
-	jobMu              sync.Mutex
-	approvalMu         sync.Mutex
-	memoryReviewMu     sync.Mutex
-	workMu             sync.Mutex
+	ledger                Ledger
+	provider              Provider
+	jobExecutor           ManagedJobExecutor
+	runtimeToken          string
+	toolPolicy            ToolPolicy
+	contextPolicy         ContextPolicy
+	budgetPolicy          BudgetPolicy
+	shellTimeoutPolicy    ShellTimeoutPolicy
+	toolRegistry          *ToolRegistry
+	resourceRegistry      *resource.Registry
+	materialStorePath     string
+	skillCatalog          []SkillDescriptor
+	skillRoots            []SkillCatalogRootProjection
+	skillExclusions       []SkillCatalogExclusionProjection
+	capabilityDescriptors []CapabilityDescriptor
+	clock                 func() time.Time
+	turnMu                sync.Mutex
+	activeTurnMu          sync.Mutex
+	activeTurns           map[string]*activeTurn
+	operationMu           sync.Mutex
+	jobMu                 sync.Mutex
+	approvalMu            sync.Mutex
+	memoryReviewMu        sync.Mutex
+	workMu                sync.Mutex
 }
 
 type activeTurn struct {
@@ -79,23 +80,28 @@ func New(config Config) (*Kernel, error) {
 		materialStorePath = filepath.Join(filepath.Dir(config.LedgerPath), "material-store")
 	}
 	skillCatalog := loadSkillCatalogWithDiagnostics(config.SkillRoots)
+	capabilityDescriptors, err := normalizeCapabilityDescriptors(config.CapabilityDescriptors)
+	if err != nil {
+		return nil, err
+	}
 	k := &Kernel{
-		ledger:             NewSQLiteLedger(config.LedgerPath),
-		provider:           provider,
-		jobExecutor:        jobExecutor,
-		runtimeToken:       strings.TrimSpace(config.RuntimeToken),
-		toolPolicy:         normalizedToolPolicy(config.ToolPolicy),
-		contextPolicy:      normalizedContextPolicy(config.ContextPolicy),
-		budgetPolicy:       normalizedBudgetPolicy(config.BudgetPolicy),
-		shellTimeoutPolicy: shellTimeoutPolicy,
-		toolRegistry:       toolRegistry,
-		resourceRegistry:   resourceRegistry,
-		materialStorePath:  materialStorePath,
-		skillCatalog:       skillCatalog.Items,
-		skillRoots:         skillCatalog.Roots,
-		skillExclusions:    skillCatalog.Exclusions,
-		clock:              clock,
-		activeTurns:        map[string]*activeTurn{},
+		ledger:                NewSQLiteLedger(config.LedgerPath),
+		provider:              provider,
+		jobExecutor:           jobExecutor,
+		runtimeToken:          strings.TrimSpace(config.RuntimeToken),
+		toolPolicy:            normalizedToolPolicy(config.ToolPolicy),
+		contextPolicy:         normalizedContextPolicy(config.ContextPolicy),
+		budgetPolicy:          normalizedBudgetPolicy(config.BudgetPolicy),
+		shellTimeoutPolicy:    shellTimeoutPolicy,
+		toolRegistry:          toolRegistry,
+		resourceRegistry:      resourceRegistry,
+		materialStorePath:     materialStorePath,
+		skillCatalog:          skillCatalog.Items,
+		skillRoots:            skillCatalog.Roots,
+		skillExclusions:       skillCatalog.Exclusions,
+		capabilityDescriptors: capabilityDescriptors,
+		clock:                 clock,
+		activeTurns:           map[string]*activeTurn{},
 	}
 	_ = k.recoverLostLocalManagedJobs()
 	return k, nil

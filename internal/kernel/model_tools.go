@@ -38,6 +38,13 @@ type sourceReadToolArguments struct {
 	LimitBytes    *int   `json:"limit_bytes,omitempty"`
 }
 
+type contextDiscoverToolArguments struct {
+	Intent                string   `json:"intent"`
+	CurrentContextSummary string   `json:"current_context_summary,omitempty"`
+	RequestedKinds        []string `json:"requested_kinds,omitempty"`
+	Limit                 int      `json:"limit,omitempty"`
+}
+
 type jobStatusToolArguments struct {
 	JobID string `json:"job_id"`
 }
@@ -353,6 +360,48 @@ func (k *Kernel) sourceReadModelToolResult(eventID string, providerCallID string
 	result, err := k.resourceRegistry.SourceRead(readReq)
 	if err != nil {
 		return ModelToolResult{}, fmt.Errorf("%w: source_read failed: %v", ErrToolInfrastructureFailed, err)
+	}
+	content, err := json.Marshal(result)
+	if err != nil {
+		return ModelToolResult{}, err
+	}
+	return ModelToolResult{
+		ToolCallID:      strings.TrimSpace(providerCallID),
+		ToolCallEventID: strings.TrimSpace(eventID),
+		Name:            strings.TrimSpace(name),
+		Content:         string(content),
+	}, nil
+}
+
+func (k *Kernel) prepareContextDiscoverToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args contextDiscoverToolArguments
+	if err := decodeStrictModelToolArguments("context_discover", arguments, &args); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+	}
+	req := DiscoveryQueryRequest{
+		Intent:                args.Intent,
+		CurrentContextSummary: args.CurrentContextSummary,
+		RequestedKinds:        append([]string(nil), args.RequestedKinds...),
+		Limit:                 args.Limit,
+	}
+	if _, _, _, err := normalizeDiscoveryQuery(req); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_context_discovery_request", fmt.Sprintf("invalid context_discover request: %v", err)), nil
+	}
+	return preparedModelToolCall{
+		eventID:        eventID,
+		providerCallID: providerCallID,
+		name:           name,
+		accessPlan:     contextDiscoveryToolAccessPlan(name),
+		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			return k.contextDiscoverModelToolResult(eventID, providerCallID, name, req)
+		},
+	}, nil
+}
+
+func (k *Kernel) contextDiscoverModelToolResult(eventID string, providerCallID string, name string, req DiscoveryQueryRequest) (ModelToolResult, error) {
+	result, err := k.DiscoverContext(req)
+	if err != nil {
+		return invalidModelToolResult(eventID, providerCallID, name, "invalid_context_discovery_request", fmt.Sprintf("invalid context_discover request: %v", err))
 	}
 	content, err := json.Marshal(result)
 	if err != nil {

@@ -32,6 +32,16 @@ func resourceReadToolSchedulingSpec() ToolSchedulingSpec {
 	return toolruntime.ResourceReadSchedulingSpec()
 }
 
+func contextDiscoveryToolSchedulingSpec() ToolSchedulingSpec {
+	return toolruntime.SchedulingSpec{
+		EffectClass:    ToolEffectClassStateRead,
+		ParallelPolicy: ToolParallelPolicySerialFence,
+		ResourceFootprint: ToolResourceFootprint{
+			StateScopes: []string{"discovery"},
+		},
+	}
+}
+
 func shellExecToolAccessPlan(toolName string, cwd string, timeoutSec int) ToolAccessPlan {
 	return toolruntime.ShellExecAccessPlan(toolName, cwd, timeoutSec, maxForegroundShellTimeoutSec)
 }
@@ -48,6 +58,17 @@ func sourceReadToolAccessPlan(toolName string, sourceRef string) ToolAccessPlan 
 	plan := toolruntime.ResourceReadAccessPlan(toolName, "source:"+sourceRef)
 	plan.ResourceFootprint.ReadScopes = []string{"source:" + sourceRef}
 	return plan
+}
+
+func contextDiscoveryToolAccessPlan(toolName string) ToolAccessPlan {
+	spec := contextDiscoveryToolSchedulingSpec()
+	return ToolAccessPlan{
+		ToolName:          toolName,
+		EffectClass:       spec.EffectClass,
+		ParallelPolicy:    spec.ParallelPolicy,
+		ResourceFootprint: spec.ResourceFootprint,
+		Trusted:           true,
+	}
 }
 
 func jobControlToolAccessPlan(toolName string, jobID string) ToolAccessPlan {
