@@ -467,6 +467,74 @@ label {
   text-decoration: underline;
 }
 
+.mermaid-card {
+  display: grid;
+  gap: 10px;
+  width: min(820px, 100%);
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.mermaid-toolbar,
+.mermaid-tabs,
+.mermaid-actions {
+  display: flex;
+  align-items: center;
+}
+
+.mermaid-toolbar {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mermaid-tabs {
+  gap: 3px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #eef2f6;
+}
+
+.mermaid-tab,
+.mermaid-actions button {
+  min-height: 28px;
+  padding: 4px 9px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.mermaid-tab-active,
+.mermaid-tab:hover,
+.mermaid-actions button:hover {
+  color: var(--ink);
+  background: #ffffff;
+}
+
+.mermaid-panel {
+  overflow: auto;
+}
+
+.mermaid-panel-diagram {
+  display: grid;
+  place-items: center;
+  min-height: 260px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.mermaid-panel-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.assistant-markdown .mermaid-panel-code {
+  max-height: 420px;
+  margin: 0;
+  background: #ffffff;
+}
+
 .assistant-markdown--streaming::after {
   display: inline-block;
   width: 7px;

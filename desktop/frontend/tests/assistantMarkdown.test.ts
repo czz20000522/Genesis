@@ -16,3 +16,9 @@ assert.equal(unsafeLink.includes('javascript:alert(1)'), true)
 
 const safeLink = assistantMarkdown('[官网](https://example.com/path?q=1)')
 assert.equal(safeLink.includes('href="https://example.com/path?q=1"'), true)
+
+const mermaid = assistantMarkdown('```mermaid\nflowchart TD\nA[用户] --> B[结果]\n```')
+assert.equal(mermaid.includes('class="mermaid-card"'), true)
+assert.equal(mermaid.includes('data-mermaid-code='), true)
+assert.equal(mermaid.includes('复制代码'), true)
+assert.equal(mermaid.includes('flowchart TD'), true)
