@@ -4,6 +4,8 @@
 
 `docs/requirements/kernel-context-discovery-and-accumulation.md`
 
+Status: approved for phased implementation.
+
 ## Boundary And Owner
 
 This design separates three owners:

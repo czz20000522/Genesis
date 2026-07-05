@@ -1230,3 +1230,274 @@ func TestHTTPApproveMemoryCandidateRejectsInvalidControlRefs(t *testing.T) {
 		})
 	}
 }
+
+func TestHTTPMemoryCandidateAccumulationMetadataPersistsWithoutAutoRecall(t *testing.T) {
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+
+	candidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID:   "accumulation-source",
+		Text:        "用户通常偏好先复用成熟应用层依赖",
+		SourceRef:   "turn:accumulation-source",
+		Kind:        "preference",
+		Scope:       "global",
+		AppliesWhen: "building application-layer UI or adapters",
+		YieldsTo:    "current task instruction or project contract",
+		Strength:    "preference",
+	})
+	approvalPayload, err := json.Marshal(testApprovalRequest("approval:accumulation-source"))
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	approveResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/approve", approvalPayload)
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve status = %d, want 200", approveResp.StatusCode)
+	}
+	server.Close()
+
+	restarted := newTestKernel(t, ledgerPath)
+	stored, err := restarted.MemoryCandidate(candidate.CandidateID)
+	if err != nil {
+		t.Fatalf("MemoryCandidate returned error: %v", err)
+	}
+	if stored.Kind != "preference" ||
+		stored.Scope != "global" ||
+		stored.AppliesWhen != "building application-layer UI or adapters" ||
+		stored.YieldsTo != "current task instruction or project contract" ||
+		stored.Strength != "preference" {
+		t.Fatalf("stored accumulation metadata = %+v", stored)
+	}
+
+	resp, err := restarted.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "accumulation-consumer",
+		InputItems: []InputItem{{Type: "text", Text: "我们现在应用层该怎么选依赖？"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if strings.Contains(resp.Final.Text, "用户通常偏好先复用成熟应用层依赖") {
+		t.Fatalf("accumulation was auto recalled in final text: %q", resp.Final.Text)
+	}
+}
+
+func TestCreateMemoryCandidateRejectsUnknownAccumulationMetadata(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
+
+	cases := map[string]MemoryCandidateRequest{
+		"unknown kind": {
+			SessionID: "accumulation-bad-kind",
+			Text:      "memory",
+			SourceRef: "turn:accumulation-bad-kind",
+			Kind:      "kernel_override",
+		},
+		"unknown scope": {
+			SessionID: "accumulation-bad-scope",
+			Text:      "memory",
+			SourceRef: "turn:accumulation-bad-scope",
+			Scope:     "everywhere",
+		},
+		"unknown strength": {
+			SessionID: "accumulation-bad-strength",
+			Text:      "memory",
+			SourceRef: "turn:accumulation-bad-strength",
+			Strength:  "must_obey",
+		},
+	}
+	for name, req := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := k.CreateMemoryCandidate(req); err == nil {
+				t.Fatal("CreateMemoryCandidate returned nil error for unknown accumulation metadata")
+			}
+		})
+	}
+}
+
+func TestHTTPMemoryCandidateForgetIsDurableTerminalAndIdempotent(t *testing.T) {
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
+	k := newTestKernel(t, ledgerPath)
+	server := httptest.NewServer(Handler(k))
+
+	candidate := createMemoryCandidateOverHTTP(t, server.URL, MemoryCandidateRequest{
+		SessionID: "forget-source",
+		Text:      "outdated user preference",
+		SourceRef: "turn:forget-source",
+		Kind:      "preference",
+		Scope:     "global",
+		Strength:  "preference",
+	})
+	approvalPayload, err := json.Marshal(testApprovalRequest("approval:forget-source"))
+	if err != nil {
+		t.Fatalf("marshal approval request: %v", err)
+	}
+	approveResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/approve", approvalPayload)
+	if err != nil {
+		t.Fatalf("POST approve failed: %v", err)
+	}
+	approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve status = %d, want 200", approveResp.StatusCode)
+	}
+
+	for i := 0; i < 2; i++ {
+		forgetPayload, err := json.Marshal(testForgetRequest("review:forget-source"))
+		if err != nil {
+			t.Fatalf("marshal forget request: %v", err)
+		}
+		forgetResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/forget", forgetPayload)
+		if err != nil {
+			t.Fatalf("POST forget failed: %v", err)
+		}
+		defer forgetResp.Body.Close()
+		if forgetResp.StatusCode != http.StatusOK {
+			t.Fatalf("forget status = %d, want 200", forgetResp.StatusCode)
+		}
+		var forgotten MemoryCandidateProjection
+		if err := json.NewDecoder(forgetResp.Body).Decode(&forgotten); err != nil {
+			t.Fatalf("decode forgotten response: %v", err)
+		}
+		if forgotten.Status != MemoryCandidateForgotten || forgotten.ForgetEvidenceRef != "review:forget-source" {
+			t.Fatalf("forgotten candidate = %+v", forgotten)
+		}
+	}
+
+	approvedResp, err := getWithAuth(server.URL + "/memory/candidates?status=approved")
+	if err != nil {
+		t.Fatalf("GET approved failed: %v", err)
+	}
+	defer approvedResp.Body.Close()
+	var approved MemoryCandidateListResponse
+	if err := json.NewDecoder(approvedResp.Body).Decode(&approved); err != nil {
+		t.Fatalf("decode approved candidates: %v", err)
+	}
+	for _, item := range approved.Items {
+		if item.CandidateID == candidate.CandidateID {
+			t.Fatalf("forgotten candidate appeared as approved: %+v", approved.Items)
+		}
+	}
+
+	forgottenResp, err := getWithAuth(server.URL + "/memory/candidates?status=forgotten")
+	if err != nil {
+		t.Fatalf("GET forgotten failed: %v", err)
+	}
+	defer forgottenResp.Body.Close()
+	var forgotten MemoryCandidateListResponse
+	if err := json.NewDecoder(forgottenResp.Body).Decode(&forgotten); err != nil {
+		t.Fatalf("decode forgotten candidates: %v", err)
+	}
+	if len(forgotten.Items) != 1 || forgotten.Items[0].CandidateID != candidate.CandidateID {
+		t.Fatalf("forgotten candidates = %+v, want only forgotten candidate", forgotten.Items)
+	}
+
+	rejectPayload, err := json.Marshal(MemoryRejectionRequest{
+		RejectionAuthority:   "runtime:test",
+		RejectionReason:      "late reject",
+		RejectionEvidenceRef: "review:forget-source-late",
+	})
+	if err != nil {
+		t.Fatalf("marshal rejection request: %v", err)
+	}
+	rejectResp, err := postJSONWithAuth(server.URL+"/memory/candidates/"+candidate.CandidateID+"/reject", rejectPayload)
+	if err != nil {
+		t.Fatalf("POST reject failed: %v", err)
+	}
+	defer rejectResp.Body.Close()
+	if rejectResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("reject-after-forget status = %d, want 400", rejectResp.StatusCode)
+	}
+	server.Close()
+
+	restarted := newTestKernel(t, ledgerPath)
+	stored, err := restarted.MemoryCandidate(candidate.CandidateID)
+	if err != nil {
+		t.Fatalf("MemoryCandidate after restart returned error: %v", err)
+	}
+	if stored.Status != MemoryCandidateForgotten {
+		t.Fatalf("stored status = %q, want forgotten", stored.Status)
+	}
+	events, err := restarted.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	forgetEvents := 0
+	for _, event := range events {
+		if event.Type == "memory.candidate.forgotten" && event.CandidateID == candidate.CandidateID {
+			forgetEvents++
+		}
+	}
+	if forgetEvents != 1 {
+		t.Fatalf("forget event count = %d, want 1", forgetEvents)
+	}
+}
+
+func TestMemoryCandidateReplayRejectsApprovalAfterForget(t *testing.T) {
+	createdAt := time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC)
+	forgottenAt := createdAt.Add(time.Minute)
+	approvedAt := createdAt.Add(2 * time.Minute)
+	candidate := MemoryCandidateProjection{
+		CandidateID: "mem-replay-forgotten",
+		SessionID:   "replay-forget-source",
+		Text:        "forgotten claim",
+		SourceRef:   "turn:replay-forget-source",
+		Status:      MemoryCandidatePending,
+		CreatedAt:   createdAt,
+		Kind:        "memory_fact",
+		Scope:       "global",
+		Strength:    "weak_hint",
+	}
+	forgotten := candidate
+	forgotten.Status = MemoryCandidateForgotten
+	forgotten.ForgetAuthority = "runtime:test"
+	forgotten.ForgetReason = "forget"
+	forgotten.ForgetEvidenceRef = "review:replay-forget-source"
+	forgotten.ForgottenAt = &forgottenAt
+	approved := candidate
+	approved.Status = MemoryCandidateApproved
+	approved.ApprovalAuthority = "runtime:test"
+	approved.ApprovalReason = "approve"
+	approved.ApprovalEvidenceRef = "approval:replay-forget-source"
+	approved.ApprovedAt = &approvedAt
+
+	k := &Kernel{ledger: newStaticLedger(
+		StoredEvent{
+			EventID:     "evt-create",
+			SessionID:   candidate.SessionID,
+			CandidateID: candidate.CandidateID,
+			Type:        "memory.candidate.created",
+			CreatedAt:   createdAt,
+			Data:        EventData{MemoryCandidate: &candidate},
+		},
+		StoredEvent{
+			EventID:     "evt-forget",
+			SessionID:   candidate.SessionID,
+			CandidateID: candidate.CandidateID,
+			Type:        "memory.candidate.forgotten",
+			CreatedAt:   forgottenAt,
+			Data:        EventData{MemoryCandidate: &forgotten},
+		},
+		StoredEvent{
+			EventID:     "evt-approve",
+			SessionID:   candidate.SessionID,
+			CandidateID: candidate.CandidateID,
+			Type:        "memory.candidate.approved",
+			CreatedAt:   approvedAt,
+			Data:        EventData{MemoryCandidate: &approved},
+		},
+	)}
+
+	if _, err := k.MemoryCandidate(candidate.CandidateID); err == nil || !strings.Contains(err.Error(), "competing memory review evidence") {
+		t.Fatalf("MemoryCandidate error = %v, want competing memory review evidence", err)
+	}
+}
+
+func testForgetRequest(evidenceRef string) MemoryForgetRequest {
+	return MemoryForgetRequest{
+		ForgetAuthority:   "runtime:test",
+		ForgetReason:      "forgotten in test",
+		ForgetEvidenceRef: evidenceRef,
+	}
+}

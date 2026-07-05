@@ -85,7 +85,7 @@ func (b *sessionProjectionBuilder) applyOwnerEvent(event StoredEvent) error {
 		b.applySandboxReadinessEvent(event)
 	case "work.submitted", "work.canceled":
 		return b.applyWorkEvent(event)
-	case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected", "memory.candidate.superseded":
+	case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected", "memory.candidate.superseded", "memory.candidate.forgotten":
 		return b.applyMemoryCandidateEvent(event)
 	}
 	return nil

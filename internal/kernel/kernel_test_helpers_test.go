@@ -340,7 +340,8 @@ func (l *reviewRaceLedger) terminalReviewEvents(candidateID string) []StoredEven
 func isMemoryReviewTerminalEvent(eventType string) bool {
 	return eventType == "memory.candidate.approved" ||
 		eventType == "memory.candidate.rejected" ||
-		eventType == "memory.candidate.superseded"
+		eventType == "memory.candidate.superseded" ||
+		eventType == "memory.candidate.forgotten"
 }
 
 type singleToolCallProvider struct {

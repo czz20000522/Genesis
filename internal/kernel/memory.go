@@ -12,6 +12,31 @@ const (
 	MemoryCandidateApproved   = "approved"
 	MemoryCandidateRejected   = "rejected"
 	MemoryCandidateSuperseded = "superseded"
+	MemoryCandidateForgotten  = "forgotten"
+)
+
+const (
+	MemoryKindPreference     = "preference"
+	MemoryKindHeuristic      = "heuristic"
+	MemoryKindMethod         = "method"
+	MemoryKindLesson         = "lesson"
+	MemoryKindProjectOverlay = "project_overlay"
+	MemoryKindCapabilityHint = "capability_hint"
+	MemoryKindMemoryFact     = "memory_fact"
+)
+
+const (
+	MemoryScopeGlobal     = "global"
+	MemoryScopeProject    = "project"
+	MemoryScopeWorkspace  = "workspace"
+	MemoryScopeCapability = "capability"
+)
+
+const (
+	MemoryStrengthWeakHint     = "weak_hint"
+	MemoryStrengthPreference   = "preference"
+	MemoryStrengthStrongRule   = "strong_rule"
+	MemoryStrengthContractHint = "contract_hint"
 )
 
 var ErrMemoryCandidateNotFound = errors.New("memory candidate not found")
@@ -20,12 +45,21 @@ func (k *Kernel) CreateMemoryCandidate(req MemoryCandidateRequest) (MemoryCandid
 	if err := validateMemoryCandidateRequest(req); err != nil {
 		return MemoryCandidateProjection{}, err
 	}
+	metadata, err := normalizedMemoryCandidateMetadata(req)
+	if err != nil {
+		return MemoryCandidateProjection{}, err
+	}
 	now := k.clock()
 	candidate := MemoryCandidateProjection{
 		CandidateID: newID("mem", now),
 		SessionID:   strings.TrimSpace(req.SessionID),
 		Text:        strings.TrimSpace(req.Text),
 		SourceRef:   strings.TrimSpace(req.SourceRef),
+		Kind:        metadata.kind,
+		Scope:       metadata.scope,
+		AppliesWhen: metadata.appliesWhen,
+		YieldsTo:    metadata.yieldsTo,
+		Strength:    metadata.strength,
 		Status:      MemoryCandidatePending,
 		CreatedAt:   now,
 	}
@@ -72,6 +106,9 @@ func (k *Kernel) ApproveMemoryCandidate(candidateID string, req MemoryApprovalRe
 	}
 	if candidate.Status == MemoryCandidateSuperseded {
 		return MemoryCandidateProjection{}, errors.New("superseded memory candidate cannot be approved")
+	}
+	if candidate.Status == MemoryCandidateForgotten {
+		return MemoryCandidateProjection{}, errors.New("forgotten memory candidate cannot be approved")
 	}
 	now := k.clock()
 	candidate.Status = MemoryCandidateApproved
@@ -123,6 +160,9 @@ func (k *Kernel) RejectMemoryCandidate(candidateID string, req MemoryRejectionRe
 	if candidate.Status == MemoryCandidateSuperseded {
 		return MemoryCandidateProjection{}, errors.New("superseded memory candidate cannot be rejected")
 	}
+	if candidate.Status == MemoryCandidateForgotten {
+		return MemoryCandidateProjection{}, errors.New("forgotten memory candidate cannot be rejected")
+	}
 	now := k.clock()
 	candidate.Status = MemoryCandidateRejected
 	candidate.RejectionAuthority = strings.TrimSpace(req.RejectionAuthority)
@@ -167,12 +207,20 @@ func (k *Kernel) SupersedeMemoryCandidate(candidateID string, req MemorySuperses
 	if candidate.Status == MemoryCandidateSuperseded {
 		return existingMemorySupersession(candidate, candidates)
 	}
+	if candidate.Status == MemoryCandidateForgotten {
+		return MemorySupersessionProjection{}, errors.New("forgotten memory candidate cannot be superseded")
+	}
 	now := k.clock()
 	replacement := MemoryCandidateProjection{
 		CandidateID: newID("mem", now),
 		SessionID:   candidate.SessionID,
 		Text:        strings.TrimSpace(req.ReplacementText),
 		SourceRef:   strings.TrimSpace(req.ReplacementSourceRef),
+		Kind:        candidate.Kind,
+		Scope:       candidate.Scope,
+		AppliesWhen: candidate.AppliesWhen,
+		YieldsTo:    candidate.YieldsTo,
+		Strength:    candidate.Strength,
 		Status:      MemoryCandidatePending,
 		CreatedAt:   now,
 	}
@@ -199,9 +247,53 @@ func (k *Kernel) SupersedeMemoryCandidate(candidateID string, req MemorySuperses
 	return MemorySupersessionProjection{Superseded: candidate, Replacement: replacement}, nil
 }
 
+func (k *Kernel) ForgetMemoryCandidate(candidateID string, req MemoryForgetRequest) (MemoryCandidateProjection, error) {
+	candidateID = strings.TrimSpace(candidateID)
+	if candidateID == "" {
+		return MemoryCandidateProjection{}, errors.New("candidate id is required")
+	}
+	if err := validateMemoryForgetRequest(req); err != nil {
+		return MemoryCandidateProjection{}, err
+	}
+	k.memoryReviewMu.Lock()
+	defer k.memoryReviewMu.Unlock()
+
+	candidates, err := k.memoryCandidates()
+	if err != nil {
+		return MemoryCandidateProjection{}, err
+	}
+	candidate, ok := candidates[candidateID]
+	if !ok {
+		return MemoryCandidateProjection{}, ErrMemoryCandidateNotFound
+	}
+	if candidate.Status == MemoryCandidateForgotten {
+		return candidate, nil
+	}
+	now := k.clock()
+	candidate.Status = MemoryCandidateForgotten
+	candidate.ForgetAuthority = strings.TrimSpace(req.ForgetAuthority)
+	candidate.ForgetReason = strings.TrimSpace(req.ForgetReason)
+	candidate.ForgetEvidenceRef = strings.TrimSpace(req.ForgetEvidenceRef)
+	candidate.ForgottenAt = &now
+	event := StoredEvent{
+		EventID:     newID("evt", now),
+		SessionID:   candidate.SessionID,
+		CandidateID: candidate.CandidateID,
+		Type:        "memory.candidate.forgotten",
+		CreatedAt:   now,
+		Data: EventData{
+			MemoryCandidate: &candidate,
+		},
+	}
+	if err := k.appendEvent(event); err != nil {
+		return MemoryCandidateProjection{}, err
+	}
+	return candidate, nil
+}
+
 func (k *Kernel) MemoryCandidates(status string) ([]MemoryCandidateProjection, error) {
 	status = strings.TrimSpace(status)
-	if status != "" && status != MemoryCandidatePending && status != MemoryCandidateApproved && status != MemoryCandidateRejected && status != MemoryCandidateSuperseded {
+	if status != "" && !validMemoryCandidateStatus(status) {
 		return nil, fmt.Errorf("unsupported memory candidate status %q", status)
 	}
 	candidates, _, err := k.memoryCandidateList()
@@ -252,7 +344,49 @@ func validateMemoryCandidateRequest(req MemoryCandidateRequest) error {
 	if err := validateKernelRef("source_ref", req.SourceRef); err != nil {
 		return err
 	}
+	if _, err := normalizedMemoryCandidateMetadata(req); err != nil {
+		return err
+	}
 	return nil
+}
+
+type memoryCandidateMetadata struct {
+	kind        string
+	scope       string
+	appliesWhen string
+	yieldsTo    string
+	strength    string
+}
+
+func normalizedMemoryCandidateMetadata(req MemoryCandidateRequest) (memoryCandidateMetadata, error) {
+	kind := strings.TrimSpace(req.Kind)
+	if kind == "" {
+		kind = MemoryKindMemoryFact
+	}
+	if !validMemoryKind(kind) {
+		return memoryCandidateMetadata{}, fmt.Errorf("unsupported memory candidate kind %q", kind)
+	}
+	scope := strings.TrimSpace(req.Scope)
+	if scope == "" {
+		scope = MemoryScopeGlobal
+	}
+	if !validMemoryScope(scope) {
+		return memoryCandidateMetadata{}, fmt.Errorf("unsupported memory candidate scope %q", scope)
+	}
+	strength := strings.TrimSpace(req.Strength)
+	if strength == "" {
+		strength = MemoryStrengthWeakHint
+	}
+	if !validMemoryStrength(strength) {
+		return memoryCandidateMetadata{}, fmt.Errorf("unsupported memory candidate strength %q", strength)
+	}
+	return memoryCandidateMetadata{
+		kind:        kind,
+		scope:       scope,
+		appliesWhen: strings.TrimSpace(req.AppliesWhen),
+		yieldsTo:    strings.TrimSpace(req.YieldsTo),
+		strength:    strength,
+	}, nil
 }
 
 func validateMemoryApprovalRequest(req MemoryApprovalRequest) error {
@@ -321,6 +455,25 @@ func validateMemorySupersessionRequest(req MemorySupersessionRequest) error {
 	return nil
 }
 
+func validateMemoryForgetRequest(req MemoryForgetRequest) error {
+	if strings.TrimSpace(req.ForgetAuthority) == "" {
+		return errors.New("forget_authority is required")
+	}
+	if strings.TrimSpace(req.ForgetReason) == "" {
+		return errors.New("forget_reason is required")
+	}
+	if strings.TrimSpace(req.ForgetEvidenceRef) == "" {
+		return errors.New("forget_evidence_ref is required")
+	}
+	if err := validateKernelAuthority("forget_authority", req.ForgetAuthority); err != nil {
+		return err
+	}
+	if err := validateKernelRef("forget_evidence_ref", req.ForgetEvidenceRef); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (k *Kernel) memoryCandidates() (map[string]MemoryCandidateProjection, error) {
 	_, candidates, err := k.memoryCandidateList()
 	return candidates, err
@@ -338,7 +491,7 @@ func (k *Kernel) memoryCandidateList() ([]MemoryCandidateProjection, map[string]
 			continue
 		}
 		switch event.Type {
-		case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected", "memory.candidate.superseded":
+		case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected", "memory.candidate.superseded", "memory.candidate.forgotten":
 			candidate, err := candidateFromEvent(event, event.Data.MemoryCandidate, event.CandidateID)
 			if err != nil {
 				return nil, nil, err
@@ -398,13 +551,24 @@ func mergeMemoryCandidateProjection(current MemoryCandidateProjection, incoming 
 	if !sameMemoryCandidateCore(current, incoming) {
 		return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
 	}
+	if current.Status == MemoryCandidateForgotten {
+		if incoming.Status == MemoryCandidateForgotten && sameMemoryForgetDecision(current, incoming) {
+			return current, nil
+		}
+		return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
+	}
 	if current.Status == MemoryCandidateSuperseded {
+		if incoming.Status == MemoryCandidateForgotten {
+			return incoming, nil
+		}
 		if incoming.Status == MemoryCandidateSuperseded && sameMemorySupersessionDecision(current, incoming) {
 			return current, nil
 		}
 		return MemoryCandidateProjection{}, fmt.Errorf("competing memory review evidence for %s", current.CandidateID)
 	}
 	switch incoming.Status {
+	case MemoryCandidateForgotten:
+		return incoming, nil
 	case MemoryCandidateSuperseded:
 		return incoming, nil
 	case MemoryCandidateApproved:
@@ -444,6 +608,11 @@ func sameMemoryCandidateCore(left MemoryCandidateProjection, right MemoryCandida
 		left.SessionID == right.SessionID &&
 		left.Text == right.Text &&
 		left.SourceRef == right.SourceRef &&
+		left.Kind == right.Kind &&
+		left.Scope == right.Scope &&
+		left.AppliesWhen == right.AppliesWhen &&
+		left.YieldsTo == right.YieldsTo &&
+		left.Strength == right.Strength &&
 		left.CreatedAt.Equal(right.CreatedAt)
 }
 
@@ -467,6 +636,48 @@ func sameMemorySupersessionDecision(left MemoryCandidateProjection, right Memory
 		left.SupersessionEvidenceRef == right.SupersessionEvidenceRef &&
 		left.ReplacementCandidateID == right.ReplacementCandidateID &&
 		sameOptionalTime(left.SupersededAt, right.SupersededAt)
+}
+
+func sameMemoryForgetDecision(left MemoryCandidateProjection, right MemoryCandidateProjection) bool {
+	return left.ForgetAuthority == right.ForgetAuthority &&
+		left.ForgetReason == right.ForgetReason &&
+		left.ForgetEvidenceRef == right.ForgetEvidenceRef &&
+		sameOptionalTime(left.ForgottenAt, right.ForgottenAt)
+}
+
+func validMemoryCandidateStatus(status string) bool {
+	return status == MemoryCandidatePending ||
+		status == MemoryCandidateApproved ||
+		status == MemoryCandidateRejected ||
+		status == MemoryCandidateSuperseded ||
+		status == MemoryCandidateForgotten
+}
+
+func validMemoryKind(kind string) bool {
+	switch kind {
+	case MemoryKindPreference, MemoryKindHeuristic, MemoryKindMethod, MemoryKindLesson, MemoryKindProjectOverlay, MemoryKindCapabilityHint, MemoryKindMemoryFact:
+		return true
+	default:
+		return false
+	}
+}
+
+func validMemoryScope(scope string) bool {
+	switch scope {
+	case MemoryScopeGlobal, MemoryScopeProject, MemoryScopeWorkspace, MemoryScopeCapability:
+		return true
+	default:
+		return false
+	}
+}
+
+func validMemoryStrength(strength string) bool {
+	switch strength {
+	case MemoryStrengthWeakHint, MemoryStrengthPreference, MemoryStrengthStrongRule, MemoryStrengthContractHint:
+		return true
+	default:
+		return false
+	}
 }
 
 func sameOptionalTime(left *time.Time, right *time.Time) bool {

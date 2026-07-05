@@ -113,6 +113,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleSupersedeMemoryCandidate(w, r, k)
+		case r.Method == http.MethodPost && isMemoryForgetPath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
+			handleForgetMemoryCandidate(w, r, k)
 		case r.Method == http.MethodGet && isSessionTimelinePath(r.URL.Path):
 			if !authorizeRuntimeRequest(w, r, k) {
 				return

@@ -1,6 +1,6 @@
 # Requirement: Context Discovery And Accumulation
 
-- **Status:** draft.
+- **Status:** approved for phased implementation.
 - **Owner:** Genesis Kernel, Model Gateway, and Accumulation owner.
 - **Scope:** low-context discovery for user capabilities, scoped user knowledge, project overlays, and long-term accumulation.
 

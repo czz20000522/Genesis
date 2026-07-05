@@ -131,6 +131,31 @@ func handleSupersedeMemoryCandidate(w http.ResponseWriter, r *http.Request, k *K
 	writeJSON(w, http.StatusOK, supersession)
 }
 
+func handleForgetMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kernel) {
+	var req MemoryForgetRequest
+	if !decodeRequest(w, r, &req) {
+		return
+	}
+	candidateID := memoryForgetCandidateID(r.URL.Path)
+	if candidateID == "" {
+		writeError(w, http.StatusNotFound, "not_found", "memory candidate route not found")
+		return
+	}
+	candidate, err := k.ForgetMemoryCandidate(candidateID, req)
+	if writeKernelUnavailable(w, err) {
+		return
+	}
+	if errors.Is(err, ErrMemoryCandidateNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "memory candidate not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, candidate)
+}
+
 func isMemoryCandidateGetPath(path string) bool {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
@@ -158,6 +183,10 @@ func isMemorySupersedePath(path string) bool {
 	return strings.HasPrefix(path, "/memory/candidates/") && strings.HasSuffix(path, "/supersede")
 }
 
+func isMemoryForgetPath(path string) bool {
+	return strings.HasPrefix(path, "/memory/candidates/") && strings.HasSuffix(path, "/forget")
+}
+
 func memoryApproveCandidateID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
@@ -180,6 +209,15 @@ func memorySupersedeCandidateID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
 	if len(parts) != 4 || parts[0] != "memory" || parts[1] != "candidates" || parts[3] != "supersede" {
+		return ""
+	}
+	return strings.TrimSpace(parts[2])
+}
+
+func memoryForgetCandidateID(path string) string {
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 4 || parts[0] != "memory" || parts[1] != "candidates" || parts[3] != "forget" {
 		return ""
 	}
 	return strings.TrimSpace(parts[2])

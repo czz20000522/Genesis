@@ -3,9 +3,14 @@ package kernel
 import "time"
 
 type MemoryCandidateRequest struct {
-	SessionID string `json:"session_id"`
-	Text      string `json:"text"`
-	SourceRef string `json:"source_ref"`
+	SessionID   string `json:"session_id"`
+	Text        string `json:"text"`
+	SourceRef   string `json:"source_ref"`
+	Kind        string `json:"kind,omitempty"`
+	Scope       string `json:"scope,omitempty"`
+	AppliesWhen string `json:"applies_when,omitempty"`
+	YieldsTo    string `json:"yields_to,omitempty"`
+	Strength    string `json:"strength,omitempty"`
 }
 
 type MemoryCandidateListResponse struct {
@@ -32,6 +37,12 @@ type MemorySupersessionRequest struct {
 	SupersessionEvidenceRef string `json:"supersession_evidence_ref"`
 }
 
+type MemoryForgetRequest struct {
+	ForgetAuthority   string `json:"forget_authority"`
+	ForgetReason      string `json:"forget_reason"`
+	ForgetEvidenceRef string `json:"forget_evidence_ref"`
+}
+
 type MemorySupersessionProjection struct {
 	Superseded  MemoryCandidateProjection `json:"superseded"`
 	Replacement MemoryCandidateProjection `json:"replacement"`
@@ -42,6 +53,11 @@ type MemoryCandidateProjection struct {
 	SessionID               string     `json:"session_id"`
 	Text                    string     `json:"text"`
 	SourceRef               string     `json:"source_ref"`
+	Kind                    string     `json:"kind"`
+	Scope                   string     `json:"scope"`
+	AppliesWhen             string     `json:"applies_when,omitempty"`
+	YieldsTo                string     `json:"yields_to,omitempty"`
+	Strength                string     `json:"strength"`
 	Status                  string     `json:"status"`
 	CreatedAt               time.Time  `json:"created_at"`
 	ApprovalAuthority       string     `json:"approval_authority,omitempty"`
@@ -57,4 +73,8 @@ type MemoryCandidateProjection struct {
 	SupersessionEvidenceRef string     `json:"supersession_evidence_ref,omitempty"`
 	ReplacementCandidateID  string     `json:"replacement_candidate_id,omitempty"`
 	SupersededAt            *time.Time `json:"superseded_at,omitempty"`
+	ForgetAuthority         string     `json:"forget_authority,omitempty"`
+	ForgetReason            string     `json:"forget_reason,omitempty"`
+	ForgetEvidenceRef       string     `json:"forget_evidence_ref,omitempty"`
+	ForgottenAt             *time.Time `json:"forgotten_at,omitempty"`
 }
