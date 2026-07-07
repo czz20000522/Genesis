@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHTTPReadyTurnAndSession(t *testing.T) {
@@ -184,6 +186,63 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingTurnAfterRestart(t *testing.
 	}
 	if len(projection.Turns) != 1 || len(projection.Events) != 2 {
 		t.Fatalf("projection turns/events = %d/%d, want one turn and two events", len(projection.Turns), len(projection.Events))
+	}
+}
+
+func TestHTTPTurnSubmitIdempotencyKeyReturnsConflictWhileOriginalTurnRuns(t *testing.T) {
+	provider := newBlockingProvider()
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	body := []byte(`{"session_id":"http-turn-idempotent-running","idempotency_key":"turn-running-1","input_items":[{"type":"text","text":"first prompt"}]}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	firstReq, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/turn", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build first request: %v", err)
+	}
+	firstReq.Header.Set("Authorization", "Bearer "+testRuntimeToken)
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstDone := make(chan error, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(firstReq)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+		firstDone <- err
+	}()
+	provider.waitStarted(t)
+
+	retryResp, err := postJSONWithAuth(server.URL+"/turn", body)
+	if err != nil {
+		t.Fatalf("retry POST /turn failed: %v", err)
+	}
+	defer retryResp.Body.Close()
+	assertErrorCode(t, retryResp, http.StatusConflict, "session_active")
+
+	projection, err := k.Session("http-turn-idempotent-running")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if got := countSessionEventType(projection.Events, "turn.submitted"); got != 1 {
+		t.Fatalf("turn.submitted count = %d, want original running turn only", got)
+	}
+
+	cancel()
+	select {
+	case <-firstDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first turn request did not exit after cancellation")
 	}
 }
 

@@ -659,7 +659,7 @@ func (k *Kernel) turnByIdempotencyKey(sessionID string, key string) (TurnRespons
 			Error:     failure,
 		}, true, replayedTurnFailure{failure: *failure}
 	}
-	return TurnResponse{}, true, errors.New("turn idempotency key is already running")
+	return TurnResponse{}, true, ErrSessionActive
 }
 
 func (k *Kernel) TurnEvents(turnID string) ([]Event, error) {

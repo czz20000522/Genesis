@@ -303,3 +303,52 @@ Remaining scope:
 
 - No production code changed because the fail-closed behavior was already implemented.
 - Continue Task 2 with approval replay, stale approval, and sandbox readiness references before moving to process/job control again.
+
+### 2026-07-08 Task 3 Process And Job Control Scan
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/unified_exec/process_manager.rs` owns process ids, output collection, cancellation, and terminal process state; `codex-rs/core/src/unified_exec/head_tail_buffer.rs` preserves bounded head/tail output.
+- Reasonix owner: `internal/jobs/jobs.go` owns session-scoped background job status and cancellation; `internal/tool/builtin/bgjobs.go` exposes status, wait, and kill controls; `internal/tool/builtin/bash.go` separates foreground timeout from background jobs.
+- Genesis owner: `internal/kernel/shell.go`, `internal/kernel/managed_job_executor.go`, `internal/kernel/jobs.go`, `internal/kernel/job_control_test.go`, and `internal/kernel/job_progress_test.go` already cover managed job receipt, process tree cleanup, output snapshots, terminal observation delivery, cancellation requests, lost local ownership recovery, and bounded head/tail shell output.
+
+Classification:
+
+- `matches` for the reference-backed semantics checked in this pass: running/completed/failed/cancelled projections, bounded job output snapshots, cancellation without forged terminal facts, and process tree cleanup are already covered by focused tests.
+- `intentional difference`: Reasonix `bash_output` is incremental since last read; Genesis keeps append-only job facts and returns the latest job projection through `job_status`/`job_wait` instead of mutating read offsets.
+
+Evidence:
+
+- Existing coverage inspected: `TestSubmitTurnJobCancelReachesLiveManagedExecutor`, `TestSubmitTurnJobCancelLedgerOnlyRunningJobRecordsRequestWithoutForgingTerminalFact`, `TestLocalManagedJobExecutorEmitsSparseOutputSnapshot`, `TestManagedJobOutputCaptureStopsAfterTruncatedSnapshot`, `TestExecShellReportsHeadTailTruncationMetadata`, and process-tree interruption/timeout tests.
+
+Remaining scope:
+
+- No code change in this scan. The next bounded gap came from Task 4 session/turn idempotency handling.
+
+### 2026-07-08 Slice 3 Running Turn Idempotency Conflict
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/state/turn.rs` has explicit `ActiveTurn` state, a `RunningTask`, and cancellation waiters for in-flight turns.
+- Reasonix owner: `internal/control/controller.go` exposes `ErrTurnRunning` for a second foreground turn while one is active in the same controller; `internal/agent/session.go` serializes session history mutation behind session ownership.
+- Genesis owner: `internal/kernel/kernel.go` owns `activeTurns`, `tryBeginActiveTurn`, and `turnByIdempotencyKey`; `internal/kernel/http_turn.go` maps `ErrSessionActive` to HTTP `409 session_active`.
+
+Gap:
+
+- Retrying the same `session_id + idempotency_key` while the original turn was still running returned a plain error from `turnByIdempotencyKey`. HTTP reduced that to `400 invalid_request`, even though the semantic state is an active-session conflict and must not be reported as malformed input.
+
+Change:
+
+- Added `TestHTTPTurnSubmitIdempotencyKeyReturnsConflictWhileOriginalTurnRuns` in `internal/kernel/http_transport_test.go`.
+- Changed `turnByIdempotencyKey` to return `ErrSessionActive` for an existing, non-terminal idempotent turn so the HTTP layer uses the existing conflict mapping.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestHTTPTurnSubmitIdempotencyKeyReturnsConflictWhileOriginalTurnRuns -count=1` failed with `status = 400, want 409`.
+- GREEN: `go test ./internal/kernel -run TestHTTPTurnSubmitIdempotencyKeyReturnsConflictWhileOriginalTurnRuns -count=1`
+- Related: `go test ./internal/kernel -run "TestHTTPTurnSubmitIdempotencyKey(ReturnsExistingTurnAfterRestart|ReturnsConflictWhileOriginalTurnRuns|ReturnsExistingFailureAfterRestart|RequiresValidExplicitSession)|TestForegroundAttachReplayDoesNotDuplicateManagedJob|TestSubmitTurnRefusesWhileManualCompactionOwnsSession|TestManualCompactionControlSurfaceRefusesRunningSession" -count=1`
+- Race: `go test -race ./internal/kernel -run "TestHTTPTurnSubmitIdempotencyKeyReturnsConflictWhileOriginalTurnRuns" -count=1`
+
+Remaining scope:
+
+- Continue Task 4 by checking replay and duplicate submission surfaces that are not already covered by HTTP idempotency and foreground-attach replay tests.
