@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const windowsPowerShellUTF8Prologue = "$OutputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;"
+
 func runShellProcess(ctx context.Context, cwd string, command string, timeout time.Duration) (capturedOutput, capturedOutput, int, bool, bool, error) {
 	if timeout <= 0 {
 		timeout = defaultShellDuration
@@ -61,7 +63,7 @@ func runShellProcessContextWithOutput(ctx context.Context, cwd string, command s
 
 func platformShellCommand(ctx context.Context, command string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
-		return exec.CommandContext(ctx, "pwsh.exe", "-NoProfile", "-NonInteractive", "-Command", command)
+		return exec.CommandContext(ctx, "pwsh.exe", "-NoProfile", "-NonInteractive", "-Command", windowsPowerShellUTF8Prologue+command)
 	}
 	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
 }

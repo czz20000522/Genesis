@@ -235,3 +235,49 @@ Ask the user only when:
   - `go build ./...`
 - Clean baseline confirmed with `git status --short --branch`.
 
+### 2026-07-08 Task 1 Reference Inventory
+
+Inventory rule used for this pass: each surface below has at least one concrete Codex path, one concrete Reasonix path, and one Genesis owner path. Later implementation slices must reopen the exact files relevant to the slice and inspect behavior, not rely only on this table.
+
+| Surface | Codex reference | Reasonix reference | Genesis owner |
+| --- | --- | --- | --- |
+| Sessions, turns, replay | `codex-rs/core/src/session/session.rs`, `codex-rs/core/src/session/turn.rs`, `codex-rs/core/src/state/session.rs`, `codex-rs/core/src/state/turn.rs`, `codex-rs/core/tests/suite/turn_state.rs` | `internal/agent/session.go`, `internal/agent/agent.go`, `internal/control/controller.go`, `internal/agent/session_test.go`, `internal/control/controller_test.go` | `internal/kernel/kernel.go`, `internal/kernel/http_turn.go`, `internal/kernel/turn_interrupt.go`, `internal/kernel/session_projection.go`, `internal/kernel/http_transport_test.go` |
+| Tool registry and dispatch | `codex-rs/core/src/tools/registry.rs`, `codex-rs/core/src/tools/router.rs`, `codex-rs/core/src/tools/orchestrator.rs`, `codex-rs/core/tests/suite/tools.rs`, `codex-rs/core/tests/suite/tool_parallelism.rs` | `internal/tool/tool.go`, `internal/agent/agent.go`, `internal/tool/registry_test.go`, `internal/tool/registry_canon_test.go` | `internal/kernel/tool_registry.go`, `internal/kernel/model_tools.go`, `internal/kernel/tool_execution.go`, `internal/kernel/tool_scheduling.go`, `internal/kernel/tool_loop_integration_test.go`, `internal/kernel/tool_execution_test.go` |
+| Permission, approval, sandbox | `codex-rs/core/src/config/permissions.rs`, `codex-rs/core/src/config/resolved_permission_profile.rs`, `codex-rs/core/src/exec_policy.rs`, `codex-rs/core/src/tools/sandboxing.rs`, `codex-rs/core/tests/suite/approvals.rs`, `codex-rs/core/tests/suite/request_permissions_tool.rs` | `internal/permission/permission.go`, `internal/permission/bash_readonly.go`, `internal/sandbox/sandbox.go`, `internal/control/controller.go`, `internal/control/approval_e2e_test.go` | `internal/kernel/authority_gate.go`, `internal/kernel/approval.go`, `internal/kernel/http_approvals.go`, `internal/kernel/controlled_shell.go`, `internal/kernel/approval_owner_test.go`, `internal/kernel/tool_loop_integration_test.go` |
+| Shell and process control | `codex-rs/core/src/shell.rs`, `codex-rs/core/src/exec.rs`, `codex-rs/core/src/unified_exec/process_manager.rs`, `codex-rs/core/src/tools/handlers/shell.rs`, `codex-rs/core/tests/suite/unified_exec.rs`, `codex-rs/core/tests/suite/shell_command.rs` | `internal/sandbox/shell.go`, `internal/tool/builtin/bash.go`, `internal/tool/builtin/bgjobs.go`, `internal/control/controller.go`, `internal/control/shell_test.go`, `internal/tool/builtin/bash_powershell_test.go` | `internal/kernel/process_runtime.go`, `internal/kernel/managed_job_executor.go`, `internal/kernel/shell.go`, `internal/kernel/jobs.go`, `internal/kernel/shell_process_tree_test.go`, `internal/kernel/job_control_test.go` |
+| Provider boundary and retries | `codex-rs/core/src/client.rs`, `codex-rs/core/src/client_common.rs`, `codex-rs/core/src/responses_retry.rs`, `codex-rs/core/tests/suite/client.rs`, `codex-rs/core/tests/suite/remote_models.rs` | `internal/provider/provider.go`, `internal/provider/retry.go`, `internal/provider/openai/openai.go`, `internal/provider/openai/fetch_models.go`, `internal/config/ccswitch.go`, `internal/provider/provider_test.go` | `internal/kernel/provider.go`, `internal/kernel/openai_compatible.go`, `internal/kernel/provider_command.go`, `internal/kernel/provider_resilience.go`, `internal/kernel/model_config.go`, `internal/kernel/provider_gateway_test.go`, `internal/kernel/provider_command_test.go` |
+| Resource and material projection | `codex-rs/core/src/tools/handlers/mcp_resource.rs`, `codex-rs/core/src/tools/handlers/mcp_resource_spec.rs`, `codex-rs/core/src/context/available_skills_instructions.rs`, `codex-rs/core/tests/suite/search_tool.rs`, `codex-rs/core/tests/suite/rmcp_client.rs` | `internal/tool/builtin/readfile.go`, `internal/tool/builtin/workspace.go`, `internal/tool/builtin/confine.go`, `internal/skill/tools.go`, `internal/tool/builtin/readfile_window_test.go` | `internal/kernel/resource/registry.go`, `internal/kernel/resource/source_snapshot.go`, `internal/kernel/material_intake.go`, `internal/kernel/model_tools.go`, `internal/kernel/resource_read_test.go`, `internal/kernel/source_tools_test.go`, `internal/kernel/http_materials_test.go` |
+| Timeline, audit, debug, inspection | `codex-rs/core/src/event_mapping.rs`, `codex-rs/core/src/tools/events.rs`, `codex-rs/core/src/prompt_debug.rs`, `codex-rs/core/tests/suite/model_visible_layout.rs`, `codex-rs/core/tests/suite/truncation.rs` | `internal/event/event.go`, `internal/event/sync.go`, `internal/agent/textsink.go`, `internal/agent/evidence_flow_test.go`, `internal/agent/final_readiness_test.go` | `internal/kernel/projections.go`, `internal/kernel/ui_timeline_projection.go`, `internal/kernel/session_debug.go`, `internal/kernel/http_inspection.go`, `internal/kernel/capabilities.go`, `internal/kernel/projection_shape_test.go`, `internal/kernel/timeline_projection_test.go` |
+| Config, readiness, models | `codex-rs/core/src/config/mod.rs`, `codex-rs/core/src/config/schema.rs`, `codex-rs/core/src/config/config_loader_tests.rs`, `codex-rs/core/tests/suite/models_cache_ttl.rs`, `codex-rs/core/tests/suite/remote_models.rs` | `internal/config/config.go`, `internal/config/fetch.go`, `internal/config/ccswitch.go`, `internal/provider/openai/fetch_models.go`, `internal/boot/model_error_test.go`, `internal/serve/modelswitch_test.go` | `internal/kernel/model_config.go`, `internal/kernel/provider_verify.go`, `internal/kernel/capabilities.go`, `cmd/genesisctl/main.go`, `cmd/genesisctl/capability.go`, `docs/operations/live-llm-first-run-acceptance.md`, `internal/kernel/model_config_test.go`, `cmd/genesisctl/main_test.go` |
+
+First bounded implementation slice selected from this inventory:
+
+- Surface: shell and process control.
+- Reference-backed gap: Reasonix forces PowerShell output to UTF-8 with `psUTF8Prologue` in `internal/sandbox/shell.go` so Chinese Windows hosts do not return mojibake under CP936/OEM output pages. Genesis now uses `pwsh.exe` on Windows but does not inject an output-encoding prologue in `internal/kernel/process_runtime.go`.
+- Codex alignment: Codex models shell execution behind `codex-rs/core/src/shell.rs` and routes shell execution through owned shell backends, so the shell interpreter boundary is the right owner for command argv shaping.
+- Genesis implementation target: add a focused test proving Windows `platformShellCommand` prefixes PowerShell commands with the UTF-8 prologue, then update `process_runtime.go`.
+- Non-goal: do not add a general shell resolver, Git Bash preference, WSL fallback, or safe-shell hook in this slice.
+
+### 2026-07-08 Slice 1 Shell UTF-8 Prologue
+
+Reference scan:
+
+- Codex entrypoint and owner: `codex-rs/core/src/shell.rs` owns shell type and argv derivation; shell execution is routed through `codex-rs/core/src/tools/handlers/shell.rs` and `codex-rs/core/src/exec.rs`.
+- Reasonix entrypoint and owner: `internal/sandbox/shell.go` owns shell resolution and PowerShell argv; its `psUTF8Prologue` forces UTF-8 output on Chinese Windows/OEM code pages.
+- Genesis owner: `internal/kernel/process_runtime.go` owns host shell process selection and argv shaping; `internal/kernel/managed_job_executor.go` reuses that owner for managed shell jobs.
+
+Change:
+
+- Added `TestPlatformShellCommandOnWindowsForcesUTF8OutputEncoding` in `internal/kernel/process_runtime_test.go`.
+- Prefixed Windows `pwsh.exe -Command` payloads with the UTF-8 output prologue in `internal/kernel/process_runtime.go`.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestPlatformShellCommandOnWindowsForcesUTF8OutputEncoding -count=1` failed before implementation because the command payload was `Write-Output '你好'` without the UTF-8 prologue.
+- GREEN: `go test ./internal/kernel -run TestPlatformShellCommandOnWindowsForcesUTF8OutputEncoding -count=1`
+- Related: `go test ./internal/kernel -run "TestPlatformShellCommandOnWindowsForcesUTF8OutputEncoding|TestForegroundShellTimeoutTerminatesDescendantProcessTree|TestForegroundShellInterruptHandsOffDescendantProcessTree|TestSubmitTurnLiveManagedExecutorRecordsCompletedOutput|TestSubmitTurnJobCancelReachesLiveManagedExecutor|TestSubmitTurnDeliversCompletedJobObservationToNextProviderStep" -count=1`
+
+Remaining scope:
+
+- This slice intentionally did not add shell auto-detection, Git Bash preference, WSL fallback, or safe-shell hook support.
+- Next slice should return to Task 2 and inspect permission/approval/sandbox fail-closed behavior against the mapped Codex and Reasonix files.
