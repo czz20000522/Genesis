@@ -352,3 +352,31 @@ Evidence:
 Remaining scope:
 
 - Continue Task 4 by checking replay and duplicate submission surfaces that are not already covered by HTTP idempotency and foreground-attach replay tests.
+
+### 2026-07-08 Slice 4 Stream Turn Conflict Error Shape
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/session/session.rs` documents one running task per session and projects stream errors as typed protocol events rather than unstructured text.
+- Reasonix owner: `internal/control/controller.go` uses `ErrTurnRunning` for running-turn conflicts and applies the same running guard to send, rewind, fork, branch, and summarize control surfaces.
+- Genesis owner: `internal/kernel/http_turn.go` owns both `/turn` and `/turn/stream` transport reduction; `internal/kernel/kernel.go` owns the `ErrSessionActive` sentinel.
+
+Gap:
+
+- `/turn` mapped active-session conflicts to HTTP `409 session_active`, but `/turn/stream` reduced the same `ErrSessionActive` to a generic NDJSON `turn_failed` error code. Streaming responses cannot change status after headers, but the stream event still needs the same semantic error code.
+
+Change:
+
+- Added `TestHTTPTurnStreamReportsSessionActiveConflict` in `internal/kernel/http_transport_test.go`.
+- Added `turnStreamError` in `internal/kernel/http_turn.go` so stream errors preserve provider unavailable, ingress block, tool infrastructure, and active-session semantic codes when no replayed turn error is already present.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestHTTPTurnStreamReportsSessionActiveConflict -count=1` failed because the stream event carried a generic error code.
+- GREEN: `go test ./internal/kernel -run "TestHTTPTurn(StreamReportsSessionActiveConflict|SubmitIdempotencyKeyReturnsConflictWhileOriginalTurnRuns)" -count=1`
+- Related: `go test ./internal/kernel -run "TestHTTPTurn(StreamReportsSessionActiveConflict|SubmitIdempotencyKeyReturnsConflictWhileOriginalTurnRuns|SubmitIdempotencyKeyReturnsExistingTurnAfterRestart|SubmitIdempotencyKeyReturnsExistingFailureAfterRestart)|TestSubmitTurnStream(EmitsDeltasButPersistsOnlyFinalMessage|DoesNotRetryAfterVisibleDelta)" -count=1`
+- Race: `go test -race ./internal/kernel -run "TestHTTPTurn(StreamReportsSessionActiveConflict|SubmitIdempotencyKeyReturnsConflictWhileOriginalTurnRuns)" -count=1`
+
+Remaining scope:
+
+- Continue Task 4 by checking replay read models and idempotency failure cases not covered by the HTTP and stream transport slices.

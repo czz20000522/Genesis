@@ -69,14 +69,33 @@ func handleSubmitTurnStream(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	}
 	resp, err := k.SubmitTurnStream(r.Context(), req, emit)
 	if err != nil {
-		streamErr := TurnError{Code: "turn_failed", Message: err.Error()}
-		if resp.Error != nil {
-			streamErr = *resp.Error
-		}
+		streamErr := turnStreamError(resp, err)
 		_ = emit(TurnStreamEvent{Type: "turn_failed", Error: &streamErr})
 		return
 	}
 	_ = emit(TurnStreamEvent{Type: "turn_completed", Response: &resp})
+}
+
+func turnStreamError(resp TurnResponse, err error) TurnError {
+	if resp.Error != nil {
+		return *resp.Error
+	}
+	message := ""
+	if err != nil {
+		message = err.Error()
+	}
+	switch {
+	case errors.Is(err, ErrProviderUnavailable):
+		return TurnError{Code: "provider_unavailable", Message: message}
+	case errors.Is(err, ErrIngressSecurityBlocked):
+		return TurnError{Code: "turn_blocked_by_ingress_security", Message: message}
+	case errors.Is(err, ErrToolInfrastructureFailed):
+		return TurnError{Code: "tool_infrastructure_failed", Message: message}
+	case errors.Is(err, ErrSessionActive):
+		return TurnError{Code: "session_active", Message: message}
+	default:
+		return TurnError{Code: "turn_failed", Message: message}
+	}
 }
 
 func turnErrorHTTPStatus(err TurnError) int {

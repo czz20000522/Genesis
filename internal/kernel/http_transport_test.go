@@ -246,6 +246,78 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsConflictWhileOriginalTurnRuns(t *tes
 	}
 }
 
+func TestHTTPTurnStreamReportsSessionActiveConflict(t *testing.T) {
+	provider := newBlockingProvider()
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
+	k, err := New(Config{
+		LedgerPath:   ledgerPath,
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	body := []byte(`{"session_id":"http-turn-stream-active","idempotency_key":"turn-stream-active-1","input_items":[{"type":"text","text":"first prompt"}]}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	firstReq, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/turn", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build first request: %v", err)
+	}
+	firstReq.Header.Set("Authorization", "Bearer "+testRuntimeToken)
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstDone := make(chan error, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(firstReq)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+		firstDone <- err
+	}()
+	provider.waitStarted(t)
+
+	streamReq, err := http.NewRequest(http.MethodPost, server.URL+"/turn/stream", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build stream request: %v", err)
+	}
+	streamReq.Header.Set("Authorization", "Bearer "+testRuntimeToken)
+	streamReq.Header.Set("Content-Type", "application/json")
+	streamResp, err := http.DefaultClient.Do(streamReq)
+	if err != nil {
+		t.Fatalf("POST /turn/stream failed: %v", err)
+	}
+	defer streamResp.Body.Close()
+	if streamResp.StatusCode != http.StatusOK {
+		t.Fatalf("stream status = %d, want 200 with typed NDJSON error", streamResp.StatusCode)
+	}
+	payload, err := io.ReadAll(streamResp.Body)
+	if err != nil {
+		t.Fatalf("read stream response: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("stream payload = %q, want one turn_failed event", string(payload))
+	}
+	var event TurnStreamEvent
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("decode stream event: %v; payload=%s", err, string(payload))
+	}
+	if event.Type != "turn_failed" || event.Error == nil || event.Error.Code != "session_active" {
+		t.Fatalf("stream event = %+v, want turn_failed session_active", event)
+	}
+
+	cancel()
+	select {
+	case <-firstDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first turn request did not exit after cancellation")
+	}
+}
+
 func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testing.T) {
 	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{
