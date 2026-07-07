@@ -61,7 +61,7 @@ func runShellProcessContextWithOutput(ctx context.Context, cwd string, command s
 
 func platformShellCommand(ctx context.Context, command string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
-		return exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command)
+		return exec.CommandContext(ctx, "pwsh.exe", "-NoProfile", "-NonInteractive", "-Command", command)
 	}
 	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
 }

@@ -234,7 +234,7 @@ func TestProviderVerifyReportsMissingCredentialAsJSON(t *testing.T) {
     "credential_ref": "secret://models/provider/missing"
   },
   "active_model_profile_bindings": {
-    "foreground.coordinator": "verify-profile"
+    "coordinator": "verify-profile"
   },
   "model_profiles": {
     "cloud": {
@@ -478,7 +478,7 @@ func writePreAdapterProviderConfigForCLI(t *testing.T, configRoot string, profil
     }
   },
   "active_model_profile_bindings": {
-    "foreground.coordinator": "` + profileID + `"
+    "coordinator": "` + profileID + `"
   },
   "model_profiles": {
     "cloud": {

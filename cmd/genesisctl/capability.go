@@ -222,8 +222,8 @@ func capabilityCommand(packageRoot string, entrypoint string, args []string) (*e
 	entry := filepath.Join(packageRoot, filepath.FromSlash(strings.TrimSpace(entrypoint)))
 	switch strings.ToLower(filepath.Ext(entry)) {
 	case ".ps1":
-		command := "powershell.exe"
-		if _, err := exec.LookPath(command); err != nil {
+		command, err := powerShellCommand()
+		if err != nil {
 			return nil, err
 		}
 		cmdArgs := append([]string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", entry}, args...)
@@ -231,6 +231,14 @@ func capabilityCommand(packageRoot string, entrypoint string, args []string) (*e
 	default:
 		return exec.Command(entry, args...), nil
 	}
+}
+
+func powerShellCommand() (string, error) {
+	command := "pwsh.exe"
+	if _, err := exec.LookPath(command); err == nil {
+		return command, nil
+	}
+	return "", errors.New("pwsh.exe not found")
 }
 
 func safeCapabilityRelativePath(path string) bool {

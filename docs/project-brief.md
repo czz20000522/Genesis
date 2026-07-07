@@ -15,8 +15,8 @@ environment around an LLM:
   event replay, and recovery;
 - a desktop shell for everyday interaction;
 - user-space connectors for external channels such as Feishu;
-- user-space capability packages for personal tools such as video transcript
-  extraction;
+- user-space capability packages for personal tools such as local report
+  generation;
 - a `~/.genesis` user home for config, credentials, models, accumulation,
   skills, capabilities, and runtime state.
 

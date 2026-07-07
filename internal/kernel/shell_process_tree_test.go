@@ -122,7 +122,7 @@ func descendantMarkerCommand(markerPath string, readyPath string, childDelaySeco
 			powershellSingleQuoted(markerPath),
 		)
 		return fmt.Sprintf(
-			"Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','%s') -WindowStyle Hidden; Set-Content -LiteralPath %s -Value 'ready'; Start-Sleep -Seconds 30",
+			"Start-Process -FilePath pwsh.exe -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','%s') -WindowStyle Hidden; Set-Content -LiteralPath %s -Value 'ready'; Start-Sleep -Seconds 30",
 			powershellEncodedCommand(childScript),
 			powershellSingleQuoted(readyPath),
 		)
@@ -134,8 +134,8 @@ func descendantMarkerCommand(markerPath string, readyPath string, childDelaySeco
 func requireProcessTreeShellSupport(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		if _, err := exec.LookPath("powershell.exe"); err != nil {
-			t.Skipf("powershell.exe unavailable: %v", err)
+		if _, err := exec.LookPath("pwsh.exe"); err != nil {
+			t.Skipf("pwsh.exe unavailable: %v", err)
 		}
 		return
 	}

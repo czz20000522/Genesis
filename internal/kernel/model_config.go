@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const DefaultModelRole = "foreground.coordinator"
+const DefaultModelRole = "coordinator"
 
 const (
 	modelGatewayProtocolChatCompletions = "openai-chat-completions"

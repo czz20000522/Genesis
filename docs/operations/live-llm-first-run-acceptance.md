@@ -15,7 +15,7 @@ Run from the repo root:
 
 ```powershell
 $env:GENESIS_PROVIDER_API_KEY = "<provider api key>"
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 `
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 `
   -BaseUrl https://provider.example.com/api `
   -Model provider-model
 ```
@@ -39,9 +39,9 @@ The JSON summary printed by the script includes paths, session id, turn id, prov
 Useful options:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 -Help
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 -Help
 
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 `
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 `
   -BaseUrl https://provider.example.com/api `
   -Model provider-model `
   -WorkRoot .\.genesis-live\acceptance `
@@ -110,7 +110,7 @@ Verify the configured provider against upstream auth before starting the daemon:
 & "$root\bin\genesisctl.exe" provider verify `
   -config-root "$root\config" `
   -credential-store-root "$root\credentials" `
-  -model-role foreground.coordinator `
+  -model-role coordinator `
   -timeout-sec 10
 ```
 

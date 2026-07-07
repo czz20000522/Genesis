@@ -8,9 +8,14 @@
 Genesis should make small user-defined tools easy to organize, discover, run,
 and migrate without absorbing their domain logic into the kernel.
 
-Examples include video transcript extraction, code intelligence, paper operator
-helpers, local report generators, and future one-off utilities. These are user
-capabilities, not Genesis kernel capabilities.
+Examples include code intelligence, paper operator helpers, local report
+generators, and future one-off utilities. These are user capabilities, not
+Genesis kernel capabilities.
+
+Shared agent skills are a separate layer. For example, video transcript
+extraction is currently a general skill under the shared agent skill root, not a
+Genesis capability package. Genesis may call that skill when an agent chooses
+to, but Genesis does not own its runtime, model files, or registration.
 
 ## User Home Boundary
 
@@ -46,12 +51,12 @@ Each user capability is a self-contained directory under
 
 ```text
 ~/.genesis/capabilities/
-  video-transcript/
+  local-report/
     genesis.capability.json
     SKILL.md
     pyproject.toml
     scripts/
-    video_transcript/
+    local_report/
     data/
       outputs/
       cache/
@@ -73,15 +78,15 @@ The minimum manifest describes how Genesis can inspect and invoke the package.
 
 ```json
 {
-  "id": "video-transcript",
-  "name": "视频字幕提取",
-  "description": "从抖音或 Bilibili 链接生成字幕文件。",
-  "runtime_ref": "python-asr",
-  "entrypoint": "scripts/video-transcript.ps1",
+  "id": "local-report",
+  "name": "本地报告生成",
+  "description": "从本地输入生成报告文件。",
+  "runtime_ref": "python-report",
+  "entrypoint": "scripts/local-report.ps1",
   "skill": "SKILL.md",
   "data_dir": "data",
-  "inputs": ["url", "share_text"],
-  "outputs": ["srt", "txt", "json"]
+  "inputs": ["path"],
+  "outputs": ["txt"]
 }
 ```
 
@@ -108,6 +113,12 @@ Skills and capabilities remain orthogonal:
 - installing a capability does not automatically inject full instructions into
   every turn;
 - the kernel still decides tool execution authority through generic primitives.
+
+Some capabilities are only management wrappers around a general-purpose agent
+skill. In that case, keep the reusable operating truth in the general skill and
+make the Genesis capability `SKILL.md` a thin pointer to it. The capability can
+still provide a manifest, managed entrypoint, output directory, health checks,
+and small helper scripts, but it should not duplicate long procedural guidance.
 
 ## Environment Boundary
 
@@ -163,6 +174,7 @@ domain logic stays outside the kernel. The stable contract is:
 ```text
 User request
   -> skill/capability discovery
+  -> optional capability wrapper
   -> generic governed execution
   -> capability-local data
   -> optional explicit promotion into Genesis-owned facts

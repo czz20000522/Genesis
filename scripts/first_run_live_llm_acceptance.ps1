@@ -10,7 +10,7 @@ param(
     [string]$Model = "",
     [string]$ApiKeyEnv = "GENESIS_PROVIDER_API_KEY",
     [string]$RuntimeToken = "",
-    [string]$ModelRole = "foreground.coordinator",
+    [string]$ModelRole = "coordinator",
     [string]$ProfileId = "live-acceptance",
     [string]$GatewayRoute = "live-acceptance",
     [string]$CredentialRef = "secret://models/provider/live-acceptance",
@@ -35,7 +35,7 @@ Required:
 
 Example:
   `$env:GENESIS_PROVIDER_API_KEY = "<provider api key>"
-  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 -BaseUrl https://provider.example.com/api -Model provider-model
+  pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 -BaseUrl https://provider.example.com/api -Model provider-model
 
 The script builds genesisctl/genesisd, writes Genesis config and a secret:// credential
 record, verifies the provider against upstream auth before starting genesisd, starts
