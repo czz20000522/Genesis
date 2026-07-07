@@ -697,6 +697,138 @@ func TestSubmitTurnBlocksReadOnlySandboxOverrideBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestSubmitTurnBlocksUnknownSandboxProfileBeforeExecution(t *testing.T) {
+	workspace := testTempDir(t)
+	target := filepath.Join(workspace, "unknown-sandbox-should-not-run.txt")
+	arguments, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": writeFileCommand(filepath.Base(target), "blocked"),
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_unknown_sandbox", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "unknown sandbox feedback received",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+			SandboxProfile: "moonbase",
+			ApprovalPolicy: ApprovalPolicyNever,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "unknown-sandbox-profile",
+		InputItems: []InputItem{{Type: "text", Text: "try unknown sandbox shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "unknown sandbox feedback received" {
+		t.Fatalf("final text = %q, want unknown sandbox feedback received", resp.Final.Text)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("blocked unknown sandbox command created %q; stat err=%v", target, err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "sandbox_profile_unavailable" || payload["executed"] != false {
+		t.Fatalf("tool result payload = %+v, want sandbox_profile_unavailable without execution", payload)
+	}
+	errorPayload, ok := payload["error"].(map[string]interface{})
+	if !ok || errorPayload["code"] != "sandbox_profile_unavailable" {
+		t.Fatalf("tool result error = %+v, want sandbox_profile_unavailable", payload["error"])
+	}
+	for _, forbidden := range []string{"permission_mode", "authority_policy", "sandbox_profile", "approval_policy", "blocked_reason", "operation_id", "cwd", "command", "started_at", "ended_at", "infrastructure_reason"} {
+		if _, ok := payload[forbidden]; ok {
+			t.Fatalf("tool result payload = %+v, must not expose %q to model", payload, forbidden)
+		}
+	}
+	projection, err := k.Session("unknown-sandbox-profile")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 || projection.Operations[0].Status != "blocked" || projection.Operations[0].BlockedReason != "unknown_sandbox_profile" {
+		t.Fatalf("operations = %+v, want blocked unknown sandbox evidence", projection.Operations)
+	}
+}
+
+func TestSubmitTurnBlocksUnknownApprovalPolicyBeforeExecution(t *testing.T) {
+	workspace := testTempDir(t)
+	target := filepath.Join(workspace, "unknown-approval-should-not-run.txt")
+	arguments, err := json.Marshal(map[string]string{
+		"cwd":     workspace,
+		"command": writeFileCommand(filepath.Base(target), "blocked"),
+	})
+	if err != nil {
+		t.Fatalf("marshal shell args: %v", err)
+	}
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{
+			{ToolCallID: "call_unknown_approval", Name: "shell_exec", Arguments: json.RawMessage(arguments)},
+		},
+		final: "unknown approval feedback received",
+	}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeDefault,
+			WorkspaceRoot:  workspace,
+			SandboxProfile: SandboxProfileControlledWorkspace,
+			ApprovalPolicy: "sometimes",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "unknown-approval-policy",
+		InputItems: []InputItem{{Type: "text", Text: "try unknown approval policy shell"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Final.Text != "unknown approval feedback received" {
+		t.Fatalf("final text = %q, want unknown approval feedback received", resp.Final.Text)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("blocked unknown approval command created %q; stat err=%v", target, err)
+	}
+	payload := decodeJSONMap(t, provider.Requests()[1].ToolRounds[0].Results[0].Content)
+	if payload["status"] != "approval_policy_invalid" || payload["executed"] != false {
+		t.Fatalf("tool result payload = %+v, want approval_policy_invalid without execution", payload)
+	}
+	errorPayload, ok := payload["error"].(map[string]interface{})
+	if !ok || errorPayload["code"] != "approval_policy_invalid" {
+		t.Fatalf("tool result error = %+v, want approval_policy_invalid", payload["error"])
+	}
+	for _, forbidden := range []string{"permission_mode", "authority_policy", "sandbox_profile", "approval_policy", "blocked_reason", "operation_id", "cwd", "command", "started_at", "ended_at", "infrastructure_reason"} {
+		if _, ok := payload[forbidden]; ok {
+			t.Fatalf("tool result payload = %+v, must not expose %q to model", payload, forbidden)
+		}
+	}
+	projection, err := k.Session("unknown-approval-policy")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Operations) != 1 || projection.Operations[0].Status != "blocked" || projection.Operations[0].BlockedReason != "unknown_approval_policy" {
+		t.Fatalf("operations = %+v, want blocked unknown approval policy evidence", projection.Operations)
+	}
+}
+
 func TestSubmitTurnBlocksApprovalRequiredBeforeExecution(t *testing.T) {
 	workspace := testTempDir(t)
 	target := filepath.Join(workspace, "approval-should-not-run.txt")

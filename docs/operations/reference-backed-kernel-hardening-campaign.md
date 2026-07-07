@@ -281,3 +281,25 @@ Remaining scope:
 
 - This slice intentionally did not add shell auto-detection, Git Bash preference, WSL fallback, or safe-shell hook support.
 - Next slice should return to Task 2 and inspect permission/approval/sandbox fail-closed behavior against the mapped Codex and Reasonix files.
+
+### 2026-07-08 Slice 2 Unknown Policy Fail-Closed Coverage
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/tools/sandboxing.rs` has explicit `ExecApprovalRequirement::Forbidden` and approval requirement states; `codex-rs/core/src/config/resolved_permission_profile.rs` carries trusted resolved profile snapshots instead of using raw runtime strings as authority.
+- Reasonix owner: `internal/permission/permission.go` keeps policy decision pure and testable through `Policy.Decide` and `Gate.Check`; `internal/permission/bash_readonly.go` separately classifies read-only shell subjects.
+- Genesis owner: `internal/kernel/authority_gate.go` already maps unknown sandbox and approval policies to blocked reasons, and `internal/kernel/model_tools.go` already reduces those reasons to model-visible `sandbox_profile_unavailable` and `approval_policy_invalid` payloads.
+
+Change:
+
+- Added integration coverage in `internal/kernel/tool_loop_integration_test.go` for unknown sandbox and approval policies.
+- Verified both cases block before execution, leave the target file absent, preserve full blocked operation evidence in session projection, and keep model-visible tool results free of control-plane fields.
+
+Evidence:
+
+- Test-gap check: `go test ./internal/kernel -run "TestSubmitTurnBlocksUnknown(SandboxProfile|ApprovalPolicy)BeforeExecution" -count=1`
+
+Remaining scope:
+
+- No production code changed because the fail-closed behavior was already implemented.
+- Continue Task 2 with approval replay, stale approval, and sandbox readiness references before moving to process/job control again.
