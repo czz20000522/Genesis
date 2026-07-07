@@ -474,3 +474,30 @@ Evidence:
 Remaining scope:
 
 - Task 4 session/turn replay now has active conflict, stream conflict, replayed failure class, competing ledger evidence, and stream pause coverage. Next slice should move to Task 5 provider boundary unless a final interrupted-after-restart scan finds a concrete uncovered gap.
+
+### 2026-07-08 Slice 8 Streaming Provider Usage Request
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/client.rs` builds provider requests with explicit provider metadata, prompt cache keys, and streaming request options instead of assuming provider defaults will return all accounting fields.
+- Reasonix owner: `internal/agent/agent.go` consumes provider `ChunkUsage` as an agent event, and `internal/agent/cachehit_e2e_test.go` treats cache hit/miss tokens as context-engineering evidence rather than UI-only telemetry.
+- Genesis owner: `internal/kernel/openai_compatible.go` owns the OpenAI-compatible provider adapter; `internal/kernel/modelgateway/accounting.go` and context compaction already consume normalized usage/cache facts when providers report them.
+
+Gap:
+
+- The OpenAI-compatible stream decoder already preserved `usage` chunks, including cache hit/miss fields, but streaming requests did not ask OpenAI-compatible servers to include usage. Many compatible servers only emit the terminal usage chunk when `stream_options.include_usage` is true, so Genesis could silently lose usage/cache evidence in streamed local or cloud model turns.
+
+Change:
+
+- Added `TestOpenAICompatibleProviderStreamRequestsAndPreservesUsage` in `internal/kernel/provider_gateway_test.go`.
+- Added `stream_options.include_usage=true` to OpenAI-compatible streaming requests and kept non-streaming requests unchanged.
+- Preserved existing streamed usage normalization through `tokenUsageFromChatUsage`, including cache hit/miss fields.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestOpenAICompatibleProviderStreamRequestsAndPreservesUsage -count=1` failed because the request body had `stream:true` but no `stream_options`.
+- GREEN: `go test ./internal/kernel -run TestOpenAICompatibleProviderStreamRequestsAndPreservesUsage -count=1`
+
+Remaining scope:
+
+- Continue Task 5 by checking provider-command response classification and local/cloud adapter parity, then decide whether provider model-list refresh belongs in this deterministic campaign or a later production-capability package.

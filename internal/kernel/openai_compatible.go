@@ -157,10 +157,11 @@ func (p *OpenAICompatibleProvider) StreamComplete(ctx context.Context, req Model
 	}
 
 	payload := chatCompletionRequest{
-		Model:    p.model,
-		Messages: chatMessagesFromModelRequest(req),
-		Tools:    chatToolsFromManifest(req.ToolManifest),
-		Stream:   true,
+		Model:         p.model,
+		Messages:      chatMessagesFromModelRequest(req),
+		Tools:         chatToolsFromManifest(req.ToolManifest),
+		Stream:        true,
+		StreamOptions: &chatCompletionStreamOptions{IncludeUsage: true},
 	}
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = "auto"
@@ -317,11 +318,16 @@ func modelUserText(items []ModelInputItem) string {
 }
 
 type chatCompletionRequest struct {
-	Model      string        `json:"model"`
-	Messages   []chatMessage `json:"messages"`
-	Tools      []chatTool    `json:"tools,omitempty"`
-	ToolChoice string        `json:"tool_choice,omitempty"`
-	Stream     bool          `json:"stream,omitempty"`
+	Model         string                       `json:"model"`
+	Messages      []chatMessage                `json:"messages"`
+	Tools         []chatTool                   `json:"tools,omitempty"`
+	ToolChoice    string                       `json:"tool_choice,omitempty"`
+	Stream        bool                         `json:"stream,omitempty"`
+	StreamOptions *chatCompletionStreamOptions `json:"stream_options,omitempty"`
+}
+
+type chatCompletionStreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
 type chatMessage struct {

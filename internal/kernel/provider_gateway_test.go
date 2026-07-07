@@ -106,6 +106,54 @@ func TestOpenAICompatibleProviderNormalizesPromptCacheUsage(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleProviderStreamRequestsAndPreservesUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		var raw map[string]interface{}
+		if err := json.Unmarshal(body, &raw); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if raw["stream"] != true {
+			t.Fatalf("stream = %v, want true", raw["stream"])
+		}
+		streamOptions, ok := raw["stream_options"].(map[string]interface{})
+		if !ok || streamOptions["include_usage"] != true {
+			t.Fatalf("stream_options = %+v, want include_usage true in request %s", raw["stream_options"], string(body))
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"model\":\"served-model\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"stream answer\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"model\":\"served-model\",\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":4,\"total_tokens\":104,\"prompt_cache_hit_tokens\":80,\"prompt_cache_miss_tokens\":20}}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "test-model",
+	})
+	resp, err := provider.StreamComplete(context.Background(), ModelRequest{
+		InputItems: []ModelInputItem{{Kind: ModelInputKindUserText, Text: "hello"}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("StreamComplete returned error: %v", err)
+	}
+	if resp.Text != "stream answer" || resp.Model != "served-model" {
+		t.Fatalf("response = %+v, want streamed final text and model", resp)
+	}
+	if resp.Usage == nil ||
+		resp.Usage.InputTokens != 100 ||
+		resp.Usage.OutputTokens != 4 ||
+		resp.Usage.TotalTokens != 104 ||
+		resp.Usage.CacheHitTokens != 80 ||
+		resp.Usage.CacheMissTokens != 20 {
+		t.Fatalf("usage = %+v, want streamed usage/cache facts", resp.Usage)
+	}
+}
+
 func TestCommandProviderCompletesFromTypedStdoutEvent(t *testing.T) {
 	provider := NewCommandProvider(ProviderCommandConfig{
 		Command:        os.Args[0],
