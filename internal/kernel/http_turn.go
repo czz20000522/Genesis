@@ -73,7 +73,15 @@ func handleSubmitTurnStream(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		_ = emit(TurnStreamEvent{Type: "turn_failed", Error: &streamErr})
 		return
 	}
-	_ = emit(TurnStreamEvent{Type: "turn_completed", Response: &resp})
+	_ = emit(turnStreamTerminalEvent(resp))
+}
+
+func turnStreamTerminalEvent(resp TurnResponse) TurnStreamEvent {
+	eventType := "turn_completed"
+	if resp.Pause != nil {
+		eventType = "turn_paused"
+	}
+	return TurnStreamEvent{Type: eventType, Response: &resp}
 }
 
 func turnStreamError(resp TurnResponse, err error) TurnError {

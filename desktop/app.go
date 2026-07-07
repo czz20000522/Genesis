@@ -331,7 +331,7 @@ func (c *KernelHTTPClient) StreamJSONLines(ctx context.Context, path string, aut
 			}
 		}
 		switch payload["type"] {
-		case "turn_completed":
+		case "turn_completed", "turn_paused":
 			if response, ok := payload["response"].(map[string]any); ok {
 				final = response
 			}
@@ -343,7 +343,7 @@ func (c *KernelHTTPClient) StreamJSONLines(ctx context.Context, path string, aut
 		return nil, err
 	}
 	if final == nil {
-		return nil, errors.New("stream ended before turn_completed")
+		return nil, errors.New("stream ended before terminal turn event")
 	}
 	return final, nil
 }

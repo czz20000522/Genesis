@@ -440,3 +440,37 @@ Evidence:
 Remaining scope:
 
 - Continue Task 4 by checking paused/interrupted HTTP replay after restart and then decide whether Task 4 can close in favor of Task 5 provider boundary work.
+
+### 2026-07-08 Slice 7 Stream Pause Terminal Event
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/session/turn.rs` emits structured lifecycle/error events for turn terminal states and keeps realtime deltas separate from terminal protocol facts.
+- Reasonix owner: `internal/control/controller.go` treats running, canceled, and recovery-sensitive turn states as controller-owned lifecycle state; `internal/agent/session.go` exposes snapshots for readers rather than asking clients to infer lifecycle from text.
+- Genesis owner: `internal/kernel/http_turn.go` reduces kernel `TurnResponse` to NDJSON stream events; desktop Go and Vue clients consume those stream terminal events.
+
+Gap:
+
+- A budget-paused turn returned `TurnResponse.Pause`, but `/turn/stream` emitted `turn_completed` for every nil-error response. Stream clients could not distinguish a waiting paused turn from a completed final answer, and desktop clients only accepted `turn_completed` as the response-bearing terminal event.
+
+Change:
+
+- Added `TestHTTPTurnStreamReportsBudgetPause` in `internal/kernel/http_transport_test.go`.
+- Added `turnStreamTerminalEvent` so paused responses emit `turn_paused` while final responses continue emitting `turn_completed`.
+- Updated desktop Go and frontend stream clients to accept both `turn_completed` and `turn_paused` as terminal response events, with tests for paused stream responses.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestHTTPTurnStreamReportsBudgetPause -count=1` failed because the terminal event was `turn_completed`.
+- GREEN: `go test ./internal/kernel -run TestHTTPTurnStreamReportsBudgetPause -count=1`
+- Related: `go test ./internal/kernel -run "TestHTTPTurnStreamReports(BudgetPause|SessionActiveConflict)|TestSubmitTurnStream(EmitsDeltasButPersistsOnlyFinalMessage|DoesNotRetryAfterVisibleDelta)|TestSubmitTurnPausesToolLoopBudgetWithoutExecutingOverBudgetBatch" -count=1`
+- Race: `go test -race ./internal/kernel -run "TestHTTPTurnStreamReports(BudgetPause|SessionActiveConflict)|TestSubmitTurnStream(EmitsDeltasButPersistsOnlyFinalMessage|DoesNotRetryAfterVisibleDelta)|TestSubmitTurnPausesToolLoopBudgetWithoutExecutingOverBudgetBatch" -count=1`
+- Desktop: `go test ./... -count=1` from `desktop`
+- Frontend: `npm.cmd test` from `desktop/frontend`
+- Full: `go test ./... -count=1`
+- Build: `go build ./...`
+- Frontend build: `npm.cmd run build` from `desktop/frontend`
+
+Remaining scope:
+
+- Task 4 session/turn replay now has active conflict, stream conflict, replayed failure class, competing ledger evidence, and stream pause coverage. Next slice should move to Task 5 provider boundary unless a final interrupted-after-restart scan finds a concrete uncovered gap.

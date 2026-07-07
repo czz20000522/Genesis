@@ -174,7 +174,7 @@ async function sendMessage() {
     liveStreaming.value = true
     lastTurn.value = await submitTurnStream(config.value, session, submittedText, newDesktopIdempotencyKey(), (event) => {
       if (event.type === 'assistant_delta') liveAssistantText.value += event.delta ?? ''
-      if (event.type === 'turn_completed' && event.response) lastTurn.value = event.response
+      if ((event.type === 'turn_completed' || event.type === 'turn_paused') && event.response) lastTurn.value = event.response
     })
     messageText.value = ''
     if (fileWasSelected) selectedFile.value = null

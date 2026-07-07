@@ -236,13 +236,13 @@ export async function submitTurnStream(
       if (event.type === 'turn_failed' && event.error) {
         streamError = new Error([event.error.code, event.error.message].filter(Boolean).join(': ') || 'turn failed')
       }
-      if (event.type === 'turn_completed' && event.response) finalResponse = event.response
+      if (isTerminalTurnStreamEvent(event) && event.response) finalResponse = event.response
     })
     try {
       const payload = await bridge.SubmitTurnStream(session, text, idempotencyKey) as { response?: TurnResponse }
       if (streamError) throw streamError
       finalResponse = finalResponse ?? payload.response ?? null
-      if (!finalResponse) throw new Error('stream ended before turn_completed')
+      if (!finalResponse) throw new Error('stream ended before terminal turn event')
       return finalResponse
     } finally {
       unsubscribe()
@@ -281,7 +281,7 @@ export async function submitTurnStream(
         if (event.type === 'turn_failed' && event.error) {
           throw new Error([event.error.code, event.error.message].filter(Boolean).join(': ') || 'turn failed')
         }
-        if (event.type === 'turn_completed' && event.response) finalResponse = event.response
+        if (isTerminalTurnStreamEvent(event) && event.response) finalResponse = event.response
       }
     }
     if (done) break
@@ -292,10 +292,14 @@ export async function submitTurnStream(
     if (tail.type === 'turn_failed' && tail.error) {
       throw new Error([tail.error.code, tail.error.message].filter(Boolean).join(': ') || 'turn failed')
     }
-    if (tail.type === 'turn_completed' && tail.response) finalResponse = tail.response
+    if (isTerminalTurnStreamEvent(tail) && tail.response) finalResponse = tail.response
   }
-  if (!finalResponse) throw new Error('stream ended before turn_completed')
+  if (!finalResponse) throw new Error('stream ended before terminal turn event')
   return finalResponse
+}
+
+function isTerminalTurnStreamEvent(event: TurnStreamEvent): boolean {
+  return event.type === 'turn_completed' || event.type === 'turn_paused'
 }
 
 export async function listApprovals(config: KernelConfig, status = 'pending') {

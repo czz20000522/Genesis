@@ -319,6 +319,51 @@ func TestHTTPTurnStreamReportsSessionActiveConflict(t *testing.T) {
 	}
 }
 
+func TestHTTPTurnStreamReportsBudgetPause(t *testing.T) {
+	dir := testTempDir(t)
+	provider := &repeatingToolProvider{
+		toolName: "resource_read",
+		args: func(round int) json.RawMessage {
+			return mustMarshalToolArgs(t, map[string]interface{}{
+				"resource_ref": "cf:stream-budget-pause",
+				"limit_bytes":  64,
+			})
+		},
+	}
+	k := newTestKernelWithResources(t, filepath.Join(dir, "events.sqlite"), []ResourceDescriptor{{
+		Ref:      "cf:stream-budget-pause",
+		MimeType: "text/plain",
+		Text:     "STREAM PAUSE RESOURCE",
+	}})
+	k.provider = provider
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	streamResp, err := postJSONWithAuth(server.URL+"/turn/stream", []byte(`{"session_id":"http-turn-stream-budget-pause","idempotency_key":"turn-stream-pause-1","input_items":[{"type":"text","text":"read until stream pauses"}]}`))
+	if err != nil {
+		t.Fatalf("POST /turn/stream failed: %v", err)
+	}
+	defer streamResp.Body.Close()
+	if streamResp.StatusCode != http.StatusOK {
+		t.Fatalf("stream status = %d, want 200 with paused NDJSON event", streamResp.StatusCode)
+	}
+	payload, err := io.ReadAll(streamResp.Body)
+	if err != nil {
+		t.Fatalf("read stream response: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
+	if len(lines) == 0 {
+		t.Fatalf("stream payload = %q, want turn_paused event", string(payload))
+	}
+	var event TurnStreamEvent
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &event); err != nil {
+		t.Fatalf("decode stream event: %v; payload=%s", err, string(payload))
+	}
+	if event.Type != "turn_paused" || event.Response == nil || event.Response.Pause == nil {
+		t.Fatalf("stream terminal event = %+v, want turn_paused with pause response", event)
+	}
+}
+
 func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testing.T) {
 	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	k, err := New(Config{

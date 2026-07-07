@@ -311,6 +311,24 @@ func TestKernelHTTPClientStreamsTurnEventsFromKernelPrimitive(t *testing.T) {
 	}
 }
 
+func TestKernelHTTPClientAcceptsPausedTurnStreamTerminalEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"type":"turn_paused","response":{"session_id":"s1","turn_id":"t1","pause":{"wait_reason":"budget_pause"}}}` + "\n"))
+	}))
+	defer server.Close()
+
+	client := NewKernelHTTPClient(server.URL, "token", server.Client())
+	final, err := client.StreamJSONLines(context.Background(), "/turn/stream", true, json.RawMessage(`{"session_id":"s1"}`), nil)
+	if err != nil {
+		t.Fatalf("StreamJSONLines returned error: %v", err)
+	}
+	pause, ok := final["pause"].(map[string]any)
+	if !ok || pause["wait_reason"] != "budget_pause" {
+		t.Fatalf("final = %+v, want paused turn response", final)
+	}
+}
+
 func TestUploadMaterialBridgePostsMultipartThroughGoChokePoint(t *testing.T) {
 	source := filepath.Join(desktopTestTempDir(t), "package.zip")
 	if err := os.WriteFile(source, []byte("zip"), 0o600); err != nil {

@@ -172,6 +172,31 @@ try {
   globalThis.fetch = originalFetch
 }
 
+globalThis.fetch = async () => {
+  const encoder = new TextEncoder()
+  return new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('{"type":"turn_paused","response":{"session_id":"desktop-session","turn_id":"turn-paused","pause":{"wait_reason":"budget_pause"}}}\n'))
+      controller.close()
+    },
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/x-ndjson' },
+  })
+}
+
+try {
+  const turn = await submitTurnStream({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'desktop-session', 'pause stream', 'desktop-idem-paused-stream', () => {})
+
+  assert.equal(turn.turn_id, 'turn-paused')
+  assert.equal(turn.pause?.wait_reason, 'budget_pause')
+} finally {
+  globalThis.fetch = originalFetch
+}
+
 assert.equal(parseTurnStreamEvent(''), null)
 assert.deepEqual(parseTurnStreamEvent('{"type":"assistant_delta","delta":"x"}'), {
   type: 'assistant_delta',
