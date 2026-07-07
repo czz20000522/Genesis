@@ -380,3 +380,33 @@ Evidence:
 Remaining scope:
 
 - Continue Task 4 by checking replay read models and idempotency failure cases not covered by the HTTP and stream transport slices.
+
+### 2026-07-08 Slice 5 Replayed Turn Failure Status
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/session/turn.rs` converts turn execution errors into structured protocol lifecycle/error events, so callers keep semantic failure information instead of only receiving free text.
+- Reasonix owner: `internal/control/controller.go` keeps running, failure, and snapshot state under the controller and refuses incompatible control actions while a turn is active; `internal/agent/session.go` exposes copied snapshots for concurrent readers.
+- Genesis owner: `internal/kernel/kernel.go` owns idempotency replay through `turnByIdempotencyKey` and `replayedTurnFailure`; `internal/kernel/http_turn.go` owns HTTP status reduction for replayed turn errors.
+
+Gap:
+
+- A live `tool_infrastructure_failed` turn maps to HTTP 503, but replaying an already persisted failed turn with the same idempotency key reduced the same semantic failure to HTTP 400 because replayed failures did not unwrap to `ErrToolInfrastructureFailed` and `turnErrorHTTPStatus` lacked the status mapping.
+
+Change:
+
+- Added `TestHTTPTurnSubmitIdempotencyKeyPreservesReplayedToolInfrastructureStatus` in `internal/kernel/http_transport_test.go`.
+- Extended `replayedTurnFailure.Unwrap` and `turnErrorHTTPStatus` so replayed turn failures preserve provider unavailable, ingress block, tool infrastructure, session active, tool-call rejection, and interruption semantics consistently with live submission.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestHTTPTurnSubmitIdempotencyKeyPreservesReplayedToolInfrastructureStatus -count=1` failed with `retry status = 400, want 503`.
+- GREEN: `go test ./internal/kernel -run TestHTTPTurnSubmitIdempotencyKeyPreservesReplayedToolInfrastructureStatus -count=1`
+- Related: `go test ./internal/kernel -run "TestHTTPTurn(StreamReportsSessionActiveConflict|SubmitIdempotencyKey(ReturnsExistingFailureAfterRestart|PreservesReplayedToolInfrastructureStatus|ReturnsConflictWhileOriginalTurnRuns))" -count=1`
+- Race: `go test -race ./internal/kernel -run "TestHTTPTurn(StreamReportsSessionActiveConflict|SubmitIdempotencyKey(ReturnsExistingFailureAfterRestart|PreservesReplayedToolInfrastructureStatus|ReturnsConflictWhileOriginalTurnRuns))" -count=1`
+- Full: `go test ./... -count=1`
+- Build: `go build ./...`
+
+Remaining scope:
+
+- Continue Task 4 by checking whether replayed paused/interrupted turns and session projection snapshots preserve the same semantic status across restart.

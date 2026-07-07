@@ -394,6 +394,60 @@ func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingFailureAfterRestart(t *testi
 	}
 }
 
+func TestHTTPTurnSubmitIdempotencyKeyPreservesReplayedToolInfrastructureStatus(t *testing.T) {
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
+	k := newTestKernelWithRuntimeToken(t, ledgerPath, testRuntimeToken)
+	submittedAt := time.Date(2026, 7, 8, 1, 0, 0, 0, time.UTC)
+	failedAt := submittedAt.Add(time.Second)
+	if err := k.appendEvent(StoredEvent{
+		EventID:   "evt_replayed_tool_infra_submitted",
+		SessionID: "http-turn-idempotent-tool-infra",
+		TurnID:    "turn_replayed_tool_infra",
+		Type:      "turn.submitted",
+		CreatedAt: submittedAt,
+		Data: EventData{
+			IdempotencyKey: "turn-tool-infra-1",
+			InputItems:     []InputItem{{Type: "text", Text: "first prompt"}},
+		},
+	}); err != nil {
+		t.Fatalf("append submitted event: %v", err)
+	}
+	if err := k.appendEvent(StoredEvent{
+		EventID:   "evt_replayed_tool_infra_failed",
+		SessionID: "http-turn-idempotent-tool-infra",
+		TurnID:    "turn_replayed_tool_infra",
+		Type:      "turn.failed",
+		CreatedAt: failedAt,
+		Data: EventData{
+			TurnError: &TurnError{
+				Code:    "tool_infrastructure_failed",
+				Message: "tool infrastructure failed: injected replay evidence",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append failed event: %v", err)
+	}
+
+	restarted := newTestKernelWithRuntimeToken(t, ledgerPath, testRuntimeToken)
+	server := httptest.NewServer(Handler(restarted))
+	defer server.Close()
+	resp, err := postJSONWithAuth(server.URL+"/turn", []byte(`{"session_id":"http-turn-idempotent-tool-infra","idempotency_key":"turn-tool-infra-1","input_items":[{"type":"text","text":"retry prompt must not run"}]}`))
+	if err != nil {
+		t.Fatalf("retry POST /turn failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("retry status = %d, want 503 for replayed tool infrastructure failure", resp.StatusCode)
+	}
+	var replay TurnResponse
+	if err := json.NewDecoder(resp.Body).Decode(&replay); err != nil {
+		t.Fatalf("decode replay response: %v", err)
+	}
+	if replay.TurnID != "turn_replayed_tool_infra" || replay.Error == nil || replay.Error.Code != "tool_infrastructure_failed" {
+		t.Fatalf("replay = %+v, want original tool infrastructure failure", replay)
+	}
+}
+
 func TestHTTPTurnSubmitIdempotencyKeyRequiresValidExplicitSession(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))

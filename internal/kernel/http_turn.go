@@ -102,6 +102,12 @@ func turnErrorHTTPStatus(err TurnError) int {
 	switch err.Code {
 	case "provider_unavailable":
 		return http.StatusServiceUnavailable
+	case "turn_blocked_by_ingress_security":
+		return http.StatusForbidden
+	case "tool_infrastructure_failed":
+		return http.StatusServiceUnavailable
+	case "session_active":
+		return http.StatusConflict
 	case "turn_interrupted":
 		return http.StatusConflict
 	default:

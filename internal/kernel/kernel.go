@@ -581,8 +581,14 @@ func (e replayedTurnFailure) Unwrap() error {
 		return ErrProviderUnavailable
 	case "tool_call_rejected":
 		return ErrModelToolCallRejected
+	case "tool_infrastructure_failed":
+		return ErrToolInfrastructureFailed
+	case "turn_blocked_by_ingress_security":
+		return ErrIngressSecurityBlocked
 	case "turn_interrupted":
 		return ErrTurnInterrupted
+	case "session_active":
+		return ErrSessionActive
 	default:
 		return nil
 	}
