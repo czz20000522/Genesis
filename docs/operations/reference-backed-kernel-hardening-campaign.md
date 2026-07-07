@@ -410,3 +410,33 @@ Evidence:
 Remaining scope:
 
 - Continue Task 4 by checking whether replayed paused/interrupted turns and session projection snapshots preserve the same semantic status across restart.
+
+### 2026-07-08 Slice 6 Competing Idempotency Evidence
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/state/turn.rs` and `codex-rs/core/src/session/session.rs` keep one active turn owner and lifecycle state for a session, so duplicate foreground state is a control-plane invariant rather than user request text.
+- Reasonix owner: `internal/control/controller.go` rejects a second running turn with `ErrTurnRunning`, while checkpoint/session persistence records turn boundaries for later recovery instead of letting conflicting turn ownership become normal input.
+- Genesis owner: `internal/kernel/kernel.go` owns ledger replay through `turnByIdempotencyKey`; HTTP admission in `internal/kernel/http_turn.go` already treats ledger corruption as service-unavailable authority failure.
+
+Gap:
+
+- If persisted ledger evidence showed the same `session_id + idempotency_key` on two different turn IDs, Genesis returned a generic invalid request. That misclassified contradictory authority facts as a caller formatting problem instead of failing closed as ledger corruption.
+
+Change:
+
+- Added `TestHTTPTurnSubmitIdempotencyKeyRejectsCompetingLedgerEvidence` in `internal/kernel/http_transport_test.go`.
+- Changed `turnByIdempotencyKey` to wrap competing idempotency evidence as `ErrLedgerCorrupt`, preserving the existing HTTP `503 ledger_corrupt` path and preventing a retry from minting another contradictory turn.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestHTTPTurnSubmitIdempotencyKeyRejectsCompetingLedgerEvidence -count=1` failed with `status = 400, want 503`.
+- GREEN: `go test ./internal/kernel -run TestHTTPTurnSubmitIdempotencyKeyRejectsCompetingLedgerEvidence -count=1`
+- Related: `go test ./internal/kernel -run "TestHTTPTurnSubmitIdempotencyKey(PreservesReplayedToolInfrastructureStatus|RejectsCompetingLedgerEvidence|ReturnsExistingFailureAfterRestart|ReturnsConflictWhileOriginalTurnRuns|ReturnsExistingTurnAfterRestart)" -count=1`
+- Race: `go test -race ./internal/kernel -run "TestHTTPTurnSubmitIdempotencyKey(PreservesReplayedToolInfrastructureStatus|RejectsCompetingLedgerEvidence|ReturnsExistingFailureAfterRestart|ReturnsConflictWhileOriginalTurnRuns|ReturnsExistingTurnAfterRestart)" -count=1`
+- Full: `go test ./... -count=1`
+- Build: `go build ./...`
+
+Remaining scope:
+
+- Continue Task 4 by checking paused/interrupted HTTP replay after restart and then decide whether Task 4 can close in favor of Task 5 provider boundary work.

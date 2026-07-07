@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -446,6 +447,36 @@ func TestHTTPTurnSubmitIdempotencyKeyPreservesReplayedToolInfrastructureStatus(t
 	if replay.TurnID != "turn_replayed_tool_infra" || replay.Error == nil || replay.Error.Code != "tool_infrastructure_failed" {
 		t.Fatalf("replay = %+v, want original tool infrastructure failure", replay)
 	}
+}
+
+func TestHTTPTurnSubmitIdempotencyKeyRejectsCompetingLedgerEvidence(t *testing.T) {
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
+	k := newTestKernelWithRuntimeToken(t, ledgerPath, testRuntimeToken)
+	for i, turnID := range []string{"turn_competing_idem_a", "turn_competing_idem_b"} {
+		if err := k.appendEvent(StoredEvent{
+			EventID:   fmt.Sprintf("evt_competing_idem_%d", i),
+			SessionID: "http-turn-competing-idempotency",
+			TurnID:    turnID,
+			Type:      "turn.submitted",
+			CreatedAt: time.Date(2026, 7, 8, 1, i, 0, 0, time.UTC),
+			Data: EventData{
+				IdempotencyKey: "turn-competing-1",
+				InputItems:     []InputItem{{Type: "text", Text: "conflicting prompt"}},
+			},
+		}); err != nil {
+			t.Fatalf("append competing submitted event %d: %v", i, err)
+		}
+	}
+
+	restarted := newTestKernelWithRuntimeToken(t, ledgerPath, testRuntimeToken)
+	server := httptest.NewServer(Handler(restarted))
+	defer server.Close()
+	resp, err := postJSONWithAuth(server.URL+"/turn", []byte(`{"session_id":"http-turn-competing-idempotency","idempotency_key":"turn-competing-1","input_items":[{"type":"text","text":"retry prompt must not run"}]}`))
+	if err != nil {
+		t.Fatalf("retry POST /turn failed: %v", err)
+	}
+	defer resp.Body.Close()
+	assertErrorCode(t, resp, http.StatusServiceUnavailable, "ledger_corrupt")
 }
 
 func TestHTTPTurnSubmitIdempotencyKeyRequiresValidExplicitSession(t *testing.T) {

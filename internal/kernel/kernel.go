@@ -610,7 +610,7 @@ func (k *Kernel) turnByIdempotencyKey(sessionID string, key string) (TurnRespons
 		}
 		if event.Type == "turn.submitted" && event.Data.IdempotencyKey == key {
 			if turnID != "" && turnID != event.TurnID {
-				return TurnResponse{}, false, errors.New("competing turn idempotency evidence")
+				return TurnResponse{}, false, wrapLedgerUnavailable(fmt.Errorf("%w: competing turn idempotency evidence", ErrLedgerCorrupt))
 			}
 			turnID = event.TurnID
 		}
