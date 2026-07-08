@@ -1533,3 +1533,24 @@ Evidence:
 
 - RED: `go test ./internal/kernel -run "TestWorkspaceEdit.*MultiEdit|TestWorkspaceEditReplacesUniqueString" -count=1`
 - GREEN: `go test ./internal/kernel -run "TestWorkspaceEdit|TestArchitectureBoundaryModelVisibleToolSchemaShapeIsStable|TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext" -count=1`
+
+### 2026-07-08 Slice 44 Shell Job Plan State
+
+Change:
+
+- Synchronized `docs/implementation-plans/kernel-shell-and-job-control.md`
+  with the current shell/job implementation evidence and empty active kernel
+  issue ledger.
+- Marked early timeout, managed-job receipt, and verification checklist steps as
+  completed instead of leaving them as stale open work.
+- Reframed the old Phase E shortfall section as historical now that later
+  slices completed progress snapshots, interrupt behavior, foreground
+  attach-or-kill, bounded `job_wait`, live output snapshots, and lost-ownership
+  recovery.
+
+Evidence:
+
+- GREEN: `rg -n "^### " docs/operations/kernel-issues.md` returned no active issue headings.
+- GREEN: `git diff --check`
+- GREEN: `go test ./... -count=1`
+- GREEN: `go build ./...`
