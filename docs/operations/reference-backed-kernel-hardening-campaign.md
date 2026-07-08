@@ -337,6 +337,23 @@ Focused verification:
 - `go test ./internal/kernel -run "Test(ArchitectureBoundary|Work|Approval|SessionSearch|ProviderModel|WorkspaceEdit)" -count=1`
 - `go test ./internal/kernel/authority ./internal/kernel/toolruntime -count=1`
 
+### 2026-07-08 Task 9 Agent Invocation Tool Gateway Filtering
+
+Implemented:
+
+- Added `ToolGatewayForInvocation` to project the default tool gateway through
+  an admitted invocation's `CapabilityGrant`.
+- Filtered model-visible tool manifests and capability projections to granted
+  tool names.
+- Rejected ungranted tool calls during preparation with
+  `capability_grant_tool_not_allowed`, before any tool execution or file
+  mutation.
+
+Focused verification:
+
+- `go test ./internal/kernel -run TestInvocationToolGateway -count=1`
+- `go test ./internal/kernel -run "Test(InvocationToolGateway|AgentInvocation|PrepareBatch|ToolScheduling|WorkspaceEdit)" -count=1`
+
 ### 2026-07-08 Slice 1 Shell UTF-8 Prologue
 
 Reference scan:

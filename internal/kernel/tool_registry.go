@@ -415,6 +415,30 @@ func (k *Kernel) toolGateway() ToolGateway {
 	}
 }
 
+func (k *Kernel) ToolGatewayForInvocation(invocationID string) (ToolGateway, error) {
+	invocation, err := k.AgentInvocation(invocationID)
+	if err != nil {
+		return ToolGateway{}, err
+	}
+	return ToolGateway{
+		kernel:       k,
+		registry:     k.toolRegistry,
+		allowedTools: capabilityGrantToolSet(invocation.CapabilityGrant),
+	}, nil
+}
+
+func capabilityGrantToolSet(grant CapabilityGrant) map[string]struct{} {
+	tools := map[string]struct{}{}
+	for _, toolName := range grant.ToolNames {
+		toolName = strings.TrimSpace(toolName)
+		if toolName == "" {
+			continue
+		}
+		tools[toolName] = struct{}{}
+	}
+	return tools
+}
+
 func toolCapabilitySideEffectLevel(registry *ToolRegistry, name string) string {
 	definition, ok := registry.Resolve(name)
 	if !ok {

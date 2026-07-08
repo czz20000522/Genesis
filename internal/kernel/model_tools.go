@@ -79,16 +79,37 @@ type preparedModelToolCall struct {
 }
 
 type ToolGateway struct {
-	kernel   *Kernel
-	registry *ToolRegistry
+	kernel       *Kernel
+	registry     *ToolRegistry
+	allowedTools map[string]struct{}
 }
 
 func (g ToolGateway) ToolManifest() []ToolSpec {
-	return g.registry.Manifest()
+	manifest := g.registry.Manifest()
+	if g.allowedTools == nil {
+		return manifest
+	}
+	filtered := make([]ToolSpec, 0, len(manifest))
+	for _, spec := range manifest {
+		if g.toolAllowed(spec.Name) {
+			filtered = append(filtered, spec)
+		}
+	}
+	return filtered
 }
 
 func (g ToolGateway) CapabilityProjections() []ToolCapabilityProjection {
-	return g.registry.CapabilityProjections()
+	projections := g.registry.CapabilityProjections()
+	if g.allowedTools == nil {
+		return projections
+	}
+	filtered := make([]ToolCapabilityProjection, 0, len(projections))
+	for _, projection := range projections {
+		if g.toolAllowed(projection.Name) {
+			filtered = append(filtered, projection)
+		}
+	}
+	return filtered
 }
 
 func (g ToolGateway) PrepareBatch(calls []ModelToolCall) ([]preparedModelToolCall, error) {
@@ -144,6 +165,9 @@ func (g ToolGateway) prepareCall(call ModelToolCall) (preparedModelToolCall, err
 	if !ok {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, "unsupported_tool", fmt.Sprintf("unsupported tool %q", call.Name)), nil
 	}
+	if !g.toolAllowed(name) {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "capability_grant_tool_not_allowed", fmt.Sprintf("tool %q is not allowed by the admitted invocation capability grant", name)), nil
+	}
 	prepared, err := definition.Prepare(g.kernel, eventID, providerCallID, name, call.Arguments)
 	if err != nil {
 		return preparedModelToolCall{}, err
@@ -151,6 +175,14 @@ func (g ToolGateway) prepareCall(call ModelToolCall) (preparedModelToolCall, err
 	prepared.spec = definition.Spec
 	prepared.hasSpec = true
 	return prepared, nil
+}
+
+func (g ToolGateway) toolAllowed(name string) bool {
+	if g.allowedTools == nil {
+		return true
+	}
+	_, ok := g.allowedTools[strings.TrimSpace(name)]
+	return ok
 }
 
 func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {

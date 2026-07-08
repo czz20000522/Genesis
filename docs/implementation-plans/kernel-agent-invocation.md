@@ -58,6 +58,15 @@ with validated tool-name grants.
 Before actual child model execution, make ToolGateway able to intersect a tool
 manifest with an invocation's admitted grant.
 
+Delivered:
+
+- [x] `ToolGatewayForInvocation` loads an admitted invocation and returns a
+  grant-scoped gateway.
+- [x] Invocation-scoped manifests and capability projections expose only
+  granted tools.
+- [x] Preparing a tool outside the admitted grant returns repairable
+  `capability_grant_tool_not_allowed` feedback before execution.
+
 ## Phase C: Child Run Execution
 
 Add a bounded child-run primitive that uses admitted invocation ids, separate
