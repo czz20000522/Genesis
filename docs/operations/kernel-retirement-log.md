@@ -14,6 +14,13 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-PARENT-WORKER-CHILD-CONVERSATION-20260708 - P1 - Worker output child conversation projection
+
+- Status: ready_for_acceptance.
+- Conclusion: Agent invocation runs can now be read as sanitized child conversation projections through the kernel and `GET /agent-invocations/{invocation_id}/child-conversation`, exposing role, status, final output, usage, model input kinds, context scope, tool set, and event evidence refs without raw focused prompts or raw tool traces.
+- Evidence: Fix commit: current Lore commit.; Verification: `go test ./internal/kernel -run "Test(AgentInvocationChildConversation|HTTPAgentInvocationChildConversation|ArchitectureBoundary)" -count=1`; `go test ./internal/kernel -count=1`; `git diff --check`.
+- Reference alignment: Aligned with Codex sub-agent status/final-result collaboration reads and Reasonix bounded subagent final-answer observation while keeping TaskGraph layout and scheduling outside this slice.
+
 ### KERNEL-PARENT-WORKER-ROLE-BINDING-20260708 - P1 - Parent-worker role binding config projection
 
 - Status: ready_for_acceptance.

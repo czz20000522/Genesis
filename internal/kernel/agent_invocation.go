@@ -95,6 +95,59 @@ func (k *Kernel) AgentInvocation(invocationID string) (AgentInvocationProjection
 	return invocation, nil
 }
 
+func (k *Kernel) AgentInvocationChildConversation(invocationID string) (AgentInvocationChildConversationProjection, error) {
+	invocation, err := k.AgentInvocation(invocationID)
+	if err != nil {
+		return AgentInvocationChildConversationProjection{}, err
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		return AgentInvocationChildConversationProjection{}, err
+	}
+	conversation := AgentInvocationChildConversationProjection{
+		InvocationID:       invocation.InvocationID,
+		SessionID:          invocation.SessionID,
+		ParentInvocationID: invocation.ParentInvocationID,
+		Principal:          invocation.Principal,
+		RoleID:             agentInvocationRoleID(invocation.AgentProfileRef),
+		AgentProfileRef:    invocation.AgentProfileRef,
+		ContextScope:       invocation.ContextScope,
+		Status:             invocation.Status,
+		ToolSet:            cloneStringSlice(invocation.CapabilityGrant.ToolNames),
+		AdmittedAt:         invocation.AdmittedAt,
+	}
+	for _, event := range events {
+		if event.EventID == "" {
+			continue
+		}
+		if admitted := event.Data.AgentInvocation; admitted != nil && admitted.InvocationID == invocation.InvocationID {
+			conversation.EvidenceRefs = append(conversation.EvidenceRefs, "event:"+event.EventID)
+			continue
+		}
+		if run := event.Data.AgentInvocationRun; run != nil && run.InvocationID == invocation.InvocationID {
+			conversation.EvidenceRefs = append(conversation.EvidenceRefs, "event:"+event.EventID)
+			conversation.RunID = run.RunID
+			conversation.Status = run.Status
+			conversation.ModelInputKinds = cloneStringSlice(run.ModelInputKinds)
+			conversation.Model = run.Model
+			conversation.Usage = cloneTokenUsage(run.Usage)
+			conversation.Final = cloneFinalMessage(run.Final)
+			if run.Error != nil {
+				copied := cloneTurnError(*run.Error)
+				conversation.Error = &copied
+			} else {
+				conversation.Error = nil
+			}
+			conversation.StartedAt = run.StartedAt
+			if conversation.StartedAt.IsZero() {
+				conversation.StartedAt = event.CreatedAt
+			}
+			conversation.CompletedAt = run.CompletedAt
+		}
+	}
+	return conversation, nil
+}
+
 func (k *Kernel) AgentInvocations(sessionID string) ([]AgentInvocationProjection, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -117,6 +170,15 @@ func (k *Kernel) AgentInvocations(sessionID string) ([]AgentInvocationProjection
 		return items[i].AdmittedAt.Before(items[j].AdmittedAt)
 	})
 	return items, nil
+}
+
+func agentInvocationRoleID(agentProfileRef string) string {
+	const prefix = "agent_profile:"
+	agentProfileRef = strings.TrimSpace(agentProfileRef)
+	if !strings.HasPrefix(agentProfileRef, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(agentProfileRef, prefix))
 }
 
 func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequest) (AgentInvocationProjection, error) {

@@ -74,3 +74,25 @@ type AgentInvocationRunProjection struct {
 	StartedAt       time.Time    `json:"started_at"`
 	CompletedAt     time.Time    `json:"completed_at,omitempty"`
 }
+
+type AgentInvocationChildConversationProjection struct {
+	InvocationID       string       `json:"invocation_id"`
+	RunID              string       `json:"run_id,omitempty"`
+	SessionID          string       `json:"session_id"`
+	ParentInvocationID string       `json:"parent_invocation_id,omitempty"`
+	Principal          string       `json:"principal,omitempty"`
+	RoleID             string       `json:"role_id,omitempty"`
+	AgentProfileRef    string       `json:"agent_profile_ref,omitempty"`
+	ContextScope       string       `json:"context_scope,omitempty"`
+	Status             string       `json:"status"`
+	ToolSet            []string     `json:"tool_set,omitempty"`
+	ModelInputKinds    []string     `json:"model_input_kinds,omitempty"`
+	Model              string       `json:"model,omitempty"`
+	Usage              *TokenUsage  `json:"usage,omitempty"`
+	Final              FinalMessage `json:"final,omitempty"`
+	Error              *TurnError   `json:"error,omitempty"`
+	EvidenceRefs       []string     `json:"evidence_refs,omitempty"`
+	AdmittedAt         time.Time    `json:"admitted_at"`
+	StartedAt          time.Time    `json:"started_at,omitempty"`
+	CompletedAt        time.Time    `json:"completed_at,omitempty"`
+}

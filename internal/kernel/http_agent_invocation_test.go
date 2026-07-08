@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -76,6 +77,61 @@ func TestHTTPAgentInvocationAdmitReadAndList(t *testing.T) {
 	}
 }
 
+func TestHTTPAgentInvocationChildConversationRead(t *testing.T) {
+	provider := &recordingTextProvider{
+		text:  "child final",
+		usage: &TokenUsage{InputTokens: 7, OutputTokens: 2, TotalTokens: 9},
+	}
+	k := newAgentInvocationRunTestKernel(t, Config{
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
+		Provider:   provider,
+		ToolPolicy: ToolPolicy{PermissionMode: PermissionModePlan},
+	})
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	invocation, err := k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{
+		SessionID:       "http-child-conversation",
+		Principal:       "application:test",
+		AgentProfileRef: "agent_profile:reviewer",
+		ContextScope:    "context:review",
+		CapabilityGrant: CapabilityGrant{ToolNames: []string{"resource_read"}},
+	})
+	if err != nil {
+		t.Fatalf("AdmitAgentInvocation returned error: %v", err)
+	}
+	run, err := k.RunAgentInvocation(context.Background(), AgentInvocationRunRequest{
+		InvocationID: invocation.InvocationID,
+		Principal:    "application:test",
+		InputItems:   []InputItem{{Type: "text", Text: "http focused prompt"}},
+	})
+	if err != nil {
+		t.Fatalf("RunAgentInvocation returned error: %v", err)
+	}
+
+	resp, err := getWithAuth(server.URL + "/agent-invocations/" + invocation.InvocationID + "/child-conversation")
+	if err != nil {
+		t.Fatalf("GET /agent-invocations/{id}/child-conversation failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("read child conversation status = %d, want 200", resp.StatusCode)
+	}
+	var readBack AgentInvocationChildConversationProjection
+	if err := json.NewDecoder(resp.Body).Decode(&readBack); err != nil {
+		t.Fatalf("decode child conversation: %v", err)
+	}
+	if readBack.InvocationID != invocation.InvocationID || readBack.RunID != run.RunID {
+		t.Fatalf("read child conversation = %+v, want invocation/run ids", readBack)
+	}
+	if readBack.Status != AgentInvocationRunStatusCompleted || readBack.Final.Text != "child final" {
+		t.Fatalf("read child conversation final = %+v, want completed child final", readBack)
+	}
+	if readBack.Usage == nil || readBack.Usage.TotalTokens != 9 {
+		t.Fatalf("read child conversation usage = %+v, want usage", readBack.Usage)
+	}
+}
+
 func TestHTTPAgentInvocationReadUnknownReturnsNotFound(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	server := httptest.NewServer(Handler(k))
@@ -84,6 +140,19 @@ func TestHTTPAgentInvocationReadUnknownReturnsNotFound(t *testing.T) {
 	resp, err := getWithAuth(server.URL + "/agent-invocations/invocation_missing")
 	if err != nil {
 		t.Fatalf("GET /agent-invocations/{id} failed: %v", err)
+	}
+	defer resp.Body.Close()
+	assertErrorCode(t, resp, http.StatusNotFound, "not_found")
+}
+
+func TestHTTPAgentInvocationChildConversationUnknownReturnsNotFound(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	resp, err := getWithAuth(server.URL + "/agent-invocations/invocation_missing/child-conversation")
+	if err != nil {
+		t.Fatalf("GET /agent-invocations/{id}/child-conversation failed: %v", err)
 	}
 	defer resp.Body.Close()
 	assertErrorCode(t, resp, http.StatusNotFound, "not_found")

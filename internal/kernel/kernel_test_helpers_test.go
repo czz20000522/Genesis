@@ -385,6 +385,7 @@ type countingTextProvider struct {
 type recordingTextProvider struct {
 	mu       sync.Mutex
 	text     string
+	usage    *TokenUsage
 	requests []ModelRequest
 }
 
@@ -543,7 +544,7 @@ func (p *recordingTextProvider) Complete(_ context.Context, req ModelRequest) (M
 	if text == "" {
 		text = "recorded"
 	}
-	return ModelResponse{Text: text, Model: "recording-text-model"}, nil
+	return ModelResponse{Text: text, Model: "recording-text-model", Usage: cloneTokenUsage(p.usage)}, nil
 }
 
 func (p *recordingTextProvider) Requests() []ModelRequest {

@@ -377,6 +377,96 @@ func TestAgentInvocationRunReturnsBoundedFinalWithoutParentTurn(t *testing.T) {
 	}
 }
 
+func TestAgentInvocationChildConversationProjectsBoundedRun(t *testing.T) {
+	provider := &recordingTextProvider{
+		text:  "child final",
+		usage: &TokenUsage{InputTokens: 11, OutputTokens: 3, TotalTokens: 14},
+	}
+	k := newAgentInvocationRunTestKernel(t, Config{
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
+		Provider:   provider,
+		ToolPolicy: ToolPolicy{PermissionMode: PermissionModePlan},
+	})
+	invocation, err := k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{
+		SessionID:           "agent-invocation-child-conversation",
+		Principal:           "application:test",
+		AgentProfileRef:     "agent_profile:local-small-worker",
+		ContextScope:        "context:diff-plus-issue",
+		ParentResultChannel: "parent_result:direct",
+		CapabilityGrant:     CapabilityGrant{ToolNames: []string{"resource_read"}},
+	})
+	if err != nil {
+		t.Fatalf("AdmitAgentInvocation returned error: %v", err)
+	}
+
+	run, err := k.RunAgentInvocation(context.Background(), AgentInvocationRunRequest{
+		InvocationID: invocation.InvocationID,
+		Principal:    "application:test",
+		InputItems:   []InputItem{{Type: "text", Text: "secret focused prompt should not project"}},
+	})
+	if err != nil {
+		t.Fatalf("RunAgentInvocation returned error: %v", err)
+	}
+	if _, _, err := k.appendToolCallEvents(invocation.SessionID, run.RunID, []ModelToolCall{{
+		ToolCallID: "provider_raw_tool_call",
+		Name:       "resource_read",
+		Arguments:  json.RawMessage(`{"ref":"raw tool trace should not project"}`),
+	}}); err != nil {
+		t.Fatalf("appendToolCallEvents returned error: %v", err)
+	}
+
+	conversation, err := k.AgentInvocationChildConversation(invocation.InvocationID)
+	if err != nil {
+		t.Fatalf("AgentInvocationChildConversation returned error: %v", err)
+	}
+	if conversation.InvocationID != invocation.InvocationID || conversation.RunID != run.RunID {
+		t.Fatalf("conversation ids = %+v, want invocation/run ids", conversation)
+	}
+	if conversation.RoleID != "local-small-worker" || conversation.AgentProfileRef != invocation.AgentProfileRef {
+		t.Fatalf("conversation role/profile = %+v, want local-small-worker profile", conversation)
+	}
+	if conversation.Status != AgentInvocationRunStatusCompleted || conversation.Final.Text != "child final" {
+		t.Fatalf("conversation final = %+v, want completed child final", conversation)
+	}
+	if conversation.ContextScope != "context:diff-plus-issue" {
+		t.Fatalf("conversation context scope = %q, want preserved scope", conversation.ContextScope)
+	}
+	if conversation.Usage == nil || conversation.Usage.TotalTokens != 14 {
+		t.Fatalf("conversation usage = %+v, want total tokens", conversation.Usage)
+	}
+	if !containsString(conversation.ToolSet, "resource_read") || len(conversation.ToolSet) != 1 {
+		t.Fatalf("conversation tool set = %+v, want resource_read only", conversation.ToolSet)
+	}
+	if !containsString(conversation.ModelInputKinds, ModelInputKindUserText) {
+		t.Fatalf("conversation model input kinds = %+v, want user text", conversation.ModelInputKinds)
+	}
+	if len(conversation.EvidenceRefs) < 2 {
+		t.Fatalf("conversation evidence refs = %+v, want admission and run refs", conversation.EvidenceRefs)
+	}
+	for _, ref := range conversation.EvidenceRefs {
+		if !strings.HasPrefix(ref, "event:") {
+			t.Fatalf("conversation evidence ref = %q, want event ref", ref)
+		}
+	}
+	payload, err := json.Marshal(conversation)
+	if err != nil {
+		t.Fatalf("marshal conversation: %v", err)
+	}
+	for _, forbidden := range []string{
+		"secret focused prompt should not project",
+		"provider_raw_tool_call",
+		"raw tool trace should not project",
+		"tool_call_id",
+		"credential",
+		"sandbox",
+		"permission",
+	} {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("conversation projection leaked %q: %s", forbidden, string(payload))
+		}
+	}
+}
+
 func TestAgentInvocationRunRejectsToolOutsideGrant(t *testing.T) {
 	provider := &toolFeedbackProvider{
 		calls: []ModelToolCall{{

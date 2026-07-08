@@ -45,6 +45,7 @@ func Handler(k *Kernel) http.Handler {
 	route(http.MethodGet, "/work/{work_id}", false, handleGetWork)
 	route(http.MethodPost, "/work/{work_id}/cancel", true, handleCancelWork)
 	route(http.MethodPost, "/agent-invocations", true, handleAdmitAgentInvocation)
+	route(http.MethodGet, "/agent-invocations/{invocation_id}/child-conversation", false, handleGetAgentInvocationChildConversation)
 	route(http.MethodGet, "/agent-invocations/{invocation_id}", false, handleGetAgentInvocation)
 	route(http.MethodPost, "/memory/candidates", true, handleCreateMemoryCandidate)
 	route(http.MethodGet, "/memory/candidates", false, handleListMemoryCandidates)
