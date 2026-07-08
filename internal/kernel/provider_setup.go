@@ -303,11 +303,11 @@ func readGenesisModelsConfig(configPath string) (genesisModelsConfig, error) {
 		return genesisModelsConfig{}, nil
 	}
 	if err != nil {
-		return genesisModelsConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
+		return genesisModelsConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigInvalid, err)
 	}
 	var config genesisModelsConfig
 	if err := json.Unmarshal(payload, &config); err != nil {
-		return genesisModelsConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
+		return genesisModelsConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigInvalid, err)
 	}
 	return config, nil
 }

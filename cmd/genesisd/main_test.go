@@ -60,6 +60,22 @@ func TestBuildProviderEmptyNameDoesNotSelectFake(t *testing.T) {
 	}
 }
 
+func TestBuildProviderFromGenesisConfigReportsInvalidConfig(t *testing.T) {
+	configRoot := testsupport.ProjectTempDir(t, "genesisd-invalid-config")
+	if err := os.WriteFile(filepath.Join(configRoot, "models.json"), []byte(`{"model_gateway": "sk-daemon-bad-config"`), 0o644); err != nil {
+		t.Fatalf("write invalid config: %v", err)
+	}
+
+	provider, err := buildProvider(providerBuildRequest{name: "genesis-config", configRoot: configRoot})
+	if err != nil {
+		t.Fatalf("buildProvider returned error: %v", err)
+	}
+	status := provider.Ready()
+	if status.Readiness != kernel.ReadinessNotReady || status.ReadinessReason != "provider_config_invalid" {
+		t.Fatalf("provider status = %+v, want provider_config_invalid", status)
+	}
+}
+
 func TestBuildProviderRejectsFakeUnlessLabAllowed(t *testing.T) {
 	provider, err := buildProvider(providerBuildRequest{name: "fake"})
 	if err != nil {

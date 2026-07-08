@@ -19,6 +19,7 @@ const (
 
 var (
 	ErrGenesisModelConfigMissing              = errors.New("genesis model config missing")
+	ErrGenesisModelConfigInvalid              = errors.New("genesis model config invalid")
 	ErrGenesisModelProfileMissing             = errors.New("genesis model profile missing")
 	ErrGenesisModelGatewayMissing             = errors.New("genesis model gateway missing")
 	ErrGenesisModelGatewayRouteMissing        = errors.New("genesis model gateway route missing")
@@ -131,11 +132,11 @@ func loadSelectedGatewayConfig(req GenesisModelConfigRequest) (selectedGatewayCo
 		if errors.Is(err, os.ErrNotExist) {
 			return selectedGatewayConfig{}, ErrGenesisModelConfigMissing
 		}
-		return selectedGatewayConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
+		return selectedGatewayConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigInvalid, err)
 	}
 	var config genesisModelsConfig
 	if err := json.Unmarshal(payload, &config); err != nil {
-		return selectedGatewayConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
+		return selectedGatewayConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigInvalid, err)
 	}
 	gateway := config.ModelGateway
 	if strings.TrimSpace(gateway.BaseURL) == "" && strings.TrimSpace(gateway.Command) == "" && len(gateway.Routes) == 0 {
@@ -161,6 +162,8 @@ func ProviderConfigReason(err error) string {
 	switch {
 	case err == nil:
 		return ""
+	case errors.Is(err, ErrGenesisModelConfigInvalid):
+		return "provider_config_invalid"
 	case errors.Is(err, ErrGenesisModelConfigMissing):
 		return "provider_config_missing"
 	case errors.Is(err, ErrGenesisModelProfileMissing):

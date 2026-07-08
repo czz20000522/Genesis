@@ -818,3 +818,33 @@ Evidence:
 Remaining scope:
 
 - Task 7 has no remaining obvious default-leak gaps from the current scan. Do a final diff/test pass and then move to Task 8 config, doctor, startup, and readiness.
+
+### 2026-07-08 Slice 21 Invalid Provider Config Readiness
+
+Reference scan:
+
+- Codex owner: `codex-rs/cli/src/doctor.rs` builds redacted diagnostic rows for configuration, authentication, runtime, sandbox, state, and provider reachability without mutating user state.
+- Reasonix owner: `internal/doctor/report.go` reports config parse warnings separately from defaulted config state, and provider diagnostics expose key-present status without raw key material.
+- Genesis owner: `internal/kernel/model_config.go`, `internal/kernel/provider_verify.go`, `cmd/genesisd`, and `cmd/genesisctl` expose provider readiness through kernel config resolution and CLI/daemon entrypoints.
+
+Gap:
+
+- A missing `models.json` and an unreadable or malformed `models.json` both mapped to `ErrGenesisModelConfigMissing`, which made live provider verify and daemon readiness report `provider_config_missing` for invalid provider configuration. This erased the operator distinction required by Task 8 and made bad config look like first-run setup.
+
+Change:
+
+- Added `ErrGenesisModelConfigInvalid` and mapped unreadable or unparsable `models.json` to `provider_config_invalid`.
+- Preserved missing file behavior as `provider_config_missing`.
+- Added regression coverage for the kernel resolver, live provider verify, `genesisctl provider verify`, and `genesisd` provider construction, including secret-shaped invalid JSON content that must not appear in readiness output.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run Test(ResolveProviderConfigFromGenesisRejectsInvalidModelsJSON|VerifyProviderLiveReportsInvalidConfigDistinctFromMissing|VerifyProviderLiveReportsMissingCredentialWithoutNetworkProbe) -count=1`
+- GREEN: `go test ./cmd/genesisd ./cmd/genesisctl -run Test(BuildProviderFromGenesisConfigReportsInvalidConfig|BuildProviderEmptyNameDoesNotSelectFake|ProviderVerifyReportsInvalidConfigAsJSON|ProviderVerifyReportsMissingCredentialAsJSON) -count=1`
+- GREEN: `git diff --check`
+- GREEN: `go test ./... -count=1`
+- GREEN: `go build ./...`
+
+Remaining scope:
+
+- Continue Task 8 by checking whether startup and doctor-like diagnostics cover unknown provider names, missing provider credentials, live auth failures, and desktop sidecar ownership without conflating them with kernel process failure.

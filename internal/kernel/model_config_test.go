@@ -255,6 +255,24 @@ func TestResolveProviderConfigFromGenesisRejectsSecretCommandEnvironment(t *test
 	}
 }
 
+func TestResolveProviderConfigFromGenesisRejectsInvalidModelsJSON(t *testing.T) {
+	root := testTempDir(t)
+	if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(`{"model_gateway": "sk-bad-config-secret"`), 0o644); err != nil {
+		t.Fatalf("write invalid models.json: %v", err)
+	}
+
+	_, err := ResolveProviderConfigFromGenesis(GenesisModelConfigRequest{ConfigRoot: root})
+	if !errors.Is(err, ErrGenesisModelConfigInvalid) {
+		t.Fatalf("error = %v, want model config invalid", err)
+	}
+	if errors.Is(err, ErrGenesisModelConfigMissing) {
+		t.Fatalf("error = %v, must not classify invalid config as missing", err)
+	}
+	if ProviderConfigReason(err) != "provider_config_invalid" {
+		t.Fatalf("reason = %q, want provider_config_invalid", ProviderConfigReason(err))
+	}
+}
+
 func TestResolveOpenAICompatibleConfigFromGenesisRejectsUnsupportedProtocol(t *testing.T) {
 	root := writeModelsConfig(t, minimalModelsConfig(map[string]any{
 		"protocol": "openai-responses",

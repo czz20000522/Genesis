@@ -282,6 +282,35 @@ func TestProviderVerifyReportsMissingCredentialAsJSON(t *testing.T) {
 	}
 }
 
+func TestProviderVerifyReportsInvalidConfigAsJSON(t *testing.T) {
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-verify-invalid-config")
+	credentialRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-verify-invalid-credentials")
+	if err := os.WriteFile(filepath.Join(configRoot, "models.json"), []byte(`{"model_gateway": "sk-cli-bad-config-secret"`), 0o644); err != nil {
+		t.Fatalf("write invalid models.json: %v", err)
+	}
+	var stdout bytes.Buffer
+
+	err := run([]string{
+		"provider", "verify",
+		"-config-root", configRoot,
+		"-credential-store-root", credentialRoot,
+		"-timeout-sec", "1",
+	}, strings.NewReader(""), &stdout)
+	if err != nil {
+		t.Fatalf("provider verify returned error: %v", err)
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode provider verify response: %v\n%s", err, stdout.String())
+	}
+	assertStringField(t, response, "readiness", "not_ready")
+	assertStringField(t, response, "readiness_reason", "provider_config_invalid")
+	if strings.Contains(stdout.String(), "sk-cli-bad-config-secret") || strings.Contains(stdout.String(), "model_gateway") {
+		t.Fatalf("provider verify output leaked invalid config detail: %s", stdout.String())
+	}
+}
+
 func TestProviderVerifyRunsProviderCommandConfig(t *testing.T) {
 	configRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-verify-command-config")
 	if err := os.MkdirAll(configRoot, 0o755); err != nil {

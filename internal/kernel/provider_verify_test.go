@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,28 @@ func TestVerifyProviderLiveReportsMissingCredentialWithoutNetworkProbe(t *testin
 	}
 	if strings.Contains(string(resultJSON), "sk-live-provider-secret") {
 		t.Fatalf("provider verify result leaked resolver error: %s", string(resultJSON))
+	}
+}
+
+func TestVerifyProviderLiveReportsInvalidConfigDistinctFromMissing(t *testing.T) {
+	root := testTempDir(t)
+	if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(`{"model_gateway": "sk-live-provider-secret"`), 0o644); err != nil {
+		t.Fatalf("write invalid models.json: %v", err)
+	}
+
+	result := VerifyProviderLive(ProviderLiveVerifyRequest{ConfigRoot: root, Timeout: time.Second})
+
+	if result.Readiness != ReadinessNotReady || result.ReadinessReason != "provider_config_invalid" {
+		t.Fatalf("result = %+v, want provider_config_invalid", result)
+	}
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	for _, forbidden := range []string{"sk-live-provider-secret", "model_gateway"} {
+		if strings.Contains(string(resultJSON), forbidden) {
+			t.Fatalf("provider verify result leaked %q: %s", forbidden, string(resultJSON))
+		}
 	}
 }
 
