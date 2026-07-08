@@ -1313,3 +1313,26 @@ Remaining scope:
 
 - A later `jsonschema` slice can replace schema construction only after it
   keeps this contract guard green.
+
+### 2026-07-08 Slice 34 ServeMux Envelope Tightening
+
+Gap:
+
+- After moving route matching to Go's `http.ServeMux`, Genesis needed to keep
+  its own transport envelope instead of inheriting ServeMux redirects,
+  automatic `HEAD` matching, or `Allow` header disclosure.
+
+Change:
+
+- Rejected unclean paths before `ServeMux` can redirect them.
+- Rejected `HEAD` explicitly instead of treating it as `GET`.
+- Removed `Allow` from method-mismatch responses while preserving the Genesis
+  JSON `not_found` envelope.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run "TestHTTP(RejectsUncleanPathWithoutServeMuxRedirect|RejectsHEADOnGetRoutes|MethodMismatchDoesNotExposeAllowHeader)$" -count=1`
+- GREEN: `go test ./internal/kernel -run "Test(ParseSkillMetadata|SkillCatalog|SubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext|HTTP|ArchitectureBoundaryHTTP)" -count=1`
+- GREEN: `git diff --check`
+- GREEN: `go test ./... -count=1`
+- GREEN: `go build ./...`

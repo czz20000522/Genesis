@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"path"
 )
 
 const maxRequestBytes = 1024 * 1024
@@ -68,8 +69,19 @@ func Handler(k *Kernel) http.Handler {
 	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead || uncleanRequestPath(r.URL.Path) {
+			writeError(w, http.StatusNotFound, "not_found", "route not found")
+			return
+		}
 		mux.ServeHTTP(&methodNotAllowedWriter{ResponseWriter: w}, r)
 	})
+}
+
+func uncleanRequestPath(requestPath string) bool {
+	if requestPath == "" || requestPath[0] != '/' {
+		return true
+	}
+	return path.Clean(requestPath) != requestPath
 }
 
 type methodNotAllowedWriter struct {
@@ -80,6 +92,7 @@ type methodNotAllowedWriter struct {
 
 func (w *methodNotAllowedWriter) WriteHeader(status int) {
 	if status == http.StatusMethodNotAllowed {
+		w.ResponseWriter.Header().Del("Allow")
 		writeError(w.ResponseWriter, http.StatusNotFound, "not_found", "route not found")
 		w.wrote = true
 		w.suppressErrorBody = true

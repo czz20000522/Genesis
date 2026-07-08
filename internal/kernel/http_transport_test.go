@@ -870,6 +870,48 @@ func TestHTTPProtectedRoutesRequireRuntimeToken(t *testing.T) {
 	}
 }
 
+func TestHTTPRejectsUncleanPathWithoutServeMuxRedirect(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/capabilities//", nil)
+
+	Handler(k).ServeHTTP(recorder, req)
+
+	resp := recorder.Result()
+	defer resp.Body.Close()
+	assertErrorCode(t, resp, http.StatusNotFound, "not_found")
+	if location := resp.Header.Get("Location"); location != "" {
+		t.Fatalf("Location header = %q, want no ServeMux redirect", location)
+	}
+}
+
+func TestHTTPRejectsHEADOnGetRoutes(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodHead, "/ready", nil)
+
+	Handler(k).ServeHTTP(recorder, req)
+
+	resp := recorder.Result()
+	defer resp.Body.Close()
+	assertErrorCode(t, resp, http.StatusNotFound, "not_found")
+}
+
+func TestHTTPMethodMismatchDoesNotExposeAllowHeader(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/turn", nil)
+
+	Handler(k).ServeHTTP(recorder, req)
+
+	resp := recorder.Result()
+	defer resp.Body.Close()
+	assertErrorCode(t, resp, http.StatusNotFound, "not_found")
+	if allow := resp.Header.Get("Allow"); allow != "" {
+		t.Fatalf("Allow header = %q, want hidden methods", allow)
+	}
+}
+
 func TestHTTPProtectedRoutesFailClosedWithoutConfiguredRuntimeToken(t *testing.T) {
 	k := newTestKernelWithRuntimeToken(t, filepath.Join(testTempDir(t), "events.sqlite"), "")
 	server := httptest.NewServer(Handler(k))
