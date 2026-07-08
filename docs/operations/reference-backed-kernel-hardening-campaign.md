@@ -262,7 +262,8 @@ First bounded implementation slice selected from this inventory:
 
 - Requirement: `docs/requirements/kernel-workspace-edit-tool.md`
 - Design: `docs/design/kernel-workspace-edit-tool.md`
-- Implementation plan: `docs/implementation-plans/kernel-workspace-edit-tool.md`
+- Implementation plan: retired after completion; this campaign log keeps the
+  execution evidence.
 - BDD: `features/kernel/workspace_edit_tool.feature`
 
 Reference scan:
@@ -301,7 +302,8 @@ Focused verification:
 
 - Requirement: `docs/requirements/kernel-agent-invocation.md`
 - Design: `docs/design/kernel-agent-invocation.md`
-- Implementation plan: `docs/implementation-plans/kernel-agent-invocation.md`
+- Implementation plan: retired after completion; this campaign log keeps the
+  execution evidence.
 - BDD: `features/kernel/agent_invocation.feature`
 
 Reference scan:
@@ -1086,7 +1088,8 @@ Artifacts:
 
 - `docs/requirements/kernel-session-search.md`
 - `docs/design/kernel-session-search.md`
-- `docs/implementation-plans/kernel-session-search.md`
+- Implementation plan retired after completion; this campaign log keeps the
+  execution evidence.
 - `features/kernel/session_search.feature`
 
 Remaining scope:
@@ -1177,7 +1180,8 @@ Artifacts:
 
 - `docs/requirements/kernel-provider-model-refresh.md`
 - `docs/design/kernel-provider-model-refresh.md`
-- `docs/implementation-plans/kernel-provider-model-refresh.md`
+- Implementation plan retired after completion; this campaign log keeps the
+  execution evidence.
 - `features/kernel/provider_model_refresh.feature`
 
 Remaining scope:
@@ -1364,7 +1368,8 @@ Artifacts updated:
 
 - `docs/requirements/kernel-agent-invocation.md`
 - `docs/design/kernel-agent-invocation.md`
-- `docs/implementation-plans/kernel-agent-invocation.md`
+- Implementation plan retired after completion; this campaign log keeps the
+  execution evidence.
 - `features/kernel/agent_invocation.feature`
 
 Red lines:
@@ -1538,9 +1543,8 @@ Evidence:
 
 Change:
 
-- Synchronized `docs/implementation-plans/kernel-shell-and-job-control.md`
-  with the current shell/job implementation evidence and empty active kernel
-  issue ledger.
+- Synchronized the shell/job implementation-plan state with current shell/job
+  implementation evidence and the empty active kernel issue ledger.
 - Marked early timeout, managed-job receipt, and verification checklist steps as
   completed instead of leaving them as stale open work.
 - Reframed the old Phase E shortfall section as historical now that later
@@ -1559,8 +1563,8 @@ Evidence:
 
 Change:
 
-- Synchronized `docs/implementation-plans/kernel-owner-structure-governance.md`
-  with the current architecture guards and empty active kernel issue ledger.
+- Synchronized the owner-structure implementation-plan state with the current
+  architecture guards and empty active kernel issue ledger.
 - Marked owner-structure Phases B, C, and D as completed in the current
   implementation instead of leaving broad follow-up issue wording in the plan.
 - Kept runtime behavior unchanged; this is document-state cleanup so future
@@ -1574,8 +1578,8 @@ Evidence:
 
 Change:
 
-- Synchronized `docs/implementation-plans/kernel-owner-package-extraction.md`
-  with the current extracted owner packages and structure guards.
+- Synchronized the owner-package extraction implementation-plan state with the
+  current extracted owner packages and structure guards.
 - Marked resource, modelgateway, toolruntime, authority, workregistry, and
   jobruntime extraction phases as completed in the current implementation.
 - Reworded phase-local shortfall text as remaining work beyond each completed
@@ -1590,9 +1594,9 @@ Evidence:
 
 Change:
 
-- Synchronized `kernel-provider-command-strict-response.md` with the current
-  strict provider-command decoder and tests.
-- Synchronized `kernel-reference-behavior-red-test-matrix.md` with the current
+- Synchronized the strict provider-command plan state with the current decoder
+  and tests.
+- Synchronized the reference red-test matrix plan state with the current
   structural guard requiring red-test translations in kernel plans with
   reference scans.
 - Reworded remaining notes as scope beyond the completed structural/strictness
@@ -1627,15 +1631,31 @@ Evidence:
 
 Change:
 
-- Removed duplicated content from `docs/implementation-plans/kernel-budget-lease.md`
-  and rewrote it as a compact closed-plan record.
-- Added closed-plan handling guidance and a closed/checkpointed kernel plan list
-  to `docs/implementation-plans/README.md`.
+- Removed duplicated BudgetLease plan content in the first cleanup pass.
+- Added closed-plan handling guidance to `docs/implementation-plans/README.md`.
 - Linked the foundation requirement's active-issue relationship to the Slice 48
   campaign checkpoint so future production shortfalls are not mistaken for
   current implementation scope.
 
 Evidence:
 
+- GREEN: `git diff --check`
+- GREEN: `go test ./internal/kernel -run "TestArchitectureBoundaryKernelImplementationPlansNameReferenceBehaviorRedTests|TestArchitectureBoundary" -count=1`
+
+### 2026-07-08 Slice 50 Closed Plan Deletion
+
+Change:
+
+- Deleted completed kernel implementation plans after their evidence had been
+  preserved in requirements, designs, retirement records, tests, or this
+  campaign log.
+- Kept only active or future-guiding implementation plans under
+  `docs/implementation-plans/`.
+- Updated historical campaign references so they no longer point readers at
+  deleted plan files as active artifacts.
+
+Evidence:
+
+- GREEN: `rg -n "implementation-plans/(kernel-agent-invocation|kernel-budget-lease|kernel-owner-package-extraction|kernel-owner-structure-governance|kernel-provider-command-strict-response|kernel-provider-model-refresh|kernel-reference-behavior-red-test-matrix|kernel-session-search|kernel-shell-and-job-control|kernel-tool-batch-parallel-signal|kernel-workspace-edit-tool)\\.md" docs features internal cmd` returned no stale references.
 - GREEN: `git diff --check`
 - GREEN: `go test ./internal/kernel -run "TestArchitectureBoundaryKernelImplementationPlansNameReferenceBehaviorRedTests|TestArchitectureBoundary" -count=1`
