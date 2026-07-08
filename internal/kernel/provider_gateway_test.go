@@ -880,11 +880,18 @@ func TestProviderCommandAdapterHelper(t *testing.T) {
 	if len(req.InputItems) == 0 || req.InputItems[0].Kind != ModelInputKindUserText {
 		t.Fatalf("input items = %+v, want user_text", req.InputItems)
 	}
-	if len(req.ToolManifest) == 0 || req.ToolManifest[0].Name != "shell_exec" {
+	if mode != "verify-final" && (len(req.ToolManifest) == 0 || req.ToolManifest[0].Name != "shell_exec") {
 		t.Fatalf("tool manifest = %+v, want shell_exec", req.ToolManifest)
 	}
 
 	switch mode {
+	case "verify-final":
+		writeProviderCommandHelperResponse(t, providerCommandResponse{
+			Kind:  providerCommandResponseKindFinal,
+			Model: req.Model,
+			Text:  "GENESIS_PROVIDER_VERIFY_OK",
+			Usage: &TokenUsage{InputTokens: 7, OutputTokens: 3, TotalTokens: 10},
+		})
 	case "final":
 		writeProviderCommandHelperResponse(t, providerCommandResponse{
 			Kind:  providerCommandResponseKindFinal,

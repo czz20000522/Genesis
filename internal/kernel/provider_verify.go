@@ -62,7 +62,25 @@ func VerifyProviderLive(req ProviderLiveVerifyRequest) ProviderLiveVerifyResult 
 			ProfileID:       profileID,
 		}
 	}
-	if resolved.Kind != "openai-compatible" {
+	timeout := req.Timeout
+	if timeout <= 0 {
+		timeout = defaultProviderVerifyTimeout
+	}
+	var provider Provider
+	var configuredModel string
+	switch resolved.Kind {
+	case "openai-compatible":
+		config := resolved.OpenAICompatible
+		config.RequestTimeout = timeout
+		config.HTTPClient = req.HTTPClient
+		provider = NewOpenAICompatibleProvider(config)
+		configuredModel = config.Model
+	case "provider_command":
+		config := resolved.Command
+		config.RequestTimeout = timeout
+		provider = NewCommandProvider(config)
+		configuredModel = config.Model
+	default:
 		return ProviderLiveVerifyResult{
 			Readiness:       ReadinessNotReady,
 			ReadinessReason: "provider_protocol_unsupported",
@@ -71,15 +89,6 @@ func VerifyProviderLive(req ProviderLiveVerifyRequest) ProviderLiveVerifyResult 
 			ProfileID:       profileID,
 		}
 	}
-
-	timeout := req.Timeout
-	if timeout <= 0 {
-		timeout = defaultProviderVerifyTimeout
-	}
-	config := resolved.OpenAICompatible
-	config.RequestTimeout = timeout
-	config.HTTPClient = req.HTTPClient
-	provider := NewOpenAICompatibleProvider(config)
 	status := provider.Ready()
 	if status.Readiness != ReadinessReady {
 		return ProviderLiveVerifyResult{
@@ -88,13 +97,15 @@ func VerifyProviderLive(req ProviderLiveVerifyRequest) ProviderLiveVerifyResult 
 			Provider:        status,
 			ModelRole:       modelRole,
 			ProfileID:       profileID,
-			Model:           config.Model,
+			Model:           configuredModel,
 		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	resp, err := provider.Complete(ctx, ModelRequest{
+		SessionID:  "provider-verify",
+		TurnID:     "provider-verify",
 		InputItems: []ModelInputItem{{Kind: ModelInputKindUserText, Text: providerVerifyProbeText}},
 	})
 	if err != nil {
@@ -106,12 +117,12 @@ func VerifyProviderLive(req ProviderLiveVerifyRequest) ProviderLiveVerifyResult 
 			Provider:        ProviderStatus{Name: provider.Name(), Readiness: ReadinessNotReady, ReadinessReason: reason},
 			ModelRole:       modelRole,
 			ProfileID:       profileID,
-			Model:           config.Model,
+			Model:           configuredModel,
 		}
 	}
 	model := strings.TrimSpace(resp.Model)
 	if model == "" {
-		model = config.Model
+		model = configuredModel
 	}
 	return ProviderLiveVerifyResult{
 		Readiness: ReadinessReady,

@@ -557,3 +557,31 @@ Evidence:
 Remaining scope:
 
 - Task 5 provider boundary now has streamed usage, HTTP failure classification, provider-command failure classification, and streamed tool-call ID parity. Next scan should move to provider configuration/verification gaps already present in approved docs; skip model-list refresh until it has a requirement/design package.
+
+### 2026-07-08 Slice 11 Provider Command Live Verify
+
+Reference scan:
+
+- Codex owner: provider configuration and auth checks stay on the provider/client boundary; callers receive provider readiness evidence instead of assuming a configured provider is usable.
+- Reasonix owner: `internal/provider/provider.go` exposes one provider abstraction and `internal/provider/openai/openai.go` keeps local/cloud-compatible model calls behind that abstraction; model usage code does not special-case the caller once a provider is resolved.
+- Genesis owner: `internal/kernel/provider_verify.go` owns `genesisctl provider verify`, while `internal/kernel/model_config.go` can already resolve both `openai-chat-completions` and `provider_command` routes.
+
+Gap:
+
+- `VerifyProviderLive` rejected resolved `provider_command` configs as `provider_protocol_unsupported`, even though the daemon can already run them. That made local model provider-command routes second-class compared with cloud OpenAI-compatible routes.
+
+Change:
+
+- Replaced the rejection test with `TestVerifyProviderLiveRunsProviderCommandConfig`.
+- Changed `VerifyProviderLive` to instantiate either `NewOpenAICompatibleProvider` or `NewCommandProvider` from the resolved config and run the same text probe through the shared `Provider` interface.
+- Added stable session/turn IDs to the verify `ModelRequest` so provider-command adapters receive a complete protocol request.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestVerifyProviderLiveRunsProviderCommandConfig -count=1` failed with `provider_protocol_unsupported`.
+- GREEN: `go test ./internal/kernel -run TestVerifyProviderLiveRunsProviderCommandConfig -count=1`
+- Related: `go test ./internal/kernel -run TestVerifyProviderLive -count=1`
+
+Remaining scope:
+
+- Continue Task 5 by scanning provider setup/config CLI behavior for drift. Keep model-list refresh out of this campaign until a requirement/design explicitly admits it.

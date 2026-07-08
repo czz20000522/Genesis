@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -112,13 +113,33 @@ func TestVerifyProviderLiveReportsMissingCredentialWithoutNetworkProbe(t *testin
 	}
 }
 
-func TestVerifyProviderLiveRejectsProviderCommandConfig(t *testing.T) {
-	root := writeLiveVerifyModelsConfig(t, "provider-command-helper", "command-model", "provider_command")
+func TestVerifyProviderLiveRunsProviderCommandConfig(t *testing.T) {
+	root := writeModelsConfig(t, map[string]any{
+		"model_gateway": map[string]any{
+			"protocol": "provider_command",
+			"command":  os.Args[0],
+			"args":     []string{"-test.run=TestProviderCommandAdapterHelper", "--", "verify-final"},
+			"env":      []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
+		},
+		"active_model_profile_bindings": map[string]any{
+			DefaultModelRole: "live-profile",
+		},
+		"model_profiles": map[string]any{
+			"local": map[string]any{
+				"gateway": map[string]any{
+					"live-profile": map[string]any{
+						"profile_id": "live-profile",
+						"model_id":   "command-model",
+					},
+				},
+			},
+		},
+	})
 
 	result := VerifyProviderLive(ProviderLiveVerifyRequest{ConfigRoot: root, Timeout: time.Second})
 
-	if result.Readiness != ReadinessNotReady || result.ReadinessReason != "provider_protocol_unsupported" {
-		t.Fatalf("result = %+v, want provider_protocol_unsupported", result)
+	if result.Readiness != ReadinessReady || result.Provider.Name != "provider_command" || result.Model != "command-model" {
+		t.Fatalf("result = %+v, want ready provider_command", result)
 	}
 }
 
