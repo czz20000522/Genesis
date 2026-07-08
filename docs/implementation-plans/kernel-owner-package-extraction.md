@@ -89,6 +89,7 @@ Genesis translation:
 
 ## Phase A: Resource Owner Package
 
+- Status: completed in the current implementation.
 - Deliverable: move resource descriptor/result types and registry/read logic to
   `internal/kernel/resource`.
 - Red lines:
@@ -105,7 +106,7 @@ Genesis translation:
   - `go test ./... -count=1`
   - `go build ./...`
   - `git diff --check`
-- Still short of production:
+- Remaining beyond this extraction slice:
   - Generic context hydration remains active under
     `KERNEL-CONTEXT-RESOURCE-HYDRATION-20260625`.
   - Root aliases can be removed only after `Config` and external tests depend
@@ -113,6 +114,7 @@ Genesis translation:
 
 ## Phase B: Model Gateway Resilience Package
 
+- Status: completed in the current implementation.
 - Deliverable: move provider retry/repair classification, classified error
   types, retry-delay policy, and provider-attempt projection type to
   `internal/kernel/modelgateway`.
@@ -134,13 +136,14 @@ Genesis translation:
   - `go test ./... -count=1`
   - `go build ./...`
   - `git diff --check`
-- Still short of production:
+- Remaining beyond this extraction slice:
   - `ProviderContextProjection`, provider command transport, built-in OpenAI
     adapter, and provider setup remain root-level Model Gateway files until
     later package slices add their own red tests.
 
 ## Phase B2: Model Gateway Accounting DTO Package
 
+- Status: completed in the current implementation.
 - Deliverable: move token usage, context accounting projection DTOs, and token
   usage copy helper to `internal/kernel/modelgateway`.
 - Red lines:
@@ -160,12 +163,13 @@ Genesis translation:
   - `go test ./... -count=1`
   - `go build ./...`
   - `git diff --check`
-- Still short of production:
+- Remaining beyond this extraction slice:
   - Provider usage wire parsing, provider context projection, and compaction
     policy remain later slices with separate red tests.
 
 ## Phase C: Tool Runtime Scheduling Package
 
+- Status: completed in the current implementation.
 - Deliverable: move tool effect classes, scheduling specs, access plans,
   execution batch planning, and scheduling DTOs to `internal/kernel/toolruntime`.
 - Red lines:
@@ -187,12 +191,13 @@ Genesis translation:
   - `go test ./... -count=1`
   - `go build ./...`
   - `git diff --check`
-- Still short of production:
+- Remaining beyond this extraction slice:
   - ToolGateway, registry, real executor concurrency, loop guard, and tool DTO
     extraction remain later slices with separate red tests.
 
 ## Phase C2: Tool Runtime Result DTO Package
 
+- Status: completed in the current implementation.
 - Deliverable: move model-visible tool request/error/capability/result DTOs to
   `internal/kernel/toolruntime`.
 - Red lines:
@@ -213,12 +218,13 @@ Genesis translation:
   - `go test ./... -count=1`
   - `go build ./...`
   - `git diff --check`
-- Still short of production:
+- Remaining beyond this extraction slice:
   - ToolGateway and execution context still need a narrow owner port before the
     registry can stop receiving `*Kernel`.
 
 ## Phase C3: Authority Approval DTO Package
 
+- Status: completed in the current implementation.
 - Deliverable: move approval, approval decision, approval policy/effect, and
   sandbox readiness DTOs to `internal/kernel/authority`.
 - Red lines:
@@ -239,12 +245,13 @@ Genesis translation:
   - `go test ./... -count=1`
   - `go build ./...`
   - `git diff --check`
-- Still short of production:
+- Remaining beyond this extraction slice:
   - Approval owner behavior and sandbox readiness execution still live in root
     until an authority-plane port is designed and covered by red tests.
 
 ## Phase C4: Work Registry DTO Package
 
+- Status: completed in the current implementation.
 - Deliverable: move work submit/cancel request DTOs, work projection DTO, and
   work status constants to `internal/kernel/workregistry`.
 - Red lines:
@@ -265,12 +272,13 @@ Genesis translation:
   - `go test ./... -count=1`
   - `go build ./...`
   - `git diff --check`
-- Still short of production:
+- Remaining beyond this extraction slice:
   - Work behavior still lives in root until event append/replay and validation
     ports are introduced with dedicated red tests.
 
 ## Phase C5: Job Runtime DTO Package
 
+- Status: completed in the current implementation.
 - Deliverable: move managed job projection DTO and kernel observation delivery
   DTO to `internal/kernel/jobruntime`.
 - Red lines:
@@ -291,7 +299,7 @@ Genesis translation:
   - `go test ./... -count=1`
   - `go build ./...`
   - `git diff --check`
-- Still short of production:
+- Remaining beyond this extraction slice:
   - Job lifecycle and observation delivery behavior still live in root until
     executor and replay ports are introduced with dedicated red tests.
 

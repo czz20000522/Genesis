@@ -1569,3 +1569,19 @@ Change:
 Evidence:
 
 - GREEN: `go test ./internal/kernel -run "TestArchitectureBoundary.*Owner|TestArchitectureBoundaryToolRegistryUsesNarrowInvocationContext|TestArchitectureBoundaryHTTPTransportDoesNotReplayOwnerFacts|TestArchitectureBoundaryKernelSessionDelegatesOwnerReplay" -count=1`
+
+### 2026-07-08 Slice 46 Owner Package Extraction Plan State
+
+Change:
+
+- Synchronized `docs/implementation-plans/kernel-owner-package-extraction.md`
+  with the current extracted owner packages and structure guards.
+- Marked resource, modelgateway, toolruntime, authority, workregistry, and
+  jobruntime extraction phases as completed in the current implementation.
+- Reworded phase-local shortfall text as remaining work beyond each completed
+  extraction slice, not active current implementation gaps.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel/resource ./internal/kernel/modelgateway ./internal/kernel/toolruntime ./internal/kernel/authority ./internal/kernel/workregistry ./internal/kernel/jobruntime -count=1`
+- GREEN: `go test ./internal/kernel -run "TestArchitectureBoundary(ResourceOwnerHasSubpackageTypes|ModelGatewayOwnerHasSubpackageResilienceSurface|ModelGatewayOwnerHasSubpackageAccountingSurface|ToolRuntimeOwnerHasSubpackageSchedulingSurface|ToolRuntimeOwnerHasSubpackageResultSurface|AuthorityOwnerHasSubpackageApprovalSurface|WorkRegistryOwnerHasSubpackageTypeSurface|JobRuntimeOwnerHasSubpackageTypeSurface|OwnerDTOsLiveInNamedFiles)" -count=1`
