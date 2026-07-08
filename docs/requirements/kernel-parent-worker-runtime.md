@@ -1,6 +1,6 @@
 # Requirement: Parent-Led Worker Runtime
 
-- **Status:** draft.
+- **Status:** approved for phased implementation.
 - **Owner:** Genesis Kernel agent orchestration boundary.
 - **Scope:** define the production semantics for a parent-facing agent that delegates bounded work to role-bound leaf workers.
 

@@ -25,3 +25,16 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Periodic governance review checks architecture, feature behavior, directory structure, and document lifetime together. Completed plans and stale documents should be deleted or condensed instead of spawning issues that only preserve old notes.
 
 ## Active Issues
+
+### KERNEL-PARENT-WORKER-ROLE-BINDING-20260708 - P1 - Parent-worker role bindings need a config projection
+
+- Status: in_progress.
+- Requirement: `docs/requirements/kernel-parent-worker-runtime.md`.
+- Design: `docs/design/kernel-parent-worker-runtime.md`.
+- BDD: `features/kernel/parent_worker_runtime.feature`.
+- Implementation plan: `docs/implementation-plans/parent-worker-runtime-phase-a.md`.
+- Gap: Genesis has model profile bindings and admitted `AgentInvocation` records, but it cannot yet read or project parent/worker role bindings with preset tools, leaf-only status, and concurrency limits.
+- Next slice: implement Phase A by extending `models.json` parsing with parent/worker role binding validation and a sanitized projection API.
+- Reference alignment: Codex `multi_agents/spawn.rs` records spawned agents as explicit identities and `agent_jobs.rs` caps concurrent worker creation; Reasonix `skill.Skill.AllowedTools`, `boot.subagentModelRef`, and `agent.TaskTool.buildSubReg` keep subagent tool/model choices in configured metadata rather than parent prompt text.
+- Evidence: pending.
+- Verification: pending.
