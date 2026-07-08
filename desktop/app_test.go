@@ -273,6 +273,42 @@ func TestTypedListSessionsBridgeReadsKernelSessionIndex(t *testing.T) {
 	}
 }
 
+func TestTypedSearchSessionsBridgeReadsKernelSearchProjection(t *testing.T) {
+	var gotPath string
+	var gotMethod string
+	var gotAuth string
+	var gotQuery string
+	var gotLimit string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		gotAuth = r.Header.Get("Authorization")
+		gotQuery = r.URL.Query().Get("q")
+		gotLimit = r.URL.Query().Get("limit")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"query":"basalt notes","items":[{"session_id":"s1","title":"first","match_fields":["title"],"snippet":"Basalt notes"}]}`))
+	}))
+	defer server.Close()
+
+	app := NewApp()
+	app.client = NewKernelHTTPClient(server.URL, "token", server.Client())
+	payload, err := app.SearchSessions(" basalt notes ", 5)
+	if err != nil {
+		t.Fatalf("SearchSessions returned error: %v", err)
+	}
+
+	if gotPath != "/sessions/search" || gotMethod != http.MethodGet || gotAuth != "Bearer token" {
+		t.Fatalf("request = %s %s auth %q, want GET /sessions/search with token", gotMethod, gotPath, gotAuth)
+	}
+	if gotQuery != "basalt notes" || gotLimit != "5" {
+		t.Fatalf("query = %q limit = %q, want trimmed query and limit", gotQuery, gotLimit)
+	}
+	items, ok := payload["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("payload = %+v, want one search result", payload)
+	}
+}
+
 func TestKernelHTTPClientStreamsTurnEventsFromKernelPrimitive(t *testing.T) {
 	var gotPath string
 	var gotMethod string

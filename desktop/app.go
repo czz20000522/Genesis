@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -109,6 +110,17 @@ func (a *App) ListSessions() (map[string]any, error) {
 	ctx, cancel := a.requestContext()
 	defer cancel()
 	return a.client.Get(ctx, "/sessions", true)
+}
+
+func (a *App) SearchSessions(query string, limit int) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	values := url.Values{}
+	values.Set("q", strings.TrimSpace(query))
+	if limit > 0 {
+		values.Set("limit", strconv.Itoa(limit))
+	}
+	return a.client.Get(ctx, "/sessions/search?"+values.Encode(), true)
 }
 
 func (a *App) SubmitTurn(sessionID string, text string, idempotencyKey string) (map[string]any, error) {
@@ -289,10 +301,7 @@ func (c *KernelHTTPClient) RequestJSON(ctx context.Context, method string, path 
 }
 
 func (c *KernelHTTPClient) StreamJSONLines(ctx context.Context, path string, auth bool, body json.RawMessage, emit func(map[string]any) error) (map[string]any, error) {
-	if c.baseURL == "" {
-		return nil, errors.New("kernel base URL is required")
-	}
-	u, err := url.JoinPath(c.baseURL, strings.TrimLeft(path, "/"))
+	u, err := c.requestURL(path)
 	if err != nil {
 		return nil, err
 	}
@@ -352,6 +361,32 @@ func (c *KernelHTTPClient) PostMultipart(ctx context.Context, path string, auth 
 	return c.do(ctx, http.MethodPost, path, auth, contentType, body)
 }
 
+func (c *KernelHTTPClient) requestURL(path string) (string, error) {
+	if c.baseURL == "" {
+		return "", errors.New("kernel base URL is required")
+	}
+	path = strings.TrimLeft(path, "/")
+	pathOnly := path
+	rawQuery := ""
+	if before, after, ok := strings.Cut(path, "?"); ok {
+		pathOnly = before
+		rawQuery = after
+	}
+	u, err := url.JoinPath(c.baseURL, pathOnly)
+	if err != nil {
+		return "", err
+	}
+	if rawQuery == "" {
+		return u, nil
+	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return "", err
+	}
+	parsed.RawQuery = rawQuery
+	return parsed.String(), nil
+}
+
 func desktopTurnStreamEventName(idempotencyKey string) string {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if idempotencyKey == "" {
@@ -403,10 +438,7 @@ func (c *KernelHTTPClient) PostMultipartFile(ctx context.Context, path string, a
 }
 
 func (c *KernelHTTPClient) do(ctx context.Context, method string, path string, auth bool, contentType string, body io.Reader) (map[string]any, error) {
-	if c.baseURL == "" {
-		return nil, errors.New("kernel base URL is required")
-	}
-	u, err := url.JoinPath(c.baseURL, strings.TrimLeft(path, "/"))
+	u, err := c.requestURL(path)
 	if err != nil {
 		return nil, err
 	}

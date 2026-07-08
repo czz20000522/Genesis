@@ -1010,3 +1010,36 @@ Evidence:
 Remaining scope:
 
 - Phase B remains open: expose shell/desktop integration that calls the kernel route, keeps rendering and selection in the shell, and resumes results through `/sessions/{id}`.
+
+### 2026-07-08 Slice 28 Desktop Session Search Bridge
+
+Reference scan:
+
+- Codex owner: history search remains a UI-local selection mechanism until a result is explicitly accepted, so Genesis desktop search should expose the projection without automatically mutating the active session.
+- Reasonix owner: session listing/resume operations are separate, so search results should not imply resume side effects.
+- Genesis owner: `desktop/app.go` and `desktop/frontend/src/api/kernelApi.ts` are the desktop HTTP choke points for typed kernel calls.
+
+Gap:
+
+- The kernel route existed after Slice 27, but desktop consumers still had no typed bridge/API to call it. A future UI or agent would have needed to either add a generic HTTP proxy or bypass the established `kernelApi.ts` choke point.
+- `KernelHTTPClient` path joining did not preserve query strings, so adding a query-based route exposed a shared desktop HTTP primitive bug.
+
+Change:
+
+- Added `desktop.App.SearchSessions(query, limit)` as a typed Wails bridge method over `GET /sessions/search`.
+- Added frontend `searchSessions(config, query, limit)` with direct HTTP and Wails bridge paths, preserving empty-query client validation and runtime-token authorization.
+- Fixed the desktop HTTP client URL builder to preserve query strings instead of passing them through `url.JoinPath` as path text.
+- Kept rendering, selection, and resume behavior out of this slice; callers still open a result through session projection routes.
+
+Evidence:
+
+- GREEN: `go test ./... -run TestTypedSearchSessionsBridgeReadsKernelSearchProjection -count=1` from `desktop/`
+- GREEN: `go test ./... -count=1` from `desktop/`
+- GREEN: `node --experimental-strip-types ./tests/kernelApi.test.ts` from `desktop/frontend/`
+- GREEN: `node --experimental-strip-types ./tests/assistantMarkdown.test.ts` from `desktop/frontend/`
+- GREEN: `.\node_modules\.bin\vue-tsc.cmd --noEmit` from `desktop/frontend/`
+- GREEN: `.\node_modules\.bin\vite.cmd build` from `desktop/frontend/`
+
+Remaining scope:
+
+- Run root hygiene and commit Slice 28, then select the next reference-backed production capability.

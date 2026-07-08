@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, saveKernelConfig, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial } from '../src/api/kernelApi.ts'
+import { compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -83,6 +83,51 @@ try {
   assert.equal(sessions.items?.[0]?.session_id, 'session-2')
 } finally {
   globalThis.fetch = originalFetchForSessions
+}
+
+let searchUrl = ''
+let searchAuth = ''
+const originalFetchForSearch = globalThis.fetch
+globalThis.fetch = async (input, init) => {
+  searchUrl = String(input)
+  searchAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  return new Response(JSON.stringify({
+    query: 'basalt notes',
+    items: [{ session_id: 'session-search', title: 'Basalt notes', match_fields: ['title'], snippet: 'Basalt notes' }],
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const search = await searchSessions({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, ' basalt notes ', 5)
+  assert.equal(searchUrl, 'http://127.0.0.1:8765/sessions/search?q=basalt+notes&limit=5')
+  assert.equal(searchAuth, 'Bearer secret')
+  assert.equal(search.query, 'basalt notes')
+  assert.equal(search.items?.[0]?.session_id, 'session-search')
+} finally {
+  globalThis.fetch = originalFetchForSearch
+}
+
+let emptySearchRequests = 0
+const originalFetchForEmptySearch = globalThis.fetch
+globalThis.fetch = async () => {
+  emptySearchRequests += 1
+  return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+}
+
+try {
+  await assert.rejects(
+    () => searchSessions({ baseUrl: 'http://127.0.0.1:8765', runtimeToken: '' }, ' '),
+    /search query is required/,
+  )
+  assert.equal(emptySearchRequests, 0)
+} finally {
+  globalThis.fetch = originalFetchForEmptySearch
 }
 
 let emptySessionRequests = 0
@@ -306,6 +351,31 @@ try {
   const payload = await submitTurn({ baseUrl: 'http://127.0.0.1:8765', runtimeToken: 'secret' }, 'bridge-session', 'hello', 'idem-bridge')
   assert.deepEqual(payload, { ok: true })
   assert.equal(directFetchCalls, 0, 'typed Wails bridge must be the production request choke point when present')
+} finally {
+  globalThis.go = originalGo
+  globalThis.fetch = originalFetch
+}
+
+globalThis.go = {
+  main: {
+    App: {
+      SearchSessions: async (query: string, limit: number) => {
+        assert.equal(query, 'bridge search')
+        assert.equal(limit, 7)
+        return { query, items: [{ session_id: 'bridge-session', match_fields: ['title'] }] }
+      },
+    },
+  },
+}
+globalThis.fetch = async () => {
+  directFetchCalls += 1
+  return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+}
+try {
+  directFetchCalls = 0
+  const payload = await searchSessions({ baseUrl: 'http://127.0.0.1:8765', runtimeToken: 'secret' }, ' bridge search ', 7)
+  assert.equal(payload.items?.[0]?.session_id, 'bridge-session')
+  assert.equal(directFetchCalls, 0, 'session search must use typed Wails bridge when present')
 } finally {
   globalThis.go = originalGo
   globalThis.fetch = originalFetch

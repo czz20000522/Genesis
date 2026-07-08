@@ -106,6 +106,16 @@ export type SessionListResponse = {
   items?: SessionListItem[]
 }
 
+export type SessionSearchResult = SessionListItem & {
+  match_fields?: string[]
+  snippet?: string
+}
+
+export type SessionSearchResponse = {
+  query?: string
+  items?: SessionSearchResult[]
+}
+
 export type SessionProjection = {
   session_id?: string
   approvals?: ApprovalProjection[]
@@ -152,6 +162,17 @@ export async function listSessions(config = kernelConfig()) {
   const bridge = wailsAppBridge()
   if (bridge?.ListSessions) return bridge.ListSessions() as Promise<SessionListResponse>
   return requestKernel<SessionListResponse>(config, '/sessions')
+}
+
+export async function searchSessions(config: KernelConfig, query: string, limit = 0) {
+  const q = String(query || '').trim()
+  if (!q) throw new Error('search query is required')
+  const boundedLimit = Number.isFinite(limit) && limit > 0 ? Math.trunc(limit) : 0
+  const bridge = wailsAppBridge()
+  if (bridge?.SearchSessions) return bridge.SearchSessions(q, boundedLimit) as Promise<SessionSearchResponse>
+  const params = new URLSearchParams({ q })
+  if (boundedLimit > 0) params.set('limit', String(boundedLimit))
+  return requestKernel<SessionSearchResponse>(config, `/sessions/search?${params.toString()}`)
 }
 
 export async function getTimeline(config: KernelConfig, sessionId: string) {
@@ -367,6 +388,7 @@ type MaterialBridgeRequest = {
 type WailsAppBridge = {
   Ready?: () => Promise<unknown>
   ListSessions?: () => Promise<unknown>
+  SearchSessions?: (query: string, limit: number) => Promise<unknown>
   SubmitTurn?: (sessionId: string, text: string, idempotencyKey: string) => Promise<unknown>
   SubmitTurnStream?: (sessionId: string, text: string, idempotencyKey: string) => Promise<unknown>
   ReadTimeline?: (sessionId: string) => Promise<unknown>

@@ -68,6 +68,14 @@ results over session id, title, first user text, and final assistant text.
 
 Only after Phase A is stable:
 
-- expose a desktop bridge method or console command that calls the kernel route;
-- keep rendering and selection in the shell;
-- opening a result must still use `/sessions/{id}`.
+- [x] expose a desktop bridge method or console command that calls the kernel route;
+- [x] keep rendering and selection in the shell;
+- [x] opening a result must still use `/sessions/{id}`.
+
+Delivered in Phase B:
+
+- `desktop.App.SearchSessions(query, limit)` calls `GET /sessions/search` through
+  the typed desktop HTTP bridge.
+- `desktop/frontend/src/api/kernelApi.ts` exposes `searchSessions` for both Wails
+  bridge and direct HTTP mode.
+- No session rail or conversation UI behavior was added in this phase.
