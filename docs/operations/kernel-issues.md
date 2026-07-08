@@ -25,3 +25,16 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Periodic governance review checks architecture, feature behavior, directory structure, and document lifetime together. Completed plans and stale documents should be deleted or condensed instead of spawning issues that only preserve old notes.
 
 ## Active Issues
+
+### KERNEL-PARENT-WORKER-CHILD-CONVERSATION-20260708 - P1 - Worker output needs a child conversation projection
+
+- Status: in_progress.
+- Requirement: `docs/requirements/kernel-parent-worker-runtime.md`.
+- Design: `docs/design/kernel-parent-worker-runtime.md`.
+- BDD: `features/kernel/parent_worker_runtime.feature`.
+- Implementation plan: `docs/implementation-plans/parent-worker-runtime-phase-c.md`.
+- Gap: Genesis records worker invocation runs, but callers cannot read a child conversation-shaped projection for rendering worker output separate from the parent transcript.
+- Next slice: expose a sanitized projection by invocation id with role, status, context scope, model input kinds, final output, usage, tool set, and evidence refs.
+- Reference alignment: Codex `wait_agent` exposes sub-agent status/final result through collaboration events, and Reasonix subagents keep only bounded final answers in the parent while hooks can observe subagent completion.
+- Evidence: pending.
+- Verification: pending.

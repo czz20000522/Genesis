@@ -26,3 +26,10 @@ Feature: Parent-led worker runtime configuration
     When a future task graph references that invocation
     Then the parent-worker runtime provides invocation identity and child conversation projection only
     And graph nodes, edges, layout, and dependency scheduling are governed by the task graph requirement
+
+  Scenario: Worker output is readable as a child conversation
+    Given a worker invocation was admitted and completed with a final answer
+    When an application reads the child conversation projection
+    Then Genesis returns the worker role, status, final answer, usage, context scope, tool set, and evidence refs
+    And the projection omits the focused prompt, raw provider stream, raw tool trace, credentials, sandbox profiles, and permission profiles
+    And the parent session transcript remains separate
