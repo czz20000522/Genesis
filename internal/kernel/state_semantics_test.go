@@ -30,8 +30,8 @@ func TestReadinessSurfacesUseReadinessAxis(t *testing.T) {
 	}
 
 	ready := k.Ready()
-	if ready.Readiness != ReadinessNotReady || ready.ReadinessReason == "" {
-		t.Fatalf("ready = %+v, want not_ready with reason", ready)
+	if ready.Readiness != ReadinessNotReady || ready.ReadinessReason != "provider_api_key_missing" {
+		t.Fatalf("ready = %+v, want not_ready with provider_api_key_missing", ready)
 	}
 	if ready.Provider.Readiness != ReadinessNotReady || ready.Provider.ReadinessReason != "provider_api_key_missing" {
 		t.Fatalf("provider readiness = %+v, want provider not_ready reason", ready.Provider)
@@ -62,6 +62,9 @@ func TestReadinessSurfacesUseReadinessAxis(t *testing.T) {
 	if capabilities.Readiness != ReadinessNotReady || capabilities.Provider.Readiness != ReadinessNotReady {
 		t.Fatalf("capabilities = %+v, want readiness axis", capabilities)
 	}
+	if capabilities.ReadinessReason != "provider_api_key_missing" {
+		t.Fatalf("capabilities readiness reason = %q, want provider_api_key_missing", capabilities.ReadinessReason)
+	}
 	encodedCapabilities, err := json.Marshal(capabilities)
 	if err != nil {
 		t.Fatalf("marshal capabilities: %v", err)
@@ -76,6 +79,24 @@ func TestReadinessSurfacesUseReadinessAxis(t *testing.T) {
 	assertNoNestedStatus(t, capabilityMap, "provider")
 	assertNoNestedStatus(t, capabilityMap, "runtime_auth")
 	assertNoNestedStatus(t, capabilityMap, "ledger")
+}
+
+func TestTopLevelReadinessRedactsUnsafeProviderReason(t *testing.T) {
+	k, err := New(Config{
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
+		Provider:   unsafeReadinessProvider{name: "safe-provider", reason: `C:\unsafe\sk-provider-secret`},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	ready := k.Ready()
+	if ready.Readiness != ReadinessNotReady || ready.ReadinessReason != "provider_status_unavailable" {
+		t.Fatalf("ready = %+v, want sanitized provider_status_unavailable", ready)
+	}
+	if ready.Provider.ReadinessReason != "provider_status_unavailable" {
+		t.Fatalf("provider readiness = %+v, want sanitized provider_status_unavailable", ready.Provider)
+	}
 }
 
 func TestContextRuntimeReadinessDoesNotUseProviderStatus(t *testing.T) {

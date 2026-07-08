@@ -127,7 +127,7 @@ func (k *Kernel) Ready() ReadyResponse {
 	readinessReason := ""
 	if providerStatus.Readiness != ReadinessReady {
 		readiness = ReadinessNotReady
-		readinessReason = "provider_not_ready"
+		readinessReason = safeInspectionReadinessReason(firstNonEmpty(providerStatus.ReadinessReason, "provider_not_ready"))
 	}
 	if readiness == ReadinessReady && runtimeAuth.Readiness != ReadinessReady {
 		readiness = ReadinessNotReady

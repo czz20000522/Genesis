@@ -848,3 +848,29 @@ Evidence:
 Remaining scope:
 
 - Continue Task 8 by checking whether startup and doctor-like diagnostics cover unknown provider names, missing provider credentials, live auth failures, and desktop sidecar ownership without conflating them with kernel process failure.
+
+### 2026-07-08 Slice 22 Provider Readiness Reason Propagation
+
+Reference scan:
+
+- Codex owner: doctor output carries each check's category, status, detail, and issue metadata so callers do not have to infer the failing subsystem from a generic top-level failure.
+- Reasonix owner: doctor and inspect reports keep provider key readiness as explicit provider fields while the CLI keeps configuration/load warnings visible near the top of the report.
+- Genesis owner: `Kernel.Ready()` aggregates provider, runtime auth, and ledger readiness for `/ready` and feeds the same projection into `/capabilities`.
+
+Gap:
+
+- `/ready.provider.readiness_reason` carried specific provider blockers, but top-level `/ready.readiness_reason` collapsed all provider failures to `provider_not_ready`. A caller watching only the top-level readiness could not distinguish missing credentials, invalid provider config, provider command setup failures, or other sanitized provider blockers.
+
+Change:
+
+- Propagated the sanitized provider readiness reason to top-level readiness when the provider is the blocking subsystem.
+- Preserved the existing `safeInspectionReadinessReason` guard so unsafe provider-supplied strings become `provider_status_unavailable`.
+- Tightened readiness state tests to require the specific top-level provider reason and to prove unsafe provider reasons are redacted at both top-level and provider substatus.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run Test(ReadinessSurfacesUseReadinessAxis|TopLevelReadinessRedactsUnsafeProviderReason|ContextRuntimeReadinessDoesNotUseProviderStatus) -count=1`
+
+Remaining scope:
+
+- Run full verification for Slice 22, then continue Task 8 with startup/doctor-like diagnostics for unknown provider names and local dependency readiness.
