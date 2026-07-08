@@ -3,6 +3,7 @@ package kernel
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -31,6 +32,34 @@ func handleGetSession(w http.ResponseWriter, r *http.Request, k *Kernel) {
 func handleListSessions(w http.ResponseWriter, _ *http.Request, k *Kernel) {
 	projection, err := k.ListSessions()
 	if writeKernelUnavailable(w, err) {
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, projection)
+}
+
+func handleSearchSessions(w http.ResponseWriter, r *http.Request, k *Kernel) {
+	limit := 0
+	if value := strings.TrimSpace(r.URL.Query().Get("limit")); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", "invalid session search request")
+			return
+		}
+		limit = parsed
+	}
+	projection, err := k.SearchSessions(SessionSearchRequest{
+		Query: r.URL.Query().Get("q"),
+		Limit: limit,
+	})
+	if writeKernelUnavailable(w, err) {
+		return
+	}
+	if errors.Is(err, ErrSessionSearchInvalidRequest) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "invalid session search request")
 		return
 	}
 	if err != nil {

@@ -17,11 +17,10 @@ results over session id, title, first user text, and final assistant text.
 **Files:**
 
 - Modify: `internal/kernel/inspection_types.go`
-- Modify: `internal/kernel/kernel.go`
 - Modify: `internal/kernel/http.go`
 - Modify: `internal/kernel/http_inspection.go`
-- Test: `internal/kernel/sqlite_ledger_test.go`
-- Test: `internal/kernel/http_transport_test.go` or focused projection test
+- Add: `internal/kernel/session_search.go`
+- Test: `internal/kernel/session_search_test.go`
 - Optional desktop bridge after kernel route is stable.
 
 **Red lines:**
@@ -32,30 +31,30 @@ results over session id, title, first user text, and final assistant text.
 - Do not mutate session titles or write ledger events.
 - Do not make `/sessions` require a query.
 
-- [ ] Step 1: Add failing tests for HTTP validation.
+- [x] Step 1: Add failing tests for HTTP validation.
 
   Cover missing `q`, empty `q`, invalid `limit`, and valid no-match query.
 
-- [ ] Step 2: Add failing tests for result matching.
+- [x] Step 2: Add failing tests for result matching.
 
   Cover matches by session id, title, first user text, and final assistant text.
 
-- [ ] Step 3: Add failing tests for restart stability and projection safety.
+- [x] Step 3: Add failing tests for restart stability and projection safety.
 
   Confirm results after reopening the same ledger and assert raw ids/path-shaped
   internals are absent from search JSON.
 
-- [ ] Step 4: Implement DTOs and kernel search helper.
+- [x] Step 4: Implement DTOs and kernel search helper.
 
   Add `SessionSearchResponse` and `SessionSearchResult`, then implement a
   projection helper using existing ledger/session projection code.
 
-- [ ] Step 5: Implement HTTP route.
+- [x] Step 5: Implement HTTP route.
 
   Add `GET /sessions/search` before `/sessions/{id}` routing and map validation
   errors to `invalid_request`.
 
-- [ ] Step 6: Verify.
+- [x] Step 6: Verify.
 
   Run focused tests, then:
 
@@ -72,4 +71,3 @@ Only after Phase A is stable:
 - expose a desktop bridge method or console command that calls the kernel route;
 - keep rendering and selection in the shell;
 - opening a result must still use `/sessions/{id}`.
-

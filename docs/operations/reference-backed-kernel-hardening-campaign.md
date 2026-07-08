@@ -978,3 +978,35 @@ Artifacts:
 Remaining scope:
 
 - Implement Phase A with tests first: validation, matching, restart stability, and projection safety.
+
+### 2026-07-08 Slice 27 Bounded Session Search Projection
+
+Reference scan:
+
+- Codex owner: chat composer history search keeps transient search state outside persisted history and only applies a selected result to the draft, so Genesis search must stay read-only until a shell explicitly resumes a session.
+- Reasonix owner: session list and resume are separate ACP operations backed by persisted session files, so Genesis search should return bounded projection metadata and leave opening a result to `/sessions/{id}`.
+- Genesis owner: session list read models and timeline projections already own persisted session summaries, while HTTP inspection routes own read-only session projection transport.
+
+Gap:
+
+- `/sessions` could list sessions and `/sessions/{id}` could replay one session, but callers had no deterministic kernel-owned way to find a session by title, user text, final assistant text, or session id.
+- Any shell-side grep over ledgers would risk exposing raw event ids, operation ids, job ids, storage paths, or provider payload structure.
+
+Change:
+
+- Added `SessionSearchResponse` / `SessionSearchResult` projection DTOs and a read-only `SearchSessions` kernel helper.
+- Added `GET /sessions/search?q=<query>&limit=<n>` before `/sessions/{id}` routing, with empty query and invalid limit mapped to `invalid_request`.
+- Matched bounded projection fields only: session id, title, first user text, and latest final assistant text.
+- Kept results free of raw event ids, operation ids, job ids, approval ids, credential refs, paths, and provider payload internals.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run "Test(HTTPSessionSearch|SessionSearchStableAfterRestart)" -count=1`
+- GREEN: `go test ./internal/kernel -run "TestArchitectureBoundary(OwnerDTOsLiveInNamedFiles|HTTPHandlersLiveInSurfaceFiles|KernelSessionDelegatesOwnerReplay)" -count=1`
+- GREEN: `git diff --check`
+- GREEN: `go test ./... -count=1`
+- GREEN: `go build ./...`
+
+Remaining scope:
+
+- Phase B remains open: expose shell/desktop integration that calls the kernel route, keeps rendering and selection in the shell, and resumes results through `/sessions/{id}`.

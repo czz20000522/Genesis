@@ -140,3 +140,21 @@ type SessionListItem struct {
 	Title     string    `json:"title,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+type SessionSearchRequest struct {
+	Query string
+	Limit int
+}
+
+type SessionSearchResponse struct {
+	Query string                `json:"query"`
+	Items []SessionSearchResult `json:"items"`
+}
+
+type SessionSearchResult struct {
+	SessionID   string    `json:"session_id"`
+	Title       string    `json:"title,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	MatchFields []string  `json:"match_fields"`
+	Snippet     string    `json:"snippet,omitempty"`
+}

@@ -153,6 +153,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleListSessions(w, r, k)
+		case r.Method == http.MethodGet && strings.Trim(r.URL.Path, "/") == "sessions/search":
+			if !authorizeRuntimeRequest(w, r, k) {
+				return
+			}
+			handleSearchSessions(w, r, k)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/sessions/"):
 			if !authorizeRuntimeRequest(w, r, k) {
 				return
