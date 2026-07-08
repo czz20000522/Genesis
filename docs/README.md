@@ -24,6 +24,13 @@ concept definitions across documents. Keep one canonical source and link to it.
 - `operations/`: active issues, compact retirement evidence, runbooks, and
   collaboration/task-package records.
 
+## Current Direction Packs
+
+- `requirements/kernel-parent-worker-runtime.md` and
+  `design/kernel-parent-worker-runtime.md`: Chinese parent-led worker runtime
+  package for provider/model profile/role binding, leaf workers, task graph
+  scheduling, and future memory/context integration.
+
 ## Duplication Rule
 
 If a concept changes in more than one file, one of the files is probably
