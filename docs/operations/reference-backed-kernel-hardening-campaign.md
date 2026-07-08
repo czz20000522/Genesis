@@ -1068,3 +1068,37 @@ Artifacts:
 Remaining scope:
 
 - Implement Phase A with tests first: successful refresh, failure safety, sanitized output, and CLI command wiring.
+
+### 2026-07-08 Slice 30 Provider Model Refresh Phase A
+
+Reference scan:
+
+- Codex owner: models manager tests prove cached model metadata can be used offline and refreshed without duplicate `/models` fetches.
+- Reasonix owner: OpenAI-compatible model fetching sorts ids, bounds response size, classifies endpoint misses, and falls back from `{base}/models` to `{base}/v1/models` only when the first endpoint is plausibly absent.
+- Genesis owner: `models.json` resolver/setup/verify already own provider routes, local credential refs, and CLI operator commands.
+
+Gap:
+
+- Genesis could configure and verify one active model profile, but it could not manually refresh and persist the provider's available model ids for later binding.
+- Any external script would have needed to handle credentials and write `models.json` directly, bypassing Genesis redaction and config ownership.
+
+Change:
+
+- Added `RefreshProviderModelCatalog` as a manual kernel-owned refresh operation for OpenAI-compatible routes.
+- Added `provider_model_catalogs` to `models.json` with route/protocol/model ids/refreshed_at/source metadata.
+- Implemented bounded authenticated `/models` fetch, `/v1/models` fallback on endpoint miss, sorted de-duplicated ids, empty/decode/auth/endpoint/network classification, and no partial update on failure.
+- Added `genesisctl provider models refresh [--json]` with config root, credential store, role/profile, and timeout flags.
+- Kept `provider_command` model refresh unsupported in Phase A and left active role bindings unchanged.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run TestRefreshProviderModelCatalog -count=1`
+- GREEN: `go test ./cmd/genesisctl -run TestProviderModelsRefresh -count=1`
+- GREEN: `go test ./internal/kernel -run TestArchitectureBoundary -count=1`
+- GREEN: `git diff --check`
+- GREEN: `go test ./... -count=1`
+- GREEN: `go build ./...`
+
+Remaining scope:
+
+- Phase B remains open: explicit catalog binding to update or create model profiles from the local catalog.

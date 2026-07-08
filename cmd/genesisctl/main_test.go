@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -554,6 +556,82 @@ func TestProviderRotateKeyCanRepairKnownPresetMetadataInDryRun(t *testing.T) {
 	}
 }
 
+func TestProviderModelsRefreshWritesCatalogAsJSON(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("local credential resolution uses Windows DPAPI")
+	}
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-model-refresh-config")
+	credentialRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-model-refresh-credentials")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("path = %q, want /models", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer sk-refresh-cli-secret" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"model-z"},{"id":"model-a"}]}`))
+	}))
+	defer server.Close()
+	writeDoctorOpenAIConfigWithBaseURL(t, configRoot, server.URL, "secret://models/provider/refresh")
+	if _, err := kernel.WriteLocalCredentialSecret(kernel.LocalCredentialSecretWriteRequest{
+		CredentialRef: "secret://models/provider/refresh",
+		Secret:        "sk-refresh-cli-secret",
+		StoreRoot:     credentialRoot,
+	}); err != nil {
+		t.Fatalf("write local credential: %v", err)
+	}
+	var stdout bytes.Buffer
+
+	err := run([]string{
+		"provider", "models", "refresh",
+		"--json",
+		"-config-root", configRoot,
+		"-credential-store-root", credentialRoot,
+	}, strings.NewReader(""), &stdout)
+	if err != nil {
+		t.Fatalf("provider models refresh returned error: %v\n%s", err, stdout.String())
+	}
+
+	response := decodeProviderSetupResponse(t, stdout.Bytes())
+	assertStringField(t, response, "readiness", "ready")
+	assertFloatField(t, response, "model_count", 2)
+	if strings.Contains(stdout.String(), "sk-refresh-cli-secret") || strings.Contains(stdout.String(), "secret://models/provider/refresh") {
+		t.Fatalf("refresh output leaked secret material: %s", stdout.String())
+	}
+	configPayload, err := os.ReadFile(filepath.Join(configRoot, "models.json"))
+	if err != nil {
+		t.Fatalf("read models.json: %v", err)
+	}
+	if !strings.Contains(string(configPayload), `"provider_model_catalogs"`) || !strings.Contains(string(configPayload), `"model-a"`) {
+		t.Fatalf("models.json missing refreshed catalog: %s", string(configPayload))
+	}
+}
+
+func TestProviderModelsRefreshReportsMissingCredentialAsJSON(t *testing.T) {
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-model-refresh-missing-config")
+	credentialRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-model-refresh-missing-credentials")
+	writeDoctorOpenAIConfig(t, configRoot, "secret://models/provider/missing-refresh")
+	var stdout bytes.Buffer
+
+	err := run([]string{
+		"provider", "models", "refresh",
+		"--json",
+		"-config-root", configRoot,
+		"-credential-store-root", credentialRoot,
+	}, strings.NewReader(""), &stdout)
+	if err != nil {
+		t.Fatalf("provider models refresh returned error: %v", err)
+	}
+
+	response := decodeProviderSetupResponse(t, stdout.Bytes())
+	assertStringField(t, response, "readiness", "not_ready")
+	assertStringField(t, response, "readiness_reason", "provider_credential_missing")
+	if strings.Contains(stdout.String(), "secret://models/provider/missing-refresh") {
+		t.Fatalf("refresh output leaked credential ref: %s", stdout.String())
+	}
+}
+
 func TestProviderRotateKeyRejectsUnknownRepairPresetBeforeReadingSecret(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{
@@ -752,10 +830,15 @@ func TestProviderSetupCommandWritesCredentialWithoutPrintingSecret(t *testing.T)
 
 func writeDoctorOpenAIConfig(t *testing.T, configRoot string, credentialRef string) {
 	t.Helper()
+	writeDoctorOpenAIConfigWithBaseURL(t, configRoot, "https://provider.example.com/api", credentialRef)
+}
+
+func writeDoctorOpenAIConfigWithBaseURL(t *testing.T, configRoot string, baseURL string, credentialRef string) {
+	t.Helper()
 	payload := map[string]any{
 		"model_gateway": map[string]any{
 			"protocol":       "openai-chat-completions",
-			"base_url":       "https://provider.example.com/api",
+			"base_url":       baseURL,
 			"credential_ref": credentialRef,
 		},
 		"active_model_profile_bindings": map[string]any{

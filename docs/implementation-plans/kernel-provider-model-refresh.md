@@ -30,27 +30,27 @@ without changing active profile bindings.
 - Do not mutate active model profile bindings during refresh.
 - Do not probe `provider_command` routes for `/models` in Phase A.
 
-- [ ] Step 1: Add failing kernel tests for successful refresh.
+- [x] Step 1: Add failing kernel tests for successful refresh.
 
   Cover authenticated `/models`, sorted/de-duplicated ids, persisted catalog,
   and unchanged active profile binding.
 
-- [ ] Step 2: Add failing kernel tests for failure safety.
+- [x] Step 2: Add failing kernel tests for failure safety.
 
   Cover missing credential, unsupported protocol, endpoint miss, auth failure,
   empty list, decode failure, and no partial catalog update.
 
-- [ ] Step 3: Implement refresh fetch and catalog persistence.
+- [x] Step 3: Implement refresh fetch and catalog persistence.
 
   Add an internal refresh request/result API, bounded response parsing, endpoint
   candidate derivation, and sanitized reason classification.
 
-- [ ] Step 4: Add `genesisctl provider models refresh`.
+- [x] Step 4: Add `genesisctl provider models refresh`.
 
   Support `--json`, config/credential roots, role/profile override, timeout, and
   dry-run if useful. Output only sanitized fields.
 
-- [ ] Step 5: Verify.
+- [x] Step 5: Verify.
 
   Run focused kernel and CLI tests, then:
 

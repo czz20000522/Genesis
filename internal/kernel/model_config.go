@@ -288,9 +288,10 @@ func expandHome(value string) string {
 }
 
 type genesisModelsConfig struct {
-	ModelGateway               genesisModelGateway  `json:"model_gateway"`
-	ActiveModelProfileBindings map[string]string    `json:"active_model_profile_bindings"`
-	ModelProfiles              genesisModelProfiles `json:"model_profiles"`
+	ModelGateway               genesisModelGateway                    `json:"model_gateway"`
+	ActiveModelProfileBindings map[string]string                      `json:"active_model_profile_bindings"`
+	ModelProfiles              genesisModelProfiles                   `json:"model_profiles"`
+	ProviderModelCatalogs      map[string]genesisProviderModelCatalog `json:"provider_model_catalogs,omitempty"`
 }
 
 type genesisModelGateway struct {
@@ -339,4 +340,12 @@ type genesisGatewayProfile struct {
 	ProviderAdapterID        string `json:"provider_adapter_id,omitempty"`
 	ProviderAdapterProfileID string `json:"provider_adapter_profile_id,omitempty"`
 	HiddenReasoningPolicy    string `json:"hidden_reasoning_policy,omitempty"`
+}
+
+type genesisProviderModelCatalog struct {
+	Route       string   `json:"route"`
+	Protocol    string   `json:"protocol"`
+	Models      []string `json:"models"`
+	RefreshedAt string   `json:"refreshed_at"`
+	Source      string   `json:"source"`
 }

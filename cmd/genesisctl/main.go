@@ -132,18 +132,67 @@ func providerForDoctor(resolved kernel.ResolvedProviderConfig) kernel.Provider {
 
 func runProvider(args []string, stdin io.Reader, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("provider command is required: use, rotate-key, or verify")
+		return errors.New("provider command is required: use, rotate-key, models, or verify")
 	}
 	switch args[0] {
 	case "use":
 		return runProviderUse(args[1:], stdin, stdout)
 	case "rotate-key":
 		return runProviderRotateKey(args[1:], stdin, stdout)
+	case "models":
+		return runProviderModels(args[1:], stdout)
 	case "verify":
 		return runProviderVerify(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown provider command %q", args[0])
 	}
+}
+
+func runProviderModels(args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("provider models command is required: refresh")
+	}
+	switch args[0] {
+	case "refresh":
+		return runProviderModelsRefresh(args[1:], stdout)
+	default:
+		return fmt.Errorf("unknown provider models command %q", args[0])
+	}
+}
+
+func runProviderModelsRefresh(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("provider models refresh", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOutput := fs.Bool("json", false, "print machine-readable JSON")
+	configRoot := fs.String("config-root", os.Getenv("GENESIS_CONFIG_ROOT"), "Genesis config root containing models.json")
+	credentialStoreRoot := fs.String("credential-store-root", os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"), "Genesis credential store root")
+	modelRole := fs.String("model-role", envOrDefault("GENESIS_MODEL_ROLE", kernel.DefaultModelRole), "Genesis model role binding to refresh")
+	profileID := fs.String("profile-id", os.Getenv("GENESIS_MODEL_PROFILE_ID"), "Genesis model profile id override")
+	timeoutSec := fs.Float64("timeout-sec", 10, "provider model refresh timeout seconds")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	result := kernel.RefreshProviderModelCatalog(kernel.ProviderModelRefreshRequest{
+		ConfigRoot:          *configRoot,
+		CredentialStoreRoot: *credentialStoreRoot,
+		ModelRole:           *modelRole,
+		ModelProfileID:      *profileID,
+		Timeout:             time.Duration(*timeoutSec * float64(time.Second)),
+	})
+	if *jsonOutput {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+	fmt.Fprintf(stdout, "provider models refresh %s", result.Readiness)
+	if result.ReadinessReason != "" {
+		fmt.Fprintf(stdout, " %s", result.ReadinessReason)
+	}
+	if result.ModelCount > 0 {
+		fmt.Fprintf(stdout, " models=%d", result.ModelCount)
+	}
+	fmt.Fprintln(stdout)
+	return nil
 }
 
 func runProviderUse(args []string, stdin io.Reader, stdout io.Writer) error {
