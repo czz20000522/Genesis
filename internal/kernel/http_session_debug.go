@@ -6,18 +6,6 @@ import (
 	"strings"
 )
 
-func isSessionDebugEnablePath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 4 && parts[0] == "sessions" && strings.TrimSpace(parts[1]) != "" && parts[2] == "debug" && parts[3] == "enable"
-}
-
-func isSessionDebugExportPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 3 && parts[0] == "sessions" && strings.TrimSpace(parts[1]) != "" && parts[2] == "debug"
-}
-
 func sessionDebugID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")

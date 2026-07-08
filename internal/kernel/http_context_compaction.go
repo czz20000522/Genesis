@@ -16,11 +16,6 @@ func isSessionContextCompactPath(path string) (string, bool) {
 	return sessionID, sessionID != ""
 }
 
-func isSessionContextCompactRequestPath(path string) bool {
-	_, ok := isSessionContextCompactPath(path)
-	return ok
-}
-
 func handleCompactSessionContext(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	sessionID, ok := isSessionContextCompactPath(r.URL.Path)
 	if !ok {

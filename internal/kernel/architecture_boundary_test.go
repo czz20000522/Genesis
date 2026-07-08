@@ -993,7 +993,6 @@ func TestArchitectureBoundaryHTTPHandlersLiveInSurfaceFiles(t *testing.T) {
 		"turnErrorHTTPStatus":            "http_turn.go",
 		"handleExecShell":                "http_tools.go",
 		"handleListApprovals":            "http_approvals.go",
-		"isApprovalDecisionPath":         "http_approvals.go",
 		"approvalDecisionID":             "http_approvals.go",
 		"handleDecideApproval":           "http_approvals.go",
 		"validApprovalStatusFilter":      "http_approvals.go",

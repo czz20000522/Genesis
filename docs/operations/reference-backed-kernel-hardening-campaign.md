@@ -1249,3 +1249,42 @@ Evidence:
 Remaining scope:
 
 - Task 9 model refresh Phase A/B is complete for manual refresh and selected-profile binding. Future profile creation can be added as a separate explicit extension if needed.
+
+### 2026-07-08 Slice 32 Mature Infrastructure Replacement Pass
+
+Principle:
+
+- Genesis should own permission, facts, projection, recovery, and model-visible
+  semantics.
+- Genesis should not hand-write mature application-layer infrastructure merely
+  to avoid dependencies.
+
+Change:
+
+- Replaced the large HTTP route switch in `internal/kernel/http.go` with Go's
+  `http.ServeMux`.
+- Kept Genesis-owned auth, content-type checks, JSON error envelopes, and
+  handler delegation semantics.
+- Removed obsolete hand-written route predicate helpers after `ServeMux` took
+  over path matching.
+- Replaced hand-written `SKILL.md` front matter scalar parsing with
+  `gopkg.in/yaml.v3`, while keeping metadata safety scanning and path-free
+  projection in Genesis.
+
+Deferred:
+
+- `github.com/invopop/jsonschema` is not introduced in this slice because tool
+  input schemas are active model-visible contracts. Replacing them needs
+  per-tool golden tests first.
+- ID generation is left as-is because `newID(prefix, now)` preserves injected
+  time semantics for tests and replay ordering; a ULID replacement should be a
+  separate compatibility-free slice.
+- MIME detection is left as-is because current resource metadata is caller
+  supplied and bounded; content sniffing should wait until material/resource
+  intake needs real file-type detection.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestParseSkillMetadataAcceptsYAMLBlockScalars -count=1`
+  failed with the hand-written scalar parser.
+- GREEN: `go test ./internal/kernel -run "Test(ParseSkillMetadata|SkillCatalog|SubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext|HTTP|ArchitectureBoundaryHTTP)" -count=1`

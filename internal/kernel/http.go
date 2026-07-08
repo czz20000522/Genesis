@@ -8,195 +8,101 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"strings"
 )
 
 const maxRequestBytes = 1024 * 1024
 
 func Handler(k *Kernel) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/ready":
-			writeJSON(w, http.StatusOK, k.Ready())
-		case r.Method == http.MethodGet && r.URL.Path == "/capabilities":
-			if !authorizeRuntimeRequest(w, r, k) {
+	mux := http.NewServeMux()
+	route := func(method string, pattern string, requireJSON bool, handler func(http.ResponseWriter, *http.Request, *Kernel)) {
+		mux.HandleFunc(method+" "+pattern, func(w http.ResponseWriter, r *http.Request) {
+			if !authorizeRuntimeRequest(w, r, k) || (requireJSON && !requireJSONContentType(w, r)) {
 				return
 			}
-			writeJSON(w, http.StatusOK, k.Capabilities())
-		case r.Method == http.MethodPost && r.URL.Path == "/discovery/query":
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleDiscoveryQuery(w, r, k)
-		case r.Method == http.MethodPost && r.URL.Path == "/turn":
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleSubmitTurn(w, r, k)
-		case r.Method == http.MethodPost && r.URL.Path == "/turn/stream":
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleSubmitTurnStream(w, r, k)
-		case r.Method == http.MethodPost && isSessionInterruptPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleInterruptSession(w, r, k)
-		case r.Method == http.MethodPost && r.URL.Path == "/tools/shell_exec":
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleExecShell(w, r, k)
-		case r.Method == http.MethodPost && r.URL.Path == "/context/admit_resource":
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleAdmitContextResource(w, r, k)
-		case r.Method == http.MethodPost && r.URL.Path == "/materials/intake":
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleIntakeMaterial(w, r, k)
-		case r.Method == http.MethodPost && r.URL.Path == "/materials/upload":
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleUploadMaterial(w, r, k)
-		case r.Method == http.MethodGet && r.URL.Path == "/approvals":
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleListApprovals(w, r, k)
-		case r.Method == http.MethodPost && isApprovalDecisionPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleDecideApproval(w, r, k)
-		case r.Method == http.MethodPost && r.URL.Path == "/work":
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleSubmitWork(w, r, k)
-		case r.Method == http.MethodPost && r.URL.Path == "/agent-invocations":
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleAdmitAgentInvocation(w, r, k)
-		case r.Method == http.MethodGet && isAgentInvocationGetPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleGetAgentInvocation(w, r, k)
-		case r.Method == http.MethodGet && isWorkGetPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleGetWork(w, r, k)
-		case r.Method == http.MethodPost && isWorkCancelPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleCancelWork(w, r, k)
-		case r.Method == http.MethodPost && r.URL.Path == "/memory/candidates":
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleCreateMemoryCandidate(w, r, k)
-		case r.Method == http.MethodGet && r.URL.Path == "/memory/candidates":
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleListMemoryCandidates(w, r, k)
-		case r.Method == http.MethodGet && isMemoryCandidateGetPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleGetMemoryCandidate(w, r, k)
-		case r.Method == http.MethodPost && isMemoryApprovePath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleApproveMemoryCandidate(w, r, k)
-		case r.Method == http.MethodPost && isMemoryRejectPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleRejectMemoryCandidate(w, r, k)
-		case r.Method == http.MethodPost && isMemorySupersedePath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleSupersedeMemoryCandidate(w, r, k)
-		case r.Method == http.MethodPost && isMemoryForgetPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleForgetMemoryCandidate(w, r, k)
-		case r.Method == http.MethodGet && isSessionTimelinePath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleGetSessionTimeline(w, r, k)
-		case r.Method == http.MethodGet && isSessionTimelineDetailPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleGetSessionTimelineDetail(w, r, k)
-		case r.Method == http.MethodPost && isSessionDebugEnablePath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleEnableSessionDebug(w, r, k)
-		case r.Method == http.MethodPost && isSessionContextCompactRequestPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
-				return
-			}
-			handleCompactSessionContext(w, r, k)
-		case r.Method == http.MethodGet && isSessionDebugExportPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleGetSessionDebug(w, r, k)
-		case r.Method == http.MethodGet && strings.Trim(r.URL.Path, "/") == "sessions":
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleListSessions(w, r, k)
-		case r.Method == http.MethodGet && strings.Trim(r.URL.Path, "/") == "sessions/search":
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleSearchSessions(w, r, k)
-		case r.Method == http.MethodGet && isSessionAgentInvocationsPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleListSessionAgentInvocations(w, r, k)
-		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/sessions/"):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleGetSession(w, r, k)
-		case r.Method == http.MethodGet && isTurnContextPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleGetTurnContext(w, r, k)
-		case r.Method == http.MethodGet && isTurnAuditPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleGetTurnAudit(w, r, k)
-		case r.Method == http.MethodGet && isTurnEventsPath(r.URL.Path):
-			if !authorizeRuntimeRequest(w, r, k) {
-				return
-			}
-			handleGetTurnEvents(w, r, k)
-		default:
-			writeError(w, http.StatusNotFound, "not_found", "route not found")
-		}
+			handler(w, r, k)
+		})
+	}
+
+	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, k.Ready())
 	})
+	route(http.MethodGet, "/capabilities", false, func(w http.ResponseWriter, r *http.Request, k *Kernel) {
+		writeJSON(w, http.StatusOK, k.Capabilities())
+	})
+	route(http.MethodPost, "/discovery/query", true, handleDiscoveryQuery)
+	route(http.MethodPost, "/turn", true, handleSubmitTurn)
+	route(http.MethodPost, "/turn/stream", true, handleSubmitTurnStream)
+	route(http.MethodPost, "/sessions/{session_id}/interrupt", true, handleInterruptSession)
+	route(http.MethodPost, "/tools/shell_exec", true, handleExecShell)
+	route(http.MethodPost, "/context/admit_resource", true, handleAdmitContextResource)
+	route(http.MethodPost, "/materials/intake", true, handleIntakeMaterial)
+	route(http.MethodPost, "/materials/upload", false, handleUploadMaterial)
+	route(http.MethodGet, "/approvals", false, handleListApprovals)
+	route(http.MethodPost, "/approvals/{approval_id}/decision", true, handleDecideApproval)
+	route(http.MethodPost, "/work", true, handleSubmitWork)
+	route(http.MethodGet, "/work/{work_id}", false, handleGetWork)
+	route(http.MethodPost, "/work/{work_id}/cancel", true, handleCancelWork)
+	route(http.MethodPost, "/agent-invocations", true, handleAdmitAgentInvocation)
+	route(http.MethodGet, "/agent-invocations/{invocation_id}", false, handleGetAgentInvocation)
+	route(http.MethodPost, "/memory/candidates", true, handleCreateMemoryCandidate)
+	route(http.MethodGet, "/memory/candidates", false, handleListMemoryCandidates)
+	route(http.MethodGet, "/memory/candidates/{candidate_id}", false, handleGetMemoryCandidate)
+	route(http.MethodPost, "/memory/candidates/{candidate_id}/approve", true, handleApproveMemoryCandidate)
+	route(http.MethodPost, "/memory/candidates/{candidate_id}/reject", true, handleRejectMemoryCandidate)
+	route(http.MethodPost, "/memory/candidates/{candidate_id}/supersede", true, handleSupersedeMemoryCandidate)
+	route(http.MethodPost, "/memory/candidates/{candidate_id}/forget", true, handleForgetMemoryCandidate)
+	route(http.MethodGet, "/sessions/{session_id}/timeline", false, handleGetSessionTimeline)
+	route(http.MethodGet, "/sessions/{session_id}/timeline/details/{detail_ref}", false, handleGetSessionTimelineDetail)
+	route(http.MethodPost, "/sessions/{session_id}/debug/enable", true, handleEnableSessionDebug)
+	route(http.MethodGet, "/sessions/{session_id}/debug", false, handleGetSessionDebug)
+	route(http.MethodPost, "/sessions/{session_id}/context/compact", true, handleCompactSessionContext)
+	route(http.MethodGet, "/sessions", false, handleListSessions)
+	route(http.MethodGet, "/sessions/search", false, handleSearchSessions)
+	route(http.MethodGet, "/sessions/{session_id}/agent-invocations", false, handleListSessionAgentInvocations)
+	route(http.MethodGet, "/sessions/{session_id}", false, handleGetSession)
+	route(http.MethodGet, "/turns/{turn_id}/context", false, handleGetTurnContext)
+	route(http.MethodGet, "/turns/{turn_id}/audit", false, handleGetTurnAudit)
+	route(http.MethodGet, "/turns/{turn_id}/events", false, handleGetTurnEvents)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusNotFound, "not_found", "route not found")
+	})
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(&methodNotAllowedWriter{ResponseWriter: w}, r)
+	})
+}
+
+type methodNotAllowedWriter struct {
+	http.ResponseWriter
+	wrote             bool
+	suppressErrorBody bool
+}
+
+func (w *methodNotAllowedWriter) WriteHeader(status int) {
+	if status == http.StatusMethodNotAllowed {
+		writeError(w.ResponseWriter, http.StatusNotFound, "not_found", "route not found")
+		w.wrote = true
+		w.suppressErrorBody = true
+		return
+	}
+	w.wrote = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *methodNotAllowedWriter) Write(payload []byte) (int, error) {
+	if w.suppressErrorBody {
+		return len(payload), nil
+	}
+	if w.wrote {
+		return w.ResponseWriter.Write(payload)
+	}
+	return w.ResponseWriter.Write(payload)
+}
+
+func (w *methodNotAllowedWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func authorizeRuntimeRequest(w http.ResponseWriter, r *http.Request, k *Kernel) bool {

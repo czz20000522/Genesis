@@ -68,12 +68,6 @@ func handleCancelWork(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	writeJSON(w, http.StatusOK, work)
 }
 
-func isWorkGetPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 2 && parts[0] == "work" && strings.TrimSpace(parts[1]) != ""
-}
-
 func workReadID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
@@ -81,12 +75,6 @@ func workReadID(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(parts[1])
-}
-
-func isWorkCancelPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 3 && parts[0] == "work" && strings.TrimSpace(parts[1]) != "" && parts[2] == "cancel"
 }
 
 func workCancelID(path string) string {

@@ -69,18 +69,6 @@ func handleSearchSessions(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	writeJSON(w, http.StatusOK, projection)
 }
 
-func isSessionTimelinePath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 3 && parts[0] == "sessions" && strings.TrimSpace(parts[1]) != "" && parts[2] == "timeline"
-}
-
-func isSessionTimelineDetailPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 5 && parts[0] == "sessions" && strings.TrimSpace(parts[1]) != "" && parts[2] == "timeline" && parts[3] == "details" && strings.TrimSpace(parts[4]) != ""
-}
-
 func sessionTimelineID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
@@ -145,18 +133,6 @@ func handleGetSessionTimelineDetail(w http.ResponseWriter, r *http.Request, k *K
 	writeJSON(w, http.StatusOK, projection)
 }
 
-func isTurnEventsPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 3 && parts[0] == "turns" && strings.TrimSpace(parts[1]) != "" && parts[2] == "events"
-}
-
-func isTurnAuditPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 3 && parts[0] == "turns" && strings.TrimSpace(parts[1]) != "" && parts[2] == "audit"
-}
-
 func turnAuditID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
@@ -173,12 +149,6 @@ func turnEventsID(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(parts[1])
-}
-
-func isTurnContextPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 3 && parts[0] == "turns" && strings.TrimSpace(parts[1]) != "" && parts[2] == "context"
 }
 
 func turnContextID(path string) string {

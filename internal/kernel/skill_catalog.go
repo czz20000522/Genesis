@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -287,34 +289,17 @@ func parseSkillMetadata(payload string) (string, string, bool) {
 		return "", "", false
 	}
 	frontMatter := normalized[4 : 4+end]
-	var name string
-	var description string
-	for _, line := range strings.Split(frontMatter, "\n") {
-		key, value, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		switch strings.TrimSpace(key) {
-		case "name":
-			name = cleanYAMLScalar(value)
-		case "description":
-			description = cleanYAMLScalar(value)
-		}
+	var metadata struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
 	}
-	name = strings.TrimSpace(name)
-	description = strings.TrimSpace(description)
+	if err := yaml.Unmarshal([]byte(frontMatter), &metadata); err != nil {
+		return "", "", false
+	}
+	name := strings.TrimSpace(metadata.Name)
+	description := strings.TrimSpace(metadata.Description)
 	if name == "" || description == "" || hasInvisibleControlMarker(name) || hasInvisibleControlMarker(description) {
 		return "", "", false
 	}
 	return name, description, true
-}
-
-func cleanYAMLScalar(value string) string {
-	text := strings.TrimSpace(value)
-	if len(text) >= 2 {
-		if (text[0] == '"' && text[len(text)-1] == '"') || (text[0] == '\'' && text[len(text)-1] == '\'') {
-			text = text[1 : len(text)-1]
-		}
-	}
-	return strings.TrimSpace(text)
 }

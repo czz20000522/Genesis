@@ -156,12 +156,6 @@ func handleForgetMemoryCandidate(w http.ResponseWriter, r *http.Request, k *Kern
 	writeJSON(w, http.StatusOK, candidate)
 }
 
-func isMemoryCandidateGetPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 3 && parts[0] == "memory" && parts[1] == "candidates" && strings.TrimSpace(parts[2]) != ""
-}
-
 func memoryCandidateReadID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
@@ -169,22 +163,6 @@ func memoryCandidateReadID(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(parts[2])
-}
-
-func isMemoryApprovePath(path string) bool {
-	return strings.HasPrefix(path, "/memory/candidates/") && strings.HasSuffix(path, "/approve")
-}
-
-func isMemoryRejectPath(path string) bool {
-	return strings.HasPrefix(path, "/memory/candidates/") && strings.HasSuffix(path, "/reject")
-}
-
-func isMemorySupersedePath(path string) bool {
-	return strings.HasPrefix(path, "/memory/candidates/") && strings.HasSuffix(path, "/supersede")
-}
-
-func isMemoryForgetPath(path string) bool {
-	return strings.HasPrefix(path, "/memory/candidates/") && strings.HasSuffix(path, "/forget")
 }
 
 func memoryApproveCandidateID(path string) string {

@@ -60,12 +60,6 @@ func handleListSessionAgentInvocations(w http.ResponseWriter, r *http.Request, k
 	writeJSON(w, http.StatusOK, invocations)
 }
 
-func isAgentInvocationGetPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 2 && parts[0] == "agent-invocations" && strings.TrimSpace(parts[1]) != ""
-}
-
 func agentInvocationID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
@@ -73,12 +67,6 @@ func agentInvocationID(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(parts[1])
-}
-
-func isSessionAgentInvocationsPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 3 && parts[0] == "sessions" && strings.TrimSpace(parts[1]) != "" && parts[2] == "agent-invocations"
 }
 
 func sessionAgentInvocationsID(path string) string {

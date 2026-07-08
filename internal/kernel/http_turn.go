@@ -181,11 +181,6 @@ func handleInterruptSession(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	writeJSON(w, http.StatusAccepted, interruption)
 }
 
-func isSessionInterruptPath(path string) bool {
-	_, ok := sessionInterruptPathSessionID(path)
-	return ok
-}
-
 func sessionInterruptPathSessionID(path string) (string, bool) {
 	const prefix = "/sessions/"
 	const suffix = "/interrupt"

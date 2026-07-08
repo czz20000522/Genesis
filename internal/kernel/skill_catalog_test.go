@@ -573,6 +573,16 @@ func TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext(t *t
 	}
 }
 
+func TestParseSkillMetadataAcceptsYAMLBlockScalars(t *testing.T) {
+	name, description, ok := parseSkillMetadata("---\nname: video-transcript\ndescription: |-\n  Extract raw TXT transcripts\n  from local video tools\n---\nbody")
+	if !ok {
+		t.Fatal("parseSkillMetadata returned !ok")
+	}
+	if name != "video-transcript" || description != "Extract raw TXT transcripts\nfrom local video tools" {
+		t.Fatalf("metadata = %q/%q, want YAML block scalar", name, description)
+	}
+}
+
 func TestSkillCatalogRejectsAuthorityAndSecretShapedMetadata(t *testing.T) {
 	root := testTempDir(t)
 	writeSkillForTest(t, root, "safe", "safe-mail", "Send email through an installed CLI", "SAFE BODY MUST NOT BE INJECTED")

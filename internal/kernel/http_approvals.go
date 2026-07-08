@@ -32,12 +32,6 @@ func validApprovalStatusFilter(status string) bool {
 	}
 }
 
-func isApprovalDecisionPath(path string) bool {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	return len(parts) == 3 && parts[0] == "approvals" && strings.TrimSpace(parts[1]) != "" && parts[2] == "decision"
-}
-
 func approvalDecisionID(path string) string {
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
