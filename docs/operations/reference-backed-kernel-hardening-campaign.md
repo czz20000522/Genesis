@@ -297,6 +297,25 @@ Focused verification:
 - `go test ./internal/kernel -run "Test(PrepareBatchAssignsDefaultToolAccessPlans|ToolScheduling|DefaultKernelPureReadCandidates|PlanToolExecutionBatches|ArchitectureBoundary|SubmitTurnReturnsMinimalPermissionDeniedToolResult)" -count=1`
 - `go test ./internal/kernel -run "Test(Source|Resource)" -count=1`
 
+### 2026-07-08 Task 9 Agent Invocation Requirement Package
+
+- Requirement: `docs/requirements/kernel-agent-invocation.md`
+- Design: `docs/design/kernel-agent-invocation.md`
+- Implementation plan: `docs/implementation-plans/kernel-agent-invocation.md`
+- BDD: `features/kernel/agent_invocation.feature`
+
+Reference scan:
+
+- Codex `codex-rs/core/src/tools/handlers/multi_agents.rs` routes model tool calls through `AgentControl`; `codex-rs/core/src/agent/control.rs` records spawn edges, watches child status, and notifies parents; `codex-rs/core/src/tools/handlers/agent_jobs.rs` caps worker concurrency and tracks job items through the same control surface.
+- Reasonix `internal/agent/task.go` runs sub-agents in fresh sessions, filters inherited tools, strips meta-tools, supports background job execution, and returns only final answers; `internal/agent/task_test.go` proves tool filtering and profile resolution; `internal/agent/coordinator.go` keeps planner and executor sessions separate.
+- Genesis already states the conceptual boundary in `docs/kernel-contract.md`: role labels are application semantics, while `AgentInvocation` and `CapabilityGrant` are kernel authority facts.
+
+Next implementation slice:
+
+- Add admit-only `AgentInvocation` records before implementing actual child execution.
+- Phase A semantics: validate a tool-name grant against current `ToolPolicy` and, for child invocations, against the parent invocation grant; write `agent_invocation.admitted`; replay projections from the ledger.
+- Non-goal: do not run a model, spawn a job, create a task graph, or make provider-routing decisions in this slice.
+
 ### 2026-07-08 Slice 1 Shell UTF-8 Prologue
 
 Reference scan:
