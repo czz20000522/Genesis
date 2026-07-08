@@ -14,6 +14,13 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-PARENT-WORKER-ROLE-BINDING-20260708 - P1 - Parent-worker role binding config projection
+
+- Status: ready_for_acceptance.
+- Conclusion: `models.json` can now project parent/worker runtime bindings with parent profile selection, allowed worker roles, preset tool sets, leaf-only worker roles, model/profile route summaries, max_parallel defaults, and no credential or permission-profile leakage.
+- Evidence: Fix commit: current Lore commit.; Verification: `go test ./internal/kernel -run "Test(ResolveParentWorkerRuntimeFromGenesis|ResolveProviderConfigFromGenesis|ResolveOpenAICompatibleConfigFromGenesis|ArchitectureBoundary)" -count=1`.
+- Reference alignment: Aligned with Codex explicit spawned-agent identity/concurrency control and Reasonix configured subagent model/tool metadata; task graph layout and scheduling stay outside this Phase A slice.
+
 ### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Local managed shell job handoff
 
 - Status: ready_for_acceptance.

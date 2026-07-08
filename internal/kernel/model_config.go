@@ -28,6 +28,9 @@ var (
 	ErrGenesisModelCredentialMissing          = errors.New("genesis model credential missing")
 	ErrGenesisModelCredentialUnsupported      = errors.New("genesis model credential unsupported")
 	ErrGenesisModelProviderCommandEnvRejected = errors.New("genesis provider command environment rejected")
+	ErrGenesisParentBindingMissing            = errors.New("genesis parent binding missing")
+	ErrGenesisWorkerRoleBindingMissing        = errors.New("genesis worker role binding missing")
+	ErrGenesisWorkerRoleBindingInvalid        = errors.New("genesis worker role binding invalid")
 )
 
 type GenesisModelConfigRequest struct {
@@ -36,6 +39,38 @@ type GenesisModelConfigRequest struct {
 	ModelRole           string
 	ModelProfileID      string
 	SecretResolver      func(ref string, storeRoot string) (string, error)
+}
+
+type ParentWorkerRuntimeRequest struct {
+	ConfigRoot string
+	ParentID   string
+}
+
+type ParentWorkerRuntimeProjection struct {
+	Parent      ParentBindingProjection       `json:"parent"`
+	WorkerRoles []WorkerRoleBindingProjection `json:"worker_roles"`
+}
+
+type ParentBindingProjection struct {
+	ParentID           string   `json:"parent_id"`
+	ProfileID          string   `json:"profile_id"`
+	ModelID            string   `json:"model_id"`
+	ProviderRoute      string   `json:"provider_route,omitempty"`
+	DefaultWorkerRole  string   `json:"default_worker_role,omitempty"`
+	AllowedWorkerRoles []string `json:"allowed_worker_roles,omitempty"`
+	CanCreateWorkers   bool     `json:"can_create_workers"`
+}
+
+type WorkerRoleBindingProjection struct {
+	RoleID              string   `json:"role_id"`
+	ProfileID           string   `json:"profile_id"`
+	ModelID             string   `json:"model_id"`
+	ProviderRoute       string   `json:"provider_route,omitempty"`
+	ContextWindowTokens int      `json:"context_window_tokens,omitempty"`
+	ToolSet             []string `json:"tool_set,omitempty"`
+	ContextPolicyRef    string   `json:"context_policy_ref,omitempty"`
+	MaxParallel         int      `json:"max_parallel"`
+	LeafOnly            bool     `json:"leaf_only"`
 }
 
 type ResolvedProviderConfig struct {
@@ -125,6 +160,61 @@ func ResolveProviderConfigFromGenesis(req GenesisModelConfigRequest) (ResolvedPr
 	}
 }
 
+func ResolveParentWorkerRuntimeFromGenesis(req ParentWorkerRuntimeRequest) (ParentWorkerRuntimeProjection, error) {
+	configPath := filepath.Join(resolveGenesisConfigRoot(req.ConfigRoot), "models.json")
+	config, err := readGenesisModelsConfig(configPath)
+	if err != nil {
+		return ParentWorkerRuntimeProjection{}, err
+	}
+	parentID := strings.TrimSpace(req.ParentID)
+	if parentID == "" {
+		parentID = DefaultModelRole
+	}
+	parent, ok := config.ParentWorkerRuntime.Parents[parentID]
+	if !ok {
+		return ParentWorkerRuntimeProjection{}, ErrGenesisParentBindingMissing
+	}
+	parent.ParentID = firstNonEmpty(parent.ParentID, parentID)
+	parent.ProfileID = firstNonEmpty(parent.ProfileID, config.ActiveModelProfileBindings[parent.ParentID])
+	parentProfile, err := gatewayProfileByID(config, parent.ProfileID)
+	if err != nil {
+		return ParentWorkerRuntimeProjection{}, err
+	}
+	allowedRoles := normalizeStringSet(parent.AllowedWorkerRoles)
+	if len(allowedRoles) == 0 {
+		return ParentWorkerRuntimeProjection{}, ErrGenesisWorkerRoleBindingMissing
+	}
+	defaultWorkerRole := strings.TrimSpace(parent.DefaultWorkerRole)
+	if defaultWorkerRole != "" && !stringSliceContains(allowedRoles, defaultWorkerRole) {
+		return ParentWorkerRuntimeProjection{}, ErrGenesisWorkerRoleBindingMissing
+	}
+
+	workers := make([]WorkerRoleBindingProjection, 0, len(allowedRoles))
+	for _, roleID := range allowedRoles {
+		worker, ok := config.ParentWorkerRuntime.WorkerRoles[roleID]
+		if !ok {
+			return ParentWorkerRuntimeProjection{}, ErrGenesisWorkerRoleBindingMissing
+		}
+		projection, err := projectWorkerRoleBinding(config, roleID, worker)
+		if err != nil {
+			return ParentWorkerRuntimeProjection{}, err
+		}
+		workers = append(workers, projection)
+	}
+	return ParentWorkerRuntimeProjection{
+		Parent: ParentBindingProjection{
+			ParentID:           parent.ParentID,
+			ProfileID:          parent.ProfileID,
+			ModelID:            strings.TrimSpace(parentProfile.ModelID),
+			ProviderRoute:      strings.TrimSpace(parentProfile.GatewayRoute),
+			DefaultWorkerRole:  defaultWorkerRole,
+			AllowedWorkerRoles: allowedRoles,
+			CanCreateWorkers:   parent.CanCreateWorkers,
+		},
+		WorkerRoles: workers,
+	}, nil
+}
+
 func loadSelectedGatewayConfig(req GenesisModelConfigRequest) (selectedGatewayConfig, error) {
 	configPath := filepath.Join(resolveGenesisConfigRoot(req.ConfigRoot), "models.json")
 	payload, err := os.ReadFile(configPath)
@@ -210,6 +300,26 @@ func selectGatewayProfile(config genesisModelsConfig, req GenesisModelConfigRequ
 	if profileID == "" {
 		return genesisGatewayProfile{}, ErrGenesisModelProfileMissing
 	}
+	return gatewayProfileByID(config, profileID)
+}
+
+func selectGatewayRoute(gateway genesisModelGateway, routeName string) (genesisGatewayRoute, error) {
+	name := strings.TrimSpace(routeName)
+	if name == "" {
+		return genesisGatewayRoute{}, nil
+	}
+	route, ok := gateway.Routes[name]
+	if !ok {
+		return genesisGatewayRoute{}, ErrGenesisModelGatewayRouteMissing
+	}
+	return route, nil
+}
+
+func gatewayProfileByID(config genesisModelsConfig, profileID string) (genesisGatewayProfile, error) {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		return genesisGatewayProfile{}, ErrGenesisModelProfileMissing
+	}
 	for _, profiles := range []map[string]genesisGatewayProfile{
 		config.ModelProfiles.Cloud.Gateway,
 		config.ModelProfiles.Local.Gateway,
@@ -226,16 +336,86 @@ func selectGatewayProfile(config genesisModelsConfig, req GenesisModelConfigRequ
 	return genesisGatewayProfile{}, ErrGenesisModelProfileMissing
 }
 
-func selectGatewayRoute(gateway genesisModelGateway, routeName string) (genesisGatewayRoute, error) {
-	name := strings.TrimSpace(routeName)
-	if name == "" {
-		return genesisGatewayRoute{}, nil
+func projectWorkerRoleBinding(config genesisModelsConfig, roleID string, worker genesisWorkerRoleBinding) (WorkerRoleBindingProjection, error) {
+	roleID = firstNonEmpty(worker.RoleID, roleID)
+	if strings.TrimSpace(roleID) == "" || !worker.LeafOnly {
+		return WorkerRoleBindingProjection{}, ErrGenesisWorkerRoleBindingInvalid
 	}
-	route, ok := gateway.Routes[name]
-	if !ok {
-		return genesisGatewayRoute{}, ErrGenesisModelGatewayRouteMissing
+	profile, err := gatewayProfileByID(config, worker.ProfileID)
+	if err != nil {
+		return WorkerRoleBindingProjection{}, err
 	}
-	return route, nil
+	toolSet, err := normalizeWorkerToolSet(worker.ToolSet)
+	if err != nil {
+		return WorkerRoleBindingProjection{}, err
+	}
+	return WorkerRoleBindingProjection{
+		RoleID:              roleID,
+		ProfileID:           firstNonEmpty(worker.ProfileID, profile.ProfileID),
+		ModelID:             strings.TrimSpace(profile.ModelID),
+		ProviderRoute:       strings.TrimSpace(profile.GatewayRoute),
+		ContextWindowTokens: profile.ContextWindowTokens,
+		ToolSet:             toolSet,
+		ContextPolicyRef:    strings.TrimSpace(worker.ContextPolicyRef),
+		MaxParallel:         normalizedMaxParallel(worker.MaxParallel),
+		LeafOnly:            true,
+	}, nil
+}
+
+func normalizeWorkerToolSet(tools []string) ([]string, error) {
+	grant := normalizeCapabilityGrant(CapabilityGrant{ToolNames: tools})
+	known := defaultKernelToolNameSet()
+	for _, tool := range grant.ToolNames {
+		if _, ok := known[tool]; !ok {
+			return nil, fmt.Errorf("%w: capability_grant_unknown_tool: %s", ErrGenesisWorkerRoleBindingInvalid, tool)
+		}
+	}
+	return grant.ToolNames, nil
+}
+
+func defaultKernelToolNameSet() map[string]struct{} {
+	tools := map[string]struct{}{}
+	for _, tool := range defaultKernelTools() {
+		name := strings.TrimSpace(tool.Spec.Name)
+		if name != "" {
+			tools[name] = struct{}{}
+		}
+	}
+	return tools
+}
+
+func normalizeStringSet(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func stringSliceContains(values []string, needle string) bool {
+	needle = strings.TrimSpace(needle)
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedMaxParallel(value int) int {
+	if value <= 0 {
+		return 1
+	}
+	return value
 }
 
 func firstNonEmpty(values ...string) string {
@@ -292,6 +472,7 @@ type genesisModelsConfig struct {
 	ActiveModelProfileBindings map[string]string                      `json:"active_model_profile_bindings"`
 	ModelProfiles              genesisModelProfiles                   `json:"model_profiles"`
 	ProviderModelCatalogs      map[string]genesisProviderModelCatalog `json:"provider_model_catalogs,omitempty"`
+	ParentWorkerRuntime        genesisParentWorkerRuntime             `json:"parent_worker_runtime,omitempty"`
 }
 
 type genesisModelGateway struct {
@@ -348,4 +529,26 @@ type genesisProviderModelCatalog struct {
 	Models      []string `json:"models"`
 	RefreshedAt string   `json:"refreshed_at"`
 	Source      string   `json:"source"`
+}
+
+type genesisParentWorkerRuntime struct {
+	Parents     map[string]genesisParentBinding     `json:"parents"`
+	WorkerRoles map[string]genesisWorkerRoleBinding `json:"worker_roles"`
+}
+
+type genesisParentBinding struct {
+	ParentID           string   `json:"parent_id"`
+	ProfileID          string   `json:"profile_id"`
+	AllowedWorkerRoles []string `json:"allowed_worker_roles"`
+	DefaultWorkerRole  string   `json:"default_worker_role"`
+	CanCreateWorkers   bool     `json:"can_create_workers"`
+}
+
+type genesisWorkerRoleBinding struct {
+	RoleID           string   `json:"role_id"`
+	ProfileID        string   `json:"profile_id"`
+	ToolSet          []string `json:"tool_set"`
+	ContextPolicyRef string   `json:"context_policy_ref"`
+	MaxParallel      int      `json:"max_parallel"`
+	LeafOnly         bool     `json:"leaf_only"`
 }

@@ -309,6 +309,195 @@ func TestResolveOpenAICompatibleConfigFromGenesisRejectsMissingCredential(t *tes
 	}
 }
 
+func TestResolveParentWorkerRuntimeFromGenesisProjectsRoleBindings(t *testing.T) {
+	root := writeModelsConfig(t, map[string]any{
+		"model_gateway": map[string]any{
+			"protocol":       "openai-chat-completions",
+			"base_url":       "https://provider.example.com/api",
+			"credential_ref": "secret://models/provider/default",
+			"routes": map[string]any{
+				"local-qwen": map[string]any{
+					"base_url":       "http://127.0.0.1:8080/v1",
+					"credential_ref": "secret://models/local/qwen",
+				},
+			},
+		},
+		"active_model_profile_bindings": map[string]any{
+			DefaultModelRole: "parent-profile",
+		},
+		"model_profiles": map[string]any{
+			"cloud": map[string]any{
+				"gateway": map[string]any{
+					"parent-profile": map[string]any{
+						"profile_id":    "parent-profile",
+						"model_id":      "frontier-parent",
+						"gateway_route": "cloud-parent",
+					},
+				},
+			},
+			"local": map[string]any{
+				"gateway": map[string]any{
+					"local-worker-profile": map[string]any{
+						"profile_id":              "local-worker-profile",
+						"model_id":                "qwen-agentworld",
+						"gateway_route":           "local-qwen",
+						"context_window_tokens":   262144,
+						"hidden_reasoning_policy": "discard",
+					},
+				},
+			},
+		},
+		"parent_worker_runtime": map[string]any{
+			"parents": map[string]any{
+				DefaultModelRole: map[string]any{
+					"allowed_worker_roles": []any{"local-small-worker"},
+					"default_worker_role":  "local-small-worker",
+					"can_create_workers":   true,
+				},
+			},
+			"worker_roles": map[string]any{
+				"local-small-worker": map[string]any{
+					"profile_id":         "local-worker-profile",
+					"tool_set":           []any{"resource_read", "source_read", "resource_read"},
+					"context_policy_ref": "context:diff-plus-issue",
+					"max_parallel":       1,
+					"leaf_only":          true,
+				},
+			},
+		},
+	})
+
+	projection, err := ResolveParentWorkerRuntimeFromGenesis(ParentWorkerRuntimeRequest{ConfigRoot: root})
+	if err != nil {
+		t.Fatalf("ResolveParentWorkerRuntimeFromGenesis returned error: %v", err)
+	}
+	if projection.Parent.ParentID != DefaultModelRole {
+		t.Fatalf("parent id = %q", projection.Parent.ParentID)
+	}
+	if projection.Parent.ProfileID != "parent-profile" || projection.Parent.ModelID != "frontier-parent" {
+		t.Fatalf("parent projection = %+v", projection.Parent)
+	}
+	if !projection.Parent.CanCreateWorkers || projection.Parent.DefaultWorkerRole != "local-small-worker" {
+		t.Fatalf("parent worker controls = %+v", projection.Parent)
+	}
+	if len(projection.WorkerRoles) != 1 {
+		t.Fatalf("worker roles = %d, want 1", len(projection.WorkerRoles))
+	}
+	worker := projection.WorkerRoles[0]
+	if worker.RoleID != "local-small-worker" || worker.ProfileID != "local-worker-profile" || worker.ModelID != "qwen-agentworld" {
+		t.Fatalf("worker projection = %+v", worker)
+	}
+	if worker.ProviderRoute != "local-qwen" || worker.ContextWindowTokens != 262144 {
+		t.Fatalf("worker provider/context = %+v", worker)
+	}
+	if strings.Join(worker.ToolSet, ",") != "resource_read,source_read" {
+		t.Fatalf("tool set = %v, want sorted unique preset tools", worker.ToolSet)
+	}
+	if worker.ContextPolicyRef != "context:diff-plus-issue" || worker.MaxParallel != 1 || !worker.LeafOnly {
+		t.Fatalf("worker controls = %+v", worker)
+	}
+	encoded, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatalf("marshal projection: %v", err)
+	}
+	for _, forbidden := range []string{"secret://", "credential", "sandbox", "permission"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("projection leaked %q: %s", forbidden, string(encoded))
+		}
+	}
+}
+
+func TestResolveParentWorkerRuntimeFromGenesisRejectsInvalidBindings(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		runtime map[string]any
+		want    error
+	}{
+		{
+			name: "unknown allowed worker role",
+			runtime: map[string]any{
+				"parents": map[string]any{
+					DefaultModelRole: map[string]any{
+						"allowed_worker_roles": []any{"missing-worker"},
+						"can_create_workers":   true,
+					},
+				},
+			},
+			want: ErrGenesisWorkerRoleBindingMissing,
+		},
+		{
+			name: "unknown worker tool",
+			runtime: map[string]any{
+				"parents": map[string]any{
+					DefaultModelRole: map[string]any{
+						"allowed_worker_roles": []any{"local-worker"},
+						"can_create_workers":   true,
+					},
+				},
+				"worker_roles": map[string]any{
+					"local-worker": map[string]any{
+						"profile_id": "worker-profile",
+						"tool_set":   []any{"unknown_tool"},
+						"leaf_only":  true,
+					},
+				},
+			},
+			want: ErrGenesisWorkerRoleBindingInvalid,
+		},
+		{
+			name: "worker profile missing",
+			runtime: map[string]any{
+				"parents": map[string]any{
+					DefaultModelRole: map[string]any{
+						"allowed_worker_roles": []any{"local-worker"},
+						"can_create_workers":   true,
+					},
+				},
+				"worker_roles": map[string]any{
+					"local-worker": map[string]any{
+						"profile_id": "missing-profile",
+						"leaf_only":  true,
+					},
+				},
+			},
+			want: ErrGenesisModelProfileMissing,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := writeModelsConfig(t, map[string]any{
+				"model_gateway": map[string]any{
+					"protocol":       "openai-chat-completions",
+					"base_url":       "https://provider.example.com/api",
+					"credential_ref": "secret://models/provider/default",
+				},
+				"active_model_profile_bindings": map[string]any{
+					DefaultModelRole: "parent-profile",
+				},
+				"model_profiles": map[string]any{
+					"cloud": map[string]any{
+						"gateway": map[string]any{
+							"parent-profile": map[string]any{
+								"profile_id": "parent-profile",
+								"model_id":   "frontier-parent",
+							},
+							"worker-profile": map[string]any{
+								"profile_id": "worker-profile",
+								"model_id":   "worker-model",
+							},
+						},
+					},
+				},
+				"parent_worker_runtime": tc.runtime,
+			})
+
+			_, err := ResolveParentWorkerRuntimeFromGenesis(ParentWorkerRuntimeRequest{ConfigRoot: root})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestBlockedProviderReportsReadinessBlocker(t *testing.T) {
 	provider := NewBlockedProvider("openai-compatible", "provider_config_missing")
 
