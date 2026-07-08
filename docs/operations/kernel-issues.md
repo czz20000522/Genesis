@@ -25,3 +25,16 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Periodic governance review checks architecture, feature behavior, directory structure, and document lifetime together. Completed plans and stale documents should be deleted or condensed instead of spawning issues that only preserve old notes.
 
 ## Active Issues
+
+### KERNEL-PARENT-WORKER-INVOCATION-20260708 - P1 - Worker invocation must consume role bindings
+
+- Status: in_progress.
+- Requirement: `docs/requirements/kernel-parent-worker-runtime.md`.
+- Design: `docs/design/kernel-parent-worker-runtime.md`.
+- BDD: `features/kernel/parent_worker_runtime.feature`.
+- Implementation plan: `docs/implementation-plans/parent-worker-runtime-phase-b.md`.
+- Gap: Genesis can project parent/worker role bindings, but worker admission can still only be done through generic `AgentInvocation` requests that accept caller-provided tool grants.
+- Next slice: add a role-bound worker admission helper that resolves the configured role, uses its preset tool set, permits multiple same-role invocation identities, and refuses extra requested tools before appending ledger facts.
+- Reference alignment: Codex `multi_agents/spawn.rs` creates distinct spawned agent identities and `agent_jobs.rs` tracks multiple workers under concurrency limits; Reasonix `TaskTool.buildSubReg` and subagent skill tools derive child tool access from configured metadata instead of parent prompt text.
+- Evidence: pending.
+- Verification: pending.
