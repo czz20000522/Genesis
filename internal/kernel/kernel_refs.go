@@ -7,8 +7,8 @@ import (
 )
 
 var (
-	kernelRefPattern          = regexp.MustCompile(`^(turn|review|approval|work|operation|memory|event):[A-Za-z0-9][A-Za-z0-9._:/-]{0,190}$`)
-	kernelAuthorityPattern    = regexp.MustCompile(`^(runtime|operator|user|daemon|system):[A-Za-z0-9][A-Za-z0-9._:/-]{0,190}$`)
+	kernelRefPattern          = regexp.MustCompile(`^(turn|review|approval|work|operation|memory|event|agent_profile|parent_result):[A-Za-z0-9][A-Za-z0-9._:/-]{0,190}$`)
+	kernelAuthorityPattern    = regexp.MustCompile(`^(runtime|operator|user|daemon|system|application):[A-Za-z0-9][A-Za-z0-9._:/-]{0,190}$`)
 	kernelControlTokenPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 )
 

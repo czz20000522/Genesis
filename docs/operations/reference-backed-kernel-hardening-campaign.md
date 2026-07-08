@@ -316,6 +316,27 @@ Next implementation slice:
 - Phase A semantics: validate a tool-name grant against current `ToolPolicy` and, for child invocations, against the parent invocation grant; write `agent_invocation.admitted`; replay projections from the ledger.
 - Non-goal: do not run a model, spawn a job, create a task graph, or make provider-routing decisions in this slice.
 
+### 2026-07-08 Task 9 Agent Invocation Phase A
+
+Implemented:
+
+- Added `AgentInvocationAdmissionRequest`, `CapabilityGrant`, and
+  `AgentInvocationProjection` DTOs.
+- Added `AdmitAgentInvocation`, `AgentInvocation`, and `AgentInvocations`
+  kernel owner methods.
+- Persisted admitted invocations as `agent_invocation.admitted` ledger events.
+- Validated root tool-name grants against the registered tool manifest and
+  current `ToolPolicy`.
+- Validated child tool-name grants as subsets of the parent invocation grant.
+- Added `application:*`, `agent_profile:*`, and `parent_result:*` to local
+  authority/ref validation for this control-plane surface.
+
+Focused verification:
+
+- `go test ./internal/kernel -run TestAgentInvocation -count=1`
+- `go test ./internal/kernel -run "Test(ArchitectureBoundary|Work|Approval|SessionSearch|ProviderModel|WorkspaceEdit)" -count=1`
+- `go test ./internal/kernel/authority ./internal/kernel/toolruntime -count=1`
+
 ### 2026-07-08 Slice 1 Shell UTF-8 Prologue
 
 Reference scan:

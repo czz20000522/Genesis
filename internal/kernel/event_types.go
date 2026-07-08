@@ -73,6 +73,7 @@ type EventData struct {
 	SessionDebug               *SessionDebugProjection              `json:"session_debug,omitempty"`
 	KernelObservationDelivery  *KernelObservationDeliveryProjection `json:"kernel_observation_delivery,omitempty"`
 	Work                       *WorkProjection                      `json:"work,omitempty"`
+	AgentInvocation            *AgentInvocationProjection           `json:"agent_invocation,omitempty"`
 	MemoryCandidate            *MemoryCandidateProjection           `json:"memory_candidate,omitempty"`
 	ReplacementMemoryCandidate *MemoryCandidateProjection           `json:"replacement_memory_candidate,omitempty"`
 }

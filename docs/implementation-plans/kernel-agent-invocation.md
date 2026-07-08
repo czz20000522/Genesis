@@ -29,21 +29,21 @@ with validated tool-name grants.
 - Do not expose sandbox profiles, permission profiles, workspace roots,
   provider routes, credentials, or raw prompts.
 
-- [ ] Step 1: Add failing admission and replay tests.
+- [x] Step 1: Add failing admission and replay tests.
 
   Cover root admission, replay, idempotency, role/profile no-authority, policy
   denial, child subset, and child exceeding parent.
 
-- [ ] Step 2: Add invocation types and event data.
+- [x] Step 2: Add invocation types and event data.
 
   Define request, grant, projection, validation helpers, and ledger payload.
 
-- [ ] Step 3: Implement admission and replay.
+- [x] Step 3: Implement admission and replay.
 
   Validate requested grants against tool registry and parent invocation grants;
   append `agent_invocation.admitted`.
 
-- [ ] Step 4: Verify.
+- [x] Step 4: Verify.
 
   Run focused tests, then:
 
