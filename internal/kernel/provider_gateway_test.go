@@ -340,6 +340,80 @@ func TestProviderCommandFailureRedactsStderrFromTurnAndHTTP(t *testing.T) {
 	}
 }
 
+func TestHTTPProviderFailuresKeepProviderErrorCodes(t *testing.T) {
+	secret := "sk-http-provider-secret"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "temporary failure "+secret, http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+
+	for _, tc := range []struct {
+		name       string
+		provider   Provider
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name: "openai compatible transient",
+			provider: NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+				BaseURL: upstream.URL,
+				APIKey:  "test-key",
+				Model:   "test-model",
+			}),
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   "provider_transient_failure",
+		},
+		{
+			name: "command adapter shape",
+			provider: NewCommandProvider(ProviderCommandConfig{
+				Command:        os.Args[0],
+				Args:           []string{"-test.run=TestProviderCommandAdapterHelper", "--", "bad-json"},
+				Model:          "command-model",
+				RequestTimeout: 5 * time.Second,
+				Env:            []string{"GENESIS_PROVIDER_COMMAND_HELPER=1"},
+			}),
+			wantStatus: http.StatusBadGateway,
+			wantCode:   "provider_error",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k, err := New(Config{
+				LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
+				Provider:     tc.provider,
+				RuntimeToken: testRuntimeToken,
+			})
+			if err != nil {
+				t.Fatalf("New returned error: %v", err)
+			}
+			server := httptest.NewServer(Handler(k))
+			defer server.Close()
+
+			resp, err := postJSONWithAuth(server.URL+"/turn", []byte(`{"session_id":"provider-failure-http","input_items":[{"type":"text","text":"trigger provider failure"}]}`))
+			if err != nil {
+				t.Fatalf("POST /turn failed: %v", err)
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("read response body: %v", err)
+			}
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("status = %d body=%s, want %d", resp.StatusCode, string(body), tc.wantStatus)
+			}
+			var envelope errorEnvelope
+			if err := json.Unmarshal(body, &envelope); err != nil {
+				t.Fatalf("decode error envelope: %v", err)
+			}
+			if envelope.Error.Code != tc.wantCode {
+				t.Fatalf("error code = %q body=%s, want %s", envelope.Error.Code, string(body), tc.wantCode)
+			}
+			if strings.Contains(string(body), secret) {
+				t.Fatalf("HTTP response leaked provider secret: %s", string(body))
+			}
+		})
+	}
+}
+
 func TestProviderCommandRequestOmitsKernelEventIdentity(t *testing.T) {
 	provider := NewCommandProvider(ProviderCommandConfig{
 		Command:        os.Args[0],

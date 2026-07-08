@@ -24,6 +24,9 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		writeError(w, http.StatusServiceUnavailable, "provider_unavailable", err.Error())
 		return
 	}
+	if writeProviderClassifiedError(w, err) {
+		return
+	}
 	if errors.Is(err, ErrIngressSecurityBlocked) {
 		writeError(w, http.StatusForbidden, "turn_blocked_by_ingress_security", err.Error())
 		return
@@ -102,6 +105,14 @@ func turnStreamError(resp TurnResponse, err error) TurnError {
 	case errors.Is(err, ErrSessionActive):
 		return TurnError{Code: "session_active", Message: message}
 	default:
+		var classified *ProviderClassifiedError
+		if errors.As(err, &classified) {
+			code := strings.TrimSpace(classified.Code)
+			if code == "" {
+				code = "provider_error"
+			}
+			return TurnError{Code: code, Message: message}
+		}
 		return TurnError{Code: "turn_failed", Message: message}
 	}
 }
@@ -119,7 +130,32 @@ func turnErrorHTTPStatus(err TurnError) int {
 	case "turn_interrupted":
 		return http.StatusConflict
 	default:
+		if strings.HasPrefix(err.Code, "provider_") {
+			return providerErrorHTTPStatus(err.Code)
+		}
 		return http.StatusBadRequest
+	}
+}
+
+func writeProviderClassifiedError(w http.ResponseWriter, err error) bool {
+	var classified *ProviderClassifiedError
+	if !errors.As(err, &classified) {
+		return false
+	}
+	code := strings.TrimSpace(classified.Code)
+	if code == "" {
+		code = "provider_error"
+	}
+	writeError(w, providerErrorHTTPStatus(code), code, err.Error())
+	return true
+}
+
+func providerErrorHTTPStatus(code string) int {
+	switch code {
+	case "provider_transient_failure", "provider_unavailable":
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusBadGateway
 	}
 }
 

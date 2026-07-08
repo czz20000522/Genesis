@@ -501,3 +501,32 @@ Evidence:
 Remaining scope:
 
 - Continue Task 5 by checking provider-command response classification and local/cloud adapter parity, then decide whether provider model-list refresh belongs in this deterministic campaign or a later production-capability package.
+
+### 2026-07-08 Slice 9 HTTP Provider Failure Classification
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/client.rs` and `codex-rs/codex-client/src/retry.rs` keep provider/auth/retry failures as provider transport facts instead of folding them into user request validation.
+- Reasonix owner: `internal/provider/retry.go` separates retryable HTTP/provider statuses from caller/config errors, while `internal/provider/openai/openai.go` reports streamed usage and provider failures through the provider abstraction.
+- Genesis owner: `internal/kernel/modelgateway/resilience.go` already classifies provider failures, `internal/kernel/kernel.go` writes classified turn failures, and `internal/kernel/http_turn.go` owns the runtime HTTP projection.
+
+Gap:
+
+- `SubmitTurn` appended classified provider failure evidence to the ledger, but `providerCompleteError` returned an unclassified Go error. Synchronous `/turn` callers therefore saw provider outages and provider-command adapter shape failures as `400 invalid_request`, even though the kernel had already classified them as provider failures.
+
+Change:
+
+- Added `TestHTTPProviderFailuresKeepProviderErrorCodes` in `internal/kernel/provider_gateway_test.go`.
+- Changed `providerCompleteError` to preserve existing `ProviderClassifiedError` metadata and to classify untyped provider adapter failures as `provider_error`.
+- Mapped classified provider errors at HTTP and stream error boundaries so transient upstream failures return `503 provider_transient_failure` and generic adapter failures return `502 provider_error`.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestHTTPProviderFailuresKeepProviderErrorCodes -count=1` failed with `400 invalid_request` for both OpenAI-compatible 500s and provider-command bad JSON.
+- GREEN: `go test ./internal/kernel -run TestHTTPProviderFailuresKeepProviderErrorCodes -count=1`
+- Related: `go test ./internal/kernel -run "Test(HTTPProviderFailuresKeepProviderErrorCodes|ProviderCommandAdapterShapeFailureDoesNotRetry|ProviderCommandFailureRedactsStderrFromTurnAndHTTP|OpenAICompatibleProvider|HTTPTurnStreamReportsSessionActiveConflict)" -count=1`
+- Gateway: `go test ./internal/kernel/modelgateway -count=1`
+
+Remaining scope:
+
+- Continue Task 5 with local/cloud provider adapter parity, then move to provider/model configuration refresh only if the current approved docs already contain that as deterministic scope.

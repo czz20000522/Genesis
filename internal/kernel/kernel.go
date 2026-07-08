@@ -1215,7 +1215,25 @@ func providerCompleteError(err error) error {
 	if errors.Is(err, ErrProviderUnavailable) {
 		return fmt.Errorf("provider complete: %w: %s", ErrProviderUnavailable, message)
 	}
-	return fmt.Errorf("provider complete: %s", message)
+	var classified *ProviderClassifiedError
+	if errors.As(err, &classified) {
+		code := strings.TrimSpace(classified.Code)
+		if code == "" {
+			code = "provider_error"
+		}
+		return &ProviderClassifiedError{
+			Code:       code,
+			Message:    "provider complete: " + message,
+			Retryable:  classified.Retryable,
+			StatusCode: classified.StatusCode,
+			RetryAfter: classified.RetryAfter,
+			Err:        classified.Err,
+		}
+	}
+	return &ProviderClassifiedError{
+		Code:    "provider_error",
+		Message: "provider complete: " + message,
+	}
 }
 
 func toEvent(event StoredEvent) Event {
