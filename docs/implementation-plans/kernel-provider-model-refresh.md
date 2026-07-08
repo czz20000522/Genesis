@@ -64,6 +64,14 @@ without changing active profile bindings.
 
 Only after Phase A is stable:
 
-- add a bind command that selects a model id from the persisted catalog;
-- update profile `model_id` or create a new profile explicitly;
-- keep role binding changes separate and visible.
+- [x] add a bind command that selects a model id from the persisted catalog;
+- [x] update the selected profile `model_id` explicitly;
+- [x] keep role binding changes separate and visible.
+
+Delivered in Phase B:
+
+- `BindProviderModelFromCatalog` updates the selected profile's `model_id` only
+  when the requested model exists in the persisted catalog.
+- `genesisctl provider models bind <model-id> [--json]` exposes the operation.
+- The role binding remains unchanged; creating additional profiles can be a
+  later explicit extension if needed.

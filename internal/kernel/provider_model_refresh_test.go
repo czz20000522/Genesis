@@ -233,6 +233,45 @@ func TestRefreshProviderModelCatalogRefusesProviderCommand(t *testing.T) {
 	}
 }
 
+func TestBindProviderModelFromCatalogUpdatesSelectedProfileWithoutChangingBinding(t *testing.T) {
+	root := writeModelsConfig(t, refreshConfigWithOldCatalog("https://provider.example.com/api"))
+
+	result := BindProviderModelFromCatalog(ProviderModelBindRequest{
+		ConfigRoot: root,
+		ModelID:    "old-model",
+	})
+
+	if result.Readiness != ReadinessReady || result.ProfileID != "provider-fast" || result.ModelID != "old-model" {
+		t.Fatalf("result = %+v, want ready bind result", result)
+	}
+	config := readRefreshModelsConfig(t, root)
+	if config.ActiveModelProfileBindings[DefaultModelRole] != "provider-fast" {
+		t.Fatalf("active binding changed: %+v", config.ActiveModelProfileBindings)
+	}
+	profile := config.ModelProfiles.Cloud.Gateway["provider-fast"]
+	if profile.ModelID != "old-model" {
+		t.Fatalf("profile = %+v, want model_id old-model", profile)
+	}
+}
+
+func TestBindProviderModelFromCatalogRejectsUnknownModelWithoutUpdating(t *testing.T) {
+	root := writeModelsConfig(t, refreshConfigWithOldCatalog("https://provider.example.com/api"))
+
+	result := BindProviderModelFromCatalog(ProviderModelBindRequest{
+		ConfigRoot: root,
+		ModelID:    "missing-model",
+	})
+
+	if result.Readiness != ReadinessNotReady || result.ReadinessReason != "provider_model_not_in_catalog" {
+		t.Fatalf("result = %+v, want unknown model refusal", result)
+	}
+	config := readRefreshModelsConfig(t, root)
+	profile := config.ModelProfiles.Cloud.Gateway["provider-fast"]
+	if profile.ModelID != "provider-model-fast" {
+		t.Fatalf("profile changed after failed bind: %+v", profile)
+	}
+}
+
 func refreshConfigWithOldCatalog(baseURL string) map[string]any {
 	payload := minimalModelsConfig(map[string]any{"base_url": baseURL})
 	payload["provider_model_catalogs"] = map[string]any{

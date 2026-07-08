@@ -1102,3 +1102,36 @@ Evidence:
 Remaining scope:
 
 - Phase B remains open: explicit catalog binding to update or create model profiles from the local catalog.
+
+### 2026-07-08 Slice 31 Provider Model Catalog Binding
+
+Reference scan:
+
+- Codex owner: model manager resolves model metadata locally after cache population rather than hitting `/models` for each selection.
+- Reasonix owner: `ProviderEntry.ModelList`, `DefaultModel`, and `HasModel` treat model selection as a local config operation once a provider has a model list.
+- Genesis owner: `models.json` active role bindings and gateway profiles already separate which profile is active from which `model_id` that profile uses.
+
+Gap:
+
+- Slice 30 could refresh a provider model catalog, but there was no explicit way to bind a selected model from that catalog to a Genesis profile without hand-editing `models.json`.
+
+Change:
+
+- Added `BindProviderModelFromCatalog`, which validates the requested model against the persisted catalog and updates only the selected profile's `model_id`.
+- Added `genesisctl provider models bind <model-id> [--json]`.
+- Preserved active role bindings during bind and rejected unknown models without updating config.
+- Kept profile creation out of this slice; binding updates the selected profile only.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run TestBindProviderModelFromCatalog -count=1`
+- GREEN: `go test ./cmd/genesisctl -run TestProviderModelsBind -count=1`
+- GREEN: `go test ./internal/kernel -run "Test(RefreshProviderModelCatalog|BindProviderModelFromCatalog|ArchitectureBoundary)" -count=1`
+- GREEN: `go test ./cmd/genesisctl -run "TestProviderModels(Refresh|Bind)" -count=1`
+- GREEN: `git diff --check`
+- GREEN: `go test ./... -count=1`
+- GREEN: `go build ./...`
+
+Remaining scope:
+
+- Task 9 model refresh Phase A/B is complete for manual refresh and selected-profile binding. Future profile creation can be added as a separate explicit extension if needed.

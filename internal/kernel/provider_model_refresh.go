@@ -37,6 +37,24 @@ type ProviderModelRefreshResult struct {
 	Provider        ProviderStatus `json:"provider"`
 }
 
+type ProviderModelBindRequest struct {
+	ConfigRoot     string
+	ModelRole      string
+	ModelProfileID string
+	ModelID        string
+}
+
+type ProviderModelBindResult struct {
+	Readiness       string         `json:"readiness"`
+	ReadinessReason string         `json:"readiness_reason,omitempty"`
+	ModelRole       string         `json:"model_role,omitempty"`
+	ProfileID       string         `json:"profile_id,omitempty"`
+	CatalogID       string         `json:"catalog_id,omitempty"`
+	PreviousModelID string         `json:"previous_model_id,omitempty"`
+	ModelID         string         `json:"model_id,omitempty"`
+	Provider        ProviderStatus `json:"provider"`
+}
+
 type providerModelFetchFailure struct {
 	reason string
 }
@@ -130,6 +148,101 @@ func RefreshProviderModelCatalog(req ProviderModelRefreshRequest) ProviderModelR
 
 func providerModelCatalogID(profile genesisGatewayProfile) string {
 	return firstNonEmpty(profile.GatewayRoute, profile.ProfileID)
+}
+
+func BindProviderModelFromCatalog(req ProviderModelBindRequest) ProviderModelBindResult {
+	modelRole := strings.TrimSpace(req.ModelRole)
+	if modelRole == "" {
+		modelRole = DefaultModelRole
+	}
+	modelID := strings.TrimSpace(req.ModelID)
+	if modelID == "" {
+		return providerModelBindFailure(modelRole, "", "", "provider_model_required")
+	}
+	selected, err := loadSelectedGatewayConfig(GenesisModelConfigRequest{
+		ConfigRoot:     req.ConfigRoot,
+		ModelRole:      modelRole,
+		ModelProfileID: req.ModelProfileID,
+	})
+	if err != nil {
+		return providerModelBindFailure(modelRole, "", "", ProviderConfigReason(err))
+	}
+	profileID := strings.TrimSpace(firstNonEmpty(req.ModelProfileID, selected.profile.ProfileID))
+	catalogID := providerModelCatalogID(selected.profile)
+	configPath := filepath.Join(resolveGenesisConfigRoot(req.ConfigRoot), "models.json")
+	config, err := readGenesisModelsConfig(configPath)
+	if err != nil {
+		return providerModelBindFailure(modelRole, profileID, catalogID, ProviderConfigReason(err))
+	}
+	catalog, ok := config.ProviderModelCatalogs[catalogID]
+	if !ok || len(catalog.Models) == 0 {
+		return providerModelBindFailure(modelRole, profileID, catalogID, "provider_model_catalog_missing")
+	}
+	if !catalogContainsModel(catalog, modelID) {
+		return providerModelBindFailure(modelRole, profileID, catalogID, "provider_model_not_in_catalog")
+	}
+	previous, err := updateGatewayProfileModelID(&config, profileID, modelID)
+	if err != nil {
+		return providerModelBindFailure(modelRole, profileID, catalogID, err.Error())
+	}
+	if err := writeGenesisModelsConfig(configPath, config); err != nil {
+		return providerModelBindFailure(modelRole, profileID, catalogID, "provider_config_unwritable")
+	}
+	return ProviderModelBindResult{
+		Readiness:       ReadinessReady,
+		ModelRole:       modelRole,
+		ProfileID:       profileID,
+		CatalogID:       catalogID,
+		PreviousModelID: previous,
+		ModelID:         modelID,
+		Provider:        ProviderStatus{Name: "provider-model-bind", Readiness: ReadinessReady},
+	}
+}
+
+func providerModelBindFailure(modelRole string, profileID string, catalogID string, reason string) ProviderModelBindResult {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "provider_model_bind_failed"
+	}
+	return ProviderModelBindResult{
+		Readiness:       ReadinessNotReady,
+		ReadinessReason: reason,
+		ModelRole:       modelRole,
+		ProfileID:       strings.TrimSpace(profileID),
+		CatalogID:       strings.TrimSpace(catalogID),
+		Provider:        ProviderStatus{Name: "provider-model-bind", Readiness: ReadinessNotReady, ReadinessReason: reason},
+	}
+}
+
+func catalogContainsModel(catalog genesisProviderModelCatalog, modelID string) bool {
+	for _, candidate := range catalog.Models {
+		if strings.TrimSpace(candidate) == modelID {
+			return true
+		}
+	}
+	return false
+}
+
+func updateGatewayProfileModelID(config *genesisModelsConfig, profileID string, modelID string) (string, error) {
+	if config == nil {
+		return "", errors.New("provider_config_invalid")
+	}
+	for _, profiles := range []map[string]genesisGatewayProfile{
+		config.ModelProfiles.Cloud.Gateway,
+		config.ModelProfiles.Local.Gateway,
+	} {
+		for key, profile := range profiles {
+			if strings.TrimSpace(key) != profileID && strings.TrimSpace(profile.ProfileID) != profileID {
+				continue
+			}
+			previous := strings.TrimSpace(profile.ModelID)
+			profile.ProfileID = firstNonEmpty(profile.ProfileID, key)
+			profile.ModelID = modelID
+			profiles[key] = profile
+			return previous, nil
+		}
+	}
+	return "", errors.New("provider_profile_missing")
 }
 
 func providerModelRefreshFailure(modelRole string, profileID string, catalogID string, reason string) ProviderModelRefreshResult {

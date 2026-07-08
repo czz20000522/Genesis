@@ -155,6 +155,8 @@ func runProviderModels(args []string, stdout io.Writer) error {
 	switch args[0] {
 	case "refresh":
 		return runProviderModelsRefresh(args[1:], stdout)
+	case "bind":
+		return runProviderModelsBind(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown provider models command %q", args[0])
 	}
@@ -190,6 +192,42 @@ func runProviderModelsRefresh(args []string, stdout io.Writer) error {
 	}
 	if result.ModelCount > 0 {
 		fmt.Fprintf(stdout, " models=%d", result.ModelCount)
+	}
+	fmt.Fprintln(stdout)
+	return nil
+}
+
+func runProviderModelsBind(args []string, stdout io.Writer) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return errors.New("model id is required")
+	}
+	modelID := args[0]
+	fs := flag.NewFlagSet("provider models bind", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOutput := fs.Bool("json", false, "print machine-readable JSON")
+	configRoot := fs.String("config-root", os.Getenv("GENESIS_CONFIG_ROOT"), "Genesis config root containing models.json")
+	modelRole := fs.String("model-role", envOrDefault("GENESIS_MODEL_ROLE", kernel.DefaultModelRole), "Genesis model role binding to update")
+	profileID := fs.String("profile-id", os.Getenv("GENESIS_MODEL_PROFILE_ID"), "Genesis model profile id override")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	result := kernel.BindProviderModelFromCatalog(kernel.ProviderModelBindRequest{
+		ConfigRoot:     *configRoot,
+		ModelRole:      *modelRole,
+		ModelProfileID: *profileID,
+		ModelID:        modelID,
+	})
+	if *jsonOutput {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+	fmt.Fprintf(stdout, "provider models bind %s", result.Readiness)
+	if result.ReadinessReason != "" {
+		fmt.Fprintf(stdout, " %s", result.ReadinessReason)
+	}
+	if result.ModelID != "" {
+		fmt.Fprintf(stdout, " model=%s", result.ModelID)
 	}
 	fmt.Fprintln(stdout)
 	return nil

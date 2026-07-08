@@ -632,6 +632,60 @@ func TestProviderModelsRefreshReportsMissingCredentialAsJSON(t *testing.T) {
 	}
 }
 
+func TestProviderModelsBindUpdatesProfileFromCatalog(t *testing.T) {
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-model-bind-config")
+	writeDoctorModelsConfig(t, configRoot, map[string]any{
+		"model_gateway": map[string]any{
+			"protocol":       "openai-chat-completions",
+			"base_url":       "https://provider.example.com/api",
+			"credential_ref": "secret://models/provider/bind",
+		},
+		"active_model_profile_bindings": map[string]any{
+			"coordinator": "bind-profile",
+		},
+		"model_profiles": map[string]any{
+			"cloud": map[string]any{
+				"gateway": map[string]any{
+					"bind-profile": map[string]any{
+						"profile_id": "bind-profile",
+						"model_id":   "old-model",
+					},
+				},
+			},
+		},
+		"provider_model_catalogs": map[string]any{
+			"bind-profile": map[string]any{
+				"route":        "bind-profile",
+				"protocol":     "openai-chat-completions",
+				"models":       []string{"new-model"},
+				"refreshed_at": "2026-07-08T00:00:00Z",
+				"source":       "models_endpoint",
+			},
+		},
+	})
+	var stdout bytes.Buffer
+
+	err := run([]string{
+		"provider", "models", "bind", "new-model",
+		"--json",
+		"-config-root", configRoot,
+	}, strings.NewReader(""), &stdout)
+	if err != nil {
+		t.Fatalf("provider models bind returned error: %v\n%s", err, stdout.String())
+	}
+
+	response := decodeProviderSetupResponse(t, stdout.Bytes())
+	assertStringField(t, response, "readiness", "ready")
+	assertStringField(t, response, "model_id", "new-model")
+	configPayload, err := os.ReadFile(filepath.Join(configRoot, "models.json"))
+	if err != nil {
+		t.Fatalf("read models.json: %v", err)
+	}
+	if !strings.Contains(string(configPayload), `"model_id": "new-model"`) || !strings.Contains(string(configPayload), `"coordinator": "bind-profile"`) {
+		t.Fatalf("models.json missing bound model or preserved binding: %s", string(configPayload))
+	}
+}
+
 func TestProviderRotateKeyRejectsUnknownRepairPresetBeforeReadingSecret(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{
