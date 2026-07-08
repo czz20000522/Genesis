@@ -541,7 +541,7 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if got := strings.Join(inspection.ModelInputKinds, ","); got != strings.Join([]string{ModelInputKindSkillIndexContext, ModelInputKindUserText}, ",") {
 		t.Fatalf("model input kinds = %v", inspection.ModelInputKinds)
 	}
-	toolNames := toolSpecNames(inspection.ToolManifest)
+	toolNames := inspectedToolNames(inspection.ToolManifest)
 	for _, want := range []string{"shell_exec", "job_status", "job_cancel"} {
 		if !containsString(toolNames, want) {
 			t.Fatalf("tool manifest = %+v, want %s", inspection.ToolManifest, want)
@@ -574,6 +574,15 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	if !strings.Contains(string(inspectionJSON), "tokentest123456") || strings.Contains(string(inspectionJSON), "[REDACTED]") {
 		t.Fatalf("context inspection should preserve local user content without lossy redaction: %s", string(inspectionJSON))
 	}
+	manifestJSON, err := json.Marshal(inspection.ToolManifest)
+	if err != nil {
+		t.Fatalf("marshal tool manifest: %v", err)
+	}
+	for _, forbidden := range []string{"input_schema", "description"} {
+		if strings.Contains(string(manifestJSON), forbidden) {
+			t.Fatalf("context inspection leaked full tool manifest field %q: %s", forbidden, string(manifestJSON))
+		}
+	}
 
 	server := httptest.NewServer(Handler(restarted))
 	defer server.Close()
@@ -591,6 +600,49 @@ func TestContextInspectionProjectionPersistsProviderVisibleSnapshot(t *testing.T
 	}
 	if httpInspection.Readiness != ReadinessReady || httpInspection.Runtime == nil || httpInspection.Runtime.Permission.PermissionMode != PermissionModeDefault {
 		t.Fatalf("HTTP inspection = %+v, want persisted snapshot", httpInspection)
+	}
+}
+
+func TestContextInspectionToolManifestIsNameOnly(t *testing.T) {
+	startedAt := time.Date(2026, 7, 8, 20, 30, 0, 0, time.UTC)
+	k := &Kernel{
+		ledger: newStaticLedger(StoredEvent{
+			EventID:   "evt_context_submitted",
+			SessionID: "context-tool-manifest",
+			TurnID:    "turn_context_tool_manifest",
+			Type:      "turn.submitted",
+			CreatedAt: startedAt,
+			Data: EventData{
+				InputItems:      []InputItem{{Type: "text", Text: "inspect tools"}},
+				ModelInputKinds: []string{ModelInputKindUserText},
+				ToolManifest: []ToolSpec{{
+					Name:        "shell_exec",
+					Description: `uses secret://tools/default and C:\private\tool.md`,
+					InputSchema: map[string]interface{}{
+						"host_path":   "C:\\private\\secret.txt",
+						"storage_ref": "store-secret",
+					},
+				}},
+				RuntimeContext: &ContextRuntimeSnapshot{},
+			},
+		}),
+	}
+
+	inspection, err := k.ContextInspection("turn_context_tool_manifest")
+	if err != nil {
+		t.Fatalf("ContextInspection returned error: %v", err)
+	}
+	if got := inspectedToolNames(inspection.ToolManifest); len(got) != 1 || got[0] != "shell_exec" {
+		t.Fatalf("tool manifest = %+v, want shell_exec name only", inspection.ToolManifest)
+	}
+	payload, err := json.Marshal(inspection)
+	if err != nil {
+		t.Fatalf("marshal inspection: %v", err)
+	}
+	for _, forbidden := range []string{"input_schema", "description", "host_path", "storage_ref", "secret://", "C:\\private"} {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("context inspection leaked tool manifest detail %q: %s", forbidden, string(payload))
+		}
 	}
 }
 

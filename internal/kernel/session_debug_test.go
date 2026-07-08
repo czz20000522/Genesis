@@ -118,8 +118,8 @@ func TestSessionDebugCapturesProviderStepsAndToolLoopWithoutHostPaths(t *testing
 	if !containsString(export.Steps[0].ModelInputKinds, ModelInputKindUserText) {
 		t.Fatalf("step 0 input kinds = %+v, want user text", export.Steps[0].ModelInputKinds)
 	}
-	if !containsString(toolSpecNames(export.Steps[0].ToolManifest), "shell_exec") {
-		t.Fatalf("tool manifest = %+v, want shell_exec", toolSpecNames(export.Steps[0].ToolManifest))
+	if !containsString(inspectedToolNames(export.Steps[0].ToolManifest), "shell_exec") {
+		t.Fatalf("tool manifest = %+v, want shell_exec", inspectedToolNames(export.Steps[0].ToolManifest))
 	}
 	if len(export.Steps[0].ToolCalls) != 1 || export.Steps[0].ToolCalls[0].Name != "shell_exec" {
 		t.Fatalf("step 0 tool calls = %+v, want shell_exec summary", export.Steps[0].ToolCalls)
@@ -143,7 +143,7 @@ func TestSessionDebugCapturesProviderStepsAndToolLoopWithoutHostPaths(t *testing
 	if err != nil {
 		t.Fatalf("marshal export: %v", err)
 	}
-	for _, forbidden := range []string{workspace, "Authorization", "secret://", "SKILL.md", "storage_ref"} {
+	for _, forbidden := range []string{workspace, "Authorization", "secret://", "SKILL.md", "storage_ref", "input_schema"} {
 		if strings.Contains(string(exportJSON), forbidden) {
 			t.Fatalf("debug export leaked %q: %s", forbidden, string(exportJSON))
 		}

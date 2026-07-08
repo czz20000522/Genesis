@@ -67,6 +67,14 @@ func toolSpecNames(specs []ToolSpec) []string {
 	return names
 }
 
+func inspectedToolNames(items []ToolManifestInspection) []string {
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		names = append(names, item.Name)
+	}
+	return names
+}
+
 func countSessionEventType(events []EventProjection, eventType string) int {
 	count := 0
 	for _, event := range events {

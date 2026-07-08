@@ -92,12 +92,16 @@ type ContextInspectionResponse struct {
 	ReadinessReason   string                       `json:"readiness_reason,omitempty"`
 	InputItems        []InputItem                  `json:"input_items"`
 	ModelInputKinds   []string                     `json:"model_input_kinds"`
-	ToolManifest      []ToolSpec                   `json:"tool_manifest"`
+	ToolManifest      []ToolManifestInspection     `json:"tool_manifest"`
 	SkillCatalog      []SkillCatalogItemProjection `json:"skill_catalog"`
 	SourceSnapshots   []SourceSnapshotDescriptor   `json:"source_snapshots,omitempty"`
 	HydratedContexts  []ContextHydrationProjection `json:"hydrated_contexts,omitempty"`
 	Runtime           *ContextRuntimeSnapshot      `json:"runtime,omitempty"`
 	UnavailableReason string                       `json:"unavailable_reason,omitempty"`
+}
+
+type ToolManifestInspection struct {
+	Name string `json:"name"`
 }
 
 type ContextRuntimeSnapshot struct {

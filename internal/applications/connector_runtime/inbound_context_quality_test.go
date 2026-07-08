@@ -274,7 +274,7 @@ func connectorContainsString(items []string, want string) bool {
 	return false
 }
 
-func connectorToolManifestContains(items []kernelpkg.ToolSpec, name string) bool {
+func connectorToolManifestContains(items []kernelpkg.ToolManifestInspection, name string) bool {
 	for _, item := range items {
 		if item.Name == name {
 			return true

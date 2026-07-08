@@ -58,7 +58,7 @@ type SessionDebugProviderStep struct {
 	Model                     string                          `json:"model,omitempty"`
 	ModelInputKinds           []string                        `json:"model_input_kinds,omitempty"`
 	InputItems                []SessionDebugInputItem         `json:"input_items,omitempty"`
-	ToolManifest              []ToolSpec                      `json:"tool_manifest,omitempty"`
+	ToolManifest              []ToolManifestInspection        `json:"tool_manifest,omitempty"`
 	SkillSummaries            []SessionDebugInputItem         `json:"skill_summaries,omitempty"`
 	SkillWarnings             []SkillCatalogWarningProjection `json:"skill_warnings,omitempty"`
 	SkillRoots                []SkillCatalogRootProjection    `json:"skill_roots,omitempty"`
@@ -199,7 +199,7 @@ func (k *Kernel) captureSessionDebugProviderStep(sessionID string, turnID string
 		Model:                     safeInspectionToken(response.Model, "model_unavailable"),
 		ModelInputKinds:           modelInputKindsFromModelItems(request.InputItems),
 		InputItems:                sessionDebugInputItems(request.InputItems, sessionDebugTextBytes),
-		ToolManifest:              cloneToolSpecs(request.ToolManifest),
+		ToolManifest:              toolManifestInspection(request.ToolManifest),
 		SkillSummaries:            sessionDebugItemsByKind(request.InputItems, ModelInputKindSkillIndexContext),
 		SkillWarnings:             skillIndexWarnings(k.skillCatalogProjection().Items, k.contextPolicy.SkillIndexChars),
 		SkillRoots:                append([]SkillCatalogRootProjection(nil), k.skillCatalogProjection().Roots...),

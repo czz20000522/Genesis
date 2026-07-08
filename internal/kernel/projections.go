@@ -42,7 +42,7 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 				ReadinessReason:   "snapshot_unavailable",
 				InputItems:        cloneProjectionInputItems(event.Data.InputItems),
 				ModelInputKinds:   cloneStringSlice(event.Data.ModelInputKinds),
-				ToolManifest:      cloneToolSpecs(nil),
+				ToolManifest:      toolManifestInspection(nil),
 				SkillCatalog:      cloneSkillCatalogItems(nil),
 				SourceSnapshots:   cloneSourceSnapshotDescriptors(event.Data.SourceSnapshots),
 				HydratedContexts:  cloneContextHydrationProjections(event.Data.HydratedContexts),
@@ -55,7 +55,7 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 			Readiness:        ReadinessReady,
 			InputItems:       cloneProjectionInputItems(event.Data.InputItems),
 			ModelInputKinds:  cloneStringSlice(event.Data.ModelInputKinds),
-			ToolManifest:     cloneToolSpecs(event.Data.ToolManifest),
+			ToolManifest:     toolManifestInspection(event.Data.ToolManifest),
 			SkillCatalog:     cloneSkillCatalogItems(event.Data.SkillCatalog),
 			SourceSnapshots:  cloneSourceSnapshotDescriptors(event.Data.SourceSnapshots),
 			HydratedContexts: cloneContextHydrationProjections(event.Data.HydratedContexts),
@@ -266,6 +266,14 @@ func cloneToolSpecs(items []ToolSpec) []ToolSpec {
 			}
 		}
 		out = append(out, next)
+	}
+	return out
+}
+
+func toolManifestInspection(items []ToolSpec) []ToolManifestInspection {
+	out := make([]ToolManifestInspection, 0, len(items))
+	for _, item := range items {
+		out = append(out, ToolManifestInspection{Name: safeInspectionToken(item.Name, "tool_unavailable")})
 	}
 	return out
 }

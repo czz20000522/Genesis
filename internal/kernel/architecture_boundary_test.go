@@ -771,6 +771,7 @@ func TestArchitectureBoundaryOwnerDTOsLiveInNamedFiles(t *testing.T) {
 		"UITimelineDetailResponse":            "inspection_types.go",
 		"UITimelineItem":                      "inspection_types.go",
 		"ContextInspectionResponse":           "inspection_types.go",
+		"ToolManifestInspection":              "inspection_types.go",
 		"ContextRuntimeSnapshot":              "inspection_types.go",
 		"PermissionInspection":                "inspection_types.go",
 		"SessionProjection":                   "inspection_types.go",

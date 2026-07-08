@@ -716,3 +716,29 @@ Evidence:
 Remaining scope:
 
 - Continue Task 6 with a final scan for unbounded model-visible fragments; conversation history remains governed by compaction and should not get an ad hoc text cap without a separate compaction design update.
+
+### 2026-07-08 Slice 17 Inspection Tool Manifest Names
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/client.rs` records inference trace attempts separately from normal model requests, while websocket tests assert trace metadata is not sent as a top-level request field.
+- Reasonix owner: `internal/acp/dispatch.go` maps typed agent events into transcript-facing updates, while `internal/acp/service.go` persists a separate transcript path for replay and resume.
+- Genesis owner: `internal/kernel/projections.go` and `internal/kernel/session_debug.go` expose context inspection and session debug artifacts outside the ordinary chat timeline.
+
+Gap:
+
+- Context inspection and session debug defaulted to returning the full provider tool manifest even though the inspection contract only needs the tool names that were visible for that turn. Full schemas are provider-facing runtime detail and can carry path-shaped or secret-shaped descriptors in custom tool surfaces.
+
+Change:
+
+- Added `ToolManifestInspection` as a name-only inspection projection.
+- Changed `ContextInspection` and `SessionDebugExport` to return name-only tool manifest entries while leaving the ledger's `turn.submitted` provider-visible snapshot unchanged.
+- Added `TestContextInspectionToolManifestIsNameOnly` and tightened existing context/debug tests to reject full tool schema fields from these inspection surfaces.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run Test(ContextInspectionProjectionPersistsProviderVisibleSnapshot|ContextInspectionToolManifestIsNameOnly|SessionDebugCapturesProviderStepsAndToolLoopWithoutHostPaths|PublicProjectionArraysMarshalAsNonNullArrays|ArchitectureBoundaryKernelTypesStayInExpectedFiles) -count=1`
+
+Remaining scope:
+
+- Continue Task 7 by scanning audit replay error/output previews and debug artifacts for any remaining default leaks of path-shaped runtime internals.
