@@ -98,6 +98,17 @@ func TestBuildProviderAllowsFakeForExplicitLabMode(t *testing.T) {
 	}
 }
 
+func TestBuildProviderUnknownProviderStaysStructuredNotReady(t *testing.T) {
+	provider, err := buildProvider(providerBuildRequest{name: "sk-unknown-provider-secret"})
+	if err != nil {
+		t.Fatalf("buildProvider returned error: %v", err)
+	}
+	status := provider.Ready()
+	if status.Name != "provider" || status.Readiness != kernel.ReadinessNotReady || status.ReadinessReason != "provider_unknown" {
+		t.Fatalf("provider status = %+v, want provider_unknown", status)
+	}
+}
+
 func TestBuildProviderOpenAICompatibleMissingKeyStaysStructuredNotReady(t *testing.T) {
 	t.Setenv("GENESIS_EMPTY_PROVIDER_KEY", "")
 	provider, err := buildProvider(providerBuildRequest{

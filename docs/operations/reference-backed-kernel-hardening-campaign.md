@@ -874,3 +874,29 @@ Evidence:
 Remaining scope:
 
 - Run full verification for Slice 22, then continue Task 8 with startup/doctor-like diagnostics for unknown provider names and local dependency readiness.
+
+### 2026-07-08 Slice 23 Unknown Provider Startup Readiness
+
+Reference scan:
+
+- Codex owner: doctor checks classify provider/config reachability without starting long-lived services or echoing raw configuration values.
+- Reasonix owner: boot distinguishes unknown model/provider configuration from key readiness, while doctor/inspect reports provider state through bounded fields.
+- Genesis owner: `cmd/genesisd.buildProvider` is the daemon startup boundary that turns `--provider` / `GENESIS_PROVIDER` into a kernel provider.
+
+Gap:
+
+- An unknown daemon provider name returned a raw error from `buildProvider`, causing daemon startup to fail and exposing the untrusted provider string in the startup error. That made a provider selection typo look like a process failure rather than a structured not-ready provider state.
+
+Change:
+
+- Changed unknown daemon provider selection to return `BlockedProvider("provider", "provider_unknown")`.
+- Added a daemon test with a secret-shaped unknown provider value to prove the raw value is not propagated through provider readiness.
+
+Evidence:
+
+- GREEN: `go test ./cmd/genesisd -run Test(BuildProviderUnknownProviderStaysStructuredNotReady|BuildProviderOpenAICompatibleMissingKeyStaysStructuredNotReady|BuildProviderCanSelectCommandProviderDirectly|BuildProviderBlocksSecretShapedCommandEnvironment) -count=1`
+- GREEN: `go test ./internal/kernel -run Test(ReadinessSurfacesUseReadinessAxis|TopLevelReadinessRedactsUnsafeProviderReason) -count=1`
+
+Remaining scope:
+
+- Run full verification for Slice 23, then continue Task 8 with live auth failure, command-provider dependency blockers, and desktop sidecar ownership checks.

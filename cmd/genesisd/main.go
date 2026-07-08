@@ -181,7 +181,7 @@ func buildProvider(req providerBuildRequest) (kernel.Provider, error) {
 			Model:   req.model,
 		}), nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q", req.name)
+		return kernel.NewBlockedProvider("provider", "provider_unknown"), nil
 	}
 }
 
