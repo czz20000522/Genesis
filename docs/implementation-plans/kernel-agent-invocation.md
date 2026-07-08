@@ -67,7 +67,22 @@ Delivered:
 - [x] Preparing a tool outside the admitted grant returns repairable
   `capability_grant_tool_not_allowed` feedback before execution.
 
-## Phase C: Child Run Execution
+## Phase C: HTTP Transport Exposure
+
+Expose admission and read projections to applications without moving authority
+logic into HTTP.
+
+Delivered:
+
+- [x] `POST /agent-invocations` delegates admission to
+  `AdmitAgentInvocation`.
+- [x] `GET /agent-invocations/{invocation_id}` delegates replay to
+  `AgentInvocation` and maps unknown ids to `404`.
+- [x] `GET /sessions/{session_id}/agent-invocations` delegates session list
+  replay to `AgentInvocations`.
+- [x] Transport tests cover admit, read, list, and not-found behavior.
+
+## Phase D: Child Run Execution
 
 Add a bounded child-run primitive that uses admitted invocation ids, separate
 context scope, model gateway profile resolution, cancellation, and result

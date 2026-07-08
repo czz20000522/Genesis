@@ -130,11 +130,18 @@ error. A duplicate id with identical fields is idempotent.
 
 ## Observability
 
-Phase A exposes direct kernel methods for tests and future transports:
+Phase A exposes direct kernel methods:
 
 - `AdmitAgentInvocation`
 - `AgentInvocation`
 - `AgentInvocations`
 
-HTTP routes are deferred until an application needs them. This keeps transport
-work out of the authority slice.
+The HTTP transport is a thin application-facing surface over those methods:
+
+- `POST /agent-invocations`
+- `GET /agent-invocations/{invocation_id}`
+- `GET /sessions/{session_id}/agent-invocations`
+
+The transport owns only auth, JSON decode, route parsing, delegation, and JSON
+encoding. Capability-grant validation, parent relationship checks, idempotency,
+and replay remain in the kernel owner methods.

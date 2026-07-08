@@ -354,6 +354,24 @@ Focused verification:
 - `go test ./internal/kernel -run TestInvocationToolGateway -count=1`
 - `go test ./internal/kernel -run "Test(InvocationToolGateway|AgentInvocation|PrepareBatch|ToolScheduling|WorkspaceEdit)" -count=1`
 
+### 2026-07-08 Task 9 Agent Invocation HTTP Transport
+
+Implemented:
+
+- Added `POST /agent-invocations` as a thin authenticated JSON route over
+  `AdmitAgentInvocation`.
+- Added `GET /agent-invocations/{invocation_id}` over `AgentInvocation`.
+- Added `GET /sessions/{session_id}/agent-invocations` over
+  `AgentInvocations`, ordered before the generic session projection catch-all.
+- Kept capability grant checks, idempotency, parent validation, and replay in
+  the kernel owner methods rather than the HTTP handlers.
+
+Focused verification:
+
+- RED: `go test ./internal/kernel -run TestHTTPAgentInvocation -count=1`
+  returned `404` before route implementation.
+- GREEN: `go test ./internal/kernel -run TestHTTPAgentInvocation -count=1`
+
 ### 2026-07-08 Slice 1 Shell UTF-8 Prologue
 
 Reference scan:

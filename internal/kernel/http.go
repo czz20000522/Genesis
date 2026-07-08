@@ -78,6 +78,16 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleSubmitWork(w, r, k)
+		case r.Method == http.MethodPost && r.URL.Path == "/agent-invocations":
+			if !authorizeRuntimeRequest(w, r, k) || !requireJSONContentType(w, r) {
+				return
+			}
+			handleAdmitAgentInvocation(w, r, k)
+		case r.Method == http.MethodGet && isAgentInvocationGetPath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) {
+				return
+			}
+			handleGetAgentInvocation(w, r, k)
 		case r.Method == http.MethodGet && isWorkGetPath(r.URL.Path):
 			if !authorizeRuntimeRequest(w, r, k) {
 				return
@@ -158,6 +168,11 @@ func Handler(k *Kernel) http.Handler {
 				return
 			}
 			handleSearchSessions(w, r, k)
+		case r.Method == http.MethodGet && isSessionAgentInvocationsPath(r.URL.Path):
+			if !authorizeRuntimeRequest(w, r, k) {
+				return
+			}
+			handleListSessionAgentInvocations(w, r, k)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/sessions/"):
 			if !authorizeRuntimeRequest(w, r, k) {
 				return

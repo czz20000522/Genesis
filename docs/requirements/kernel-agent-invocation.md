@@ -108,3 +108,5 @@ Phase A admits invocation facts only:
 6. Role/profile refs are recorded but do not influence authorization.
 7. Projections do not expose workspace roots, sandbox profiles, approval refs,
    credentials, or provider routes.
+8. Authorized HTTP routes can admit, read, and list invocations by delegating to
+   kernel owner methods without duplicating authorization semantics.
