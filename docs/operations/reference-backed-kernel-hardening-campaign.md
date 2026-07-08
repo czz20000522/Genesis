@@ -1043,3 +1043,28 @@ Evidence:
 Remaining scope:
 
 - Run root hygiene and commit Slice 28, then select the next reference-backed production capability.
+
+### 2026-07-08 Slice 29 Provider Model Refresh Requirement Package
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/tests/suite/models_cache_ttl.rs` and `models_etag_responses.rs` cover a models manager that refreshes and caches `/models` metadata while avoiding duplicate network fetches.
+- Reasonix owner: `internal/provider/openai/fetch_models.go` implements bounded OpenAI-compatible model fetching; `internal/config/fetch.go` derives `/models` and `/v1/models` candidates; `internal/config/config.go` stores one provider with many models and resolves model choice locally.
+- Genesis owner: `internal/kernel/model_config.go`, `internal/kernel/provider_setup.go`, `internal/kernel/provider_verify.go`, and `cmd/genesisctl/main.go` already own `models.json`, credential refs, provider setup, and live provider verification.
+
+Decision:
+
+- Selected Task 9 candidate `manual provider model refresh and model-profile binding improvements` as the next production capability after session search.
+- Wrote the requirement, design, implementation plan, and BDD feature before runtime code.
+- Chose manual refresh for Phase A: no automatic refresh from `/ready`, startup, or turn execution.
+
+Artifacts:
+
+- `docs/requirements/kernel-provider-model-refresh.md`
+- `docs/design/kernel-provider-model-refresh.md`
+- `docs/implementation-plans/kernel-provider-model-refresh.md`
+- `features/kernel/provider_model_refresh.feature`
+
+Remaining scope:
+
+- Implement Phase A with tests first: successful refresh, failure safety, sanitized output, and CLI command wiring.
