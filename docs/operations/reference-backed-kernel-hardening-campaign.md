@@ -258,6 +258,25 @@ First bounded implementation slice selected from this inventory:
 - Genesis implementation target: add a focused test proving Windows `platformShellCommand` prefixes PowerShell commands with the UTF-8 prologue, then update `process_runtime.go`.
 - Non-goal: do not add a general shell resolver, Git Bash preference, WSL fallback, or safe-shell hook in this slice.
 
+### 2026-07-08 Task 9 Workspace Edit Tool Requirement Package
+
+- Requirement: `docs/requirements/kernel-workspace-edit-tool.md`
+- Design: `docs/design/kernel-workspace-edit-tool.md`
+- Implementation plan: `docs/implementation-plans/kernel-workspace-edit-tool.md`
+- BDD: `features/kernel/workspace_edit_tool.feature`
+
+Reference scan:
+
+- Codex exposes edits as a dedicated typed tool in `codex-rs/core/src/tools/handlers/apply_patch_spec.rs`, parses and reports semantic patch deltas in `codex-rs/core/src/tools/handlers/apply_patch.rs`, and executes verified changes through sandbox and approval machinery in `codex-rs/core/src/tools/runtimes/apply_patch.rs`.
+- Reasonix exposes concrete writer tools in `internal/tool/builtin/editfile.go`, `internal/tool/builtin/multiedit.go`, and `internal/tool/builtin/writefile.go`, then confines them to workspace roots through symlink-aware path resolution in `internal/tool/builtin/confine.go`.
+- Genesis should align with Codex's typed-tool ownership and Reasonix's exact replacement/confinement semantics for Phase A. It intentionally rejects Codex-style freeform patch grammar until the smaller `workspace_edit` primitive proves tool-gateway admission, scheduling, path confinement, and model-visible projection behavior.
+
+Next implementation slice:
+
+- Add `workspace_edit` as a kernel-owned model tool.
+- Phase A semantics: exact single replacement in one existing file under `ToolPolicy.WorkspaceRoot`.
+- Required tests: manifest/scheduling, successful replacement, plan-mode denial without mutation, path traversal/outside-workspace rejection, symlink escape rejection, missing target, and non-unique old string.
+
 ### 2026-07-08 Slice 1 Shell UTF-8 Prologue
 
 Reference scan:
