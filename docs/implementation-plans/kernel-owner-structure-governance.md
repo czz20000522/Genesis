@@ -18,7 +18,8 @@
   - `D:\software\JetBrains\python_workspace\reasonix\internal\control\controller.go`
 - Alignment: Keep tool registry, tool execution, permission, session/control, and projection responsibilities separated by owner-visible structures.
 - Intentional differences: Genesis keeps a small single-package Go kernel for the current phase rather than copying Codex's Rust crate layout or Reasonix's app-oriented controller shape.
-- Drift risks or follow-up issues: central session projection, global DTO file, HTTP route aggregation, and broad tool executor authority are tracked as active issues.
+- Drift risks or follow-up issues: no owner-structure issues are active in
+  `docs/operations/kernel-issues.md` at this checkpoint.
 
 ## Reference Behavior Red Tests
 
@@ -48,6 +49,7 @@
 
 ## Phase B
 
+- Status: completed in the current implementation.
 - Deliverable: Move session replay aggregation behind projection helpers and split global DTO definitions by owner/audience.
 - Red lines: no runtime API change; no schema rename; no compatibility alias; no behavior rewrite.
 - Tests: existing session, memory, work, tool, and architecture tests.
@@ -56,6 +58,7 @@
 
 ## Phase C
 
+- Status: completed in the current implementation.
 - Deliverable: Split HTTP transport handlers by surface while preserving route behavior.
 - Red lines: transport may auth/decode/encode/delegate only; owner replay and policy stay outside transport.
 - Tests: focused HTTP tests, architecture transport guard, full verification.
@@ -64,6 +67,7 @@
 
 ## Phase D
 
+- Status: completed in the current implementation.
 - Deliverable: Replace tool registration `Prepare func(*Kernel, ...)` with a narrow tool invocation context or owner-specific executor interface.
 - Red lines: no tool gets broad kernel authority by default; model-visible tool schema remains unchanged.
 - Tests: tool registry, tool gateway, model tool loop, shell/job control, architecture tests.
@@ -72,4 +76,4 @@
 
 ## Retirement Criteria
 
-Related issues can leave the active ledger only after the implemented phase passes its architecture guard, focused owner tests, full Go tests, build, diff check, and drift check against this plan.
+Related issues can leave the active ledger only after the implemented phase passes its architecture guard, focused owner tests, full Go tests, build, diff check, and drift check against this plan. At this checkpoint there are no active owner-structure issue headings in `docs/operations/kernel-issues.md`.
