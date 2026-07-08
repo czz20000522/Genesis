@@ -21,3 +21,16 @@ Feature: Agent invocation admission
     When an application admits a child invocation with workspace_edit
     Then Genesis refuses the child as capability_grant_exceeds_parent
     And no child invocation fact is recorded
+
+  Scenario: Admitted invocation runs with bounded final result
+    Given an invocation was admitted with a resource_read grant
+    When an application runs the admitted invocation with a focused prompt
+    Then Genesis records invocation run started and completed facts
+    And the invocation result contains the child final answer
+    And the parent session transcript does not include the child's intermediate tool rounds
+
+  Scenario: Invocation run cannot exceed admitted tool grant
+    Given an invocation was admitted with only resource_read
+    When the child model asks to call workspace_edit
+    Then Genesis rejects the tool call as capability_grant_tool_not_allowed
+    And no workspace edit is executed

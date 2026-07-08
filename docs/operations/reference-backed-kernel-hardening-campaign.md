@@ -1336,3 +1336,39 @@ Evidence:
 - GREEN: `git diff --check`
 - GREEN: `go test ./... -count=1`
 - GREEN: `go build ./...`
+
+### 2026-07-08 Slice 35 Agent Invocation Run Contract
+
+Reference scan:
+
+- Codex routes model-visible multi-agent tool calls through `AgentControl`,
+  which owns spawn edges, execution capacity, session roots, status, and runtime
+  state instead of letting model text mint child execution authority.
+- Reasonix runs task sub-agents in fresh sessions, filters inherited tools,
+  strips meta-tools, supports optional profile selection, and returns final
+  output rather than exposing every intermediate child round as parent history.
+
+Decision:
+
+- Phase D starts with a direct synchronous `RunAgentInvocation` kernel method.
+- The run consumes an already admitted invocation id, builds a fresh scoped child
+  context, uses the current kernel provider, routes child tool calls through
+  `ToolGatewayForInvocation`, and records started plus terminal invocation facts.
+- `agent_profile_ref` remains a semantic label until a separate provider-profile
+  resolution slice. Genesis should not hand-write a profile resolver or
+  background task runtime inside this child-run slice.
+
+Artifacts updated:
+
+- `docs/requirements/kernel-agent-invocation.md`
+- `docs/design/kernel-agent-invocation.md`
+- `docs/implementation-plans/kernel-agent-invocation.md`
+- `features/kernel/agent_invocation.feature`
+
+Red lines:
+
+- No task graph, workflow runtime, background child pool, recursive delegation,
+  parent notification protocol, or model-profile resolution in Phase D.
+- No provider routes, credentials, sandbox profiles, permission profiles,
+  workspace roots, raw prompts, or full child transcripts in parent-visible
+  projections.

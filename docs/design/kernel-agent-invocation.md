@@ -74,12 +74,18 @@ Phase A:
 5. Kernel appends `agent_invocation.admitted`.
 6. Projection APIs replay invocations from ledger events.
 
-Future execution:
+Phase D execution:
 
-1. Application uses an admitted invocation id to start a child run.
-2. Model Gateway resolves model profile from application-owned profile refs.
-3. ToolGateway enforces the invocation grant before tool calls.
-4. Result delivery attaches a bounded output projection to the invocation.
+1. Application uses an admitted invocation id to start a synchronous child run.
+2. Kernel validates the run caller independently from the admission caller.
+3. Kernel builds a fresh child model request from focused run input plus the
+   bounded `context_scope`; it does not copy the parent session transcript by
+   default.
+4. Phase D uses the current kernel provider. `agent_profile_ref` remains a
+   semantic label until a separate provider-profile resolver is approved.
+5. ToolGateway enforces the invocation grant before every child tool call.
+6. Result delivery attaches a bounded terminal output projection to the
+   invocation.
 
 ## Event Shape
 
@@ -106,6 +112,17 @@ Payload:
 
 The payload must not include workspace roots, sandbox profiles, approval refs,
 provider routes, credentials, raw prompts, or model outputs.
+
+Run event types:
+
+- `agent_invocation.run_started`
+- `agent_invocation.run_completed`
+- `agent_invocation.run_failed`
+
+Terminal payloads expose final summary, accounting, status, and sanitized
+failure class only. They must not expose raw child prompts, provider routes,
+credentials, workspace roots, sandbox profiles, permission profiles, or the full
+child provider/tool transcript.
 
 ## Grant Semantics
 
@@ -135,6 +152,11 @@ Phase A exposes direct kernel methods:
 - `AdmitAgentInvocation`
 - `AgentInvocation`
 - `AgentInvocations`
+
+Phase D adds direct kernel methods before adding transport:
+
+- `RunAgentInvocation`
+- `AgentInvocationRun`
 
 The HTTP transport is a thin application-facing surface over those methods:
 

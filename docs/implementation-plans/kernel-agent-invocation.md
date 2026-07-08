@@ -84,6 +84,46 @@ Delivered:
 
 ## Phase D: Child Run Execution
 
-Add a bounded child-run primitive that uses admitted invocation ids, separate
-context scope, model gateway profile resolution, cancellation, and result
+Add a bounded synchronous child-run primitive that uses admitted invocation ids,
+focused run input, invocation-scoped tool grants, and final-only result
 delivery.
+
+**Red lines:**
+
+- Do not add a task graph or workflow runtime.
+- Do not add model-profile resolution; Phase D uses the current kernel provider
+  and keeps `agent_profile_ref` semantic.
+- Do not add background execution, child concurrency pools, recursive
+  delegation, or parent notification protocols.
+- Do not append child intermediate provider/tool rounds as parent conversation
+  history.
+- Do not expose provider routes, credentials, sandbox profiles, permission
+  profiles, workspace roots, raw prompts, or full child transcripts.
+
+- [ ] Step 1: Add failing direct kernel tests.
+
+  Cover successful run from an admitted invocation, unknown invocation,
+  already-running guard, idempotent terminal replay, grant-scoped tool denial,
+  provider failure redaction, and final-only parent projection.
+
+- [ ] Step 2: Add run request, result projection, and event payload types.
+
+  Define focused input items, optional idempotency key, run status, sanitized
+  failure class, usage accounting, and replay behavior for started and terminal
+  events.
+
+- [ ] Step 3: Implement synchronous run owner methods.
+
+  Validate invocation and caller, append `agent_invocation.run_started`, call the
+  current provider with fresh child context, route child tool calls through
+  `ToolGatewayForInvocation`, and append completed or failed terminal facts.
+
+- [ ] Step 4: Verify.
+
+  Run focused tests, then:
+
+  ```powershell
+  git diff --check
+  go test ./... -count=1
+  go build ./...
+  ```
