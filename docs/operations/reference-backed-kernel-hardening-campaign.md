@@ -793,3 +793,28 @@ Evidence:
 Remaining scope:
 
 - Continue Task 7 with a final pass over non-turn inspection/readiness/debug error envelopes for raw external-boundary diagnostics.
+
+### 2026-07-08 Slice 20 Ledger Error Envelope Redaction
+
+Reference scan:
+
+- Codex owner: readiness/debug metadata is projected as structured status rather than leaking raw trace or transport internals into ordinary client payloads.
+- Reasonix owner: session and transcript service paths return typed RPC errors and keep persisted transcript paths as controlled service state.
+- Genesis owner: `internal/kernel/http.go` centralizes `ErrLedgerUnavailable` HTTP envelopes, while `/ready` already projects ledger readiness as reason codes.
+
+Gap:
+
+- `/ready` reported ledger failures with bounded reason codes, but HTTP error envelopes for `ErrLedgerUnavailable` returned the wrapped ledger error text. A lower-level ledger error can include local paths or credential-shaped diagnostics.
+
+Change:
+
+- Changed `writeKernelUnavailable` to use the ledger reason code as both code and message.
+- Added `TestHTTPKernelUnavailableDoesNotLeakLedgerDiagnostics` with a ledger load error containing a Windows path and credential-shaped text.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run Test(HTTPKernelUnavailableDoesNotLeakLedgerDiagnostics|HTTPCorruptLedgerBlocksReadyReplayAndAppend|HTTPUnreadableLedgerBlocksReadyAndTurn|HTTPReadyDoesNotExposeInspectionDetails) -count=1`
+
+Remaining scope:
+
+- Task 7 has no remaining obvious default-leak gaps from the current scan. Do a final diff/test pass and then move to Task 8 config, doctor, startup, and readiness.

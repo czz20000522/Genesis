@@ -118,6 +118,37 @@ func TestHTTPReadyDoesNotExposeInspectionDetails(t *testing.T) {
 	}
 }
 
+func TestHTTPKernelUnavailableDoesNotLeakLedgerDiagnostics(t *testing.T) {
+	unsafeMessage := `open C:\Users\Tomczz\.genesis\events.sqlite: GENESIS_PROVIDER_API_KEY=sk-ledgersecret123`
+	k := &Kernel{
+		ledger:       failingLoadLedger{err: fmt.Errorf("%w: %s", ErrLedgerUnreadable, unsafeMessage)},
+		runtimeToken: testRuntimeToken,
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+
+	resp, err := getWithAuth(server.URL + "/sessions/ledger-leak")
+	if err != nil {
+		t.Fatalf("GET /sessions/ledger-leak failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+	var body errorEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if body.Error.Code != "ledger_unreadable" || body.Error.Message != "ledger_unreadable" {
+		t.Fatalf("error envelope = %+v, want ledger_unreadable code-only message", body)
+	}
+	for _, forbidden := range []string{"C:\\Users\\Tomczz", "sk-ledgersecret123", "GENESIS_PROVIDER_API_KEY"} {
+		if strings.Contains(body.Error.Message, forbidden) {
+			t.Fatalf("ledger error leaked %q: %+v", forbidden, body)
+		}
+	}
+}
+
 func TestHTTPTurnSubmitIdempotencyKeyReturnsExistingTurnAfterRestart(t *testing.T) {
 	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
 	firstProvider := &countingTextProvider{text: "first answer"}
@@ -968,6 +999,26 @@ func TestHTTPCorruptLedgerBlocksReadyReplayAndAppend(t *testing.T) {
 	}
 	defer memoryResp.Body.Close()
 	assertErrorCode(t, memoryResp, http.StatusServiceUnavailable, "ledger_corrupt")
+}
+
+type failingLoadLedger struct {
+	err error
+}
+
+func (l failingLoadLedger) Append(StoredEvent) error {
+	return nil
+}
+
+func (l failingLoadLedger) Load() ([]StoredEvent, error) {
+	return nil, l.err
+}
+
+func (l failingLoadLedger) Ready() ReadyCheck {
+	return ReadyCheck{Readiness: ReadinessReady}
+}
+
+func (l failingLoadLedger) Path() string {
+	return "failing-load-ledger"
 }
 
 func TestHTTPRejectsNonJSONContentType(t *testing.T) {
