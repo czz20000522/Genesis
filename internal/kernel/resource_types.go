@@ -65,6 +65,7 @@ type ContextHydrationProjection struct {
 	MimeType           string    `json:"mime_type,omitempty"`
 	OriginalBytes      int       `json:"original_bytes,omitempty"`
 	VisibleBytes       int       `json:"visible_bytes,omitempty"`
+	NextOffsetBytes    *int      `json:"next_offset_bytes,omitempty"`
 	Truncated          bool      `json:"truncated,omitempty"`
 	InputKind          string    `json:"input_kind,omitempty"`
 	Reason             string    `json:"reason,omitempty"`

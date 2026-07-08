@@ -610,3 +610,29 @@ Evidence:
 Remaining scope:
 
 - Task 5 is close to covered. Do a final approved-doc drift scan for provider setup/config; if no concrete gap appears, move to Task 6 resource/material/redaction.
+
+### 2026-07-08 Slice 13 Hydration Continuation Evidence
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/tools/handlers/mcp_resource/read_mcp_resource.rs` serializes resource reads through the tool boundary with truncation policy applied to model-visible output.
+- Reasonix owner: `internal/tool/builtin/readfile.go` returns bounded file windows and gives the model a concrete continuation hint when more content remains.
+- Genesis owner: `internal/kernel/context_hydration.go` admits bounded resource text into the next provider context, while `resource_read` and `source_read` already expose byte continuation offsets.
+
+Gap:
+
+- Truncated context hydration evidence carried `truncated` and `visible_bytes`, but not the next byte offset needed to inspect or rehydrate the remaining authorized resource content from the same source.
+
+Change:
+
+- Added `next_offset_bytes` to `ContextHydrationProjection`.
+- Copied the continuation offset from the bounded resource read admission and clone it with the hydration projection.
+- Added `TestContextHydrationTruncationCarriesContinuationOffset` to lock the admitted evidence, provider-visible bounded text, and context inspection projection.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run TestContextHydrationTruncationCarriesContinuationOffset -count=1`
+
+Remaining scope:
+
+- Continue Task 6 by scanning material/context projections for any remaining model-visible owner refs or missing bounded-read evidence.

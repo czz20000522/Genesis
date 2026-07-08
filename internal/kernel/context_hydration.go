@@ -122,6 +122,7 @@ func (k *Kernel) evaluateContextHydrationAdmission(req ContextHydrationAdmission
 	projection.AdmissionResult = contextHydrationAdmissionAdmitted
 	projection.HydrationID = newID("hydration", now)
 	projection.VisibleBytes = result.ReturnedBytes
+	projection.NextOffsetBytes = result.NextOffsetBytes
 	projection.Truncated = result.Truncated
 	projection.RefusalReasonClass = ""
 	return projection
@@ -200,6 +201,10 @@ func sessionHasSubmittedTurnAfter(events []StoredEvent, sessionID string, eventI
 func cloneContextHydrationProjection(in ContextHydrationProjection) ContextHydrationProjection {
 	out := in
 	out.DerivationRefs = append([]string(nil), in.DerivationRefs...)
+	if in.NextOffsetBytes != nil {
+		next := *in.NextOffsetBytes
+		out.NextOffsetBytes = &next
+	}
 	return out
 }
 

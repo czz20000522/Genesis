@@ -127,6 +127,56 @@ func TestContextHydrationAdmitsBoundedResourceIntoNextProviderContext(t *testing
 	assertNoLedgerBodyInHydrationFacts(t, k, body)
 }
 
+func TestContextHydrationTruncationCarriesContinuationOffset(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "context-hydration-truncated")
+	provider := &capturingProvider{text: "bounded answer"}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(dir, "events.sqlite"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+		Resources: []ResourceDescriptor{{
+			Ref:      "cf:long-body",
+			MimeType: "text/plain",
+			Text:     "abcdef",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	admitted, err := k.AdmitContextResource(ContextHydrationAdmissionRequest{
+		SessionID:       "hydration-truncated",
+		SourceOwner:     "skill_catalog",
+		ResourceRef:     "cf:long-body",
+		MaxVisibleBytes: 3,
+	})
+	if err != nil {
+		t.Fatalf("AdmitContextResource returned error: %v", err)
+	}
+	if !admitted.Truncated || admitted.VisibleBytes != 3 || admitted.NextOffsetBytes == nil || *admitted.NextOffsetBytes != 3 {
+		t.Fatalf("admitted hydration = %+v, want truncation continuation at byte 3", admitted)
+	}
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "hydration-truncated",
+		InputItems: []InputItem{{Type: "text", Text: "use bounded context"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	hydratedText, ok := modelInputTextByKind(provider.inputItems, ModelInputKindHydratedContext)
+	if !ok || hydratedText != "abc" {
+		t.Fatalf("hydrated provider text = %q ok=%v, want bounded first slice", hydratedText, ok)
+	}
+	inspection, err := k.ContextInspection(resp.TurnID)
+	if err != nil {
+		t.Fatalf("ContextInspection returned error: %v", err)
+	}
+	if len(inspection.HydratedContexts) != 1 || inspection.HydratedContexts[0].NextOffsetBytes == nil || *inspection.HydratedContexts[0].NextOffsetBytes != 3 {
+		t.Fatalf("inspection hydrated contexts = %+v, want next offset evidence", inspection.HydratedContexts)
+	}
+}
+
 func TestContextHydrationRefusesResourcesWithoutPromptSplicing(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "context-hydration-refused")
 	oversize := strings.Repeat("OVERSIZE-CONTENT-", 500)
