@@ -74,6 +74,30 @@ func TestSourceSnapshotContextOmitsHostPathAndAdvertisesTypedTools(t *testing.T)
 	}
 }
 
+func TestSourceSnapshotContextIsBounded(t *testing.T) {
+	snapshots := make([]SourceSnapshotDescriptor, 0, 80)
+	for i := 0; i < 80; i++ {
+		snapshots = append(snapshots, SourceSnapshotDescriptor{
+			SourceSnapshotRef:   "source_snapshot_" + strings.Repeat("a", 24) + string(rune('a'+i%26)),
+			SourceKind:          SourceKindZip,
+			Purpose:             SourcePurposeAnalysis,
+			DisplayLabel:        strings.Repeat("label", 80),
+			AvailableOperations: []string{ReferenceOperationSourceTree},
+		})
+	}
+
+	context := sourceSnapshotContext(snapshots)
+	if len([]byte(context)) > sourceSnapshotContextBytes {
+		t.Fatalf("source context bytes = %d, want <= %d", len([]byte(context)), sourceSnapshotContextBytes)
+	}
+	if !strings.Contains(context, "additional source snapshots omitted by context budget") {
+		t.Fatalf("source context missing omission hint: %q", context)
+	}
+	if strings.Contains(context, strings.Repeat("label", 40)) {
+		t.Fatalf("source context did not bound display label: %q", context)
+	}
+}
+
 func TestSourceTreeAndReadToolLoopUsesOpaqueRefs(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "source-tools-loop")
 	zipPath := filepath.Join(dir, "package.zip")

@@ -636,3 +636,30 @@ Evidence:
 Remaining scope:
 
 - Continue Task 6 by scanning material/context projections for any remaining model-visible owner refs or missing bounded-read evidence.
+
+### 2026-07-08 Slice 14 Source Snapshot Context Budget
+
+Reference scan:
+
+- Codex owner: MCP resource reads serialize through a truncation policy before becoming tool output.
+- Reasonix owner: `read_file` returns bounded windows instead of unbounded file bodies.
+- Genesis owner: `internal/kernel/model_context.go` builds the model-visible source snapshot listing before the provider call.
+
+Gap:
+
+- Individual source reads and trees were bounded, but the model-visible source snapshot listing itself had no byte budget when a session accumulated many admitted snapshots.
+
+Change:
+
+- Capped source snapshot context at 4096 bytes.
+- Capped each source snapshot display label at 160 bytes.
+- Added a model-visible omission hint when additional snapshots are excluded by the context budget.
+- Added `TestSourceSnapshotContextIsBounded`.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run TestSourceSnapshotContextIsBounded -count=1`
+
+Remaining scope:
+
+- Continue Task 6 by checking source snapshot capability/limit projection evidence and any remaining unbounded model-context fragments.

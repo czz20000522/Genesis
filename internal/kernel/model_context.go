@@ -4,6 +4,11 @@ import (
 	"strings"
 )
 
+const (
+	sourceSnapshotContextBytes = 4096
+	sourceSnapshotLabelBytes   = 160
+)
+
 type conversationHistoryTurn struct {
 	TurnID        string
 	UserText      string
@@ -55,7 +60,10 @@ func sourceSnapshotContext(snapshots []SourceSnapshotDescriptor) string {
 	if len(snapshots) == 0 {
 		return ""
 	}
-	lines := []string{"Source snapshots available for this session. Use source_tree with source_snapshot_ref, then source_read with source_file_ref for selected files."}
+	header := "Source snapshots available for this session. Use source_tree with source_snapshot_ref, then source_read with source_file_ref for selected files."
+	lines := []string{header}
+	used := len([]byte(header))
+	omitted := 0
 	for _, snapshot := range snapshots {
 		ref := strings.TrimSpace(snapshot.SourceSnapshotRef)
 		if ref == "" {
@@ -65,11 +73,24 @@ func sourceSnapshotContext(snapshots []SourceSnapshotDescriptor) string {
 		if label == "" {
 			label = ref
 		}
+		label = utf8SafePrefix(label, sourceSnapshotLabelBytes)
 		ops := strings.Join(snapshot.AvailableOperations, ",")
 		if ops == "" {
 			ops = ReferenceOperationSourceTree
 		}
-		lines = append(lines, "- "+ref+" ("+snapshot.SourceKind+", "+snapshot.Purpose+", label="+label+", operations="+ops+")")
+		line := "- " + ref + " (" + snapshot.SourceKind + ", " + snapshot.Purpose + ", label=" + label + ", operations=" + ops + ")"
+		if used+1+len([]byte(line)) > sourceSnapshotContextBytes {
+			omitted++
+			continue
+		}
+		lines = append(lines, line)
+		used += 1 + len([]byte(line))
+	}
+	if omitted > 0 {
+		line := "- additional source snapshots omitted by context budget"
+		if used+1+len([]byte(line)) <= sourceSnapshotContextBytes {
+			lines = append(lines, line)
+		}
 	}
 	if len(lines) == 1 {
 		return ""
