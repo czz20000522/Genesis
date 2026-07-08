@@ -349,6 +349,79 @@ func TestSubmitTurnDeliversAllTerminalJobObservationKinds(t *testing.T) {
 	}
 }
 
+func TestKernelObservationContextBoundsDeliveredEvents(t *testing.T) {
+	sessionID := "job-observation-bounded"
+	provider := &recordingTextProvider{text: "bounded observations received"}
+	k, err := New(Config{
+		LedgerPath:   filepath.Join(testTempDir(t), "events.sqlite"),
+		Provider:     provider,
+		RuntimeToken: testRuntimeToken,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	for i := 0; i < 80; i++ {
+		exitCode := 0
+		job := JobProjection{
+			JobID:       fmt.Sprintf("job_bounded_%02d", i),
+			SessionID:   sessionID,
+			TurnID:      "turn_observation_source",
+			Tool:        "shell_exec",
+			Status:      "completed",
+			Receipt:     strings.Repeat("receipt ", 80),
+			Stdout:      strings.Repeat("stdout ", 80),
+			ExitCode:    &exitCode,
+			CompletedAt: time.Date(2026, 7, 8, 1, 2, i, 0, time.UTC),
+		}
+		if err := k.appendTerminalJobEvent(job); err != nil {
+			t.Fatalf("append terminal job %d returned error: %v", i, err)
+		}
+	}
+
+	if _, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  sessionID,
+		InputItems: []InputItem{{Type: "text", Text: "continue with bounded observations"}},
+	}); err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1", len(requests))
+	}
+	observationContext, ok := modelInputTextByKind(requests[0].InputItems, ModelInputKindKernelObservationContext)
+	if !ok {
+		t.Fatalf("provider input items = %+v, want observation context", requests[0].InputItems)
+	}
+	if len([]byte(observationContext)) > kernelObservationContextBytes {
+		t.Fatalf("observation context bytes = %d, want <= %d", len([]byte(observationContext)), kernelObservationContextBytes)
+	}
+	if !strings.Contains(observationContext, "additional kernel observations omitted by context budget") {
+		t.Fatalf("observation context missing omission hint: %q", observationContext)
+	}
+
+	projection, err := k.Session(sessionID)
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	completed := 0
+	deliveredIDs := []string{}
+	for _, event := range projection.Events {
+		if event.Type == "job.completed" {
+			completed++
+		}
+		if event.Type == "kernel.observation.delivered" && event.Data.KernelObservationDelivery != nil {
+			deliveredIDs = append(deliveredIDs, event.Data.KernelObservationDelivery.ObservationEventIDs...)
+		}
+	}
+	if completed != 80 {
+		t.Fatalf("completed events = %d, want 80", completed)
+	}
+	if len(deliveredIDs) == 0 || len(deliveredIDs) >= completed {
+		t.Fatalf("delivered ids = %d completed = %d, want bounded subset", len(deliveredIDs), completed)
+	}
+}
+
 func TestProviderFailureDoesNotMarkJobObservationDelivered(t *testing.T) {
 	workspace := testTempDir(t)
 	arguments, err := json.Marshal(map[string]interface{}{

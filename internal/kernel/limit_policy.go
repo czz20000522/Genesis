@@ -225,6 +225,17 @@ func (k *Kernel) runtimeLimitProjections() []RuntimeLimitProjection {
 			Unit:           "byte",
 		},
 		{
+			Name:           "kernel_observation.context_bytes",
+			Class:          LimitClassProjectionOutputCap,
+			Owner:          "provider_context_projection",
+			DefaultSource:  "kernel_projection_budget",
+			Inspectable:    true,
+			ModelVisible:   false,
+			OverridePolicy: "projection_owner_only",
+			EffectiveValue: kernelObservationContextBytes,
+			Unit:           "byte",
+		},
+		{
 			Name:           "provider.transient_retry_attempts",
 			Class:          LimitClassProviderRetryRepairCap,
 			Owner:          "model_gateway",

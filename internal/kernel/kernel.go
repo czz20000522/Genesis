@@ -933,8 +933,9 @@ func (k *Kernel) providerContextProjectionFromStoredEvents(events []StoredEvent,
 	}
 	history := sameSessionConversationHistoryProjection(events, projection.SessionID, turnID)
 	observations := pendingKernelObservations(events, projection.SessionID)
-	projection.InputItems = k.modelInputItemsFromSubmittedEvent(submitted, history.Text, policy.SkillIndexChars, kernelObservationContext(observations))
-	projection.KernelObservationEventIDs = kernelObservationEventIDs(observations)
+	observationContext, deliveredObservationIDs := kernelObservationContext(observations)
+	projection.InputItems = k.modelInputItemsFromSubmittedEvent(submitted, history.Text, policy.SkillIndexChars, observationContext)
+	projection.KernelObservationEventIDs = deliveredObservationIDs
 	projection.ToolRounds = modelToolRoundsFromStoredEvents(events, turnID)
 	projection.HistoryTurnIDs = history.TurnIDs()
 	projection.CompactedThroughTurnID = history.CompactedThroughTurnID

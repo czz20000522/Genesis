@@ -11,6 +11,8 @@ type kernelObservation struct {
 	Job       JobProjection
 }
 
+const kernelObservationContextBytes = 4096
+
 func pendingKernelObservations(events []StoredEvent, sessionID string) []kernelObservation {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -57,48 +59,70 @@ func deliveredKernelObservationIDs(events []StoredEvent, sessionID string) map[s
 	return delivered
 }
 
-func kernelObservationEventIDs(observations []kernelObservation) []string {
-	ids := make([]string, 0, len(observations))
+func kernelObservationContext(observations []kernelObservation) (string, []string) {
+	if len(observations) == 0 {
+		return "", nil
+	}
+	header := "Kernel observations:"
+	lines := []string{header}
+	used := len([]byte(header))
+	deliveredIDs := []string{}
+	omitted := 0
 	for _, observation := range observations {
-		eventID := strings.TrimSpace(observation.EventID)
-		if eventID != "" {
-			ids = append(ids, eventID)
+		next := kernelObservationLines(observation)
+		needed := 0
+		for _, line := range next {
+			needed += 1 + len([]byte(line))
+		}
+		if used+needed > kernelObservationContextBytes {
+			omitted++
+			continue
+		}
+		lines = append(lines, next...)
+		used += needed
+		if eventID := strings.TrimSpace(observation.EventID); eventID != "" {
+			deliveredIDs = append(deliveredIDs, eventID)
 		}
 	}
-	return ids
+	if omitted > 0 {
+		line := "- additional kernel observations omitted by context budget"
+		if used+1+len([]byte(line)) <= kernelObservationContextBytes {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 1 {
+		return "", nil
+	}
+	return strings.Join(lines, "\n"), deliveredIDs
 }
 
-func kernelObservationContext(observations []kernelObservation) string {
-	if len(observations) == 0 {
-		return ""
-	}
-	lines := []string{"Kernel observations:"}
-	for _, observation := range observations {
-		job := observation.Job
-		lines = append(lines, fmt.Sprintf(
+func kernelObservationLines(observation kernelObservation) []string {
+	job := observation.Job
+	lines := []string{
+		fmt.Sprintf(
 			"- %s job_id=%s tool=%s status=%s",
 			strings.TrimSpace(observation.EventType),
 			strings.TrimSpace(job.JobID),
 			strings.TrimSpace(job.Tool),
 			strings.TrimSpace(job.Status),
-		))
-		if receipt := strings.TrimSpace(job.Receipt); receipt != "" {
-			lines = append(lines, "  receipt: "+receipt)
-		}
-		if failure := strings.TrimSpace(job.FailureReason); failure != "" {
-			lines = append(lines, "  failure_reason: "+failure)
-		}
-		if job.ExitCode != nil {
-			lines = append(lines, fmt.Sprintf("  exit_code: %d", *job.ExitCode))
-		}
-		if stdout := strings.TrimSpace(job.Stdout); stdout != "" {
-			lines = append(lines, "  stdout: "+boundedTimelinePreview(stdout))
-		}
-		if stderr := strings.TrimSpace(job.Stderr); stderr != "" {
-			lines = append(lines, "  stderr: "+boundedTimelinePreview(stderr))
-		}
+		),
 	}
-	return strings.Join(lines, "\n")
+	if receipt := strings.TrimSpace(job.Receipt); receipt != "" {
+		lines = append(lines, "  receipt: "+boundedTimelinePreview(receipt))
+	}
+	if failure := strings.TrimSpace(job.FailureReason); failure != "" {
+		lines = append(lines, "  failure_reason: "+boundedTimelinePreview(failure))
+	}
+	if job.ExitCode != nil {
+		lines = append(lines, fmt.Sprintf("  exit_code: %d", *job.ExitCode))
+	}
+	if stdout := strings.TrimSpace(job.Stdout); stdout != "" {
+		lines = append(lines, "  stdout: "+boundedTimelinePreview(stdout))
+	}
+	if stderr := strings.TrimSpace(job.Stderr); stderr != "" {
+		lines = append(lines, "  stderr: "+boundedTimelinePreview(stderr))
+	}
+	return lines
 }
 
 func (k *Kernel) appendKernelObservationDelivered(sessionID string, turnID string, observationEventIDs []string) error {

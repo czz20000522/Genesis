@@ -688,3 +688,31 @@ Evidence:
 Remaining scope:
 
 - Continue Task 6 by scanning model-visible context fragments outside source snapshots for missing projection bounds.
+
+### 2026-07-08 Slice 16 Kernel Observation Context Budget
+
+Reference scan:
+
+- Codex owner: resource/tool outputs are truncated before model-visible replay, and event/control ids stay outside resource content.
+- Reasonix owner: file reads provide bounded windows and do not mark unseen content as consumed.
+- Genesis owner: `internal/kernel/observations.go` converts pending terminal job facts into provider-context observations and records delivered observation event ids.
+
+Gap:
+
+- Kernel observation context bounded per-output previews, but not the total observation payload. A naive text cap would also be wrong because omitted event ids must not be marked delivered.
+
+Change:
+
+- Capped kernel observation context at 4096 bytes.
+- Bounded receipt and failure-reason lines with the existing timeline preview helper.
+- Returned only the observation event ids that were actually included in provider context.
+- Projected `kernel_observation.context_bytes` through runtime limits.
+- Added `TestKernelObservationContextBoundsDeliveredEvents`.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run TestKernelObservationContextBoundsDeliveredEvents -count=1`
+
+Remaining scope:
+
+- Continue Task 6 with a final scan for unbounded model-visible fragments; conversation history remains governed by compaction and should not get an ad hoc text cap without a separate compaction design update.
