@@ -25,6 +25,19 @@ type AgentInvocationAdmissionRequest struct {
 	IdempotencyKey      string          `json:"idempotency_key,omitempty"`
 }
 
+type WorkerInvocationAdmissionRequest struct {
+	ConfigRoot          string   `json:"config_root,omitempty"`
+	ParentID            string   `json:"parent_id,omitempty"`
+	RoleID              string   `json:"role_id,omitempty"`
+	SessionID           string   `json:"session_id"`
+	ParentInvocationID  string   `json:"parent_invocation_id,omitempty"`
+	Principal           string   `json:"principal"`
+	RequestedToolNames  []string `json:"requested_tool_names,omitempty"`
+	ContextScope        string   `json:"context_scope,omitempty"`
+	ParentResultChannel string   `json:"parent_result_channel,omitempty"`
+	IdempotencyKey      string   `json:"idempotency_key,omitempty"`
+}
+
 type AgentInvocationProjection struct {
 	InvocationID        string          `json:"invocation_id"`
 	SessionID           string          `json:"session_id"`

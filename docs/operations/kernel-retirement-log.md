@@ -21,6 +21,13 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 - Evidence: Fix commit: current Lore commit.; Verification: `go test ./internal/kernel -run "Test(ResolveParentWorkerRuntimeFromGenesis|ResolveProviderConfigFromGenesis|ResolveOpenAICompatibleConfigFromGenesis|ArchitectureBoundary)" -count=1`.
 - Reference alignment: Aligned with Codex explicit spawned-agent identity/concurrency control and Reasonix configured subagent model/tool metadata; task graph layout and scheduling stay outside this Phase A slice.
 
+### KERNEL-PARENT-WORKER-INVOCATION-20260708 - P1 - Worker invocation consumes role bindings
+
+- Status: ready_for_acceptance.
+- Conclusion: Parent-worker admission now resolves a configured role binding into a normal `AgentInvocation`, uses the role preset tool set, permits multiple same-role invocation identities, and refuses extra requested tools before ledger append.
+- Evidence: Fix commit: current Lore commit.; Verification: `go test ./internal/kernel -run "Test(AdmitWorkerInvocationFromRole|AgentInvocation|ResolveParentWorkerRuntimeFromGenesis|ArchitectureBoundary)" -count=1`.
+- Reference alignment: Aligned with Codex distinct spawned-agent identities and Reasonix configured subagent tool scoping; HTTP transport, child conversation rendering, and task graph scheduling stay outside this slice.
+
 ### KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623 - P2 - Local managed shell job handoff
 
 - Status: ready_for_acceptance.

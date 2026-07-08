@@ -156,6 +156,79 @@ func TestAgentInvocationChildGrantMustBeSubsetOfParent(t *testing.T) {
 	}
 }
 
+func TestAdmitWorkerInvocationFromRoleUsesPresetToolsAndAllowsSameRoleInstances(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfig(t, []string{"resource_read", "source_read"})
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
+		PermissionMode: PermissionModePlan,
+	})
+
+	first, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+		ConfigRoot:     configRoot,
+		SessionID:      "worker-role-session",
+		Principal:      "application:test",
+		RoleID:         "local-small-worker",
+		IdempotencyKey: "worker-1",
+	})
+	if err != nil {
+		t.Fatalf("first AdmitWorkerInvocationFromRole returned error: %v", err)
+	}
+	second, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+		ConfigRoot:     configRoot,
+		SessionID:      "worker-role-session",
+		Principal:      "application:test",
+		RoleID:         "local-small-worker",
+		IdempotencyKey: "worker-2",
+	})
+	if err != nil {
+		t.Fatalf("second AdmitWorkerInvocationFromRole returned error: %v", err)
+	}
+	if first.InvocationID == second.InvocationID {
+		t.Fatalf("same role produced same invocation id %q", first.InvocationID)
+	}
+	if first.AgentProfileRef != "agent_profile:local-small-worker" || second.AgentProfileRef != first.AgentProfileRef {
+		t.Fatalf("agent profile refs = %q, %q", first.AgentProfileRef, second.AgentProfileRef)
+	}
+	if strings.Join(first.CapabilityGrant.ToolNames, ",") != "resource_read,source_read" {
+		t.Fatalf("first tool grant = %v, want role preset tools", first.CapabilityGrant.ToolNames)
+	}
+	if strings.Join(second.CapabilityGrant.ToolNames, ",") != "resource_read,source_read" {
+		t.Fatalf("second tool grant = %v, want role preset tools", second.CapabilityGrant.ToolNames)
+	}
+	items, err := k.AgentInvocations("worker-role-session")
+	if err != nil {
+		t.Fatalf("AgentInvocations returned error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("invocations = %+v, want two same-role worker identities", items)
+	}
+}
+
+func TestAdmitWorkerInvocationFromRoleRejectsExtraParentToolsBeforeAppend(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfig(t, []string{"resource_read"})
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
+		PermissionMode: PermissionModeYolo,
+		WorkspaceRoot:  testTempDir(t),
+	})
+
+	_, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+		ConfigRoot:         configRoot,
+		SessionID:          "worker-extra-tool-session",
+		Principal:          "application:test",
+		RoleID:             "local-small-worker",
+		RequestedToolNames: []string{"resource_read", "workspace_edit"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "capability_grant_exceeds_role") {
+		t.Fatalf("AdmitWorkerInvocationFromRole error = %v, want capability_grant_exceeds_role", err)
+	}
+	items, err := k.AgentInvocations("worker-extra-tool-session")
+	if err != nil {
+		t.Fatalf("AgentInvocations returned error: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("invocations = %+v, want no rejected worker fact", items)
+	}
+}
+
 func TestAgentInvocationAdmissionRejectsUnknownParentAndTool(t *testing.T) {
 	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
@@ -193,6 +266,54 @@ func TestAgentInvocationAdmissionRejectsUnknownParentAndTool(t *testing.T) {
 			}
 		})
 	}
+}
+
+func writeParentWorkerRuntimeConfig(t *testing.T, toolSet []string) string {
+	t.Helper()
+	tools := make([]any, 0, len(toolSet))
+	for _, tool := range toolSet {
+		tools = append(tools, tool)
+	}
+	return writeModelsConfig(t, map[string]any{
+		"model_gateway": map[string]any{
+			"protocol":       "openai-chat-completions",
+			"base_url":       "https://provider.example.com/api",
+			"credential_ref": "secret://models/provider/default",
+		},
+		"active_model_profile_bindings": map[string]any{
+			DefaultModelRole: "parent-profile",
+		},
+		"model_profiles": map[string]any{
+			"cloud": map[string]any{
+				"gateway": map[string]any{
+					"parent-profile": map[string]any{
+						"profile_id": "parent-profile",
+						"model_id":   "frontier-parent",
+					},
+					"worker-profile": map[string]any{
+						"profile_id": "worker-profile",
+						"model_id":   "worker-model",
+					},
+				},
+			},
+		},
+		"parent_worker_runtime": map[string]any{
+			"parents": map[string]any{
+				DefaultModelRole: map[string]any{
+					"allowed_worker_roles": []any{"local-small-worker"},
+					"default_worker_role":  "local-small-worker",
+					"can_create_workers":   true,
+				},
+			},
+			"worker_roles": map[string]any{
+				"local-small-worker": map[string]any{
+					"profile_id": "worker-profile",
+					"tool_set":   tools,
+					"leaf_only":  true,
+				},
+			},
+		},
+	})
 }
 
 func TestAgentInvocationRunReturnsBoundedFinalWithoutParentTurn(t *testing.T) {

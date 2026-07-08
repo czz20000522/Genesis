@@ -119,6 +119,44 @@ func (k *Kernel) AgentInvocations(sessionID string) ([]AgentInvocationProjection
 	return items, nil
 }
 
+func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequest) (AgentInvocationProjection, error) {
+	runtime, err := ResolveParentWorkerRuntimeFromGenesis(ParentWorkerRuntimeRequest{
+		ConfigRoot: req.ConfigRoot,
+		ParentID:   req.ParentID,
+	})
+	if err != nil {
+		return AgentInvocationProjection{}, err
+	}
+	if !runtime.Parent.CanCreateWorkers {
+		return AgentInvocationProjection{}, errors.New("parent_worker_creation_denied")
+	}
+	roleID := strings.TrimSpace(req.RoleID)
+	if roleID == "" {
+		roleID = strings.TrimSpace(runtime.Parent.DefaultWorkerRole)
+	}
+	worker, ok := workerRoleByID(runtime.WorkerRoles, roleID)
+	if !ok {
+		return AgentInvocationProjection{}, ErrGenesisWorkerRoleBindingMissing
+	}
+	if err := validateRequestedWorkerTools(req.RequestedToolNames, worker.ToolSet); err != nil {
+		return AgentInvocationProjection{}, err
+	}
+	contextScope := strings.TrimSpace(req.ContextScope)
+	if contextScope == "" {
+		contextScope = strings.TrimSpace(worker.ContextPolicyRef)
+	}
+	return k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{
+		SessionID:           req.SessionID,
+		ParentInvocationID:  req.ParentInvocationID,
+		Principal:           req.Principal,
+		AgentProfileRef:     "agent_profile:" + worker.RoleID,
+		CapabilityGrant:     CapabilityGrant{ToolNames: worker.ToolSet},
+		ContextScope:        contextScope,
+		ParentResultChannel: req.ParentResultChannel,
+		IdempotencyKey:      req.IdempotencyKey,
+	})
+}
+
 func (k *Kernel) RunAgentInvocation(ctx context.Context, req AgentInvocationRunRequest) (AgentInvocationRunProjection, error) {
 	if err := validateAgentInvocationRunRequest(req); err != nil {
 		return AgentInvocationRunProjection{}, err
@@ -391,6 +429,33 @@ func (k *Kernel) finishActiveInvocationRun(invocationID string) {
 	k.workMu.Lock()
 	defer k.workMu.Unlock()
 	delete(k.activeInvocationRuns, invocationID)
+}
+
+func workerRoleByID(workers []WorkerRoleBindingProjection, roleID string) (WorkerRoleBindingProjection, bool) {
+	roleID = strings.TrimSpace(roleID)
+	for _, worker := range workers {
+		if worker.RoleID == roleID {
+			return worker, true
+		}
+	}
+	return WorkerRoleBindingProjection{}, false
+}
+
+func validateRequestedWorkerTools(requested []string, roleTools []string) error {
+	grant := normalizeCapabilityGrant(CapabilityGrant{ToolNames: requested})
+	if len(grant.ToolNames) == 0 {
+		return nil
+	}
+	roleSet := map[string]struct{}{}
+	for _, tool := range roleTools {
+		roleSet[tool] = struct{}{}
+	}
+	for _, tool := range grant.ToolNames {
+		if _, ok := roleSet[tool]; !ok {
+			return fmt.Errorf("capability_grant_exceeds_role: %s", tool)
+		}
+	}
+	return nil
 }
 
 func validateKernelRefIfPresent(field string, value string) error {
