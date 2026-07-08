@@ -926,3 +926,31 @@ Evidence:
 Remaining scope:
 
 - Run full verification for Slice 24, then continue Task 8 with desktop sidecar ownership checks and any remaining readiness/documentation drift.
+
+### 2026-07-08 Slice 25 Desktop Sidecar Boundary Check
+
+Reference scan:
+
+- Codex owner: local runtime and background-service diagnostics are separated from normal provider calls; doctor checks can report background server state without taking ownership of unrelated external services.
+- Reasonix owner: CLI boot and doctor surfaces distinguish local setup/readiness from the interactive agent loop, and inspect reports provider/tool state without forcing startup ownership.
+- Genesis owner: `desktop/app.go`, `desktop/local_service_supervisor.go`, and `desktop/app_test.go` own desktop sidecar behavior outside the kernel package.
+
+Result:
+
+- `loadDesktopConfig` marks sidecar ownership as `external` when `GENESIS_KERNEL_BASE_URL` is set.
+- `LocalServiceSupervisor.StartKernel` returns the external projection without invoking the launcher when ownership is external.
+- `LocalServiceSupervisor.StopOwned` returns the external projection without stopping any process when ownership is external.
+- Owned sidecars still launch, probe readiness, expose pid/log metadata, and stop idempotently through the desktop-owned supervisor.
+
+Classification:
+
+- Matches Task 8 acceptance. No code change needed in this slice.
+
+Evidence:
+
+- GREEN: `go test ./... -run Test(LocalServiceSupervisorProjectsExternalKernelWithoutOwnership|LocalServiceSupervisorDoesNotOwnExternalKernel|DesktopStartupAndShutdownRouteThroughLocalServiceSupervisor|LocalServiceSupervisorShutdownOnlyStopsOwnedProcessOnce) -count=1` from `desktop/`
+- GREEN: `go test ./... -count=1` from `desktop/`
+
+Remaining scope:
+
+- Task 8 has no remaining obvious deterministic gap from the current scan. Run a final root and desktop hygiene pass, then move to Task 9 candidate selection.
