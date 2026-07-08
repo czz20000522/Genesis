@@ -1445,3 +1445,21 @@ Change:
 Evidence:
 
 - GREEN: `go test ./internal/kernel -run TestNewIDUsesPrefixedULIDWithInjectedTime -count=1`
+
+### 2026-07-08 Slice 39 Source Snapshot Content Sniff
+
+Change:
+
+- Replaced the hand-written NUL-byte binary probe for zip source entries with
+  Go stdlib `http.DetectContentType`.
+- Kept Genesis-owned source projection semantics: zip entry validation,
+  bounded read budgets, UTF-8 enforcement, source refs, and specialized
+  `sourceMimeType` labels remain in the resource owner.
+- Did not add `github.com/gabriel-vasile/mimetype`; stdlib covers this narrow
+  source snapshot binary/text gate.
+
+Evidence:
+
+- RED: `go test ./internal/kernel/resource -run TestSourceSnapshotTreatsBinarySignatureAsNonText -count=1`
+  showed a GIF signature without NUL bytes was treated as text.
+- GREEN: `go test ./internal/kernel/resource -run "TestSource(SnapshotTreatsBinarySignatureAsNonText|TreeAndReadReturnBoundedArchiveContent|ReadPreservesUTF8ValidityAtByteBudget)" -count=1`

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -536,7 +537,7 @@ func zipEntryTextReadable(file *zip.File) (bool, error) {
 		return false, sourceError("invalid_source_archive", "source zip entry cannot be read")
 	}
 	buf = buf[:n]
-	if bytesContainsNUL(buf) {
+	if !strings.HasPrefix(http.DetectContentType(buf), "text/") {
 		return false, nil
 	}
 	return utf8.Valid(buf), nil
@@ -639,15 +640,6 @@ func sourceMimeType(path string, textReadable bool) string {
 	default:
 		return "text/plain"
 	}
-}
-
-func bytesContainsNUL(data []byte) bool {
-	for _, b := range data {
-		if b == 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func sourceError(reason string, message string) SourceError {

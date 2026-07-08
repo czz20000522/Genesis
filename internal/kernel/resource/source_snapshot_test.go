@@ -120,6 +120,32 @@ func TestSourceTreeAndReadReturnBoundedArchiveContent(t *testing.T) {
 	}
 }
 
+func TestSourceSnapshotTreatsBinarySignatureAsNonText(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "source-snapshot-binary-signature")
+	zipPath := filepath.Join(dir, "package.zip")
+	writeZipFixture(t, zipPath, map[string][]byte{
+		"assets/tiny.gif": []byte("GIF89a"),
+	})
+	registry, err := NewRegistry(nil)
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	descriptor, err := registry.RegisterLocalZipSnapshot(zipPath, SourceSnapshotOptions{Purpose: SourcePurposeAnalysis})
+	if err != nil {
+		t.Fatalf("RegisterLocalZipSnapshot returned error: %v", err)
+	}
+	tree := sourceTreeForSnapshot(t, registry, descriptor.SourceSnapshotRef)
+	binaryRef := sourceFileRefByPath(tree.Entries, "assets/tiny.gif")
+	if binaryRef == "" {
+		t.Fatalf("tree entries = %+v, want tiny.gif file ref", tree.Entries)
+	}
+
+	_, _, code, err := registry.AdmitSourceRead(binaryRef, nil, nil)
+	if err == nil || code != "binary_source_file" {
+		t.Fatalf("binary source read code=%q err=%v, want binary_source_file", code, err)
+	}
+}
+
 func TestSourceReadPreservesUTF8ValidityAtByteBudget(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "source-snapshot-utf8")
 	zipPath := filepath.Join(dir, "package.zip")
