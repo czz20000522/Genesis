@@ -1495,3 +1495,17 @@ Evidence:
 
 - GREEN: `go test ./internal/kernel -run "TestLocalManagedJobExecutorEmitsSparseOutputSnapshot|TestManagedJobOutputCapture" -count=1`
 - GREEN: `go test ./internal/kernel -run "Test.*Foreground|Test.*Attach|Test.*Interrupt" -count=1`
+
+### 2026-07-08 Slice 42 Foundation Issue Drift
+
+Change:
+
+- Reconciled the foundation requirement's related-issue section with the empty
+  active kernel issue ledger and current shell/job retirement evidence.
+- Removed stale wording that foreground attach, interrupt behavior, and job
+  progress snapshots remained incomplete foundation gaps.
+
+Evidence:
+
+- GREEN: `rg -n "^### " docs/operations/kernel-issues.md` returned no active issue headings.
+- GREEN: `git diff --check`

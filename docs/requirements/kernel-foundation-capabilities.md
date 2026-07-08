@@ -491,7 +491,7 @@ Phase B: tool runtime, permission profile, shell execution, and terminal-equival
 
 - Proves: registry ownership, model-visible tool manifest, permission denial, command output evidence, and repair feedback.
 - Proves now also: configured unavailable sandbox profiles and approval-required write effects fail closed before execution with model-repairable feedback.
-- Still short of production: shell sandbox is controlled workspace rather than OS sandbox; interactive approval is not implemented; richer job progress, interrupt behavior, and tool scheduling/concurrency remain governed by this requirement and the shell/job requirement.
+- Still short of production: shell sandbox is controlled workspace rather than OS sandbox; richer job policy remains governed by this requirement and the shell/job requirement.
 
 Phase C: work registry, accumulation, credential plane, and protected inspection.
 
@@ -501,12 +501,12 @@ Phase C: work registry, accumulation, credential plane, and protected inspection
 Phase D: real provider boundary, provider-backed usage accounting, multi-turn projection, skill metadata, and compaction.
 
 - Proves: provider command, built-in provider convenience, model usage normalization, provider-backed token accounting, metadata-only skills, and kernel-owned compaction.
-- Still short of production: full use-time skill hydration, richer context policy, progress snapshots, and idle continuation policy remain future work.
+- Still short of production: full use-time skill hydration, richer context policy, and idle continuation policy remain future work.
 
 Phase E: hardening and production readiness.
 
-- Proves: stronger sandbox/approval where available, managed-job hardening, interrupt semantics, deterministic tool scheduling, and broader recovery evidence.
-- Still short of production until complete: stronger authority flows, foreground attach-or-kill, arbitrary long-running effect recovery, and richer resource-footprint based parallelism remain constrained.
+- Proves: stronger sandbox/approval where available, managed-job hardening, interrupt semantics, foreground attach-or-kill, deterministic tool scheduling, and broader recovery evidence.
+- Still short of production until complete: stronger authority flows, arbitrary long-running effect recovery, and richer resource-footprint based parallelism remain constrained.
 
 ## Acceptance Criteria
 
@@ -563,11 +563,11 @@ This requirement governs the foundation baseline and is the source for future fo
 
 Current related active issues:
 
-- `KERNEL-JOB-CONTROL-INTERRUPT-20260623`: remaining interrupt, progress snapshot, idle continuation, and foreground attach-or-kill semantics. It is governed by the shell/job requirement because it extends the generic Tool Runtime and managed-job path rather than the foundation baseline itself.
+- None.
 
 Related ready-for-acceptance shell/job evidence:
 
-- `KERNEL-SHELL-TIMEOUT-CAP-20260623`, `KERNEL-MANAGED-JOB-FOUNDATION-20260623`, `KERNEL-OBSERVATION-DELIVERY-20260623`, `KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624`, and `KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624` are recorded in `docs/operations/kernel-retirement-log.md`.
+- `KERNEL-SHELL-TIMEOUT-CAP-20260623`, `KERNEL-MANAGED-JOB-FOUNDATION-20260623`, `KERNEL-OBSERVATION-DELIVERY-20260623`, `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`, `KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624`, and `KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624` are recorded in `docs/operations/kernel-retirement-log.md`.
 - `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` is recorded as retired evidence for sandbox readiness, approval owner command path, and the minimal decision surface.
 
 Issues should cite this requirement only for gaps against these production semantics. They should not restate the full requirement or reopen application-specific kernel ownership.
