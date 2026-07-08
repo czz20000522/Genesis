@@ -12,8 +12,12 @@ import (
 type workspaceEditRequest struct {
 	RelativePath string
 	AbsolutePath string
-	OldString    string
-	NewString    string
+	Edits        []workspaceEditChange
+}
+
+type workspaceEditChange struct {
+	OldString string
+	NewString string
 }
 
 type WorkspaceEditResult struct {
@@ -31,16 +35,38 @@ func (k *Kernel) admitWorkspaceEditRequest(args workspaceEditToolArguments) (wor
 	if err != nil {
 		return workspaceEditRequest{}, code, err
 	}
-	oldString := args.OldString
-	if oldString == "" {
-		return workspaceEditRequest{}, "workspace_edit_old_string_required", errors.New("old_string is required")
+	edits, code, err := workspaceEditChanges(args)
+	if err != nil {
+		return workspaceEditRequest{}, code, err
 	}
 	return workspaceEditRequest{
 		RelativePath: relativePath,
 		AbsolutePath: absolutePath,
-		OldString:    oldString,
-		NewString:    args.NewString,
+		Edits:        edits,
 	}, "", nil
+}
+
+func workspaceEditChanges(args workspaceEditToolArguments) ([]workspaceEditChange, string, error) {
+	if len(args.Edits) > 0 {
+		edits := make([]workspaceEditChange, 0, len(args.Edits))
+		for _, edit := range args.Edits {
+			if edit.OldString == "" {
+				return nil, "workspace_edit_old_string_required", errors.New("old_string is required")
+			}
+			edits = append(edits, workspaceEditChange{
+				OldString: edit.OldString,
+				NewString: edit.NewString,
+			})
+		}
+		return edits, "", nil
+	}
+	if args.OldString == "" {
+		return nil, "workspace_edit_old_string_required", errors.New("old_string is required")
+	}
+	return []workspaceEditChange{{
+		OldString: args.OldString,
+		NewString: args.NewString,
+	}}, "", nil
 }
 
 func resolveWorkspaceEditPath(workspaceRoot string, requestedPath string) (string, string, string, error) {
@@ -119,15 +145,20 @@ func applyWorkspaceEdit(req workspaceEditRequest) (WorkspaceEditResult, string, 
 		return WorkspaceEditResult{}, "workspace_edit_read_failed", errors.New("workspace edit target cannot be read")
 	}
 	content := string(contentBytes)
-	count := strings.Count(content, req.OldString)
-	switch count {
-	case 0:
-		return WorkspaceEditResult{}, "workspace_edit_old_string_not_found", errors.New("old_string was not found")
-	case 1:
-	default:
-		return WorkspaceEditResult{}, "workspace_edit_old_string_not_unique", errors.New("old_string is not unique")
+	updated := content
+	replacements := 0
+	for _, edit := range req.Edits {
+		count := strings.Count(updated, edit.OldString)
+		switch count {
+		case 0:
+			return WorkspaceEditResult{}, "workspace_edit_old_string_not_found", errors.New("old_string was not found")
+		case 1:
+			updated = strings.Replace(updated, edit.OldString, edit.NewString, 1)
+			replacements++
+		default:
+			return WorkspaceEditResult{}, "workspace_edit_old_string_not_unique", errors.New("old_string is not unique")
+		}
 	}
-	updated := strings.Replace(content, req.OldString, req.NewString, 1)
 	updatedBytes := []byte(updated)
 	if err := os.WriteFile(req.AbsolutePath, updatedBytes, info.Mode().Perm()); err != nil {
 		return WorkspaceEditResult{}, "workspace_edit_write_failed", errors.New("workspace edit target cannot be written")
@@ -137,7 +168,7 @@ func applyWorkspaceEdit(req workspaceEditRequest) (WorkspaceEditResult, string, 
 		Tool:         "workspace_edit",
 		Executed:     true,
 		Path:         req.RelativePath,
-		Replacements: 1,
+		Replacements: replacements,
 		BytesBefore:  len(contentBytes),
 		BytesAfter:   len(updatedBytes),
 	}, "", nil

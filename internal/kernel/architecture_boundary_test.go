@@ -201,11 +201,12 @@ func TestArchitectureBoundaryModelVisibleToolSchemaShapeIsStable(t *testing.T) {
 			},
 		},
 		"workspace_edit": {
-			required: []string{"path", "old_string", "new_string"},
+			required: []string{"path"},
 			fields: map[string]toolSchemaFieldShape{
 				"path":       {typ: "string"},
 				"old_string": {typ: "string"},
 				"new_string": {typ: "string"},
+				"edits":      {typ: "array", itemTyp: "object"},
 			},
 		},
 		"job_status": {

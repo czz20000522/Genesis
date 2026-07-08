@@ -1509,3 +1509,25 @@ Evidence:
 
 - GREEN: `rg -n "^### " docs/operations/kernel-issues.md` returned no active issue headings.
 - GREEN: `git diff --check`
+
+### 2026-07-08 Slice 43 Workspace Edit Atomic Multi-Edit
+
+Reference scan:
+
+- Reasonix `internal/tool/builtin/multiedit.go` applies ordered edit steps
+  against an in-memory buffer and writes only after every step succeeds.
+- Genesis keeps one generic `workspace_edit` tool instead of adding a second
+  tool name, so the existing ToolGateway, ToolPolicy, scheduling, path
+  confinement, and result projection stay unchanged.
+
+Change:
+
+- Added optional `edits` support to `workspace_edit`.
+- Preserved Phase A single-edit `old_string`/`new_string` compatibility.
+- Kept exact-replace semantics for every step; no `replace_all`, file creation,
+  full-file write, or patch grammar was added.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run "TestWorkspaceEdit.*MultiEdit|TestWorkspaceEditReplacesUniqueString" -count=1`
+- GREEN: `go test ./internal/kernel -run "TestWorkspaceEdit|TestArchitectureBoundaryModelVisibleToolSchemaShapeIsStable|TestSubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext" -count=1`

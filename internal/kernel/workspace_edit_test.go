@@ -74,6 +74,53 @@ func TestWorkspaceEditReplacesUniqueString(t *testing.T) {
 	}
 }
 
+func TestWorkspaceEditAppliesOrderedMultiEditAtomically(t *testing.T) {
+	workspace := testTempDir(t)
+	filePath := filepath.Join(workspace, "src", "note.txt")
+	writeTestFile(t, filePath, "package old\nold value\n")
+	k := newWorkspaceEditTestKernelWithWorkspace(t, workspace, PermissionModeYolo)
+
+	result := executeWorkspaceEditTool(t, k, map[string]interface{}{
+		"path": "src/note.txt",
+		"edits": []map[string]interface{}{
+			{"old_string": "package old", "new_string": "package new"},
+			{"old_string": "old value", "new_string": "new value"},
+		},
+	})
+
+	if content := readTestFile(t, filePath); content != "package new\nnew value\n" {
+		t.Fatalf("file content = %q, want ordered multi-edit", content)
+	}
+	payload := decodeJSONMap(t, result.Content)
+	if payload["status"] != "completed" || payload["executed"] != true || payload["path"] != "src/note.txt" {
+		t.Fatalf("workspace_edit result = %+v, want completed multi-edit payload", payload)
+	}
+	if payload["replacements"] != float64(2) {
+		t.Fatalf("replacements = %#v, want 2", payload["replacements"])
+	}
+}
+
+func TestWorkspaceEditMultiEditFailureLeavesFileUnchanged(t *testing.T) {
+	workspace := testTempDir(t)
+	filePath := filepath.Join(workspace, "note.txt")
+	original := "alpha beta gamma\n"
+	writeTestFile(t, filePath, original)
+	k := newWorkspaceEditTestKernelWithWorkspace(t, workspace, PermissionModeYolo)
+
+	result := executeWorkspaceEditTool(t, k, map[string]interface{}{
+		"path": "note.txt",
+		"edits": []map[string]interface{}{
+			{"old_string": "alpha", "new_string": "ALPHA"},
+			{"old_string": "missing", "new_string": "MISSING"},
+		},
+	})
+
+	if content := readTestFile(t, filePath); content != original {
+		t.Fatalf("file content = %q, want unchanged %q", content, original)
+	}
+	assertWorkspaceEditInvalid(t, result.Content, "workspace_edit_old_string_not_found")
+}
+
 func TestWorkspaceEditPlanModeDeniesWithoutMutation(t *testing.T) {
 	workspace := testTempDir(t)
 	filePath := filepath.Join(workspace, "note.txt")

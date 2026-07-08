@@ -39,7 +39,13 @@ type sourceReadToolArguments struct {
 }
 
 type workspaceEditToolArguments struct {
-	Path      string `json:"path"`
+	Path      string                    `json:"path"`
+	OldString string                    `json:"old_string,omitempty"`
+	NewString string                    `json:"new_string,omitempty"`
+	Edits     []workspaceEditToolChange `json:"edits,omitempty" jsonschema:"minItems=1"`
+}
+
+type workspaceEditToolChange struct {
 	OldString string `json:"old_string"`
 	NewString string `json:"new_string"`
 }

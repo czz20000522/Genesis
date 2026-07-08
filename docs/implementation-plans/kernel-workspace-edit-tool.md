@@ -57,8 +57,18 @@ one existing workspace file and returns a compact semantic result.
 
 ## Phase B: Atomic Multi-Edit
 
-Add ordered in-memory edits against one file. Write only after every edit
-succeeds. Preserve the same result and confinement rules.
+Delivered:
+
+- [x] `workspace_edit` accepts an optional `edits` array while preserving the
+  Phase A `old_string`/`new_string` exact-replace shape for single edits.
+- [x] Ordered edits apply against an in-memory buffer and write the file only
+  after every edit succeeds.
+- [x] Each edit preserves exact-replace semantics: `old_string` is required and
+  must occur exactly once at its step.
+- [x] Failure leaves the file unchanged and returns the existing repairable
+  `workspace_edit_*` error taxonomy.
+- [x] Result payload remains bounded and reports total replacements, not full
+  file content.
 
 ## Phase C: Patch Grammar
 
