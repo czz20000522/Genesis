@@ -1,10 +1,13 @@
 package kernel
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+
+	invopopjsonschema "github.com/invopop/jsonschema"
 )
 
 const (
@@ -70,26 +73,11 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			Spec: ToolSpec{
 				Name:        "shell_exec",
 				Description: "Execute a small governed shell command. Permission mode and workspace root are controlled by the Genesis kernel.",
-				InputSchema: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"command": map[string]interface{}{
-							"type":        "string",
-							"description": "Command to execute through the governed shell tool.",
-						},
-						"cwd": map[string]interface{}{
-							"type":        "string",
-							"description": "Optional working directory. When omitted, the kernel uses the configured workspace root when available.",
-						},
-						"timeout_sec": map[string]interface{}{
-							"type":        "integer",
-							"minimum":     1,
-							"description": shellTimeoutDescription(shellPolicy),
-						},
-					},
-					"required":             []string{"command"},
-					"additionalProperties": false,
-				},
+				InputSchema: toolInputSchema(shellExecToolArguments{}, map[string]string{
+					"command":     "Command to execute through the governed shell tool.",
+					"cwd":         "Optional working directory. When omitted, the kernel uses the configured workspace root when available.",
+					"timeout_sec": shellTimeoutDescription(shellPolicy),
+				}),
 				SideEffectLevel: ToolSideEffectWrite,
 				ExecutionKind:   ToolExecutionKindSandboxedProcess,
 				Scheduling:      shellExecToolSchedulingSpec(),
@@ -102,27 +90,11 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			Spec: ToolSpec{
 				Name:        "resource_read",
 				Description: "Read bounded text from a kernel-owned immutable resource reference.",
-				InputSchema: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"resource_ref": map[string]interface{}{
-							"type":        "string",
-							"description": "Kernel-issued resource reference to read.",
-						},
-						"offset_bytes": map[string]interface{}{
-							"type":        "integer",
-							"minimum":     0,
-							"description": "Optional byte offset. Omit to start at zero.",
-						},
-						"limit_bytes": map[string]interface{}{
-							"type":        "integer",
-							"minimum":     1,
-							"description": "Optional byte limit. Omit for the kernel default.",
-						},
-					},
-					"required":             []string{"resource_ref"},
-					"additionalProperties": false,
-				},
+				InputSchema: toolInputSchema(resourceReadToolArguments{}, map[string]string{
+					"resource_ref": "Kernel-issued resource reference to read.",
+					"offset_bytes": "Optional byte offset. Omit to start at zero.",
+					"limit_bytes":  "Optional byte limit. Omit for the kernel default.",
+				}),
 				SideEffectLevel: ToolSideEffectRead,
 				ExecutionKind:   ToolExecutionKindKernelControl,
 				Scheduling:      resourceReadToolSchedulingSpec(),
@@ -135,32 +107,12 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			Spec: ToolSpec{
 				Name:        "context_discover",
 				Description: "Discover bounded user-level accumulation and capability descriptors relevant to the current intent. Results are hints only and do not grant tool, resource, connector, or provider-context authority.",
-				InputSchema: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"intent": map[string]interface{}{
-							"type":        "string",
-							"description": "Current semantic intent to search for relevant accumulation or capability descriptors.",
-						},
-						"current_context_summary": map[string]interface{}{
-							"type":        "string",
-							"description": "Optional short summary of the current task context.",
-						},
-						"requested_kinds": map[string]interface{}{
-							"type":        "array",
-							"items":       map[string]interface{}{"type": "string"},
-							"description": "Optional memory kinds to search, such as preference, heuristic, method, lesson, project_overlay, capability_hint, or memory_fact.",
-						},
-						"limit": map[string]interface{}{
-							"type":        "integer",
-							"minimum":     1,
-							"maximum":     maxDiscoveryLimit,
-							"description": "Optional maximum number of discovery candidates to return.",
-						},
-					},
-					"required":             []string{"intent"},
-					"additionalProperties": false,
-				},
+				InputSchema: toolInputSchema(contextDiscoverToolArguments{}, map[string]string{
+					"intent":                  "Current semantic intent to search for relevant accumulation or capability descriptors.",
+					"current_context_summary": "Optional short summary of the current task context.",
+					"requested_kinds":         "Optional memory kinds to search, such as preference, heuristic, method, lesson, project_overlay, capability_hint, or memory_fact.",
+					"limit":                   "Optional maximum number of discovery candidates to return.",
+				}, toolSchemaNumericLimit{Field: "limit", Keyword: "maximum", Value: maxDiscoveryLimit}),
 				SideEffectLevel: ToolSideEffectRead,
 				ExecutionKind:   ToolExecutionKindKernelControl,
 				Scheduling:      contextDiscoveryToolSchedulingSpec(),
@@ -173,22 +125,10 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			Spec: ToolSpec{
 				Name:        "source_tree",
 				Description: "List a bounded tree for a kernel-issued source snapshot reference.",
-				InputSchema: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"source_snapshot_ref": map[string]interface{}{
-							"type":        "string",
-							"description": "Kernel-issued source snapshot reference to list.",
-						},
-						"max_entries": map[string]interface{}{
-							"type":        "integer",
-							"minimum":     1,
-							"description": "Optional maximum number of tree entries to return.",
-						},
-					},
-					"required":             []string{"source_snapshot_ref"},
-					"additionalProperties": false,
-				},
+				InputSchema: toolInputSchema(sourceTreeToolArguments{}, map[string]string{
+					"source_snapshot_ref": "Kernel-issued source snapshot reference to list.",
+					"max_entries":         "Optional maximum number of tree entries to return.",
+				}),
 				SideEffectLevel: ToolSideEffectRead,
 				ExecutionKind:   ToolExecutionKindKernelControl,
 				Scheduling:      resourceReadToolSchedulingSpec(),
@@ -201,27 +141,11 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			Spec: ToolSpec{
 				Name:        "source_read",
 				Description: "Read bounded text from a source file reference inside an admitted source snapshot.",
-				InputSchema: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"source_file_ref": map[string]interface{}{
-							"type":        "string",
-							"description": "Kernel-issued source file reference to read.",
-						},
-						"offset_bytes": map[string]interface{}{
-							"type":        "integer",
-							"minimum":     0,
-							"description": "Optional byte offset. Omit to start at zero.",
-						},
-						"limit_bytes": map[string]interface{}{
-							"type":        "integer",
-							"minimum":     1,
-							"description": "Optional byte limit. Omit for the kernel default.",
-						},
-					},
-					"required":             []string{"source_file_ref"},
-					"additionalProperties": false,
-				},
+				InputSchema: toolInputSchema(sourceReadToolArguments{}, map[string]string{
+					"source_file_ref": "Kernel-issued source file reference to read.",
+					"offset_bytes":    "Optional byte offset. Omit to start at zero.",
+					"limit_bytes":     "Optional byte limit. Omit for the kernel default.",
+				}),
 				SideEffectLevel: ToolSideEffectRead,
 				ExecutionKind:   ToolExecutionKindKernelControl,
 				Scheduling:      resourceReadToolSchedulingSpec(),
@@ -234,25 +158,11 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			Spec: ToolSpec{
 				Name:        "workspace_edit",
 				Description: "Replace one exact, unique string in one existing file under the configured workspace root.",
-				InputSchema: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Relative path to an existing workspace file.",
-						},
-						"old_string": map[string]interface{}{
-							"type":        "string",
-							"description": "Exact text to replace. It must occur exactly once.",
-						},
-						"new_string": map[string]interface{}{
-							"type":        "string",
-							"description": "Replacement text. Use an empty string to delete the old string.",
-						},
-					},
-					"required":             []string{"path", "old_string", "new_string"},
-					"additionalProperties": false,
-				},
+				InputSchema: toolInputSchema(workspaceEditToolArguments{}, map[string]string{
+					"path":       "Relative path to an existing workspace file.",
+					"old_string": "Exact text to replace. It must occur exactly once.",
+					"new_string": "Replacement text. Use an empty string to delete the old string.",
+				}),
 				SideEffectLevel: ToolSideEffectWrite,
 				ExecutionKind:   ToolExecutionKindKernelControl,
 				Scheduling:      workspaceEditToolSchedulingSpec(),
@@ -265,17 +175,9 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			Spec: ToolSpec{
 				Name:        "job_status",
 				Description: "Inspect a Genesis-managed job by kernel-issued job id without creating a new operation.",
-				InputSchema: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"job_id": map[string]interface{}{
-							"type":        "string",
-							"description": "Kernel-issued job id returned by a prior managed job receipt.",
-						},
-					},
-					"required":             []string{"job_id"},
-					"additionalProperties": false,
-				},
+				InputSchema: toolInputSchema(jobStatusToolArguments{}, map[string]string{
+					"job_id": "Kernel-issued job id returned by a prior managed job receipt.",
+				}),
 				SideEffectLevel: ToolSideEffectRead,
 				ExecutionKind:   ToolExecutionKindKernelControl,
 				Scheduling:      jobControlToolSchedulingSpec(),
@@ -288,23 +190,10 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			Spec: ToolSpec{
 				Name:        "job_wait",
 				Description: "Wait briefly for a Genesis-managed job to reach a terminal state without blocking indefinitely.",
-				InputSchema: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"job_id": map[string]interface{}{
-							"type":        "string",
-							"description": "Kernel-issued job id returned by a prior managed job receipt.",
-						},
-						"timeout_sec": map[string]interface{}{
-							"type":        "integer",
-							"minimum":     1,
-							"maximum":     maxJobWaitTimeoutSec,
-							"description": "Maximum seconds to wait. Omit for a short bounded wait.",
-						},
-					},
-					"required":             []string{"job_id"},
-					"additionalProperties": false,
-				},
+				InputSchema: toolInputSchema(jobWaitToolArguments{}, map[string]string{
+					"job_id":      "Kernel-issued job id returned by a prior managed job receipt.",
+					"timeout_sec": "Maximum seconds to wait. Omit for a short bounded wait.",
+				}, toolSchemaNumericLimit{Field: "timeout_sec", Keyword: "maximum", Value: maxJobWaitTimeoutSec}),
 				SideEffectLevel: ToolSideEffectRead,
 				ExecutionKind:   ToolExecutionKindKernelControl,
 				Scheduling:      jobControlToolSchedulingSpec(),
@@ -317,21 +206,10 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			Spec: ToolSpec{
 				Name:        "job_cancel",
 				Description: "Request cancellation for a Genesis-managed job by kernel-issued job id.",
-				InputSchema: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"job_id": map[string]interface{}{
-							"type":        "string",
-							"description": "Kernel-issued job id returned by a prior managed job receipt.",
-						},
-						"reason": map[string]interface{}{
-							"type":        "string",
-							"description": "Optional user-visible cancellation reason.",
-						},
-					},
-					"required":             []string{"job_id"},
-					"additionalProperties": false,
-				},
+				InputSchema: toolInputSchema(jobCancelToolArguments{}, map[string]string{
+					"job_id": "Kernel-issued job id returned by a prior managed job receipt.",
+					"reason": "Optional user-visible cancellation reason.",
+				}),
 				SideEffectLevel: ToolSideEffectWrite,
 				ExecutionKind:   ToolExecutionKindKernelControl,
 				Scheduling:      jobControlToolSchedulingSpec(),
@@ -340,6 +218,98 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 				return ctx.prepareJobCancelToolCall(eventID, providerCallID, name, arguments)
 			},
 		},
+	}
+}
+
+type toolSchemaNumericLimit struct {
+	Field   string
+	Keyword string
+	Value   int
+}
+
+func toolInputSchema(request any, descriptions map[string]string, limits ...toolSchemaNumericLimit) map[string]interface{} {
+	reflector := invopopjsonschema.Reflector{
+		Anonymous:      true,
+		DoNotReference: true,
+		ExpandedStruct: true,
+	}
+	schema := schemaMap(reflector.Reflect(request))
+	delete(schema, "$schema")
+	delete(schema, "$id")
+	delete(schema, "$defs")
+	properties, _ := schema["properties"].(map[string]interface{})
+	for name, description := range descriptions {
+		property, _ := properties[name].(map[string]interface{})
+		if property == nil {
+			continue
+		}
+		property["description"] = description
+	}
+	for _, limit := range limits {
+		property, _ := properties[limit.Field].(map[string]interface{})
+		if property == nil {
+			continue
+		}
+		property[limit.Keyword] = limit.Value
+	}
+	return schema
+}
+
+func schemaMap(schema *invopopjsonschema.Schema) map[string]interface{} {
+	data, err := json.Marshal(schema)
+	if err != nil {
+		return invalidReflectedToolSchema()
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var raw map[string]interface{}
+	if err := decoder.Decode(&raw); err != nil {
+		return invalidReflectedToolSchema()
+	}
+	normalized, _ := normalizeToolSchemaValue(raw).(map[string]interface{})
+	return normalized
+}
+
+func invalidReflectedToolSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":                 "object",
+		"properties":           map[string]interface{}{},
+		"required":             []string{},
+		"additionalProperties": false,
+	}
+}
+
+func normalizeToolSchemaValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		for key, item := range typed {
+			typed[key] = normalizeToolSchemaValue(item)
+		}
+		return typed
+	case []interface{}:
+		stringsOnly := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				stringsOnly = nil
+				break
+			}
+			stringsOnly = append(stringsOnly, text)
+		}
+		if stringsOnly != nil {
+			return stringsOnly
+		}
+		for i, item := range typed {
+			typed[i] = normalizeToolSchemaValue(item)
+		}
+		return typed
+	case json.Number:
+		if number, err := typed.Int64(); err == nil {
+			return int(number)
+		}
+		return typed.String()
+	default:
+		return value
 	}
 }
 

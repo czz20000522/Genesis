@@ -1400,3 +1400,33 @@ Remaining scope:
 - Provider-profile resolution remains a separate provider/model binding slice.
 - Background child execution, recursive delegation caps, and parent notification
   are still out of Phase D scope.
+
+### 2026-07-08 Slice 37 Generated Tool Input Schemas
+
+Change:
+
+- Added `github.com/invopop/jsonschema v0.14.0` as the typed schema generator
+  for model-visible tool input schemas.
+- Replaced hand-written `map[string]interface{}` input schema construction in
+  the default tool registry with reflection from the existing Go request
+  structs.
+- Kept Genesis-owned tool names, descriptions, side-effect levels, execution
+  kinds, scheduling, executor binding, and model-visible schema cleanup in
+  `ToolRegistry`.
+- Kept the existing architecture guard as the contract: generated schemas must
+  preserve required fields, field types, numeric bounds, and
+  `additionalProperties: false`.
+
+Dependency cost:
+
+- `jsonschema` brings `github.com/bahlo/generic-list-go`,
+  `github.com/buger/jsonparser`, `github.com/pb33f/ordered-map/v2`, and
+  `go.yaml.in/yaml/v4 v4.0.0-rc.2` transitively.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestArchitectureBoundaryModelVisibleToolSchemaShapeIsStable -count=1`
+  caught `cwd` becoming required before the request struct was corrected with
+  `omitempty`.
+- GREEN: `go test ./internal/kernel -run TestArchitectureBoundaryModelVisibleToolSchemaShapeIsStable -count=1`
+- GREEN: `go test ./internal/kernel -run "Test(ArchitectureBoundary(ModelVisibleToolSchemaShapeIsStable|ToolRegistryBindsSurface|CapabilitiesProjectFromToolRegistry)|SubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext|PrepareBatch|ToolGateway|ResourceRead|WorkspaceEdit)" -count=1`

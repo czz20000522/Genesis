@@ -16,26 +16,26 @@ var ErrModelToolCallRejected = errors.New("model tool call rejected")
 var ErrToolInfrastructureFailed = errors.New("tool infrastructure failed")
 
 type shellExecToolArguments struct {
-	CWD        string `json:"cwd"`
+	CWD        string `json:"cwd,omitempty"`
 	Command    string `json:"command"`
-	TimeoutSec *int   `json:"timeout_sec,omitempty"`
+	TimeoutSec *int   `json:"timeout_sec,omitempty" jsonschema:"minimum=1"`
 }
 
 type resourceReadToolArguments struct {
 	ResourceRef string `json:"resource_ref"`
-	OffsetBytes *int   `json:"offset_bytes,omitempty"`
-	LimitBytes  *int   `json:"limit_bytes,omitempty"`
+	OffsetBytes *int   `json:"offset_bytes,omitempty" jsonschema:"minimum=0"`
+	LimitBytes  *int   `json:"limit_bytes,omitempty" jsonschema:"minimum=1"`
 }
 
 type sourceTreeToolArguments struct {
 	SourceSnapshotRef string `json:"source_snapshot_ref"`
-	MaxEntries        *int   `json:"max_entries,omitempty"`
+	MaxEntries        *int   `json:"max_entries,omitempty" jsonschema:"minimum=1"`
 }
 
 type sourceReadToolArguments struct {
 	SourceFileRef string `json:"source_file_ref"`
-	OffsetBytes   *int   `json:"offset_bytes,omitempty"`
-	LimitBytes    *int   `json:"limit_bytes,omitempty"`
+	OffsetBytes   *int   `json:"offset_bytes,omitempty" jsonschema:"minimum=0"`
+	LimitBytes    *int   `json:"limit_bytes,omitempty" jsonschema:"minimum=1"`
 }
 
 type workspaceEditToolArguments struct {
@@ -48,7 +48,7 @@ type contextDiscoverToolArguments struct {
 	Intent                string   `json:"intent"`
 	CurrentContextSummary string   `json:"current_context_summary,omitempty"`
 	RequestedKinds        []string `json:"requested_kinds,omitempty"`
-	Limit                 int      `json:"limit,omitempty"`
+	Limit                 int      `json:"limit,omitempty" jsonschema:"minimum=1"`
 }
 
 type jobStatusToolArguments struct {
@@ -57,7 +57,7 @@ type jobStatusToolArguments struct {
 
 type jobWaitToolArguments struct {
 	JobID      string `json:"job_id"`
-	TimeoutSec *int   `json:"timeout_sec,omitempty"`
+	TimeoutSec *int   `json:"timeout_sec,omitempty" jsonschema:"minimum=1"`
 }
 
 type jobCancelToolArguments struct {
