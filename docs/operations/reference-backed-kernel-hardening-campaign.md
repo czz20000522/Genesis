@@ -1585,3 +1585,19 @@ Evidence:
 
 - GREEN: `go test ./internal/kernel/resource ./internal/kernel/modelgateway ./internal/kernel/toolruntime ./internal/kernel/authority ./internal/kernel/workregistry ./internal/kernel/jobruntime -count=1`
 - GREEN: `go test ./internal/kernel -run "TestArchitectureBoundary(ResourceOwnerHasSubpackageTypes|ModelGatewayOwnerHasSubpackageResilienceSurface|ModelGatewayOwnerHasSubpackageAccountingSurface|ToolRuntimeOwnerHasSubpackageSchedulingSurface|ToolRuntimeOwnerHasSubpackageResultSurface|AuthorityOwnerHasSubpackageApprovalSurface|WorkRegistryOwnerHasSubpackageTypeSurface|JobRuntimeOwnerHasSubpackageTypeSurface|OwnerDTOsLiveInNamedFiles)" -count=1`
+
+### 2026-07-08 Slice 47 Strict Provider And Red-Test Plan State
+
+Change:
+
+- Synchronized `kernel-provider-command-strict-response.md` with the current
+  strict provider-command decoder and tests.
+- Synchronized `kernel-reference-behavior-red-test-matrix.md` with the current
+  structural guard requiring red-test translations in kernel plans with
+  reference scans.
+- Reworded remaining notes as scope beyond the completed structural/strictness
+  slices instead of active production shortfalls.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run "Test(ProviderCommand|StrictProviderCommand|OpenAICompatibleProvider|ArchitectureBoundaryKernelImplementationPlansNameReferenceBehaviorRedTests)" -count=1`

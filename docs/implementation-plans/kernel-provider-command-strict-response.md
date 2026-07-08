@@ -24,6 +24,7 @@
 
 ## Phase A
 
+- Status: completed in the current implementation.
 - Deliverable: Strict decoder for `providerCommandResponse` and nested provider-command tool calls.
 - Red lines:
   - Do not make OpenAI-compatible vendor response decoding strict.
@@ -37,9 +38,12 @@
 - Evidence:
   - Focused provider-command tests.
   - `go test ./internal/kernel -count=1`.
-- Still short of production:
+- Remaining beyond this strict-response slice:
   - Streaming provider command protocol is not designed.
 
 ## Retirement Criteria
 
-`KERNEL-PROVIDER-COMMAND-STRICT-RESPONSE-20260625` can retire when the strict provider-command response tests pass, existing provider-command positive paths still pass, and OpenAI-compatible tolerance for vendor extras remains covered.
+`KERNEL-PROVIDER-COMMAND-STRICT-RESPONSE-20260625` has met the phase-local
+retirement criteria in the current implementation: strict provider-command
+response tests pass, existing provider-command positive paths pass, and
+OpenAI-compatible tolerance for vendor extras remains covered.

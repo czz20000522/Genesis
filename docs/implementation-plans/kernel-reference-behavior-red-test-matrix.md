@@ -41,6 +41,7 @@ Genesis translation:
 
 ## Phase A
 
+- Status: completed in the current implementation.
 - Deliverable: process/template/doc updates plus a structural architecture test.
 - Red lines:
   - Do not make the guard judge exact prose quality.
@@ -54,13 +55,13 @@ Genesis translation:
   - `go test ./... -count=1`.
   - `go build ./...`.
   - `git diff --check`.
-- Still short of production:
+- Remaining beyond this structural guard:
   - The guard proves the section exists. Human review still judges whether the
     translated test shape is strong enough for a specific issue.
 
 ## Retirement Criteria
 
-`KERNEL-REFERENCE-BEHAVIOR-RED-TEST-MATRIX-20260625` can retire when the process,
-implementation-plan template, owner-structure requirement/design, and current
-kernel implementation plans all require or contain the red-test translation
+`KERNEL-REFERENCE-BEHAVIOR-RED-TEST-MATRIX-20260625` has met the structural
+retirement criteria in the current implementation: the process/template/docs and
+current kernel implementation plans require or contain the red-test translation
 section, and the structural guard passes.
