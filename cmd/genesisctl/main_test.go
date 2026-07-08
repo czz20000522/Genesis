@@ -144,6 +144,15 @@ func TestCapabilityRunnerHelper(t *testing.T) {
 	}
 }
 
+func TestProviderCommandVerifyHelper(t *testing.T) {
+	for _, arg := range os.Args {
+		if arg == "provider-command-verify-helper" {
+			os.Stdout.WriteString(`{"kind":"final","text":"GENESIS_PROVIDER_VERIFY_OK","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}` + "\n")
+			os.Exit(0)
+		}
+	}
+}
+
 func TestProviderUseDeepSeekPresetWritesConfigWithoutPrintingSecret(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("real local credential setup uses Windows DPAPI")
@@ -271,6 +280,55 @@ func TestProviderVerifyReportsMissingCredentialAsJSON(t *testing.T) {
 	if strings.Contains(stdout.String(), "secret://models/provider/missing") || strings.Contains(stdout.String(), "Authorization") {
 		t.Fatalf("provider verify output leaked credential detail: %s", stdout.String())
 	}
+}
+
+func TestProviderVerifyRunsProviderCommandConfig(t *testing.T) {
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-provider-verify-command-config")
+	if err := os.MkdirAll(configRoot, 0o755); err != nil {
+		t.Fatalf("mkdir config root: %v", err)
+	}
+	configPayload, err := json.Marshal(map[string]any{
+		"model_gateway": map[string]any{
+			"protocol": "provider_command",
+			"command":  os.Args[0],
+			"args":     []string{"-test.run=TestProviderCommandVerifyHelper", "--", "provider-command-verify-helper"},
+		},
+		"active_model_profile_bindings": map[string]any{
+			"coordinator": "verify-command-profile",
+		},
+		"model_profiles": map[string]any{
+			"local": map[string]any{
+				"gateway": map[string]any{
+					"verify-command-profile": map[string]any{
+						"profile_id": "verify-command-profile",
+						"model_id":   "command-model",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal models config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, "models.json"), configPayload, 0o644); err != nil {
+		t.Fatalf("write models.json: %v", err)
+	}
+	var stdout bytes.Buffer
+
+	err = run([]string{
+		"provider", "verify",
+		"-config-root", configRoot,
+		"-timeout-sec", "1",
+	}, strings.NewReader(""), &stdout)
+	if err != nil {
+		t.Fatalf("provider verify returned error: %v", err)
+	}
+
+	response := decodeProviderSetupResponse(t, stdout.Bytes())
+	assertStringField(t, response, "readiness", "ready")
+	assertStringField(t, response, "model", "command-model")
+	provider := response["provider"].(map[string]interface{})
+	assertStringField(t, provider, "name", "provider_command")
 }
 
 func TestProviderUseSCNetPresetDryRun(t *testing.T) {

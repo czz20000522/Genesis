@@ -585,3 +585,28 @@ Evidence:
 Remaining scope:
 
 - Continue Task 5 by scanning provider setup/config CLI behavior for drift. Keep model-list refresh out of this campaign until a requirement/design explicitly admits it.
+
+### 2026-07-08 Slice 12 Provider Command Verify CLI Coverage
+
+Reference scan:
+
+- Codex owner: provider setup and execution surfaces keep CLI/API callers behind the same provider client boundary.
+- Reasonix owner: `internal/config/config.go` resolves provider entries once, while agent execution consumes the resolved provider interface rather than branching by caller.
+- Genesis owner: `cmd/genesisctl/main.go` delegates `provider verify` to `kernel.VerifyProviderLive`; kernel verification now supports both OpenAI-compatible and provider-command routes.
+
+Gap:
+
+- The kernel had provider-command live verify coverage, but the user-facing `genesisctl provider verify` command did not have a regression test proving that provider-command configs return the same JSON readiness shape through the CLI.
+
+Change:
+
+- Added `TestProviderVerifyRunsProviderCommandConfig` in `cmd/genesisctl/main_test.go`.
+- Added a tiny test-only provider-command helper that emits a valid provider-command final response.
+
+Evidence:
+
+- GREEN: `go test ./cmd/genesisctl -run TestProviderVerify -count=1`
+
+Remaining scope:
+
+- Task 5 is close to covered. Do a final approved-doc drift scan for provider setup/config; if no concrete gap appears, move to Task 6 resource/material/redaction.
