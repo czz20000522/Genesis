@@ -518,6 +518,9 @@ func orderedStreamToolCalls(calls map[int]*chatToolCall) []chatToolCall {
 	ordered := make([]chatToolCall, 0, len(indexes))
 	for _, index := range indexes {
 		call := *calls[index]
+		if strings.TrimSpace(call.ID) == "" {
+			call.ID = fmt.Sprintf("call_%d", index)
+		}
 		if strings.TrimSpace(call.Type) == "" {
 			call.Type = "function"
 		}

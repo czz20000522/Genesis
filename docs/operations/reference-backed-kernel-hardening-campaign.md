@@ -530,3 +530,30 @@ Evidence:
 Remaining scope:
 
 - Continue Task 5 with local/cloud provider adapter parity, then move to provider/model configuration refresh only if the current approved docs already contain that as deterministic scope.
+
+### 2026-07-08 Slice 10 Streaming Tool Call ID Parity
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/client.rs` keeps provider tool-call deltas ordered and replayable through the provider client boundary before the tool loop sees them.
+- Reasonix owner: `internal/provider/openai/openai.go` synthesizes `call_<index>` when OpenAI-compatible streaming tool-call deltas omit IDs, because empty IDs collapse downstream result pairing.
+- Genesis owner: `internal/kernel/openai_compatible.go` merges OpenAI-compatible streaming tool calls by index, then converts them into kernel `ModelToolCall` values for the shared tool loop.
+
+Gap:
+
+- Genesis sorted streamed tool calls by index, but left `tool_call_id` empty when the provider omitted it. Multiple empty provider IDs are legal inside the kernel only because kernel event IDs stay distinct, but replaying those calls to OpenAI-compatible providers can lose provider-visible pairing.
+
+Change:
+
+- Added `TestOpenAICompatibleProviderStreamSynthesizesMissingToolCallIDs` in `internal/kernel/provider_gateway_test.go`.
+- Changed `orderedStreamToolCalls` to synthesize `call_<index>` for streamed tool calls whose provider ID is missing, preserving stable provider-visible pairing without changing non-streamed provider calls.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestOpenAICompatibleProviderStreamSynthesizesMissingToolCallIDs -count=1` failed with empty `ToolCallID` values.
+- GREEN: `go test ./internal/kernel -run TestOpenAICompatibleProviderStreamSynthesizesMissingToolCallIDs -count=1`
+- Related: `go test ./internal/kernel -run "Test(OpenAICompatibleProviderStream|SubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal|CommandProviderToolLoopThroughKernel)" -count=1`
+
+Remaining scope:
+
+- Task 5 provider boundary now has streamed usage, HTTP failure classification, provider-command failure classification, and streamed tool-call ID parity. Next scan should move to provider configuration/verification gaps already present in approved docs; skip model-list refresh until it has a requirement/design package.

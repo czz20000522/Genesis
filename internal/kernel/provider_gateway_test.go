@@ -154,6 +154,33 @@ func TestOpenAICompatibleProviderStreamRequestsAndPreservesUsage(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleProviderStreamSynthesizesMissingToolCallIDs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"model\":\"served-model\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"type\":\"function\",\"function\":{\"name\":\"source_tree\",\"arguments\":\"{}\"}},{\"index\":0,\"type\":\"function\",\"function\":{\"name\":\"source_read\",\"arguments\":\"{}\"}}]}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "test-model",
+	})
+	resp, err := provider.StreamComplete(context.Background(), ModelRequest{
+		InputItems: []ModelInputItem{{Kind: ModelInputKindUserText, Text: "use tools"}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("StreamComplete returned error: %v", err)
+	}
+	if len(resp.ToolCalls) != 2 {
+		t.Fatalf("tool calls = %+v, want two", resp.ToolCalls)
+	}
+	if resp.ToolCalls[0].ToolCallID != "call_0" || resp.ToolCalls[1].ToolCallID != "call_1" {
+		t.Fatalf("tool calls = %+v, want synthesized IDs in index order", resp.ToolCalls)
+	}
+}
+
 func TestCommandProviderCompletesFromTypedStdoutEvent(t *testing.T) {
 	provider := NewCommandProvider(ProviderCommandConfig{
 		Command:        os.Args[0],
