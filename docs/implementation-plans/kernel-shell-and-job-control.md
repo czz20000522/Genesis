@@ -14,8 +14,7 @@
 
 - Requirement: `docs/requirements/kernel-shell-and-job-control.md`
 - Design: `docs/design/kernel-shell-and-job-control.md`
-- Active issues:
-  - `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`
+- Active issues: none in the current kernel issue ledger.
 
 ## Phase A: Foreground Timeout Contract
 
@@ -37,11 +36,11 @@
 - Do not treat `timeout_sec > 180` as validation error.
 - Do not add application-specific tool names.
 
-- [ ] **Step 1: Write failing tests for model-visible timeout schema**
+- [x] **Step 1: Write failing tests for model-visible timeout schema**
 
   Add assertions that `shell_exec` manifest contains `timeout_sec` with numeric/integer semantics and still rejects unknown control-plane fields.
 
-- [ ] **Step 2: Write failing tests for foreground timeout validation**
+- [x] **Step 2: Write failing tests for foreground timeout validation**
 
   Add table tests for:
 
@@ -51,15 +50,15 @@
   - `timeout_sec=0`, negative, string, and fractional values produce `tool_request_invalid`;
   - invalid timeout creates no operation/effect.
 
-- [ ] **Step 3: Implement minimal request/schema support**
+- [x] **Step 3: Implement minimal request/schema support**
 
   Add `TimeoutSec` to shell argument/request structures and pass it through `ToolGateway` to `ExecShell`.
 
-- [ ] **Step 4: Implement foreground timeout execution**
+- [x] **Step 4: Implement foreground timeout execution**
 
   Replace the hard-coded shell process timeout with the validated request timeout for host shell execution.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
   Run:
 
@@ -89,7 +88,7 @@
 - No `job_status`, `job_cancel`, interrupt, or observation-delivery loop in this phase.
 - UI/raw/audit projections can expose job facts, but provider context only needs the receipt in this phase.
 
-- [ ] **Step 1: Write failing provider-loop test for managed-job receipt**
+- [x] **Step 1: Write failing provider-loop test for managed-job receipt**
 
   A provider requests `shell_exec` with `timeout_sec=181`. The test expects:
 
@@ -99,23 +98,23 @@
   - provider receives a tool result with status `managed_job_started`;
   - final response is returned.
 
-- [ ] **Step 2: Write failing restart projection test**
+- [x] **Step 2: Write failing restart projection test**
 
   Reload the kernel from the same ledger and verify the session projection still includes the job lifecycle events.
 
-- [ ] **Step 3: Add job projection types**
+- [x] **Step 3: Add job projection types**
 
   Add a small `JobProjection` with job id, session id, turn id, tool, status, command, cwd, timeout, receipt text, started/completed timestamps, and optional reason.
 
-- [ ] **Step 4: Add job event helpers**
+- [x] **Step 4: Add job event helpers**
 
   Add helpers that append `job.started` events and terminal job facts from executor completion. Use the `job.started` event id as the handle.
 
-- [ ] **Step 5: Route long timeout shell calls to managed jobs**
+- [x] **Step 5: Route long timeout shell calls to managed jobs**
 
   In the prepared shell execution path, when `timeout_sec > 180`, append `job.started`, return a receipt-style `ModelToolResult`, and hand the command to the managed executor instead of calling foreground `ExecShell`.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
   Run:
 
@@ -127,7 +126,7 @@
 
 **Deliverable:** focused and full verification evidence for the first two issues. Do not retire job control, cancellation, or interrupt issues.
 
-- [ ] **Step 1: Run contract scans**
+- [x] **Step 1: Run contract scans**
 
   Run:
 
@@ -136,7 +135,7 @@
   rg -n $pattern AGENTS.md README.md docs internal features
   ```
 
-- [ ] **Step 2: Run focused architecture test**
+- [x] **Step 2: Run focused architecture test**
 
   Run:
 
@@ -144,7 +143,7 @@
   D:\software\Go\bin\go.exe test ./internal/kernel -run TestArchitectureBoundary -count=1
   ```
 
-- [ ] **Step 3: Run full Go verification**
+- [x] **Step 3: Run full Go verification**
 
   Run:
 
@@ -153,7 +152,7 @@
   D:\software\Go\bin\go.exe build ./...
   ```
 
-- [ ] **Step 4: Update issue ledger or retirement evidence**
+- [x] **Step 4: Update issue ledger or retirement evidence**
 
   If Phase A and B-lite pass, move only the fully satisfied slices to acceptance evidence. At Phase C time, job status/cancel and interrupt were still active gaps; current active gap state must be read from `docs/operations/kernel-issues.md`.
 
@@ -247,10 +246,11 @@
   D:\software\Go\bin\go.exe test ./internal/kernel -run "TestSubmitTurn.*JobStatus|TestSubmitTurn.*JobCancel|TestSubmitTurnRoutesLongShellTimeoutToManagedJobReceipt" -count=1
   ```
 
-## Still Short After Phase E-lite
+## Historical Shortfall After Phase E-lite
 
-- Progress snapshot delivery and idle continuation controls are not implemented.
-- Provider-stream interruption and foreground attach-or-kill behavior are not implemented.
+- Progress snapshot delivery, interrupt behavior, foreground attach-or-kill,
+  bounded `job_wait`, live output snapshots, and lost-ownership recovery were
+  completed by later slices.
 - Stronger sandbox and approval policy remain separate future work.
 
 ## Phase F-lite: Minimal Managed Executor Boundary
