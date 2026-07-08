@@ -1430,3 +1430,18 @@ Evidence:
   `omitempty`.
 - GREEN: `go test ./internal/kernel -run TestArchitectureBoundaryModelVisibleToolSchemaShapeIsStable -count=1`
 - GREEN: `go test ./internal/kernel -run "Test(ArchitectureBoundary(ModelVisibleToolSchemaShapeIsStable|ToolRegistryBindsSurface|CapabilitiesProjectFromToolRegistry)|SubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext|PrepareBatch|ToolGateway|ResourceRead|WorkspaceEdit)" -count=1`
+
+### 2026-07-08 Slice 38 ULID Kernel IDs
+
+Change:
+
+- Replaced hand-written timestamp plus random-hex id generation with
+  `github.com/oklog/ulid/v2`.
+- Preserved Genesis-owned `newID(prefix, now)` semantics so callers keep stable
+  prefixes and tests keep injected time control.
+- Added regression coverage for prefix shape, strict ULID parsing, injected
+  timestamp preservation, and time-sortable ordering across milliseconds.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run TestNewIDUsesPrefixedULIDWithInjectedTime -count=1`
