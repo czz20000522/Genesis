@@ -38,6 +38,12 @@ type sourceReadToolArguments struct {
 	LimitBytes    *int   `json:"limit_bytes,omitempty"`
 }
 
+type workspaceEditToolArguments struct {
+	Path      string `json:"path"`
+	OldString string `json:"old_string"`
+	NewString string `json:"new_string"`
+}
+
 type contextDiscoverToolArguments struct {
 	Intent                string   `json:"intent"`
 	CurrentContextSummary string   `json:"current_context_summary,omitempty"`
@@ -370,6 +376,26 @@ func (k *Kernel) sourceReadModelToolResult(eventID string, providerCallID string
 		ToolCallEventID: strings.TrimSpace(eventID),
 		Name:            strings.TrimSpace(name),
 		Content:         string(content),
+	}, nil
+}
+
+func (k *Kernel) prepareWorkspaceEditToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args workspaceEditToolArguments
+	if err := decodeStrictModelToolArguments("workspace_edit", arguments, &args); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+	}
+	req, code, err := k.admitWorkspaceEditRequest(args)
+	if err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, code, fmt.Sprintf("invalid workspace_edit request: %v", err)), nil
+	}
+	return preparedModelToolCall{
+		eventID:        eventID,
+		providerCallID: providerCallID,
+		name:           name,
+		accessPlan:     workspaceEditToolAccessPlan(name, req.RelativePath),
+		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			return k.workspaceEditModelToolResult(eventID, providerCallID, name, req)
+		},
 	}, nil
 }
 

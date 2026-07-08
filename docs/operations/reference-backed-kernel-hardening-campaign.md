@@ -277,6 +277,26 @@ Next implementation slice:
 - Phase A semantics: exact single replacement in one existing file under `ToolPolicy.WorkspaceRoot`.
 - Required tests: manifest/scheduling, successful replacement, plan-mode denial without mutation, path traversal/outside-workspace rejection, symlink escape rejection, missing target, and non-unique old string.
 
+### 2026-07-08 Task 9 Workspace Edit Tool Phase A
+
+Implemented:
+
+- Added `workspace_edit` to the default kernel tool registry as a write-side,
+  kernel-control tool.
+- Added a trusted workspace-write serial access plan for admitted edit calls.
+- Added path admission and exact replacement execution for one existing file
+  under `ToolPolicy.WorkspaceRoot`.
+- Kept read/mutation work in the authorized execute path; invalid requests
+  return repairable tool results.
+- Kept model-visible success and failure payloads free of host absolute paths
+  and workspace roots.
+
+Focused verification:
+
+- `go test ./internal/kernel -run TestWorkspaceEdit -count=1`
+- `go test ./internal/kernel -run "Test(PrepareBatchAssignsDefaultToolAccessPlans|ToolScheduling|DefaultKernelPureReadCandidates|PlanToolExecutionBatches|ArchitectureBoundary|SubmitTurnReturnsMinimalPermissionDeniedToolResult)" -count=1`
+- `go test ./internal/kernel -run "Test(Source|Resource)" -count=1`
+
 ### 2026-07-08 Slice 1 Shell UTF-8 Prologue
 
 Reference scan:

@@ -1,6 +1,10 @@
 package kernel
 
-import "genesis/internal/kernel/toolruntime"
+import (
+	"strings"
+
+	"genesis/internal/kernel/toolruntime"
+)
 
 const (
 	ToolEffectClassPureRead           = toolruntime.EffectClassPureRead
@@ -22,6 +26,14 @@ type ToolExecutionBatch = toolruntime.ExecutionBatch
 
 func shellExecToolSchedulingSpec() ToolSchedulingSpec {
 	return toolruntime.ShellExecSchedulingSpec()
+}
+
+func workspaceEditToolSchedulingSpec() ToolSchedulingSpec {
+	return ToolSchedulingSpec{
+		EffectClass:       ToolEffectClassWorkspaceWrite,
+		ParallelPolicy:    ToolParallelPolicySerialFence,
+		ResourceFootprint: ToolResourceFootprint{WriteScopes: []string{"workspace"}},
+	}
 }
 
 func jobControlToolSchedulingSpec() ToolSchedulingSpec {
@@ -48,6 +60,22 @@ func shellExecToolAccessPlan(toolName string, cwd string, timeoutSec int) ToolAc
 
 func (k *Kernel) shellExecAccessPlan(toolName string, cwd string, timeoutSec int) ToolAccessPlan {
 	return toolruntime.ShellExecAccessPlan(toolName, cwd, timeoutSec, k.shellTimeoutPolicy.ManagedJobThresholdSec)
+}
+
+func workspaceEditToolAccessPlan(toolName string, path string) ToolAccessPlan {
+	spec := workspaceEditToolSchedulingSpec()
+	scope := strings.TrimSpace(path)
+	if scope == "" {
+		scope = "workspace"
+	}
+	spec.ResourceFootprint.WriteScopes = []string{scope}
+	return ToolAccessPlan{
+		ToolName:          strings.TrimSpace(toolName),
+		EffectClass:       spec.EffectClass,
+		ParallelPolicy:    spec.ParallelPolicy,
+		ResourceFootprint: spec.ResourceFootprint,
+		Trusted:           true,
+	}
 }
 
 func resourceReadToolAccessPlan(toolName string, resourceRef string) ToolAccessPlan {

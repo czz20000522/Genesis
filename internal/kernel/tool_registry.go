@@ -26,6 +26,7 @@ type toolInvocationContext interface {
 	prepareContextDiscoverToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareSourceTreeToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareSourceReadToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	prepareWorkspaceEditToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobStatusToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobWaitToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobCancelToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
@@ -227,6 +228,37 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 			},
 			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 				return ctx.prepareSourceReadToolCall(eventID, providerCallID, name, arguments)
+			},
+		},
+		{
+			Spec: ToolSpec{
+				Name:        "workspace_edit",
+				Description: "Replace one exact, unique string in one existing file under the configured workspace root.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path": map[string]interface{}{
+							"type":        "string",
+							"description": "Relative path to an existing workspace file.",
+						},
+						"old_string": map[string]interface{}{
+							"type":        "string",
+							"description": "Exact text to replace. It must occur exactly once.",
+						},
+						"new_string": map[string]interface{}{
+							"type":        "string",
+							"description": "Replacement text. Use an empty string to delete the old string.",
+						},
+					},
+					"required":             []string{"path", "old_string", "new_string"},
+					"additionalProperties": false,
+				},
+				SideEffectLevel: ToolSideEffectWrite,
+				ExecutionKind:   ToolExecutionKindKernelControl,
+				Scheduling:      workspaceEditToolSchedulingSpec(),
+			},
+			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+				return ctx.prepareWorkspaceEditToolCall(eventID, providerCallID, name, arguments)
 			},
 		},
 		{

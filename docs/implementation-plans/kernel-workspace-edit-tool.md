@@ -30,22 +30,22 @@ one existing workspace file and returns a compact semantic result.
   scheduling.
 - Do not add dependencies.
 
-- [ ] Step 1: Add failing manifest and scheduling tests.
+- [x] Step 1: Add failing manifest and scheduling tests.
 
   Prove `workspace_edit` is registered as a write tool and prepares a
   workspace-write serial access plan.
 
-- [ ] Step 2: Add failing execution and refusal tests.
+- [x] Step 2: Add failing execution and refusal tests.
 
   Cover valid replacement, plan-mode denial without mutation, outside-workspace
   rejection, symlink escape rejection, missing file, and non-unique old string.
 
-- [ ] Step 3: Implement path admission and exact replacement.
+- [x] Step 3: Implement path admission and exact replacement.
 
   Add path normalization, workspace confinement, regular-file check, exact
   single replacement, and compact JSON result.
 
-- [ ] Step 4: Verify.
+- [x] Step 4: Verify.
 
   Run focused tests, then:
 
