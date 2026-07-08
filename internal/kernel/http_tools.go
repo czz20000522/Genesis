@@ -45,7 +45,7 @@ func handleExecShell(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	if errors.Is(err, ErrToolInfrastructureFailed) {
-		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
+		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", externalBoundaryDiagnosticText(err.Error()))
 		return
 	}
 	if err != nil {

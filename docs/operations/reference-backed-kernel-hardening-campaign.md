@@ -767,3 +767,29 @@ Evidence:
 Remaining scope:
 
 - Continue Task 7 by checking whether stream/HTTP error envelopes reuse the persisted redacted turn failure or can still surface raw external diagnostics.
+
+### 2026-07-08 Slice 19 HTTP Tool Diagnostic Redaction
+
+Reference scan:
+
+- Codex owner: websocket request tests keep trace metadata in client metadata and assert it is not sent as an unrelated top-level request field; provider/debug diagnostics are handled as their own transport concern.
+- Reasonix owner: ACP dispatch converts typed runtime events into client updates, and warnings/errors are surfaced through typed event fields instead of raw runtime state.
+- Genesis owner: `internal/kernel/http_turn.go` and `internal/kernel/http_tools.go` are the HTTP fallback boundary when a turn or direct tool request fails before a full `TurnResponse` can be returned.
+
+Gap:
+
+- Slice 18 redacted persisted `turn.failed` messages, but HTTP and stream fallback paths for `ErrToolInfrastructureFailed` still used raw `err.Error()` when no response error was available. `tool_call_rejected` persisted failures also used raw model/tool-boundary error text.
+
+Change:
+
+- Redacted `ErrToolInfrastructureFailed` messages in `/turn`, `/turn/stream`, and direct HTTP tool fallback envelopes.
+- Redacted persisted `tool_call_rejected` turn failure messages.
+- Added `TestTurnStreamErrorRedactsToolInfrastructureDiagnostics` and reused the tool execution diagnostic redaction regression.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run Test(TurnStreamErrorRedactsToolInfrastructureDiagnostics|ToolExecutionErrorRedactsCredentialShapedDiagnostics|HTTPTurnStreamReportsSessionActiveConflict|SubmitTurnRejectsDuplicateToolCallIDsBeforeExecution) -count=1`
+
+Remaining scope:
+
+- Continue Task 7 with a final pass over non-turn inspection/readiness/debug error envelopes for raw external-boundary diagnostics.

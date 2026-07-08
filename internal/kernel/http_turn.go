@@ -32,7 +32,7 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	if errors.Is(err, ErrToolInfrastructureFailed) {
-		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", err.Error())
+		writeError(w, http.StatusServiceUnavailable, "tool_infrastructure_failed", externalBoundaryDiagnosticText(err.Error()))
 		return
 	}
 	if errors.Is(err, ErrSessionActive) {
@@ -101,7 +101,7 @@ func turnStreamError(resp TurnResponse, err error) TurnError {
 	case errors.Is(err, ErrIngressSecurityBlocked):
 		return TurnError{Code: "turn_blocked_by_ingress_security", Message: message}
 	case errors.Is(err, ErrToolInfrastructureFailed):
-		return TurnError{Code: "tool_infrastructure_failed", Message: message}
+		return TurnError{Code: "tool_infrastructure_failed", Message: externalBoundaryDiagnosticText(message)}
 	case errors.Is(err, ErrSessionActive):
 		return TurnError{Code: "session_active", Message: message}
 	default:

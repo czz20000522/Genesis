@@ -306,7 +306,7 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 			if errors.Is(err, ErrModelToolCallRejected) {
 				failure := TurnError{
 					Code:    "tool_call_rejected",
-					Message: err.Error(),
+					Message: externalBoundaryDiagnosticText(err.Error()),
 				}
 				if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
 					return TurnResponse{}, appendErr
@@ -318,7 +318,7 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 		if err != nil {
 			failure := TurnError{
 				Code:    "tool_call_rejected",
-				Message: err.Error(),
+				Message: externalBoundaryDiagnosticText(err.Error()),
 			}
 			if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
 				return TurnResponse{}, appendErr

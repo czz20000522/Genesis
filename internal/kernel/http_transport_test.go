@@ -319,6 +319,25 @@ func TestHTTPTurnStreamReportsSessionActiveConflict(t *testing.T) {
 	}
 }
 
+func TestTurnStreamErrorRedactsToolInfrastructureDiagnostics(t *testing.T) {
+	err := fmt.Errorf("%w: runner failed with GENESIS_PROVIDER_API_KEY=sk-streamsecret123 and Authorization: Bearer tokentest123456", ErrToolInfrastructureFailed)
+
+	streamErr := turnStreamError(TurnResponse{}, err)
+	if streamErr.Code != "tool_infrastructure_failed" {
+		t.Fatalf("stream error code = %q, want tool_infrastructure_failed", streamErr.Code)
+	}
+	for _, forbidden := range []string{"sk-streamsecret123", "tokentest123456"} {
+		if strings.Contains(streamErr.Message, forbidden) {
+			t.Fatalf("stream error leaked %q: %+v", forbidden, streamErr)
+		}
+	}
+	for _, want := range []string{"GENESIS_PROVIDER_API_KEY=[REDACTED]", "Authorization: Bearer [REDACTED]"} {
+		if !strings.Contains(streamErr.Message, want) {
+			t.Fatalf("stream error message = %q, want %q", streamErr.Message, want)
+		}
+	}
+}
+
 func TestHTTPTurnStreamReportsBudgetPause(t *testing.T) {
 	dir := testTempDir(t)
 	provider := &repeatingToolProvider{
