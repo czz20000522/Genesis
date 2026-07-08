@@ -663,3 +663,28 @@ Evidence:
 Remaining scope:
 
 - Continue Task 6 by checking source snapshot capability/limit projection evidence and any remaining unbounded model-context fragments.
+
+### 2026-07-08 Slice 15 Source Context Limit Projection
+
+Reference scan:
+
+- Codex owner: resource/tool output truncation is tied to model/runtime metadata rather than hidden constants in caller code.
+- Reasonix owner: file read windows are visible in the tool contract and continuation output.
+- Genesis owner: `internal/kernel/limit_policy.go` projects runtime and source snapshot budgets through `Capabilities().Limits`.
+
+Gap:
+
+- The source snapshot context and display-label budgets were enforced, but not inspectable in the existing limit projection alongside the other source snapshot budgets.
+
+Change:
+
+- Added `source_snapshot.context_bytes` and `source_snapshot.label_bytes` runtime limit projections.
+- Extended `TestSourceSnapshotPolicyIsInspectableRuntimeLimit`.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run TestSourceSnapshotPolicyIsInspectableRuntimeLimit -count=1`
+
+Remaining scope:
+
+- Continue Task 6 by scanning model-visible context fragments outside source snapshots for missing projection bounds.

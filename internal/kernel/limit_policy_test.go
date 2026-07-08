@@ -199,8 +199,11 @@ func TestSourceSnapshotPolicyIsInspectableRuntimeLimit(t *testing.T) {
 	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.max_tree_entries", 99)
 	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.default_read_bytes", 2048)
 	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.max_read_bytes", 8192)
+	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.context_bytes", sourceSnapshotContextBytes)
+	assertLimitEffectiveValue(t, capabilities.Limits, "source_snapshot.label_bytes", sourceSnapshotLabelBytes)
 	assertLimitClass(t, capabilities.Limits, "source_snapshot.max_total_uncompressed_bytes", LimitClassHardSafetyGuard, false)
 	assertLimitClass(t, capabilities.Limits, "source_snapshot.default_read_bytes", LimitClassProjectionOutputCap, false)
+	assertLimitClass(t, capabilities.Limits, "source_snapshot.context_bytes", LimitClassProjectionOutputCap, false)
 }
 
 func TestProjectionCapPreservesOwnerContentAndOnlyBoundsProjection(t *testing.T) {
