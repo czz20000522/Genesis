@@ -211,7 +211,7 @@ func (k *Kernel) handleToolExecutionError(runCtx context.Context, sessionID stri
 	}
 	failure := TurnError{
 		Code:    code,
-		Message: err.Error(),
+		Message: externalBoundaryDiagnosticText(err.Error()),
 	}
 	if appendErr := k.appendTurnFailure(sessionID, turnID, failure); appendErr != nil {
 		return toolBatchExecutionOutcome{}, appendErr

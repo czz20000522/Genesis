@@ -742,3 +742,28 @@ Evidence:
 Remaining scope:
 
 - Continue Task 7 by scanning audit replay error/output previews and debug artifacts for any remaining default leaks of path-shaped runtime internals.
+
+### 2026-07-08 Slice 18 Tool Failure Diagnostic Redaction
+
+Reference scan:
+
+- Codex owner: `codex-rs/core/src/client.rs` extracts response debug context and records inference failures through the trace path, keeping request/debug metadata separate from ordinary user transcript.
+- Reasonix owner: `internal/acp/dispatch.go` sends tool results and warnings through typed event updates, while persistent transcript replay is a separate ACP surface.
+- Genesis owner: `internal/kernel/tool_execution.go` reduces fatal tool execution failures into `turn.failed`, which is then visible through session, timeline, and audit replay projections.
+
+Gap:
+
+- Provider failure diagnostics were already redacted before persistence, but fatal tool execution errors wrote `err.Error()` directly into `TurnError.Message`. Tool infrastructure errors can include credential-shaped command, runner, or environment diagnostics.
+
+Change:
+
+- Routed tool execution failure messages through `externalBoundaryDiagnosticText` before appending `turn.failed`.
+- Added `TestToolExecutionErrorRedactsCredentialShapedDiagnostics` to prove both raw turn events and audit replay carry the redacted diagnostic text.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run Test(ToolExecutionErrorRedactsCredentialShapedDiagnostics|ExecuteToolBatchesRecordsFatalRunnerShapeFailuresWithoutForgingResults) -count=1`
+
+Remaining scope:
+
+- Continue Task 7 by checking whether stream/HTTP error envelopes reuse the persisted redacted turn failure or can still surface raw external diagnostics.

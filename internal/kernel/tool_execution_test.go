@@ -420,6 +420,51 @@ func TestExecuteToolBatchesRecordsFatalRunnerShapeFailuresWithoutForgingResults(
 	}
 }
 
+func TestToolExecutionErrorRedactsCredentialShapedDiagnostics(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-error-redaction"), "events.sqlite"))
+	sessionID := "session_tool_execution_error_redaction"
+	turnID := "turn_tool_execution_error_redaction"
+	err := fmt.Errorf("%w: runner failed with GENESIS_PROVIDER_API_KEY=sk-toolsecret123 and Authorization: Bearer tokentest123456", ErrToolInfrastructureFailed)
+
+	_, gotErr := k.handleToolExecutionError(context.Background(), sessionID, turnID, err)
+	if gotErr == nil {
+		t.Fatal("handleToolExecutionError returned nil error, want original failure")
+	}
+
+	events, eventErr := k.TurnEvents(turnID)
+	if eventErr != nil {
+		t.Fatalf("TurnEvents returned error: %v", eventErr)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %+v, want turn.failed", events)
+	}
+	data, ok := events[0].Data.(EventData)
+	if !ok || data.TurnError == nil {
+		t.Fatalf("event = %#v, want turn.failed data", events[0].Data)
+	}
+	if data.TurnError.Code != "tool_infrastructure_failed" {
+		t.Fatalf("turn error code = %q, want tool_infrastructure_failed", data.TurnError.Code)
+	}
+	for _, forbidden := range []string{"sk-toolsecret123", "tokentest123456"} {
+		if strings.Contains(data.TurnError.Message, forbidden) {
+			t.Fatalf("turn error leaked %q: %+v", forbidden, data.TurnError)
+		}
+	}
+	for _, want := range []string{"GENESIS_PROVIDER_API_KEY=[REDACTED]", "Authorization: Bearer [REDACTED]"} {
+		if !strings.Contains(data.TurnError.Message, want) {
+			t.Fatalf("turn error message = %q, want %q", data.TurnError.Message, want)
+		}
+	}
+
+	audit, auditErr := k.AuditReplay(turnID)
+	if auditErr != nil {
+		t.Fatalf("AuditReplay returned error: %v", auditErr)
+	}
+	if len(audit.Items) != 1 || audit.Items[0].ErrorMessage != data.TurnError.Message {
+		t.Fatalf("audit = %+v, want redacted turn error message", audit)
+	}
+}
+
 func TestExecuteToolBatchesInterruptedParallelBatchDoesNotForgeSiblingResults(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(testsupport.ProjectTempDir(t, "tool-execution-parallel-interrupted"), "events.sqlite"))
 	sessionID := "session_tool_execution_parallel_interrupted"
