@@ -1288,3 +1288,28 @@ Evidence:
 - RED: `go test ./internal/kernel -run TestParseSkillMetadataAcceptsYAMLBlockScalars -count=1`
   failed with the hand-written scalar parser.
 - GREEN: `go test ./internal/kernel -run "Test(ParseSkillMetadata|SkillCatalog|SubmitTurnProjectsRegisteredToolManifestWithoutSkillCatalogContext|HTTP|ArchitectureBoundaryHTTP)" -count=1`
+
+### 2026-07-08 Slice 33 Tool Schema Contract Guard
+
+Context:
+
+- `github.com/invopop/jsonschema` remains a candidate for replacing
+  hand-written tool input schemas.
+- Tool input schemas are active model-visible contracts, so generation must not
+  change required fields, field types, numeric bounds, or
+  `additionalProperties` semantics by accident.
+
+Change:
+
+- Added `TestArchitectureBoundaryModelVisibleToolSchemaShapeIsStable`.
+- The test locks the current schema shape for all default model-visible tools
+  without freezing description prose.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run "TestArchitectureBoundary(ModelVisibleToolSchemaShapeIsStable|ToolRegistryBindsSurface|CapabilitiesProjectFromToolRegistry)" -count=1`
+
+Remaining scope:
+
+- A later `jsonschema` slice can replace schema construction only after it
+  keeps this contract guard green.

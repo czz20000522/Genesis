@@ -11,6 +11,13 @@ import (
 	"testing"
 )
 
+type toolSchemaFieldShape struct {
+	typ     string
+	minimum interface{}
+	maximum interface{}
+	itemTyp string
+}
+
 func TestArchitectureBoundarySemanticFieldsDoNotUseSecretRejector(t *testing.T) {
 	root := kernelPackageDir(t)
 	for _, check := range []struct {
@@ -147,6 +154,95 @@ func TestResourceReadSchemaRemainsTyped(t *testing.T) {
 	}
 }
 
+func TestArchitectureBoundaryModelVisibleToolSchemaShapeIsStable(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
+	want := map[string]struct {
+		required []string
+		fields   map[string]toolSchemaFieldShape
+	}{
+		"shell_exec": {
+			required: []string{"command"},
+			fields: map[string]toolSchemaFieldShape{
+				"command":     {typ: "string"},
+				"cwd":         {typ: "string"},
+				"timeout_sec": {typ: "integer", minimum: 1},
+			},
+		},
+		"resource_read": {
+			required: []string{"resource_ref"},
+			fields: map[string]toolSchemaFieldShape{
+				"resource_ref": {typ: "string"},
+				"offset_bytes": {typ: "integer", minimum: 0},
+				"limit_bytes":  {typ: "integer", minimum: 1},
+			},
+		},
+		"context_discover": {
+			required: []string{"intent"},
+			fields: map[string]toolSchemaFieldShape{
+				"intent":                  {typ: "string"},
+				"current_context_summary": {typ: "string"},
+				"requested_kinds":         {typ: "array", itemTyp: "string"},
+				"limit":                   {typ: "integer", minimum: 1, maximum: maxDiscoveryLimit},
+			},
+		},
+		"source_tree": {
+			required: []string{"source_snapshot_ref"},
+			fields: map[string]toolSchemaFieldShape{
+				"source_snapshot_ref": {typ: "string"},
+				"max_entries":         {typ: "integer", minimum: 1},
+			},
+		},
+		"source_read": {
+			required: []string{"source_file_ref"},
+			fields: map[string]toolSchemaFieldShape{
+				"source_file_ref": {typ: "string"},
+				"offset_bytes":    {typ: "integer", minimum: 0},
+				"limit_bytes":     {typ: "integer", minimum: 1},
+			},
+		},
+		"workspace_edit": {
+			required: []string{"path", "old_string", "new_string"},
+			fields: map[string]toolSchemaFieldShape{
+				"path":       {typ: "string"},
+				"old_string": {typ: "string"},
+				"new_string": {typ: "string"},
+			},
+		},
+		"job_status": {
+			required: []string{"job_id"},
+			fields: map[string]toolSchemaFieldShape{
+				"job_id": {typ: "string"},
+			},
+		},
+		"job_wait": {
+			required: []string{"job_id"},
+			fields: map[string]toolSchemaFieldShape{
+				"job_id":      {typ: "string"},
+				"timeout_sec": {typ: "integer", minimum: 1, maximum: maxJobWaitTimeoutSec},
+			},
+		},
+		"job_cancel": {
+			required: []string{"job_id"},
+			fields: map[string]toolSchemaFieldShape{
+				"job_id": {typ: "string"},
+				"reason": {typ: "string"},
+			},
+		},
+	}
+
+	for _, tool := range k.toolGateway().ToolManifest() {
+		expected, ok := want[tool.Name]
+		if !ok {
+			t.Fatalf("unexpected model-visible tool %q", tool.Name)
+		}
+		assertToolInputSchemaShape(t, tool, expected.required, expected.fields)
+		delete(want, tool.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing model-visible tools: %+v", want)
+	}
+}
+
 func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	manifest := k.toolGateway().ToolManifest()
@@ -186,6 +282,48 @@ func TestArchitectureBoundaryToolRegistryBindsSurface(t *testing.T) {
 		}
 		if got := toolCapabilitySideEffectLevel(k.toolRegistry, name); got != spec.SideEffectLevel {
 			t.Fatalf("toolCapabilitySideEffectLevel(%q) = %q, want registry level %q", name, got, spec.SideEffectLevel)
+		}
+	}
+}
+
+func assertToolInputSchemaShape(t *testing.T, tool ToolSpec, required []string, fields map[string]toolSchemaFieldShape) {
+	t.Helper()
+	if tool.InputSchema["type"] != "object" {
+		t.Fatalf("%s schema type = %+v, want object", tool.Name, tool.InputSchema["type"])
+	}
+	if additional, ok := tool.InputSchema["additionalProperties"].(bool); !ok || additional {
+		t.Fatalf("%s additionalProperties = %+v, want false", tool.Name, tool.InputSchema["additionalProperties"])
+	}
+	gotRequired, ok := tool.InputSchema["required"].([]string)
+	if !ok || strings.Join(gotRequired, ",") != strings.Join(required, ",") {
+		t.Fatalf("%s required = %+v, want %+v", tool.Name, tool.InputSchema["required"], required)
+	}
+	properties, ok := tool.InputSchema["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("%s properties = %+v, want object", tool.Name, tool.InputSchema["properties"])
+	}
+	if len(properties) != len(fields) {
+		t.Fatalf("%s property count = %d, want %d: %+v", tool.Name, len(properties), len(fields), properties)
+	}
+	for name, expected := range fields {
+		property, ok := properties[name].(map[string]interface{})
+		if !ok {
+			t.Fatalf("%s properties missing %q: %+v", tool.Name, name, properties)
+		}
+		if property["type"] != expected.typ {
+			t.Fatalf("%s.%s type = %+v, want %q", tool.Name, name, property["type"], expected.typ)
+		}
+		if expected.minimum != nil && property["minimum"] != expected.minimum {
+			t.Fatalf("%s.%s minimum = %+v, want %+v", tool.Name, name, property["minimum"], expected.minimum)
+		}
+		if expected.maximum != nil && property["maximum"] != expected.maximum {
+			t.Fatalf("%s.%s maximum = %+v, want %+v", tool.Name, name, property["maximum"], expected.maximum)
+		}
+		if expected.itemTyp != "" {
+			items, ok := property["items"].(map[string]interface{})
+			if !ok || items["type"] != expected.itemTyp {
+				t.Fatalf("%s.%s items = %+v, want type %q", tool.Name, name, property["items"], expected.itemTyp)
+			}
 		}
 	}
 }
