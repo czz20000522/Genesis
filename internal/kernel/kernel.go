@@ -40,6 +40,7 @@ type Kernel struct {
 	approvalMu            sync.Mutex
 	memoryReviewMu        sync.Mutex
 	workMu                sync.Mutex
+	activeInvocationRuns  map[string]struct{}
 }
 
 type activeTurn struct {
@@ -102,6 +103,7 @@ func New(config Config) (*Kernel, error) {
 		capabilityDescriptors: capabilityDescriptors,
 		clock:                 clock,
 		activeTurns:           map[string]*activeTurn{},
+		activeInvocationRuns:  map[string]struct{}{},
 	}
 	_ = k.recoverLostLocalManagedJobs()
 	return k, nil

@@ -1372,3 +1372,31 @@ Red lines:
 - No provider routes, credentials, sandbox profiles, permission profiles,
   workspace roots, raw prompts, or full child transcripts in parent-visible
   projections.
+
+### 2026-07-08 Slice 36 Agent Invocation Synchronous Run
+
+Change:
+
+- Added direct `RunAgentInvocation` and `AgentInvocationRun` kernel owner
+  methods.
+- Added `agent_invocation.run_started`, `agent_invocation.run_completed`, and
+  `agent_invocation.run_failed` ledger facts.
+- Child runs build fresh focused model input, use the current provider, expose
+  only invocation-scoped tool manifests, and route tool calls through
+  `ToolGatewayForInvocation`.
+- Run projections expose final text/model/usage/status/sanitized errors and
+  model input kinds, but not raw focused prompts or parent transcript history.
+
+Evidence:
+
+- RED: `go test ./internal/kernel -run TestAgentInvocationRun -count=1`
+  failed before run types and `RunAgentInvocation` existed.
+- GREEN: `go test ./internal/kernel -run TestAgentInvocationRun -count=1`
+
+Remaining scope:
+
+- HTTP transport for starting or reading child runs remains intentionally
+  deferred until the direct kernel contract has more usage evidence.
+- Provider-profile resolution remains a separate provider/model binding slice.
+- Background child execution, recursive delegation caps, and parent notification
+  are still out of Phase D scope.

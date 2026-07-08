@@ -1,10 +1,12 @@
 package kernel
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAgentInvocationAdmissionReplaysPolicyAllowedGrant(t *testing.T) {
@@ -191,4 +193,178 @@ func TestAgentInvocationAdmissionRejectsUnknownParentAndTool(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAgentInvocationRunReturnsBoundedFinalWithoutParentTurn(t *testing.T) {
+	provider := &recordingTextProvider{text: "child final"}
+	k := newAgentInvocationRunTestKernel(t, Config{
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
+		Provider:   provider,
+		ToolPolicy: ToolPolicy{PermissionMode: PermissionModePlan},
+	})
+	invocation, err := k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{
+		SessionID:       "agent-invocation-run",
+		Principal:       "application:test",
+		ContextScope:    "focused",
+		CapabilityGrant: CapabilityGrant{ToolNames: []string{"resource_read"}},
+	})
+	if err != nil {
+		t.Fatalf("AdmitAgentInvocation returned error: %v", err)
+	}
+
+	run, err := k.RunAgentInvocation(context.Background(), AgentInvocationRunRequest{
+		InvocationID:   invocation.InvocationID,
+		Principal:      "application:test",
+		InputItems:     []InputItem{{Type: "text", Text: "summarize this file"}},
+		IdempotencyKey: "run-once",
+	})
+	if err != nil {
+		t.Fatalf("RunAgentInvocation returned error: %v", err)
+	}
+	if run.Status != AgentInvocationRunStatusCompleted || run.Final.Text != "child final" {
+		t.Fatalf("run = %+v, want completed child final", run)
+	}
+	payload, err := json.Marshal(run)
+	if err != nil {
+		t.Fatalf("marshal run: %v", err)
+	}
+	if strings.Contains(string(payload), "summarize this file") {
+		t.Fatalf("run projection leaked focused prompt: %s", string(payload))
+	}
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("provider requests = %d, want one", len(requests))
+	}
+	if requests[0].SessionID != "agent-invocation-run" || requests[0].TurnID != run.RunID {
+		t.Fatalf("provider request ids = %+v, want session and child run id", requests[0])
+	}
+	if _, ok := modelInputTextByKind(requests[0].InputItems, ModelInputKindConversationHistoryContext); ok {
+		t.Fatalf("child request inherited parent conversation history: %+v", requests[0].InputItems)
+	}
+	if text, ok := modelInputTextByKind(requests[0].InputItems, ModelInputKindUserText); !ok || text != "summarize this file" {
+		t.Fatalf("child input = %+v, want focused prompt", requests[0].InputItems)
+	}
+	if len(requests[0].ToolManifest) != 1 || requests[0].ToolManifest[0].Name != "resource_read" {
+		t.Fatalf("tool manifest = %+v, want invocation-scoped resource_read only", requests[0].ToolManifest)
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	if countEvents(events, "turn.submitted") != 0 || countEvents(events, "model.final") != 0 {
+		t.Fatalf("events include parent turn transcript events: %+v", events)
+	}
+}
+
+func TestAgentInvocationRunRejectsToolOutsideGrant(t *testing.T) {
+	provider := &toolFeedbackProvider{
+		calls: []ModelToolCall{{
+			ToolCallID: "edit-outside-grant",
+			Name:       "workspace_edit",
+			Arguments:  json.RawMessage(`{}`),
+		}},
+	}
+	k := newAgentInvocationRunTestKernel(t, Config{
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
+		Provider:   provider,
+		ToolPolicy: ToolPolicy{
+			PermissionMode: PermissionModeYolo,
+			WorkspaceRoot:  testTempDir(t),
+		},
+	})
+	invocation, err := k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{
+		SessionID:       "agent-invocation-run-denied",
+		Principal:       "application:test",
+		CapabilityGrant: CapabilityGrant{ToolNames: []string{"resource_read"}},
+	})
+	if err != nil {
+		t.Fatalf("AdmitAgentInvocation returned error: %v", err)
+	}
+
+	run, err := k.RunAgentInvocation(context.Background(), AgentInvocationRunRequest{
+		InvocationID: invocation.InvocationID,
+		Principal:    "application:test",
+		InputItems:   []InputItem{{Type: "text", Text: "edit the workspace"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "capability_grant_tool_not_allowed") {
+		t.Fatalf("RunAgentInvocation error = %v, want capability_grant_tool_not_allowed", err)
+	}
+	if run.Status != AgentInvocationRunStatusFailed || run.Error == nil || run.Error.Code != "tool_call_rejected" {
+		t.Fatalf("run = %+v, want failed tool_call_rejected", run)
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	if countEvents(events, "agent_invocation.run_started") != 1 || countEvents(events, "agent_invocation.run_failed") != 1 {
+		t.Fatalf("events did not record started+failed: %+v", events)
+	}
+}
+
+func TestAgentInvocationRunIdempotencyReturnsTerminalResult(t *testing.T) {
+	provider := &countingTextProvider{text: "only once"}
+	k := newAgentInvocationRunTestKernel(t, Config{
+		LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"),
+		Provider:   provider,
+		ToolPolicy: ToolPolicy{PermissionMode: PermissionModePlan},
+	})
+	invocation, err := k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{
+		SessionID:       "agent-invocation-run-idempotent",
+		Principal:       "application:test",
+		CapabilityGrant: CapabilityGrant{},
+	})
+	if err != nil {
+		t.Fatalf("AdmitAgentInvocation returned error: %v", err)
+	}
+	req := AgentInvocationRunRequest{
+		InvocationID:   invocation.InvocationID,
+		Principal:      "application:test",
+		InputItems:     []InputItem{{Type: "text", Text: "do it once"}},
+		IdempotencyKey: "same-run",
+	}
+	first, err := k.RunAgentInvocation(context.Background(), req)
+	if err != nil {
+		t.Fatalf("first RunAgentInvocation returned error: %v", err)
+	}
+	second, err := k.RunAgentInvocation(context.Background(), req)
+	if err != nil {
+		t.Fatalf("second RunAgentInvocation returned error: %v", err)
+	}
+	if second.RunID != first.RunID || second.Final.Text != first.Final.Text {
+		t.Fatalf("idempotent run = %+v, want original %+v", second, first)
+	}
+	if provider.Calls() != 1 {
+		t.Fatalf("provider calls = %d, want one", provider.Calls())
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("loadEvents returned error: %v", err)
+	}
+	if countEvents(events, "agent_invocation.run_started") != 1 || countEvents(events, "agent_invocation.run_completed") != 1 {
+		t.Fatalf("events did not record exactly one terminal run: %+v", events)
+	}
+}
+
+func countEvents(events []StoredEvent, eventType string) int {
+	count := 0
+	for _, event := range events {
+		if event.Type == eventType {
+			count++
+		}
+	}
+	return count
+}
+
+func newAgentInvocationRunTestKernel(t *testing.T, config Config) *Kernel {
+	t.Helper()
+	config.RuntimeToken = testRuntimeToken
+	config.Clock = func() time.Time {
+		return time.Date(2026, 6, 22, 1, 2, 3, 0, time.UTC)
+	}
+	k, err := New(config)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	t.Cleanup(k.Close)
+	return k
 }

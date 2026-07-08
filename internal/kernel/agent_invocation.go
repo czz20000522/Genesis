@@ -1,13 +1,18 @@
 package kernel
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 )
 
-var ErrAgentInvocationNotFound = errors.New("agent invocation not found")
+var (
+	ErrAgentInvocationNotFound        = errors.New("agent invocation not found")
+	ErrAgentInvocationAlreadyRunning  = errors.New("agent invocation already running")
+	ErrAgentInvocationAlreadyTerminal = errors.New("agent invocation already terminal")
+)
 
 func (k *Kernel) AdmitAgentInvocation(req AgentInvocationAdmissionRequest) (AgentInvocationProjection, error) {
 	if err := validateAgentInvocationAdmissionRequest(req); err != nil {
@@ -114,6 +119,90 @@ func (k *Kernel) AgentInvocations(sessionID string) ([]AgentInvocationProjection
 	return items, nil
 }
 
+func (k *Kernel) RunAgentInvocation(ctx context.Context, req AgentInvocationRunRequest) (AgentInvocationRunProjection, error) {
+	if err := validateAgentInvocationRunRequest(req); err != nil {
+		return AgentInvocationRunProjection{}, err
+	}
+	invocationID := strings.TrimSpace(req.InvocationID)
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	existing, ok, err := k.agentInvocationRunByKey(invocationID, idempotencyKey)
+	if err != nil {
+		return AgentInvocationRunProjection{}, err
+	}
+	if ok {
+		return existing, nil
+	}
+	if terminal, ok, err := k.terminalAgentInvocationRun(invocationID); err != nil {
+		return AgentInvocationRunProjection{}, err
+	} else if ok && idempotencyKey != "" && terminal.IdempotencyKey != idempotencyKey {
+		return AgentInvocationRunProjection{}, ErrAgentInvocationAlreadyTerminal
+	}
+	if err := k.beginActiveInvocationRun(invocationID); err != nil {
+		return AgentInvocationRunProjection{}, err
+	}
+	defer k.finishActiveInvocationRun(invocationID)
+
+	invocation, err := k.AgentInvocation(invocationID)
+	if err != nil {
+		return AgentInvocationRunProjection{}, err
+	}
+	now := k.clock()
+	inputs := modelInputItems(req.InputItems)
+	run := AgentInvocationRunProjection{
+		InvocationID:    invocation.InvocationID,
+		RunID:           newID("agent_run", now),
+		SessionID:       invocation.SessionID,
+		Principal:       strings.TrimSpace(req.Principal),
+		Status:          AgentInvocationRunStatusRunning,
+		ModelInputKinds: modelInputKinds(inputs),
+		IdempotencyKey:  idempotencyKey,
+		StartedAt:       now,
+	}
+	if err := k.appendAgentInvocationRunEvent("agent_invocation.run_started", run); err != nil {
+		return AgentInvocationRunProjection{}, err
+	}
+	toolGateway, err := k.ToolGatewayForInvocation(invocation.InvocationID)
+	if err != nil {
+		failed := k.failedAgentInvocationRun(run, err)
+		_ = k.appendAgentInvocationRunEvent("agent_invocation.run_failed", failed)
+		return failed, err
+	}
+	final, err := k.runAgentInvocationLoop(ctx, run, inputs, toolGateway)
+	if err != nil {
+		failed := k.failedAgentInvocationRun(run, err)
+		if appendErr := k.appendAgentInvocationRunEvent("agent_invocation.run_failed", failed); appendErr != nil {
+			return AgentInvocationRunProjection{}, appendErr
+		}
+		return failed, err
+	}
+	completed := run
+	completed.Status = AgentInvocationRunStatusCompleted
+	completed.Model = final.Model
+	completed.Usage = final.Usage
+	completed.Final = final
+	completed.CompletedAt = k.clock()
+	if err := k.appendAgentInvocationRunEvent("agent_invocation.run_completed", completed); err != nil {
+		return AgentInvocationRunProjection{}, err
+	}
+	return completed, nil
+}
+
+func (k *Kernel) AgentInvocationRun(runID string) (AgentInvocationRunProjection, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return AgentInvocationRunProjection{}, errors.New("run_id is required")
+	}
+	runs, err := k.agentInvocationRuns()
+	if err != nil {
+		return AgentInvocationRunProjection{}, err
+	}
+	run, ok := runs[runID]
+	if !ok {
+		return AgentInvocationRunProjection{}, errors.New("agent_invocation_run_not_found")
+	}
+	return run, nil
+}
+
 func validateAgentInvocationAdmissionRequest(req AgentInvocationAdmissionRequest) error {
 	if strings.TrimSpace(req.SessionID) == "" {
 		return errors.New("session_id is required")
@@ -143,6 +232,165 @@ func validateAgentInvocationAdmissionRequest(req AgentInvocationAdmissionRequest
 		return err
 	}
 	return nil
+}
+
+func validateAgentInvocationRunRequest(req AgentInvocationRunRequest) error {
+	if strings.TrimSpace(req.InvocationID) == "" {
+		return errors.New("invocation_id is required")
+	}
+	if strings.TrimSpace(req.Principal) == "" {
+		return errors.New("principal is required")
+	}
+	if err := validateKernelControlToken("invocation_id", req.InvocationID); err != nil {
+		return err
+	}
+	if err := validateKernelAuthority("principal", req.Principal); err != nil {
+		return err
+	}
+	if err := validateIdempotencyKey(req.IdempotencyKey); err != nil {
+		return err
+	}
+	if len(req.InputItems) == 0 {
+		return errors.New("input_items is required")
+	}
+	for i, item := range req.InputItems {
+		if item.Type != "text" {
+			return fmt.Errorf("input_items[%d].type must be text", i)
+		}
+		if strings.TrimSpace(item.Text) == "" {
+			return fmt.Errorf("input_items[%d].text is required", i)
+		}
+	}
+	return nil
+}
+
+func (k *Kernel) runAgentInvocationLoop(ctx context.Context, run AgentInvocationRunProjection, inputs []ModelInputItem, toolGateway ToolGateway) (FinalMessage, error) {
+	toolRounds := []ModelToolRound{}
+	loopGuard := newToolLoopGuard()
+	budgetLease := k.newTurnBudgetLease()
+	for roundIndex := 0; ; roundIndex++ {
+		modelResp, _, err := k.completeModel(ctx, ModelRequest{
+			SessionID:    run.SessionID,
+			TurnID:       run.RunID,
+			InputItems:   inputs,
+			ToolManifest: toolGateway.ToolManifest(),
+			ToolRounds:   cloneModelToolRounds(toolRounds),
+		}, nil)
+		if err != nil {
+			return FinalMessage{}, providerCompleteError(err)
+		}
+		if len(modelResp.ToolCalls) == 0 {
+			return FinalMessage{Text: modelResp.Text, Model: modelResp.Model, Usage: modelResp.Usage}, nil
+		}
+		if !budgetLease.allowModelToolRound(roundIndex) {
+			return FinalMessage{}, errors.New("agent_invocation_tool_loop_budget_exhausted")
+		}
+		calls, results, err := k.executeAgentInvocationToolCalls(ctx, toolGateway, run, modelResp.ToolCalls, loopGuard)
+		if err != nil {
+			return FinalMessage{}, err
+		}
+		toolRounds = append(toolRounds, ModelToolRound{Calls: calls, Results: results})
+	}
+}
+
+func (k *Kernel) executeAgentInvocationToolCalls(ctx context.Context, toolGateway ToolGateway, run AgentInvocationRunProjection, calls []ModelToolCall, guard *toolLoopGuard) ([]ModelToolCall, []ModelToolResult, error) {
+	normalizedCalls, toolCallEventIDs, err := k.appendToolCallEvents(run.SessionID, run.RunID, calls)
+	if err != nil {
+		return nil, nil, err
+	}
+	preparedCalls, err := toolGateway.PrepareBatch(normalizedCalls)
+	if err != nil {
+		return nil, nil, err
+	}
+	results := make([]ModelToolResult, 0, len(preparedCalls))
+	for _, prepared := range preparedCalls {
+		if prepared.requestInvalid != nil {
+			result, execErr := toolGateway.Execute(ctx, run.SessionID, run.RunID, prepared)
+			if execErr != nil {
+				return nil, nil, execErr
+			}
+			if appendErr := k.appendToolResultEvent(run.SessionID, run.RunID, result, toolCallEventIDs[result.ToolCallEventID]); appendErr != nil {
+				return nil, nil, appendErr
+			}
+			return nil, nil, fmt.Errorf("tool_call_rejected: %s", prepared.requestInvalid.Error.Code)
+		}
+		if result, blocked, err := guardToolLoopBeforeExecution(guard, prepared); err != nil || blocked {
+			if err != nil {
+				return nil, nil, err
+			}
+			results = append(results, result)
+			if appendErr := k.appendToolResultEvent(run.SessionID, run.RunID, result, toolCallEventIDs[result.ToolCallEventID]); appendErr != nil {
+				return nil, nil, appendErr
+			}
+			continue
+		}
+		result, err := toolGateway.Execute(ctx, run.SessionID, run.RunID, prepared)
+		if err != nil {
+			return nil, nil, err
+		}
+		result, err = observeToolLoopGuardResult(guard, prepared, result)
+		if err != nil {
+			return nil, nil, err
+		}
+		if appendErr := k.appendToolResultEvent(run.SessionID, run.RunID, result, toolCallEventIDs[result.ToolCallEventID]); appendErr != nil {
+			return nil, nil, appendErr
+		}
+		results = append(results, result)
+	}
+	return normalizedCalls, results, nil
+}
+
+func (k *Kernel) failedAgentInvocationRun(run AgentInvocationRunProjection, err error) AgentInvocationRunProjection {
+	failed := run
+	failed.Status = AgentInvocationRunStatusFailed
+	failed.CompletedAt = k.clock()
+	code := "agent_invocation_failed"
+	message := externalBoundaryDiagnosticText(err.Error())
+	if strings.Contains(err.Error(), "tool_call_rejected") {
+		code = "tool_call_rejected"
+	}
+	if errors.Is(err, ErrProviderUnavailable) {
+		code = "provider_unavailable"
+	}
+	var classified *ProviderClassifiedError
+	if errors.As(err, &classified) && strings.TrimSpace(classified.Code) != "" {
+		code = strings.TrimSpace(classified.Code)
+	}
+	failed.Error = &TurnError{Code: code, Message: message}
+	return failed
+}
+
+func (k *Kernel) appendAgentInvocationRunEvent(eventType string, run AgentInvocationRunProjection) error {
+	now := k.clock()
+	return k.appendEvent(StoredEvent{
+		EventID:   newID("evt", now),
+		SessionID: run.SessionID,
+		TurnID:    run.RunID,
+		Type:      eventType,
+		CreatedAt: now,
+		Data: EventData{
+			AgentInvocationRun: &run,
+		},
+	})
+}
+
+func (k *Kernel) beginActiveInvocationRun(invocationID string) error {
+	k.workMu.Lock()
+	defer k.workMu.Unlock()
+	if k.activeInvocationRuns == nil {
+		k.activeInvocationRuns = map[string]struct{}{}
+	}
+	if _, exists := k.activeInvocationRuns[invocationID]; exists {
+		return ErrAgentInvocationAlreadyRunning
+	}
+	k.activeInvocationRuns[invocationID] = struct{}{}
+	return nil
+}
+
+func (k *Kernel) finishActiveInvocationRun(invocationID string) {
+	k.workMu.Lock()
+	defer k.workMu.Unlock()
+	delete(k.activeInvocationRuns, invocationID)
 }
 
 func validateKernelRefIfPresent(field string, value string) error {
@@ -251,6 +499,64 @@ func (k *Kernel) agentInvocations() (map[string]AgentInvocationProjection, error
 		invocations[invocation.InvocationID] = invocation
 	}
 	return invocations, nil
+}
+
+func (k *Kernel) agentInvocationRunByKey(invocationID string, key string) (AgentInvocationRunProjection, bool, error) {
+	if key == "" {
+		return AgentInvocationRunProjection{}, false, nil
+	}
+	runs, err := k.agentInvocationRuns()
+	if err != nil {
+		return AgentInvocationRunProjection{}, false, err
+	}
+	for _, run := range runs {
+		if run.InvocationID == invocationID && run.IdempotencyKey == key && isTerminalAgentInvocationRun(run) {
+			return run, true, nil
+		}
+	}
+	return AgentInvocationRunProjection{}, false, nil
+}
+
+func (k *Kernel) terminalAgentInvocationRun(invocationID string) (AgentInvocationRunProjection, bool, error) {
+	runs, err := k.agentInvocationRuns()
+	if err != nil {
+		return AgentInvocationRunProjection{}, false, err
+	}
+	for _, run := range runs {
+		if run.InvocationID == invocationID && isTerminalAgentInvocationRun(run) {
+			return run, true, nil
+		}
+	}
+	return AgentInvocationRunProjection{}, false, nil
+}
+
+func (k *Kernel) agentInvocationRuns() (map[string]AgentInvocationRunProjection, error) {
+	events, err := k.loadEvents()
+	if err != nil {
+		return nil, err
+	}
+	runs := map[string]AgentInvocationRunProjection{}
+	for _, event := range events {
+		if event.Data.AgentInvocationRun == nil {
+			continue
+		}
+		run := *event.Data.AgentInvocationRun
+		if run.RunID == "" {
+			return nil, errors.New("agent invocation run event missing run id")
+		}
+		if run.SessionID == "" {
+			run.SessionID = event.SessionID
+		}
+		if run.StartedAt.IsZero() {
+			run.StartedAt = event.CreatedAt
+		}
+		runs[run.RunID] = run
+	}
+	return runs, nil
+}
+
+func isTerminalAgentInvocationRun(run AgentInvocationRunProjection) bool {
+	return run.Status == AgentInvocationRunStatusCompleted || run.Status == AgentInvocationRunStatusFailed
 }
 
 func sameAgentInvocation(left AgentInvocationProjection, right AgentInvocationProjection) bool {
