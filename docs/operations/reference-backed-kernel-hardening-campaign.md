@@ -1123,7 +1123,8 @@ Evidence:
 
 Remaining scope:
 
-- Phase B remains open: expose shell/desktop integration that calls the kernel route, keeps rendering and selection in the shell, and resumes results through `/sessions/{id}`.
+- Later completed by Slice 28: desktop exposes typed search bridge/API while
+  keeping rendering, selection, and resume behavior outside the kernel route.
 
 ### 2026-07-08 Slice 28 Desktop Session Search Bridge
 
@@ -1215,7 +1216,8 @@ Evidence:
 
 Remaining scope:
 
-- Phase B remains open: explicit catalog binding to update or create model profiles from the local catalog.
+- Later completed by Slice 31 for explicit selected-profile catalog binding.
+  Profile creation remains a separate explicit extension if needed.
 
 ### 2026-07-08 Slice 31 Provider Model Catalog Binding
 
