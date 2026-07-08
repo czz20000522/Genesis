@@ -565,6 +565,14 @@ Current related active issues:
 
 - None.
 
+Current campaign checkpoint:
+
+- `docs/operations/reference-backed-kernel-hardening-campaign.md` Slice 48 records
+  that the reference-backed hardening queue has no remaining obvious
+  deterministic kernel gap under the current active issue ledger. Remaining
+  production shortfalls in this requirement are future scoped work unless a new
+  active issue, requirement/design package, or failing guard reopens them.
+
 Related ready-for-acceptance shell/job evidence:
 
 - `KERNEL-SHELL-TIMEOUT-CAP-20260623`, `KERNEL-MANAGED-JOB-FOUNDATION-20260623`, `KERNEL-OBSERVATION-DELIVERY-20260623`, `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`, `KERNEL-RESOURCE-PURE-READ-PRIMITIVE-20260624`, and `KERNEL-TOOL-SCHEDULING-CONCURRENCY-20260624` are recorded in `docs/operations/kernel-retirement-log.md`.

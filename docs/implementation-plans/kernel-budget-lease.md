@@ -1,42 +1,57 @@
 # Implementation Plan: Kernel BudgetLease
 
+## Status
+
+Closed for the current BudgetLease slice. Current implementation evidence lives in
+`internal/kernel/budget_lease.go`, `internal/kernel/tool_loop_control_test.go`,
+`internal/kernel/limit_policy_test.go`, and the foundation requirement/design.
+
 ## Reference Scan
 
-- Reasonix keeps harness-loop step limits in agent options and configuration (`agent.max_steps`, `agent.planner_max_steps`). Its run loop treats a positive limit as a resumable guard and reports the configured knob when exhausted; `0` is a Reasonix-specific unlimited setting.
-- Codex exposes shell output budgets such as `max_output_tokens` in tool schemas because those are output projection limits, not turn authority budgets.
-- Genesis keeps a different contract: tool-loop exhaustion is `turn.paused` evidence owned by the kernel, and model-visible schemas must not let the model raise or forge the turn execution budget.
+- Reasonix keeps harness-loop step limits in agent options and configuration
+  (`agent.max_steps`, `agent.planner_max_steps`). Its run loop treats a positive
+  limit as a resumable guard and reports the configured knob when exhausted; `0`
+  is a Reasonix-specific unlimited setting.
+- Codex exposes shell output budgets such as `max_output_tokens` in tool schemas
+  because those are output projection limits, not turn authority budgets.
+- Genesis keeps a different contract: tool-loop exhaustion is `turn.paused`
+  evidence owned by the kernel, and model-visible schemas must not let the model
+  raise or forge the turn execution budget.
 
 ## Reference Behavior Red Tests
 
-- Reasonix configured harness-loop limit becomes Genesis tests proving the
+- Reasonix configured harness-loop limit became Genesis tests proving the
   tool-round budget is configurable, normalized, capped, and reported in
   `turn.paused` evidence.
-- Codex model-visible output-budget schema becomes Genesis tests proving
+- Codex model-visible output-budget schema became Genesis tests proving
   execution budget fields are absent from model-visible tool schemas.
 - The initial red condition was the hidden package constant controlling
   tool-loop admission without an inspectable `BudgetLease` projection.
 
-## Scope
+## Delivered Scope
 
-Phase A makes `BudgetLease` own the model tool-round budget used by `SubmitTurn`.
-
-- Add kernel config for a default model tool-round budget and an allowed ceiling.
-- Normalize unset or non-positive budget values to the documented default; no unlimited behavior is introduced.
-- Mint a per-turn `BudgetLease` before the provider/tool loop starts.
-- Consume the lease for provider tool-round admission instead of reading package constants.
-- Expose the effective lease through capabilities and context inspection.
-- Record effective lease values in `turn.paused`.
+- Kernel config owns a default model tool-round budget and an allowed ceiling.
+- Unset, non-positive, and over-ceiling budget values normalize to bounded
+  kernel-owned values; no unlimited behavior is introduced.
+- Each turn mints a `BudgetLease` before provider/tool-loop execution.
+- The provider loop consumes the lease for tool-round admission instead of
+  reading package constants.
+- Capabilities and context inspection expose the effective lease.
+- `turn.paused` records the effective lease values.
 
 ## Non-Goals
 
-- Do not move shell foreground timeout, output truncation, HTTP request limits, provider response body limits, provider retry attempts, or visible-final repair attempts into this lease in this slice.
-- Do not add model-visible tool arguments for budget control.
-- Do not add `/v1`, `policy_version`, or other versioned runtime identifiers.
+- Shell foreground timeout, output truncation, HTTP request limits, provider
+  response body limits, provider retry attempts, and visible-final repair
+  attempts stay with their existing owner-specific policies.
+- Models do not receive tool arguments that control execution budgets.
+- No numbered runtime identifiers, policy versions, or versioned route prefixes
+  were added.
 
 ## Verification
 
-- Default/unset config pauses at the documented default and reports that value.
-- A higher configured lease permits more committed tool rounds before pause.
-- Zero config is not unlimited.
-- Model-visible tool manifests do not expose fields that can raise or forge the lease.
-- Requirement/design docs distinguish execution budgets from hard safety/projection caps.
+- `TestSubmitTurnUsesConfiguredBudgetLeaseForToolRounds`
+- `TestSubmitTurnNormalizesZeroBudgetLeaseToDefault`
+- `TestBudgetLeaseIsInspectableButNotModelVisible`
+- `TestBudgetLeaseClampsConfiguredBudgetToCeiling`
+- `TestKernelLimitClassificationCoversActiveBudgetGuardAndProjectionCaps`

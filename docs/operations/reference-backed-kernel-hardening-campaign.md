@@ -1622,3 +1622,20 @@ Evidence:
 - GREEN: `rg -n "^### " docs/operations/kernel-issues.md` returned no active kernel issue headings.
 - GREEN: `git status --short --branch` reported clean `master` before this checkpoint.
 - GREEN: `rg -n "Still short of production|not implemented|TODO|FIXME|active issue|tracked as active issues|\[ \]" docs/implementation-plans docs/operations/reference-backed-kernel-hardening-campaign.md docs/requirements docs/design -g "!docs/implementation-plans/README.md"` found only explicit future scope, requirement phase notes, or non-kernel application issues.
+
+### 2026-07-08 Slice 49 Documentation Compaction Start
+
+Change:
+
+- Removed duplicated content from `docs/implementation-plans/kernel-budget-lease.md`
+  and rewrote it as a compact closed-plan record.
+- Added closed-plan handling guidance and a closed/checkpointed kernel plan list
+  to `docs/implementation-plans/README.md`.
+- Linked the foundation requirement's active-issue relationship to the Slice 48
+  campaign checkpoint so future production shortfalls are not mistaken for
+  current implementation scope.
+
+Evidence:
+
+- GREEN: `git diff --check`
+- GREEN: `go test ./internal/kernel -run "TestArchitectureBoundaryKernelImplementationPlansNameReferenceBehaviorRedTests|TestArchitectureBoundary" -count=1`
