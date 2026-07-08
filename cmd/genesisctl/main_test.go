@@ -153,6 +153,94 @@ func TestProviderCommandVerifyHelper(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsMissingCredentialAsJSON(t *testing.T) {
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-doctor-missing-credential-config")
+	credentialRoot := testsupport.ProjectTempDir(t, "genesisctl-doctor-missing-credential-store")
+	writeDoctorOpenAIConfig(t, configRoot, "secret://models/provider/missing")
+	var stdout bytes.Buffer
+
+	err := run([]string{
+		"doctor",
+		"--json",
+		"-config-root", configRoot,
+		"-credential-store-root", credentialRoot,
+	}, strings.NewReader(""), &stdout)
+	if err != nil {
+		t.Fatalf("doctor returned error: %v", err)
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode doctor response: %v\n%s", err, stdout.String())
+	}
+	if response["ok"].(bool) {
+		t.Fatalf("doctor response = %+v, want not ok", response)
+	}
+	assertStringField(t, response, "readiness", "not_ready")
+	assertStringField(t, response, "readiness_reason", "provider_credential_missing")
+	provider := response["provider"].(map[string]interface{})
+	assertStringField(t, provider, "name", "genesis-config")
+	assertStringField(t, provider, "readiness_reason", "provider_credential_missing")
+	if strings.Contains(stdout.String(), "secret://models/provider/missing") {
+		t.Fatalf("doctor output leaked credential ref: %s", stdout.String())
+	}
+}
+
+func TestDoctorReportsProviderCommandDependencyAsJSON(t *testing.T) {
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-doctor-command-missing-config")
+	writeDoctorCommandConfig(t, configRoot, "genesis-provider-command-definitely-missing")
+	var stdout bytes.Buffer
+
+	err := run([]string{
+		"doctor",
+		"--json",
+		"-config-root", configRoot,
+	}, strings.NewReader(""), &stdout)
+	if err != nil {
+		t.Fatalf("doctor returned error: %v", err)
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode doctor response: %v\n%s", err, stdout.String())
+	}
+	assertStringField(t, response, "readiness", "not_ready")
+	assertStringField(t, response, "readiness_reason", "provider_command_not_found")
+	provider := response["provider"].(map[string]interface{})
+	assertStringField(t, provider, "name", "provider_command")
+	assertStringField(t, provider, "readiness_reason", "provider_command_not_found")
+	if strings.Contains(stdout.String(), "genesis-provider-command-definitely-missing") {
+		t.Fatalf("doctor output leaked command path: %s", stdout.String())
+	}
+}
+
+func TestDoctorReportsReadyProviderCommandAsJSON(t *testing.T) {
+	configRoot := testsupport.ProjectTempDir(t, "genesisctl-doctor-command-ready-config")
+	writeDoctorCommandConfig(t, configRoot, os.Args[0])
+	var stdout bytes.Buffer
+
+	err := run([]string{
+		"doctor",
+		"--json",
+		"-config-root", configRoot,
+	}, strings.NewReader(""), &stdout)
+	if err != nil {
+		t.Fatalf("doctor returned error: %v", err)
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode doctor response: %v\n%s", err, stdout.String())
+	}
+	if !response["ok"].(bool) {
+		t.Fatalf("doctor response = %+v, want ok", response)
+	}
+	assertStringField(t, response, "readiness", "ready")
+	provider := response["provider"].(map[string]interface{})
+	assertStringField(t, provider, "name", "provider_command")
+	assertStringField(t, provider, "readiness", "ready")
+}
+
 func TestProviderUseDeepSeekPresetWritesConfigWithoutPrintingSecret(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("real local credential setup uses Windows DPAPI")
@@ -659,6 +747,66 @@ func TestProviderSetupCommandWritesCredentialWithoutPrintingSecret(t *testing.T)
 	}
 	if resolved != secret {
 		t.Fatalf("resolved secret = %q, want original secret", resolved)
+	}
+}
+
+func writeDoctorOpenAIConfig(t *testing.T, configRoot string, credentialRef string) {
+	t.Helper()
+	payload := map[string]any{
+		"model_gateway": map[string]any{
+			"protocol":       "openai-chat-completions",
+			"base_url":       "https://provider.example.com/api",
+			"credential_ref": credentialRef,
+		},
+		"active_model_profile_bindings": map[string]any{
+			"coordinator": "doctor-profile",
+		},
+		"model_profiles": map[string]any{
+			"cloud": map[string]any{
+				"gateway": map[string]any{
+					"doctor-profile": map[string]any{
+						"profile_id": "doctor-profile",
+						"model_id":   "doctor-model",
+					},
+				},
+			},
+		},
+	}
+	writeDoctorModelsConfig(t, configRoot, payload)
+}
+
+func writeDoctorCommandConfig(t *testing.T, configRoot string, command string) {
+	t.Helper()
+	payload := map[string]any{
+		"model_gateway": map[string]any{
+			"protocol": "provider_command",
+			"command":  command,
+		},
+		"active_model_profile_bindings": map[string]any{
+			"coordinator": "doctor-command-profile",
+		},
+		"model_profiles": map[string]any{
+			"local": map[string]any{
+				"gateway": map[string]any{
+					"doctor-command-profile": map[string]any{
+						"profile_id": "doctor-command-profile",
+						"model_id":   "doctor-command-model",
+					},
+				},
+			},
+		},
+	}
+	writeDoctorModelsConfig(t, configRoot, payload)
+}
+
+func writeDoctorModelsConfig(t *testing.T, configRoot string, payload map[string]any) {
+	t.Helper()
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal doctor config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, "models.json"), encoded, 0o644); err != nil {
+		t.Fatalf("write doctor models.json: %v", err)
 	}
 }
 

@@ -22,17 +22,111 @@ func main() {
 
 func run(args []string, stdin io.Reader, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("command is required: provider-setup or provider")
+		return errors.New("command is required: capability, doctor, provider-setup, or provider")
 	}
 	switch args[0] {
 	case "capability":
 		return runCapability(args[1:], stdout)
+	case "doctor":
+		return runDoctor(args[1:], stdout)
 	case "provider-setup":
 		return runProviderSetup(args[1:], stdin, stdout)
 	case "provider":
 		return runProvider(args[1:], stdin, stdout)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
+	}
+}
+
+type doctorReport struct {
+	OK              bool                  `json:"ok"`
+	Readiness       string                `json:"readiness"`
+	ReadinessReason string                `json:"readiness_reason,omitempty"`
+	Provider        kernel.ProviderStatus `json:"provider"`
+	ModelRole       string                `json:"model_role,omitempty"`
+	ProfileID       string                `json:"profile_id,omitempty"`
+}
+
+func runDoctor(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOutput := fs.Bool("json", false, "print machine-readable JSON")
+	configRoot := fs.String("config-root", os.Getenv("GENESIS_CONFIG_ROOT"), "Genesis config root containing models.json")
+	credentialStoreRoot := fs.String("credential-store-root", os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"), "Genesis credential store root")
+	modelRole := fs.String("model-role", envOrDefault("GENESIS_MODEL_ROLE", kernel.DefaultModelRole), "Genesis model role binding to diagnose")
+	profileID := fs.String("profile-id", os.Getenv("GENESIS_MODEL_PROFILE_ID"), "Genesis model profile id override")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	report := collectDoctorReport(*configRoot, *credentialStoreRoot, *modelRole, *profileID)
+	if *jsonOutput {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(report)
+	}
+	fmt.Fprintf(stdout, "genesisctl doctor\n  provider %s", report.Provider.Readiness)
+	if report.Provider.ReadinessReason != "" {
+		fmt.Fprintf(stdout, " %s", report.Provider.ReadinessReason)
+	}
+	fmt.Fprintln(stdout)
+	return nil
+}
+
+func collectDoctorReport(configRoot string, credentialStoreRoot string, modelRole string, profileID string) doctorReport {
+	modelRole = strings.TrimSpace(modelRole)
+	if modelRole == "" {
+		modelRole = kernel.DefaultModelRole
+	}
+	resolved, err := kernel.ResolveProviderConfigFromGenesis(kernel.GenesisModelConfigRequest{
+		ConfigRoot:          configRoot,
+		CredentialStoreRoot: credentialStoreRoot,
+		ModelRole:           modelRole,
+		ModelProfileID:      profileID,
+	})
+	if err != nil {
+		reason := kernel.ProviderConfigReason(err)
+		status := kernel.ProviderStatus{Name: "genesis-config", Readiness: kernel.ReadinessNotReady, ReadinessReason: reason}
+		return doctorReport{
+			OK:              false,
+			Readiness:       kernel.ReadinessNotReady,
+			ReadinessReason: reason,
+			Provider:        status,
+			ModelRole:       modelRole,
+			ProfileID:       strings.TrimSpace(profileID),
+		}
+	}
+
+	provider := providerForDoctor(resolved)
+	status := provider.Ready()
+	readiness := status.Readiness
+	if readiness == "" {
+		readiness = kernel.ReadinessNotReady
+	}
+	report := doctorReport{
+		OK:        readiness == kernel.ReadinessReady,
+		Readiness: readiness,
+		Provider:  status,
+		ModelRole: modelRole,
+		ProfileID: strings.TrimSpace(profileID),
+	}
+	if readiness != kernel.ReadinessReady {
+		report.ReadinessReason = strings.TrimSpace(status.ReadinessReason)
+		if report.ReadinessReason == "" {
+			report.ReadinessReason = "provider_not_ready"
+		}
+	}
+	return report
+}
+
+func providerForDoctor(resolved kernel.ResolvedProviderConfig) kernel.Provider {
+	switch resolved.Kind {
+	case "openai-compatible":
+		return kernel.NewOpenAICompatibleProvider(resolved.OpenAICompatible)
+	case "provider_command":
+		return kernel.NewCommandProvider(resolved.Command)
+	default:
+		return kernel.NewBlockedProvider("provider", "provider_protocol_unsupported")
 	}
 }
 

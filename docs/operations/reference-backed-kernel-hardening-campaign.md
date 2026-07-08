@@ -900,3 +900,29 @@ Evidence:
 Remaining scope:
 
 - Run full verification for Slice 23, then continue Task 8 with live auth failure, command-provider dependency blockers, and desktop sidecar ownership checks.
+
+### 2026-07-08 Slice 24 Local Provider Doctor
+
+Reference scan:
+
+- Codex owner: `codex doctor` is read-mostly and reports local configuration, authentication, runtime, sandbox, state, and provider reachability through redacted structured rows.
+- Reasonix owner: `reasonix doctor --json` emits redacted local diagnostics, while inspect/provider readiness reports whether provider keys are configured without exposing their values.
+- Genesis owner: `genesisctl provider verify` already performs a live provider probe, but there was no non-network local diagnostic that classified model config, local credentials, and command-provider dependencies.
+
+Gap:
+
+- Operators had to use live `provider verify` even for local setup problems such as missing credentials or a missing provider-command executable. That conflated local doctor checks with upstream auth/reachability checks and made first-pass startup diagnosis less deterministic.
+
+Change:
+
+- Added `genesisctl doctor [--json]` as a local, non-network provider readiness diagnostic.
+- The command resolves Genesis model config and local credentials, constructs the configured provider, and calls `Ready()` only. It does not submit a model request.
+- Added JSON coverage for missing local credential, missing provider-command dependency, and ready provider-command configuration, including checks that credential refs and command paths are not emitted.
+
+Evidence:
+
+- GREEN: `go test ./cmd/genesisctl -run Test(DoctorReportsMissingCredentialAsJSON|DoctorReportsProviderCommandDependencyAsJSON|DoctorReportsReadyProviderCommandAsJSON|ProviderVerifyReportsInvalidConfigAsJSON|ProviderVerifyReportsMissingCredentialAsJSON) -count=1`
+
+Remaining scope:
+
+- Run full verification for Slice 24, then continue Task 8 with desktop sidecar ownership checks and any remaining readiness/documentation drift.
