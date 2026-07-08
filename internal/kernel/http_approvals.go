@@ -32,17 +32,8 @@ func validApprovalStatusFilter(status string) bool {
 	}
 }
 
-func approvalDecisionID(path string) string {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 3 || parts[0] != "approvals" || parts[2] != "decision" {
-		return ""
-	}
-	return strings.TrimSpace(parts[1])
-}
-
 func handleDecideApproval(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	approvalID := approvalDecisionID(r.URL.Path)
+	approvalID := routePathValue(r, "approval_id")
 	if approvalID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "approval decision route not found")
 		return

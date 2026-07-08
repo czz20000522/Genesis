@@ -1463,3 +1463,21 @@ Evidence:
 - RED: `go test ./internal/kernel/resource -run TestSourceSnapshotTreatsBinarySignatureAsNonText -count=1`
   showed a GIF signature without NUL bytes was treated as text.
 - GREEN: `go test ./internal/kernel/resource -run "TestSource(SnapshotTreatsBinarySignatureAsNonText|TreeAndReadReturnBoundedArchiveContent|ReadPreservesUTF8ValidityAtByteBudget)" -count=1`
+
+### 2026-07-08 Slice 40 ServeMux Path Values
+
+Change:
+
+- Replaced remaining hand-written HTTP route parameter parsing helpers with Go
+  `http.Request.PathValue`.
+- Kept Genesis-owned transport behavior in place: runtime auth, JSON content
+  gates, error envelopes, unclean-path rejection, and hidden method fallback
+  still live in the kernel HTTP surface.
+- Updated the architecture guard to track the shared path-value helper instead
+  of the removed per-route parsers.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run "TestHTTP|TestArchitectureBoundary" -count=1`
+- GREEN: `go test ./... -count=1`
+- GREEN: `go build ./...`

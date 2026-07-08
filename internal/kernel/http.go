@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strings"
 )
 
 const maxRequestBytes = 1024 * 1024
@@ -82,6 +83,10 @@ func uncleanRequestPath(requestPath string) bool {
 		return true
 	}
 	return path.Clean(requestPath) != requestPath
+}
+
+func routePathValue(r *http.Request, name string) string {
+	return strings.TrimSpace(r.PathValue(name))
 }
 
 type methodNotAllowedWriter struct {

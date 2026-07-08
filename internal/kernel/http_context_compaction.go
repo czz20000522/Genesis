@@ -2,23 +2,11 @@ package kernel
 
 import (
 	"net/http"
-	"strings"
 )
 
-func isSessionContextCompactPath(path string) (string, bool) {
-	const prefix = "/sessions/"
-	const suffix = "/context/compact"
-	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
-		return "", false
-	}
-	sessionID := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
-	sessionID = strings.Trim(sessionID, "/")
-	return sessionID, sessionID != ""
-}
-
 func handleCompactSessionContext(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	sessionID, ok := isSessionContextCompactPath(r.URL.Path)
-	if !ok {
+	sessionID := routePathValue(r, "session_id")
+	if sessionID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "route not found")
 		return
 	}

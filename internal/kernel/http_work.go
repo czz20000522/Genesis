@@ -3,7 +3,6 @@ package kernel
 import (
 	"errors"
 	"net/http"
-	"strings"
 )
 
 func handleSubmitWork(w http.ResponseWriter, r *http.Request, k *Kernel) {
@@ -23,7 +22,7 @@ func handleSubmitWork(w http.ResponseWriter, r *http.Request, k *Kernel) {
 }
 
 func handleGetWork(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	workID := workReadID(r.URL.Path)
+	workID := routePathValue(r, "work_id")
 	if workID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "work route not found")
 		return
@@ -48,7 +47,7 @@ func handleCancelWork(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	if !decodeRequest(w, r, &req) {
 		return
 	}
-	workID := workCancelID(r.URL.Path)
+	workID := routePathValue(r, "work_id")
 	if workID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "work route not found")
 		return
@@ -66,22 +65,4 @@ func handleCancelWork(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	writeJSON(w, http.StatusOK, work)
-}
-
-func workReadID(path string) string {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 2 || parts[0] != "work" {
-		return ""
-	}
-	return strings.TrimSpace(parts[1])
-}
-
-func workCancelID(path string) string {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 3 || parts[0] != "work" || parts[2] != "cancel" {
-		return ""
-	}
-	return strings.TrimSpace(parts[1])
 }

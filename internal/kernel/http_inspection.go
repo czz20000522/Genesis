@@ -8,9 +8,8 @@ import (
 )
 
 func handleGetSession(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	sessionID := strings.TrimPrefix(r.URL.Path, "/sessions/")
-	sessionID = strings.Trim(sessionID, "/")
-	if sessionID == "" || strings.Contains(sessionID, "/") {
+	sessionID := routePathValue(r, "session_id")
+	if sessionID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "session route not found")
 		return
 	}
@@ -69,26 +68,8 @@ func handleSearchSessions(w http.ResponseWriter, r *http.Request, k *Kernel) {
 	writeJSON(w, http.StatusOK, projection)
 }
 
-func sessionTimelineID(path string) string {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 3 || parts[0] != "sessions" || parts[2] != "timeline" {
-		return ""
-	}
-	return strings.TrimSpace(parts[1])
-}
-
-func sessionTimelineDetailParams(path string) (string, string) {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 5 || parts[0] != "sessions" || parts[2] != "timeline" || parts[3] != "details" {
-		return "", ""
-	}
-	return strings.TrimSpace(parts[1]), strings.TrimSpace(parts[4])
-}
-
 func handleGetSessionTimeline(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	sessionID := sessionTimelineID(r.URL.Path)
+	sessionID := routePathValue(r, "session_id")
 	if sessionID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "session timeline route not found")
 		return
@@ -109,7 +90,8 @@ func handleGetSessionTimeline(w http.ResponseWriter, r *http.Request, k *Kernel)
 }
 
 func handleGetSessionTimelineDetail(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	sessionID, detailRef := sessionTimelineDetailParams(r.URL.Path)
+	sessionID := routePathValue(r, "session_id")
+	detailRef := routePathValue(r, "detail_ref")
 	if sessionID == "" || detailRef == "" {
 		writeError(w, http.StatusNotFound, "not_found", "session timeline detail route not found")
 		return
@@ -133,35 +115,8 @@ func handleGetSessionTimelineDetail(w http.ResponseWriter, r *http.Request, k *K
 	writeJSON(w, http.StatusOK, projection)
 }
 
-func turnAuditID(path string) string {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 3 || parts[0] != "turns" || parts[2] != "audit" {
-		return ""
-	}
-	return strings.TrimSpace(parts[1])
-}
-
-func turnEventsID(path string) string {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 3 || parts[0] != "turns" || parts[2] != "events" {
-		return ""
-	}
-	return strings.TrimSpace(parts[1])
-}
-
-func turnContextID(path string) string {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 3 || parts[0] != "turns" || parts[2] != "context" {
-		return ""
-	}
-	return strings.TrimSpace(parts[1])
-}
-
 func handleGetTurnContext(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	turnID := turnContextID(r.URL.Path)
+	turnID := routePathValue(r, "turn_id")
 	if turnID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "turn context route not found")
 		return
@@ -182,7 +137,7 @@ func handleGetTurnContext(w http.ResponseWriter, r *http.Request, k *Kernel) {
 }
 
 func handleGetTurnAudit(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	turnID := turnAuditID(r.URL.Path)
+	turnID := routePathValue(r, "turn_id")
 	if turnID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "turn audit route not found")
 		return
@@ -203,7 +158,7 @@ func handleGetTurnAudit(w http.ResponseWriter, r *http.Request, k *Kernel) {
 }
 
 func handleGetTurnEvents(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	turnID := turnEventsID(r.URL.Path)
+	turnID := routePathValue(r, "turn_id")
 	if turnID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "turn event route not found")
 		return

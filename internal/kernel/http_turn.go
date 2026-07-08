@@ -160,8 +160,8 @@ func providerErrorHTTPStatus(code string) int {
 }
 
 func handleInterruptSession(w http.ResponseWriter, r *http.Request, k *Kernel) {
-	sessionID, ok := sessionInterruptPathSessionID(r.URL.Path)
-	if !ok {
+	sessionID := routePathValue(r, "session_id")
+	if sessionID == "" {
 		writeError(w, http.StatusNotFound, "not_found", "route not found")
 		return
 	}
@@ -179,18 +179,4 @@ func handleInterruptSession(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, interruption)
-}
-
-func sessionInterruptPathSessionID(path string) (string, bool) {
-	const prefix = "/sessions/"
-	const suffix = "/interrupt"
-	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
-		return "", false
-	}
-	sessionID := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
-	sessionID = strings.Trim(sessionID, "/")
-	if sessionID == "" || strings.Contains(sessionID, "/") {
-		return "", false
-	}
-	return sessionID, true
 }
