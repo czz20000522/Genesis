@@ -954,3 +954,27 @@ Evidence:
 Remaining scope:
 
 - Task 8 has no remaining obvious deterministic gap from the current scan. Run a final root and desktop hygiene pass, then move to Task 9 candidate selection.
+
+### 2026-07-08 Slice 26 Session Search Requirement Package
+
+Reference scan:
+
+- Codex owner: `codex-rs/tui/src/bottom_pane/chat_composer/history_search.rs` keeps active search UI state separate from persistent history traversal and only mutates the draft when a result is accepted.
+- Reasonix owner: `internal/serve/serve.go` exposes `/sessions` as a read-only listing of persisted session files with title/turn preview metadata, and `internal/acp/e2e_test.go` covers session list/resume/delete as separate operations.
+- Genesis owner: `internal/kernel/session_projection.go`, `internal/kernel/kernel.go`, `internal/kernel/http_inspection.go`, and `internal/kernel/sqlite_ledger.go` already own session projection and session-list read models.
+
+Decision:
+
+- Selected Task 9 candidate `history or session search as a generic projection` as the first production capability after deterministic hardening.
+- Wrote the requirement, design, implementation plan, and BDD feature before runtime code.
+
+Artifacts:
+
+- `docs/requirements/kernel-session-search.md`
+- `docs/design/kernel-session-search.md`
+- `docs/implementation-plans/kernel-session-search.md`
+- `features/kernel/session_search.feature`
+
+Remaining scope:
+
+- Implement Phase A with tests first: validation, matching, restart stability, and projection safety.
