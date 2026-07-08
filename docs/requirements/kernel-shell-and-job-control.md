@@ -240,7 +240,7 @@ Phase B: managed-job ledger foundation.
 Phase C: real job manager.
 
 - Proves: session-scoped process registry, real process lifecycle, bounded output, terminal status, status query, cancellation, executor-reported output snapshots, and restart-safe projection.
-- Still short of production: foreground attach behavior and stronger sandbox/approval integration can remain limited.
+- Still short of production: stronger sandbox/approval integration can remain limited.
 
 Phase D: observation delivery.
 
@@ -306,7 +306,7 @@ This requirement governs these implementation slices:
 - `KERNEL-MANAGED-JOB-FOUNDATION-20260623`: `ready_for_acceptance` for managed-job event model and receipt-style tool result.
 - `KERNEL-FOREGROUND-TIMEOUT-OUTCOME-20260623`: `ready_for_acceptance` for foreground runtime timeout as terminal-equivalent command evidence with timeout metadata and available output.
 - `KERNEL-OBSERVATION-DELIVERY-20260623`: `ready_for_acceptance` for pending/delivered observation tracking and checkpoint delivery semantics.
-- `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`: remaining true foreground attach semantics after the local managed executor sparse-output and kill-fallback slices.
+- `KERNEL-JOB-PROGRESS-IDLE-CONTINUATION-20260623`: `ready_for_acceptance` for local managed runner handoff, foreground attach capability detection, sparse output snapshots, bounded `job_wait`, and lost-ownership recovery.
 
 `KERNEL-SANDBOX-APPROVAL-NEXT-20260623` is adjacent authority-plane work governed by `docs/requirements/kernel-foundation-capabilities.md`.
 

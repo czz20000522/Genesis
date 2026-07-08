@@ -324,7 +324,7 @@
 - `job.output` is not a pending kernel observation source and does not create `kernel_observation_context` on the next provider step.
 - Routine `job.output` is not promoted into audit replay summaries; raw event inspection still preserves the append-only fact.
 
-**Still deferred from full production delivery:**
+**Later completed in current implementation:**
 
-- The local managed shell executor still captures output only at terminal completion; it does not yet stream sparse live stdout/stderr snapshots.
-- Foreground shell attach/detach on user interruption still requires executor capability detection.
+- The local managed shell executor reports sparse live stdout/stderr snapshots through bounded `job.output` facts.
+- Foreground shell interruption uses executor capability detection, attaches when supported, and falls back to a truthful killed-interrupt result when attach is unavailable.

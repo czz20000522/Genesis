@@ -1481,3 +1481,17 @@ Evidence:
 - GREEN: `go test ./internal/kernel -run "TestHTTP|TestArchitectureBoundary" -count=1`
 - GREEN: `go test ./... -count=1`
 - GREEN: `go build ./...`
+
+### 2026-07-08 Slice 41 Shell Job Control Doc Drift
+
+Change:
+
+- Reconciled `kernel-shell-and-job-control` docs with the current managed shell
+  implementation and retirement evidence.
+- Removed stale statements that local managed shell live output sampling and
+  foreground attach capability detection were still deferred.
+
+Evidence:
+
+- GREEN: `go test ./internal/kernel -run "TestLocalManagedJobExecutorEmitsSparseOutputSnapshot|TestManagedJobOutputCapture" -count=1`
+- GREEN: `go test ./internal/kernel -run "Test.*Foreground|Test.*Attach|Test.*Interrupt" -count=1`
