@@ -45,7 +45,7 @@
 - Closing gate:
   - Requirement/design/issue/BDD items checked: owner replay, DTO placement, transport delegation, tool executor authority, document lifecycle.
   - Drift fixed before commit: none expected.
-  - Drift recorded as active issue: any owner-structure gap not implemented in this phase remains in `docs/operations/kernel-issues.md`.
+  - Drift record: no owner-structure gap is active in `docs/operations/kernel-issues.md` at this checkpoint.
 
 ## Phase B
 
