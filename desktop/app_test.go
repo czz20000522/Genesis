@@ -747,20 +747,12 @@ func TestFrontendDoesNotManageLocalProcesses(t *testing.T) {
 	}
 }
 
-func TestFrontendAssetDirPrefersPackagedExecutableLayout(t *testing.T) {
-	root := desktopTestTempDir(t)
-	dist := filepath.Join(root, "frontend", "dist")
-	if err := os.MkdirAll(dist, 0o755); err != nil {
-		t.Fatalf("mkdir dist: %v", err)
+func TestEmbeddedFrontendAssetsContainIndex(t *testing.T) {
+	file, err := assets.Open("frontend/dist/index.html")
+	if err != nil {
+		t.Fatalf("assets.Open(index.html) error = %v", err)
 	}
-	exe := filepath.Join(root, "build", "bin", "genesis-desktop.exe")
-	cwd := filepath.Join(root, "elsewhere")
-
-	got := frontendAssetDir(exe, cwd)
-
-	if got != dist {
-		t.Fatalf("frontendAssetDir() = %q, want %q", got, dist)
-	}
+	defer file.Close()
 }
 
 func TestSingleInstanceLockIsConfigured(t *testing.T) {
