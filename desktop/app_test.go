@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func desktopTestTempDir(t *testing.T) string {
@@ -338,6 +339,25 @@ func TestLocalModelSupervisorLeavesDisabledRuntimeUnowned(t *testing.T) {
 	status := supervisor.Start(context.Background())
 	if status.Ownership != serviceOwnershipUnowned || status.Reason != localModelDisabled {
 		t.Fatalf("status = %+v, want disabled unowned model", status)
+	}
+}
+
+func TestProbeLocalModelReadinessWaitsForDelayedServer(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if result := probeLocalModelReadiness(ctx, server.URL); !result.Ready || attempts < 2 {
+		t.Fatalf("readiness result = %+v after %d attempts, want ready after retry", result, attempts)
 	}
 }
 

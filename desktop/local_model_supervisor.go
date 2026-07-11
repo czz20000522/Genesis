@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -75,7 +76,7 @@ type LocalModelSupervisor struct {
 
 func NewLocalModelSupervisor(cfg LocalModelSupervisorConfig) *LocalModelSupervisor {
 	if cfg.ReadinessTimeout <= 0 {
-		cfg.ReadinessTimeout = 10 * time.Second
+		cfg.ReadinessTimeout = 90 * time.Second
 	}
 	if cfg.launcher == nil {
 		cfg.launcher = launchWSLLocalModel
@@ -296,6 +297,7 @@ func launchWSLLocalModel(_ context.Context, req localModelLaunchRequest) (localM
 		"--parallel", strconv.Itoa(req.Runtime.Parallel),
 	}
 	cmd := exec.Command("wsl.exe", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
@@ -312,6 +314,22 @@ func launchWSLLocalModel(_ context.Context, req localModelLaunchRequest) (localM
 }
 
 func probeLocalModelReadiness(ctx context.Context, healthURL string) sidecarReadinessResult {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		result := probeLocalModelReadinessOnce(ctx, healthURL)
+		if result.Ready {
+			return result
+		}
+		select {
+		case <-ctx.Done():
+			return result
+		case <-ticker.C:
+		}
+	}
+}
+
+func probeLocalModelReadinessOnce(ctx context.Context, healthURL string) sidecarReadinessResult {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(healthURL), nil)
 	if err != nil {
 		return sidecarReadinessResult{Reason: localModelReadinessProbeFailed}
