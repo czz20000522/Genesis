@@ -295,6 +295,37 @@ func TestNewRestartsQueuedDelegatedWorkerWithoutReplayingTools(t *testing.T) {
 	}
 }
 
+func TestNewFailsStartedDelegatedWorkerInsteadOfReplayingIt(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfig(t, []string{"resource_read"})
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
+	first := newAgentInvocationRunTestKernel(t, Config{LedgerPath: ledgerPath, ToolPolicy: ToolPolicy{PermissionMode: PermissionModePlan}, ParentWorkerConfigRoot: configRoot})
+	invocation, err := first.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{ConfigRoot: configRoot, SessionID: "restart-started", ParentTurnID: "turn_parent", Principal: "application:kernel", RoleID: "local-small-worker", IdempotencyKey: "evt_delegate"})
+	if err != nil {
+		t.Fatalf("AdmitWorkerInvocationFromRole returned error: %v", err)
+	}
+	run := AgentInvocationRunProjection{InvocationID: invocation.InvocationID, RunID: "agent_run_started", SessionID: invocation.SessionID, Principal: "application:kernel", Status: AgentInvocationRunStatusRunning, IdempotencyKey: invocation.IdempotencyKey, StartedAt: time.Now().UTC()}
+	if err := first.appendAgentInvocationRunEvent("agent_invocation.run_started", run); err != nil {
+		t.Fatalf("append run started: %v", err)
+	}
+	first.Close()
+
+	child := &delegateWorkerChildProvider{completed: make(chan ModelRequest, 1)}
+	restarted := newAgentInvocationRunTestKernel(t, Config{LedgerPath: ledgerPath, ToolPolicy: ToolPolicy{PermissionMode: PermissionModePlan}, ParentWorkerConfigRoot: configRoot, WorkerProviderResolver: func(string) (Provider, error) { return child, nil }})
+	runs, err := restarted.agentInvocationRuns()
+	if err != nil {
+		t.Fatalf("agent invocation runs: %v", err)
+	}
+	last, ok := runs[run.RunID]
+	if !ok || last.Status != AgentInvocationRunStatusFailed || last.Error == nil || last.Error.Code != "worker_delegation_recovery_ambiguous" {
+		t.Fatalf("recovered run = %+v, want ambiguous-recovery failure", last)
+	}
+	select {
+	case <-child.completed:
+		t.Fatal("started worker must not replay")
+	default:
+	}
+}
+
 func TestAgentInvocationAdmissionRejectsUnknownParentAndTool(t *testing.T) {
 	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,

@@ -458,6 +458,10 @@ func (k *Kernel) recoverQueuedDelegatedWorkers() error {
 	if err != nil {
 		return err
 	}
+	runs, err := k.agentInvocationRuns()
+	if err != nil {
+		return err
+	}
 	for _, invocation := range invocations {
 		if strings.TrimSpace(invocation.ParentTurnID) == "" || strings.TrimSpace(invocation.IdempotencyKey) == "" {
 			continue
@@ -466,6 +470,16 @@ func (k *Kernel) recoverQueuedDelegatedWorkers() error {
 			continue
 		}
 		if agentInvocationHasStartedRun(events, invocation.InvocationID) {
+			if run, ok := runsForInvocation(runs, invocation.InvocationID); ok && !isTerminalAgentInvocationRun(run) {
+				failed := run
+				failed.Status = AgentInvocationRunStatusFailed
+				failed.CompletedAt = k.clock()
+				failed.Error = &TurnError{Code: "worker_delegation_recovery_ambiguous", Message: "worker was running when the daemon stopped; Genesis did not replay it"}
+				if err := k.appendAgentInvocationRunEvent("agent_invocation.run_failed", failed); err != nil {
+					return err
+				}
+				k.finishDelegatedWorker(failed)
+			}
 			continue
 		}
 		task, ok := queuedDelegatedWorkerTask(events, invocation)
@@ -480,6 +494,15 @@ func (k *Kernel) recoverQueuedDelegatedWorkers() error {
 		})
 	}
 	return nil
+}
+
+func runsForInvocation(runs map[string]AgentInvocationRunProjection, invocationID string) (AgentInvocationRunProjection, bool) {
+	for _, run := range runs {
+		if run.InvocationID == invocationID {
+			return run, true
+		}
+	}
+	return AgentInvocationRunProjection{}, false
 }
 
 func agentInvocationHasStartedRun(events []StoredEvent, invocationID string) bool {
