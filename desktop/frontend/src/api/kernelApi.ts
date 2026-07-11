@@ -193,6 +193,17 @@ export type ProviderVerification = {
   model?: string
 }
 
+export type DesktopUpdate = {
+  current_version?: string
+  latest_version?: string
+  release_url?: string
+  release_notes?: string
+  installer_url?: string
+  checksum_url?: string
+  available?: boolean
+  reason?: string
+}
+
 export async function providerProfiles(): Promise<ProviderProfiles> {
   const bridge = wailsAppBridge()
   if (!bridge?.ProviderProfiles) throw new Error('模型配置仅在 Genesis 桌面客户端中可用')
@@ -233,6 +244,24 @@ export async function stopLocalModel(): Promise<LocalModelStatus> {
   const bridge = wailsAppBridge()
   if (!bridge?.StopLocalModel) throw new Error('本地模型控制仅在 Genesis 桌面客户端中可用')
   return bridge.StopLocalModel() as Promise<LocalModelStatus>
+}
+
+export async function saveUpdateToken(token: string): Promise<boolean> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.SaveUpdateToken) throw new Error('更新令牌仅在 Genesis 桌面客户端中可用')
+  return bridge.SaveUpdateToken(String(token || '').trim()) as Promise<boolean>
+}
+
+export async function checkForUpdate(): Promise<DesktopUpdate> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.CheckForUpdate) throw new Error('更新检查仅在 Genesis 桌面客户端中可用')
+  return bridge.CheckForUpdate() as Promise<DesktopUpdate>
+}
+
+export async function installUpdate(update: DesktopUpdate): Promise<void> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.InstallUpdate) throw new Error('更新安装仅在 Genesis 桌面客户端中可用')
+  await bridge.InstallUpdate(update)
 }
 
 export function kernelConfig(storage: Pick<Storage, 'getItem'> | null = safeLocalStorage()): KernelConfig {
@@ -532,6 +561,9 @@ type WailsAppBridge = {
   RotateProviderCredential?: (profileID: string, secret: string) => Promise<unknown>
   ApplyProviderRole?: (modelRole: string, profileID: string) => Promise<unknown>
   VerifyProvider?: (modelRole: string, profileID: string) => Promise<unknown>
+  SaveUpdateToken?: (token: string) => Promise<boolean>
+  CheckForUpdate?: () => Promise<unknown>
+  InstallUpdate?: (update: DesktopUpdate) => Promise<unknown>
 }
 
 type WailsRuntimeBridge = {

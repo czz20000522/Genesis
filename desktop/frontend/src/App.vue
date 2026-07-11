@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { applyProviderRole, bindSessionWorkspace, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TurnResponse } from './api/kernelApi'
+import { applyProviderRole, bindSessionWorkspace, checkForUpdate, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, installUpdate, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -46,6 +46,8 @@ const providerRoleBindings = ref<Record<string, string>>({})
 const selectedProviderRole = ref('coordinator')
 const selectedProviderProfile = ref('')
 const providerCredential = ref('')
+const updateToken = ref('')
+const update = ref<DesktopUpdate | null>(null)
 
 const conversationRows = computed(() => timelineRows(timeline.value?.items))
 const retryText = computed(() => {
@@ -226,6 +228,35 @@ async function toggleLocalModel() {
     error.value = err instanceof Error ? err.message : String(err)
 	} finally {
 		localModelStarting.value = false
+  }
+}
+
+async function saveDesktopUpdateToken() {
+  error.value = ''
+  try {
+    await saveUpdateToken(updateToken.value)
+    updateToken.value = ''
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function refreshDesktopUpdate() {
+  error.value = ''
+  try {
+    update.value = await checkForUpdate()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function installDesktopUpdate() {
+  if (!update.value?.available) return
+  error.value = ''
+  try {
+    await installUpdate(update.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
   }
 }
 
@@ -596,6 +627,8 @@ async function initializeDesktop() {
       :debug-summary-rows="debugSummaryRows"
       :compaction-summary-rows="compactionSummaryRows"
       :debug-export-ready="Boolean(debugExport)"
+	  :update-token="updateToken"
+	  :update="update"
       @update:base-url="config.baseUrl = $event"
       @update:runtime-token="config.runtimeToken = $event"
       @update:selected-detail-ref="selectedDetailRef = $event"
@@ -605,6 +638,10 @@ async function initializeDesktop() {
       @export-debug="exportDebug"
       @download-debug="downloadDebugExport"
       @compact-context="compactContext"
+	  @update:update-token="updateToken = $event"
+	  @save-update-token="saveDesktopUpdateToken"
+	  @check-update="refreshDesktopUpdate"
+	  @install-update="installDesktopUpdate"
       @close="inspectorOpen = false"
     />
   </main>

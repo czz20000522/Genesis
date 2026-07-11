@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { KernelTimelineDetail } from '../api/kernelApi'
+import type { DesktopUpdate, KernelTimelineDetail } from '../api/kernelApi'
 
 const props = defineProps<{
   baseUrl: string
@@ -12,6 +12,8 @@ const props = defineProps<{
   debugSummaryRows: string[]
   compactionSummaryRows: string[]
   debugExportReady: boolean
+  updateToken: string
+  update: DesktopUpdate | null
 }>()
 
 defineEmits<{
@@ -24,6 +26,10 @@ defineEmits<{
   exportDebug: []
   downloadDebug: []
   compactContext: []
+  'update:updateToken': [value: string]
+  saveUpdateToken: []
+  checkUpdate: []
+  installUpdate: []
   close: []
 }>()
 
@@ -70,6 +76,21 @@ function detailField(name: string) {
         <button type="button" class="secondary-button" :disabled="!debugExportReady" @click="$emit('downloadDebug')">下载</button>
         <button type="button" class="secondary-button" @click="$emit('compactContext')">整理上下文</button>
       </div>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">应用更新</p>
+      <label>
+        GitHub 只读令牌
+        <input :value="updateToken" type="password" autocomplete="off" spellcheck="false" @input="$emit('update:updateToken', ($event.target as HTMLInputElement).value)" />
+      </label>
+      <div class="button-row">
+        <button type="button" class="secondary-button" :disabled="!updateToken.trim()" @click="$emit('saveUpdateToken')">保存令牌</button>
+        <button type="button" class="secondary-button" @click="$emit('checkUpdate')">检查更新</button>
+      </div>
+      <p v-if="update" class="status">{{ update.available ? `发现 ${update.latest_version}` : `已是最新版本 ${update.current_version}` }}</p>
+      <button v-if="update?.available" type="button" @click="$emit('installUpdate')">下载并安装 {{ update.latest_version }}</button>
+      <a v-if="update?.release_url" :href="update.release_url" target="_blank" rel="noreferrer">查看发行说明</a>
     </section>
 
     <section v-if="detail" class="detail-panel">

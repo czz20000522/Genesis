@@ -11,11 +11,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"genesis/localconfig"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -130,6 +133,63 @@ func (a *App) StopLocalModel() SidecarStatus {
 	}
 	a.config.LocalModel = a.localModel.StopOwned(ctx)
 	return a.config.LocalModel
+}
+
+func (a *App) SaveUpdateToken(token string) (bool, error) {
+	if a == nil {
+		return false, errors.New("desktop app is unavailable")
+	}
+	_, err := localconfig.WriteCredentialSecret(localconfig.CredentialSecretWriteRequest{
+		CredentialRef: desktopUpdateCredentialRef,
+		Secret:        strings.TrimSpace(token),
+		StoreRoot:     a.providerControl.CredentialStoreRoot,
+		Protector:     a.providerControl.secretProtector,
+	})
+	return err == nil, err
+}
+
+func (a *App) CheckForUpdate() (DesktopUpdateProjection, error) {
+	if a == nil {
+		return DesktopUpdateProjection{}, errors.New("desktop app is unavailable")
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	service := a.updateService()
+	return service.Check(ctx)
+}
+
+func (a *App) InstallUpdate(update DesktopUpdateProjection) error {
+	if a == nil {
+		return errors.New("desktop app is unavailable")
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	installer, err := a.updateService().DownloadAndVerify(ctx, update)
+	if err != nil {
+		return err
+	}
+	command := exec.Command("cmd.exe", "/C", "timeout /T 2 /NOBREAK > NUL & start \"\" \""+installer+"\"")
+	if err := command.Start(); err != nil {
+		return err
+	}
+	if a.ctx != nil {
+		wailsruntime.Quit(a.ctx)
+	}
+	return nil
+}
+
+func (a *App) updateService() desktopUpdateService {
+	return desktopUpdateService{
+		currentVersion:   desktopVersion,
+		latestReleaseURL: "https://api.github.com/repos/czz20000522/Genesis/releases/latest",
+		tokenResolver: func() (string, error) {
+			return localconfig.ResolveCredentialSecret(desktopUpdateCredentialRef, a.providerControl.CredentialStoreRoot)
+		},
+	}
 }
 
 func (a *App) KernelReady() (map[string]any, error) {
