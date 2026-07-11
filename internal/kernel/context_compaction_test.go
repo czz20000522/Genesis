@@ -731,7 +731,7 @@ func TestCompactionSourcePreservesCompletedToolCallResultPairs(t *testing.T) {
 		t.Fatalf("compaction requests = %d, want 1", len(provider.compactionRequests))
 	}
 	source := modelUserText(provider.compactionRequests[0].InputItems)
-	for _, want := range []string{"[tool call]", "shell_exec", "GENESIS_TOOL_PAIR_MARKER", "[tool result]", "permission_denied", "tool pair final"} {
+	for _, want := range []string{"[tool call]", "shell_exec", "GENESIS_TOOL_PAIR_MARKER", "[tool result]", "status: completed", "tool pair final"} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("compaction source = %q, want %q", source, want)
 		}

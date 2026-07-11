@@ -16,32 +16,35 @@ import (
 )
 
 type Kernel struct {
-	ledger                Ledger
-	provider              Provider
-	providerVerifier      ProviderVerifier
-	jobExecutor           ManagedJobExecutor
-	runtimeToken          string
-	toolPolicy            ToolPolicy
-	contextPolicy         ContextPolicy
-	budgetPolicy          BudgetPolicy
-	shellTimeoutPolicy    ShellTimeoutPolicy
-	toolRegistry          *ToolRegistry
-	resourceRegistry      *resource.Registry
-	materialStorePath     string
-	skillCatalog          []SkillDescriptor
-	skillRoots            []SkillCatalogRootProjection
-	skillExclusions       []SkillCatalogExclusionProjection
-	capabilityDescriptors []CapabilityDescriptor
-	clock                 func() time.Time
-	turnMu                sync.Mutex
-	activeTurnMu          sync.Mutex
-	activeTurns           map[string]*activeTurn
-	operationMu           sync.Mutex
-	jobMu                 sync.Mutex
-	approvalMu            sync.Mutex
-	memoryReviewMu        sync.Mutex
-	workMu                sync.Mutex
-	activeInvocationRuns  map[string]struct{}
+	ledger                 Ledger
+	provider               Provider
+	providerVerifier       ProviderVerifier
+	jobExecutor            ManagedJobExecutor
+	runtimeToken           string
+	toolPolicy             ToolPolicy
+	contextPolicy          ContextPolicy
+	budgetPolicy           BudgetPolicy
+	shellTimeoutPolicy     ShellTimeoutPolicy
+	toolRegistry           *ToolRegistry
+	resourceRegistry       *resource.Registry
+	materialStorePath      string
+	parentWorkerConfigRoot string
+	parentWorkerParentID   string
+	workerProviderResolver WorkerProviderResolver
+	skillCatalog           []SkillDescriptor
+	skillRoots             []SkillCatalogRootProjection
+	skillExclusions        []SkillCatalogExclusionProjection
+	capabilityDescriptors  []CapabilityDescriptor
+	clock                  func() time.Time
+	turnMu                 sync.Mutex
+	activeTurnMu           sync.Mutex
+	activeTurns            map[string]*activeTurn
+	operationMu            sync.Mutex
+	jobMu                  sync.Mutex
+	approvalMu             sync.Mutex
+	memoryReviewMu         sync.Mutex
+	workMu                 sync.Mutex
+	activeInvocationRuns   map[string]struct{}
 }
 
 type activeTurn struct {
@@ -87,25 +90,28 @@ func New(config Config) (*Kernel, error) {
 		return nil, err
 	}
 	k := &Kernel{
-		ledger:                NewSQLiteLedger(config.LedgerPath),
-		provider:              provider,
-		providerVerifier:      config.ProviderVerifier,
-		jobExecutor:           jobExecutor,
-		runtimeToken:          strings.TrimSpace(config.RuntimeToken),
-		toolPolicy:            normalizedToolPolicy(config.ToolPolicy),
-		contextPolicy:         normalizedContextPolicy(config.ContextPolicy),
-		budgetPolicy:          normalizedBudgetPolicy(config.BudgetPolicy),
-		shellTimeoutPolicy:    shellTimeoutPolicy,
-		toolRegistry:          toolRegistry,
-		resourceRegistry:      resourceRegistry,
-		materialStorePath:     materialStorePath,
-		skillCatalog:          skillCatalog.Items,
-		skillRoots:            skillCatalog.Roots,
-		skillExclusions:       skillCatalog.Exclusions,
-		capabilityDescriptors: capabilityDescriptors,
-		clock:                 clock,
-		activeTurns:           map[string]*activeTurn{},
-		activeInvocationRuns:  map[string]struct{}{},
+		ledger:                 NewSQLiteLedger(config.LedgerPath),
+		provider:               provider,
+		providerVerifier:       config.ProviderVerifier,
+		jobExecutor:            jobExecutor,
+		runtimeToken:           strings.TrimSpace(config.RuntimeToken),
+		toolPolicy:             normalizedToolPolicy(config.ToolPolicy),
+		contextPolicy:          normalizedContextPolicy(config.ContextPolicy),
+		budgetPolicy:           normalizedBudgetPolicy(config.BudgetPolicy),
+		shellTimeoutPolicy:     shellTimeoutPolicy,
+		toolRegistry:           toolRegistry,
+		resourceRegistry:       resourceRegistry,
+		materialStorePath:      materialStorePath,
+		parentWorkerConfigRoot: strings.TrimSpace(config.ParentWorkerConfigRoot),
+		parentWorkerParentID:   strings.TrimSpace(config.ParentWorkerParentID),
+		workerProviderResolver: config.WorkerProviderResolver,
+		skillCatalog:           skillCatalog.Items,
+		skillRoots:             skillCatalog.Roots,
+		skillExclusions:        skillCatalog.Exclusions,
+		capabilityDescriptors:  capabilityDescriptors,
+		clock:                  clock,
+		activeTurns:            map[string]*activeTurn{},
+		activeInvocationRuns:   map[string]struct{}{},
 	}
 	_ = k.recoverLostLocalManagedJobs()
 	return k, nil
@@ -498,9 +504,13 @@ func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, tur
 }
 
 func (k *Kernel) completeModel(ctx context.Context, request ModelRequest, emit func(TurnStreamEvent) error) (ModelResponse, bool, error) {
-	streamer, ok := k.provider.(StreamingProvider)
+	return completeModelWithProvider(ctx, k.provider, request, emit)
+}
+
+func completeModelWithProvider(ctx context.Context, provider Provider, request ModelRequest, emit func(TurnStreamEvent) error) (ModelResponse, bool, error) {
+	streamer, ok := provider.(StreamingProvider)
 	if emit == nil || !ok {
-		resp, err := k.provider.Complete(ctx, request)
+		resp, err := provider.Complete(ctx, request)
 		return resp, false, err
 	}
 	streamedDelta := false
@@ -767,6 +777,29 @@ func (k *Kernel) appendToolLoopBudgetPause(sessionID string, turnID string, prov
 		BudgetLease:         lease.projection(),
 		CompletedToolRounds: completedRounds,
 		PausedAt:            pausedAt,
+	}
+	err := k.appendEvent(StoredEvent{
+		EventID:   newID("evt", pausedAt),
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      "turn.paused",
+		CreatedAt: pausedAt,
+		Data: EventData{
+			TurnPause: &pause,
+		},
+	})
+	return pause, err
+}
+
+func (k *Kernel) appendAgentDelegationPause(sessionID string, turnID string) (TurnPauseProjection, error) {
+	pausedAt := k.clock()
+	pause := TurnPauseProjection{
+		SessionID:  strings.TrimSpace(sessionID),
+		TurnID:     strings.TrimSpace(turnID),
+		Phase:      RuntimePhaseWaiting,
+		WaitReason: WaitReasonAgentDelegation,
+		Reason:     "worker_delegation_pending",
+		PausedAt:   pausedAt,
 	}
 	err := k.appendEvent(StoredEvent{
 		EventID:   newID("evt", pausedAt),

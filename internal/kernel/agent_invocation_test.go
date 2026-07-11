@@ -3,8 +3,10 @@ package kernel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -226,6 +228,14 @@ func TestAdmitWorkerInvocationFromRoleRejectsExtraParentToolsBeforeAppend(t *tes
 	}
 	if len(items) != 0 {
 		t.Fatalf("invocations = %+v, want no rejected worker fact", items)
+	}
+}
+
+func TestResolveParentWorkerRuntimeRejectsRecursiveDelegateWorkerTool(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfig(t, []string{"delegate_worker"})
+	_, err := ResolveParentWorkerRuntimeFromGenesis(ParentWorkerRuntimeRequest{ConfigRoot: configRoot})
+	if !errors.Is(err, ErrGenesisWorkerRoleBindingInvalid) || !strings.Contains(err.Error(), "worker_role_must_be_leaf") {
+		t.Fatalf("ResolveParentWorkerRuntimeFromGenesis error = %v, want leaf-only delegate_worker rejection", err)
 	}
 }
 
@@ -578,4 +588,129 @@ func newAgentInvocationRunTestKernel(t *testing.T, config Config) *Kernel {
 	}
 	t.Cleanup(k.Close)
 	return k
+}
+
+func TestSubmitTurnDelegateWorkerPausesParentAndRunsRoleBoundLeaf(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfig(t, []string{"resource_read"})
+	parent := &delegateWorkerParentProvider{}
+	child := &delegateWorkerChildProvider{completed: make(chan ModelRequest, 1)}
+	resolvedProfileID := ""
+	k := newAgentInvocationRunTestKernel(t, Config{
+		LedgerPath:             filepath.Join(testTempDir(t), "events.sqlite"),
+		Provider:               parent,
+		ToolPolicy:             ToolPolicy{PermissionMode: PermissionModePlan},
+		ParentWorkerConfigRoot: configRoot,
+		WorkerProviderResolver: func(profileID string) (Provider, error) {
+			resolvedProfileID = profileID
+			return child, nil
+		},
+	})
+
+	resp, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "delegate-worker-parent",
+		InputItems: []InputItem{{Type: "text", Text: "inspect the repository"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	if resp.Pause == nil || resp.Pause.WaitReason != WaitReasonAgentDelegation {
+		receipts := []string{}
+		for _, event := range resp.Events {
+			if data, ok := event.Data.(EventData); ok && data.ToolResult != nil {
+				receipts = append(receipts, data.ToolResult.Content)
+			}
+		}
+		t.Fatalf("response pause = %+v receipts = %v, want agent delegation wait", resp.Pause, receipts)
+	}
+	if parent.CallCount() != 1 {
+		t.Fatalf("parent provider calls = %d, want one before pause", parent.CallCount())
+	}
+
+	var childRequest ModelRequest
+	select {
+	case childRequest = <-child.completed:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not complete")
+	}
+	if resolvedProfileID != "worker-profile" {
+		t.Fatalf("resolved profile = %q, want worker-profile", resolvedProfileID)
+	}
+	if len(childRequest.InputItems) != 1 || childRequest.InputItems[0].Text != "inspect the repository" {
+		t.Fatalf("worker inputs = %+v, want focused task only", childRequest.InputItems)
+	}
+	for _, tool := range childRequest.ToolManifest {
+		if tool.Name == "delegate_worker" {
+			t.Fatalf("worker manifest = %+v, must not contain delegate_worker", childRequest.ToolManifest)
+		}
+	}
+
+	invocations, err := k.AgentInvocations("delegate-worker-parent")
+	if err != nil {
+		t.Fatalf("AgentInvocations returned error: %v", err)
+	}
+	if len(invocations) != 1 || invocations[0].ParentTurnID != resp.TurnID {
+		t.Fatalf("invocations = %+v, want one worker bound to parent turn %q", invocations, resp.TurnID)
+	}
+	conversation, err := k.AgentInvocationChildConversation(invocations[0].InvocationID)
+	if err != nil {
+		t.Fatalf("AgentInvocationChildConversation returned error: %v", err)
+	}
+	if conversation.Status != AgentInvocationRunStatusCompleted || conversation.Final.Text != "worker final" {
+		t.Fatalf("child conversation = %+v, want bounded completed final", conversation)
+	}
+
+	for _, event := range resp.Events {
+		data, ok := event.Data.(EventData)
+		if event.Type != "tool.result" || !ok || data.ToolResult == nil || data.ToolResult.Tool != "delegate_worker" {
+			continue
+		}
+		if strings.Contains(data.ToolResult.Content, "inspect the repository") {
+			t.Fatalf("delegate receipt leaked focused task: %s", data.ToolResult.Content)
+		}
+		return
+	}
+	t.Fatalf("parent events = %+v, want delegate_worker tool receipt", resp.Events)
+}
+
+type delegateWorkerParentProvider struct {
+	mu       sync.Mutex
+	requests []ModelRequest
+}
+
+func (p *delegateWorkerParentProvider) Name() string { return "delegate-worker-parent" }
+
+func (p *delegateWorkerParentProvider) Ready() ProviderStatus {
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
+}
+
+func (p *delegateWorkerParentProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.requests = append(p.requests, cloneModelRequest(req))
+	return ModelResponse{Model: "parent-model", ToolCalls: []ModelToolCall{{
+		ToolCallID: "delegate_worker_call",
+		Name:       "delegate_worker",
+		Arguments:  json.RawMessage(`{"role_id":"local-small-worker","task":"inspect the repository"}`),
+	}}}, nil
+}
+
+func (p *delegateWorkerParentProvider) CallCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.requests)
+}
+
+type delegateWorkerChildProvider struct {
+	completed chan ModelRequest
+}
+
+func (p *delegateWorkerChildProvider) Name() string { return "delegate-worker-child" }
+
+func (p *delegateWorkerChildProvider) Ready() ProviderStatus {
+	return ProviderStatus{Name: p.Name(), Readiness: ReadinessReady}
+}
+
+func (p *delegateWorkerChildProvider) Complete(_ context.Context, req ModelRequest) (ModelResponse, error) {
+	p.completed <- cloneModelRequest(req)
+	return ModelResponse{Text: "worker final", Model: "worker-model"}, nil
 }

@@ -93,8 +93,18 @@ func main() {
 				ModelProfileID:      verifyRequest.ProfileID,
 			})
 		},
-		RuntimeToken: *runtimeToken,
-		ToolPolicy:   toolPolicy,
+		RuntimeToken:           *runtimeToken,
+		ParentWorkerConfigRoot: *configRoot,
+		ParentWorkerParentID:   *modelRole,
+		WorkerProviderResolver: func(profileID string) (kernel.Provider, error) {
+			return buildProvider(providerBuildRequest{
+				name:                "genesis-config",
+				configRoot:          *configRoot,
+				credentialStoreRoot: *credentialStoreRoot,
+				modelProfileID:      profileID,
+			})
+		},
+		ToolPolicy: toolPolicy,
 		ContextPolicy: kernel.ContextPolicy{
 			ContextWindowTokens: *contextWindowTokens,
 			AutoCompactRatio:    *autoCompactRatio,

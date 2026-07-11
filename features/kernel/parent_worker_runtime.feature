@@ -33,3 +33,10 @@ Feature: Parent-led worker runtime configuration
     Then Genesis returns the worker role, status, final answer, usage, context scope, tool set, and evidence refs
     And the projection omits the focused prompt, raw provider stream, raw tool trace, credentials, sandbox profiles, and permission profiles
     And the parent session transcript remains separate
+
+  Scenario: Parent dispatches a role-bound leaf worker
+    Given the parent tool manifest exposes delegate_worker
+    When the parent calls delegate_worker with a configured role id and focused task
+    Then Genesis resolves provider, model profile, tools, and context policy from the role binding
+    And the worker does not receive delegate_worker or a parent-history fork
+    And the parent receives only the worker terminal result, usage, and evidence summary

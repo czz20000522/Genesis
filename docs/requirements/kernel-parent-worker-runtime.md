@@ -98,6 +98,19 @@ Parent profile 定义 user-facing parent agent 使用的模型配置和可请求
 
 Worker invocation 是一次叶子工作执行。它必须引用已存在的 role binding，并通过 `AgentInvocation` 准入。它接收 focused input 和显式 context scope，返回 bounded result。
 
+### Parent Dispatch Tool
+
+`delegate_worker` 是 parent 在普通 model turn 中请求 worker 的唯一
+模型可调用入口。它只接受 `role_id` 和自包含 `task`。调用不能指定
+provider、model、tool、workspace、context fork、credential、并发数或 parent
+result channel；内核从已配置的 parent/worker role binding 解析这些值。
+
+该工具写入一个持久 delegation，再异步运行对应 worker。它的即时 tool
+result 只返回安全的 invocation identity 和 queued/running 状态；worker
+terminal result 由 kernel 作为同一 parent turn 的受限 tool result 回投，令
+parent 能继续归约。`reviewer` 是普通 worker role，`reduce` 是 parent 对
+受限结果的普通后续推理，不新增 review 或 reducer runtime。
+
 ### Task Graph
 
 Task graph 是独立的通用工作结构需求。Parent-worker runtime 只需要保证 worker invocation 有可被 task graph 引用的身份、状态和可视化投影；节点、边、布局、调度和恢复规则不在本需求中展开。
@@ -137,6 +150,8 @@ Phase C：Task Graph 接入边界
 
 Phase D：Review / Reduce
 
+- parent 通过 `delegate_worker` 选择已绑定的 worker role，而不是直接指定
+  provider、model 或工具；
 - parent 可安排 review worker 检查 worker 产物；
 - parent 可基于 review result 追加、重试、合并或拒收节点；
 - 投影区分 worker result、review result 和 parent final answer。
@@ -162,6 +177,10 @@ Phase E：Memory / Context / Accumulation 接入
 11. Worker 的中间 transcript 和工具 trace 不会自动进入 parent conversation projection。
 12. Parent final answer 可以引用 worker terminal result 和 review result。
 13. Provider credential、raw prompt、sandbox profile、permission profile 和内部 kernel id 不进入 model-visible role binding schema。
+14. `delegate_worker` 不能由 worker invocation 调用，且不能接受 role
+    binding 之外的 provider、tool、workspace 或 context 参数。
+15. parent 只收到 worker 的受限 terminal result；worker 的 raw prompt、
+    reasoning、stream 和工具 trace 仍只存在于 child evidence/projection。
 
 ## 与现有文档的关系
 

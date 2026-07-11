@@ -26,6 +26,30 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
+### KERNEL-PARENT-WORKER-DELEGATE-20260712 - P1 - Parent delegation cannot yet resume after restart
+
+- Status: in_progress.
+- Requirement: `docs/requirements/kernel-parent-worker-runtime.md`.
+  - Design: `docs/design/kernel-parent-worker-runtime.md`.
+- Gap: Phase A adds constrained asynchronous dispatch and a paused parent turn,
+  but the daemon does not yet recover an unfinished worker after restart or
+  append its bounded terminal result back into the paused parent turn for
+  automatic continuation.
+- Next slice: implement Phase B from
+  `docs/implementation-plans/kernel-parent-worker-delegate-worker.md`: persist
+  a recoverable focused task/checkpoint, reconstruct only unambiguous work, and
+  resume the parent through its existing provider context path.
+- Evidence: `delegate_worker` creates one role-bound `AgentInvocation`, resolves
+  its configured model profile through the daemon resolver, excludes recursive
+  delegation from the worker manifest, and emits a queued receipt before the
+  parent pauses. The child terminal projection remains separate.
+- Verification: parent tool-loop pause, role-profile resolver, leaf grant
+  filtering, child projection, then full Go tests and build.
+- Reference alignment: Codex persists parent-child spawn/lifecycle and parent
+  completion delivery; Reasonix starts fresh filtered subagents and returns only
+  final text. Genesis rejects their free profile/fork controls in favor of role
+  binding and ledger-owned invocation facts.
+
 ### KERNEL-SESSION-WORKSPACE-BINDING-20260711 - P1 - Desktop end-to-end acceptance remains after session-scoped binding implementation
 
 - Status: open.

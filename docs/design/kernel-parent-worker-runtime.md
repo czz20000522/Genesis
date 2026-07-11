@@ -113,6 +113,30 @@ Parent binding 定义 user-facing parent：
 9. Worker 返回 terminal result；内核记录状态、usage 和 sanitized failure。
 10. Parent 汇总 worker result，可继续创建 review worker 或输出 final answer。
 
+### Parent Dispatch Tool
+
+`delegate_worker` 是 kernel-control tool，不是 shell、connector 或 workflow
+command。它的 schema 固定为：
+
+```json
+{
+  "role_id": "reviewer",
+  "task": "Review the bounded worker result and state accept or reject."
+}
+```
+
+内核以当前 daemon 的 configured parent id 解析 role binding，持久化
+delegation 与 focused task，再创建 leaf invocation。工具调用不携带 profile、
+tool set、workspace、fork history、credential 或 result channel；这些字段由
+role binding 和 kernel-owned parent turn 绑定决定。worker gateway 永远不暴露
+`delegate_worker`，因此 leaf worker 无法递归 delegation。
+
+delegation 的即时 tool result 仅为 `queued`/`running` 与 invocation id。
+terminal worker result 会作为同一 parent turn 的普通受限 tool result 回投；
+parent 的下一次 provider continuation 只看 role、status、bounded final、usage
+和 evidence refs。它不看 child raw prompt、reasoning、stream 或 tool trace。
+review 是 role 选择；reduce 是 parent continuation，不创建新的 owner/type。
+
 ## 协议形状
 
 ### Role Binding Projection
@@ -190,6 +214,7 @@ Worker 输出可以像 parent 对话一样单独渲染为 child conversation pro
 - Worker binding 必须 `leaf_only=true`，否则不进入 worker runtime。
 - Worker 不获得 `can_create_workers`。
 - Worker 工具集合来自 role binding 预设，并受 ToolPolicy 与 ToolGateway 约束。
+- worker gateway 不包含 `delegate_worker`，即使 parent gateway 包含它。
 - Parent 不能在 worker invocation request 中追加 role binding 之外的工具。
 - Task graph 节点不授予权限；节点只引用 role binding 和 invocation。
 - Role label、prompt、模型输出、provider 名称都不授予权限。
@@ -216,6 +241,8 @@ Worker 输出可以像 parent 对话一样单独渲染为 child conversation pro
 - role tool set 超出 parent 可创建范围：`capability_grant_exceeds_parent`。
 - 工具被 policy 拒绝：沿用 ToolGateway failure class。
 - worker 无法完成但需要用户或 parent 决策：`worker_blocked`。
+- delegation 启动或恢复失败：`worker_delegation_failed`，并保持 parent turn
+  的受限失败 tool result，不泄漏 provider 配置或 raw diagnostics。
 
 失败不会把 provider credential、raw prompt、raw response body 或内部调度细节暴露给模型。
 
@@ -236,6 +263,14 @@ Worker 输出可以像 parent 对话一样单独渲染为 child conversation pro
 - operator：看到 provider/profile/role readiness、并发占用和配置错误。
 
 Raw provider stream 和工具 trace 默认属于调试证据，不进入 parent conversation projection。Worker 对话投影可以独立展示；需要进入 parent 对话时，必须先由 parent 归约为 final answer、evidence ref、audit fact 或 failure evidence。
+
+Phase A 复用既有 `AgentInvocation` ledger fact 和 parent `tool.call` binding：
+它持久化 worker identity、parent turn id、role/profile snapshot 与 child
+terminal projection，并在当前 daemon 内异步启动一个 worker。它不恢复或重放
+尚未终态的 worker，不建立任务图、批量 scheduler 或 worker-to-worker mailbox。
+Phase B 必须把 focused task、parent tool-call binding 和安全 continuation
+checkpoint 提升为可恢复状态，才可以在 daemon restart 后恢复；在该证据完成前
+不得宣称 restart-safe delegation。
 
 ## 参考对齐
 

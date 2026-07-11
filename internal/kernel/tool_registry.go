@@ -33,6 +33,7 @@ type toolInvocationContext interface {
 	prepareJobStatusToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobWaitToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobCancelToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	prepareDelegateWorkerToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 }
 
 type ToolRegistry struct {
@@ -69,6 +70,22 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 		shellPolicy = normalizedShellTimeoutPolicy(policies[0])
 	}
 	return []registeredTool{
+		{
+			Spec: ToolSpec{
+				Name:        "delegate_worker",
+				Description: "Delegate one focused task to a role-bound leaf worker. The kernel selects the worker provider, model profile, tools, and context policy from configured role bindings.",
+				InputSchema: toolInputSchema(delegateWorkerToolArguments{}, map[string]string{
+					"role_id": "Configured worker role to receive the focused task.",
+					"task":    "Self-contained focused task for the worker.",
+				}),
+				SideEffectLevel: ToolSideEffectRead,
+				ExecutionKind:   ToolExecutionKindKernelControl,
+				Scheduling:      delegateWorkerToolSchedulingSpec(),
+			},
+			Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+				return ctx.prepareDelegateWorkerToolCall(eventID, providerCallID, name, arguments)
+			},
+		},
 		{
 			Spec: ToolSpec{
 				Name:        "shell_exec",

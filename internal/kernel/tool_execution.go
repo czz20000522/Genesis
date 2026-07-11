@@ -232,6 +232,23 @@ func (k *Kernel) commitToolExecutionResult(runCtx context.Context, sessionID str
 			return toolBatchExecutionOutcome{}, err
 		}
 	}
+	if result.PendingAgentInvocationStart != nil {
+		pause, err := k.appendAgentDelegationPause(sessionID, turnID)
+		if err != nil {
+			return toolBatchExecutionOutcome{}, err
+		}
+		k.startAgentInvocation(*result.PendingAgentInvocationStart)
+		events, err := k.TurnEvents(turnID)
+		if err != nil {
+			return toolBatchExecutionOutcome{}, err
+		}
+		return toolBatchExecutionOutcome{Completed: true, Response: TurnResponse{
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Events:    events,
+			Pause:     &pause,
+		}}, nil
+	}
 	if isTurnContextInterrupted(runCtx, nil) {
 		resp, completeErr := k.completeInterruptedTurn(sessionID, turnID)
 		if completeErr != nil {
@@ -240,4 +257,10 @@ func (k *Kernel) commitToolExecutionResult(runCtx context.Context, sessionID str
 		return toolBatchExecutionOutcome{Completed: true, Response: resp}, nil
 	}
 	return toolBatchExecutionOutcome{}, nil
+}
+
+func (k *Kernel) startAgentInvocation(req AgentInvocationRunRequest) {
+	go func() {
+		_, _ = k.RunAgentInvocation(context.Background(), req)
+	}()
 }

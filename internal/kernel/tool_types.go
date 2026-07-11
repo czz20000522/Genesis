@@ -89,11 +89,12 @@ type ModelToolRound struct {
 }
 
 type ModelToolResult struct {
-	ToolCallID      string         `json:"tool_call_id"`
-	ToolCallEventID string         `json:"tool_call_event_id,omitempty"`
-	Name            string         `json:"name"`
-	Content         string         `json:"content"`
-	PendingJobStart *JobProjection `json:"-"`
+	ToolCallID                  string                     `json:"tool_call_id"`
+	ToolCallEventID             string                     `json:"tool_call_event_id,omitempty"`
+	Name                        string                     `json:"name"`
+	Content                     string                     `json:"content"`
+	PendingJobStart             *JobProjection             `json:"-"`
+	PendingAgentInvocationStart *AgentInvocationRunRequest `json:"-"`
 }
 
 type ShellExecRequest struct {

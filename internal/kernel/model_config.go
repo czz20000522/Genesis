@@ -371,6 +371,9 @@ func normalizeWorkerToolSet(tools []string) ([]string, error) {
 	grant := normalizeCapabilityGrant(CapabilityGrant{ToolNames: tools})
 	known := defaultKernelToolNameSet()
 	for _, tool := range grant.ToolNames {
+		if tool == "delegate_worker" {
+			return nil, fmt.Errorf("%w: worker_role_must_be_leaf", ErrGenesisWorkerRoleBindingInvalid)
+		}
 		if _, ok := known[tool]; !ok {
 			return nil, fmt.Errorf("%w: capability_grant_unknown_tool: %s", ErrGenesisWorkerRoleBindingInvalid, tool)
 		}

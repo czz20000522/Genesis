@@ -16,6 +16,7 @@ type CapabilityGrant struct {
 
 type AgentInvocationAdmissionRequest struct {
 	SessionID           string          `json:"session_id"`
+	ParentTurnID        string          `json:"parent_turn_id,omitempty"`
 	ParentInvocationID  string          `json:"parent_invocation_id,omitempty"`
 	Principal           string          `json:"principal"`
 	AgentProfileRef     string          `json:"agent_profile_ref,omitempty"`
@@ -30,6 +31,7 @@ type WorkerInvocationAdmissionRequest struct {
 	ParentID            string   `json:"parent_id,omitempty"`
 	RoleID              string   `json:"role_id,omitempty"`
 	SessionID           string   `json:"session_id"`
+	ParentTurnID        string   `json:"parent_turn_id,omitempty"`
 	ParentInvocationID  string   `json:"parent_invocation_id,omitempty"`
 	Principal           string   `json:"principal"`
 	RequestedToolNames  []string `json:"requested_tool_names,omitempty"`
@@ -41,9 +43,11 @@ type WorkerInvocationAdmissionRequest struct {
 type AgentInvocationProjection struct {
 	InvocationID        string          `json:"invocation_id"`
 	SessionID           string          `json:"session_id"`
+	ParentTurnID        string          `json:"parent_turn_id,omitempty"`
 	ParentInvocationID  string          `json:"parent_invocation_id,omitempty"`
 	Principal           string          `json:"principal"`
 	AgentProfileRef     string          `json:"agent_profile_ref,omitempty"`
+	ModelProfileID      string          `json:"model_profile_id,omitempty"`
 	CapabilityGrant     CapabilityGrant `json:"capability_grant"`
 	ContextScope        string          `json:"context_scope,omitempty"`
 	ParentResultChannel string          `json:"parent_result_channel,omitempty"`

@@ -54,6 +54,16 @@ func contextDiscoveryToolSchedulingSpec() ToolSchedulingSpec {
 	}
 }
 
+func delegateWorkerToolSchedulingSpec() ToolSchedulingSpec {
+	return ToolSchedulingSpec{
+		EffectClass:    ToolEffectClassKernelStateWrite,
+		ParallelPolicy: ToolParallelPolicySerialFence,
+		ResourceFootprint: ToolResourceFootprint{
+			StateScopes: []string{"agent_invocation"},
+		},
+	}
+}
+
 func shellExecToolAccessPlan(toolName string, cwd string, timeoutSec int) ToolAccessPlan {
 	return toolruntime.ShellExecAccessPlan(toolName, cwd, timeoutSec, maxForegroundShellTimeoutSec)
 }
@@ -90,6 +100,17 @@ func sourceReadToolAccessPlan(toolName string, sourceRef string) ToolAccessPlan 
 
 func contextDiscoveryToolAccessPlan(toolName string) ToolAccessPlan {
 	spec := contextDiscoveryToolSchedulingSpec()
+	return ToolAccessPlan{
+		ToolName:          toolName,
+		EffectClass:       spec.EffectClass,
+		ParallelPolicy:    spec.ParallelPolicy,
+		ResourceFootprint: spec.ResourceFootprint,
+		Trusted:           true,
+	}
+}
+
+func delegateWorkerToolAccessPlan(toolName string) ToolAccessPlan {
+	spec := delegateWorkerToolSchedulingSpec()
 	return ToolAccessPlan{
 		ToolName:          toolName,
 		EffectClass:       spec.EffectClass,

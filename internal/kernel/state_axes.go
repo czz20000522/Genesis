@@ -8,6 +8,7 @@ const (
 
 	WaitReasonApprovalRequired = "approval_required"
 	WaitReasonBudgetPause      = "budget_pause"
+	WaitReasonAgentDelegation  = "agent_delegation"
 	WaitReasonUserInput        = "user_input_required"
 
 	TerminalOutcomeSucceeded   = "succeeded"

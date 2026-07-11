@@ -71,6 +71,11 @@ type jobCancelToolArguments struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type delegateWorkerToolArguments struct {
+	RoleID string `json:"role_id"`
+	Task   string `json:"task"`
+}
+
 type preparedModelToolCall struct {
 	eventID                string
 	providerCallID         string
@@ -102,6 +107,10 @@ func (c workspaceToolInvocationContext) prepareShellExecToolCall(eventID string,
 
 func (c workspaceToolInvocationContext) prepareWorkspaceEditToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 	return c.Kernel.prepareWorkspaceEditToolCallWithRoot(c.policy.WorkspaceRoot, eventID, providerCallID, name, arguments)
+}
+
+func (c workspaceToolInvocationContext) prepareDelegateWorkerToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	return c.Kernel.prepareDelegateWorkerToolCall(eventID, providerCallID, name, arguments)
 }
 
 func (g ToolGateway) invocationContext() toolInvocationContext {
@@ -574,6 +583,63 @@ func (k *Kernel) prepareJobCancelToolCall(eventID string, providerCallID string,
 		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
 			return k.cancelJobModelToolResult(sessionID, turnID, eventID, providerCallID, name, jobID, reason)
 		},
+	}, nil
+}
+
+func (k *Kernel) prepareDelegateWorkerToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args delegateWorkerToolArguments
+	if err := decodeStrictModelToolArguments("delegate_worker", arguments, &args); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+	}
+	args.RoleID = strings.TrimSpace(args.RoleID)
+	args.Task = strings.TrimSpace(args.Task)
+	if args.RoleID == "" || args.Task == "" {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_delegate_worker_request", "invalid delegate_worker request: role_id and task are required"), nil
+	}
+	return preparedModelToolCall{
+		eventID:        eventID,
+		providerCallID: providerCallID,
+		name:           name,
+		accessPlan:     delegateWorkerToolAccessPlan(name),
+		execute: func(_ context.Context, sessionID string, turnID string) (ModelToolResult, error) {
+			return k.delegateWorkerModelToolResult(sessionID, turnID, eventID, providerCallID, name, args)
+		},
+	}, nil
+}
+
+func (k *Kernel) delegateWorkerModelToolResult(sessionID string, turnID string, eventID string, providerCallID string, name string, args delegateWorkerToolArguments) (ModelToolResult, error) {
+	invocation, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+		ConfigRoot:     k.parentWorkerConfigRoot,
+		ParentID:       k.parentWorkerParentID,
+		RoleID:         args.RoleID,
+		SessionID:      sessionID,
+		ParentTurnID:   turnID,
+		Principal:      "application:kernel",
+		IdempotencyKey: eventID,
+	})
+	if err != nil {
+		return invalidModelToolResult(eventID, providerCallID, name, "worker_delegation_failed", fmt.Sprintf("delegate_worker failed: %v", err))
+	}
+	content, err := json.Marshal(struct {
+		Status       string `json:"status"`
+		Executed     bool   `json:"executed"`
+		InvocationID string `json:"invocation_id"`
+		RoleID       string `json:"role_id"`
+	}{
+		Status:       "queued",
+		Executed:     true,
+		InvocationID: invocation.InvocationID,
+		RoleID:       args.RoleID,
+	})
+	if err != nil {
+		return ModelToolResult{}, err
+	}
+	return ModelToolResult{
+		ToolCallID:                  strings.TrimSpace(providerCallID),
+		ToolCallEventID:             strings.TrimSpace(eventID),
+		Name:                        strings.TrimSpace(name),
+		Content:                     string(content),
+		PendingAgentInvocationStart: &AgentInvocationRunRequest{InvocationID: invocation.InvocationID, Principal: "application:kernel", InputItems: []InputItem{{Type: "text", Text: args.Task}}, IdempotencyKey: eventID},
 	}, nil
 }
 

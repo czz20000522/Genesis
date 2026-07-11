@@ -15,7 +15,14 @@ var (
 )
 
 func (k *Kernel) AdmitAgentInvocation(req AgentInvocationAdmissionRequest) (AgentInvocationProjection, error) {
+	return k.admitAgentInvocation(req, "")
+}
+
+func (k *Kernel) admitAgentInvocation(req AgentInvocationAdmissionRequest, modelProfileID string) (AgentInvocationProjection, error) {
 	if err := validateAgentInvocationAdmissionRequest(req); err != nil {
+		return AgentInvocationProjection{}, err
+	}
+	if err := validateKernelControlToken("model_profile_id", modelProfileID); err != nil {
 		return AgentInvocationProjection{}, err
 	}
 	k.workMu.Lock()
@@ -55,9 +62,11 @@ func (k *Kernel) AdmitAgentInvocation(req AgentInvocationAdmissionRequest) (Agen
 	invocation := AgentInvocationProjection{
 		InvocationID:        newID("invocation", now),
 		SessionID:           sessionID,
+		ParentTurnID:        strings.TrimSpace(req.ParentTurnID),
 		ParentInvocationID:  parentInvocationID,
 		Principal:           strings.TrimSpace(req.Principal),
 		AgentProfileRef:     strings.TrimSpace(req.AgentProfileRef),
+		ModelProfileID:      strings.TrimSpace(modelProfileID),
 		CapabilityGrant:     grant,
 		ContextScope:        strings.TrimSpace(req.ContextScope),
 		ParentResultChannel: strings.TrimSpace(req.ParentResultChannel),
@@ -207,8 +216,9 @@ func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequ
 	if contextScope == "" {
 		contextScope = strings.TrimSpace(worker.ContextPolicyRef)
 	}
-	return k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{
+	return k.admitAgentInvocation(AgentInvocationAdmissionRequest{
 		SessionID:           req.SessionID,
+		ParentTurnID:        req.ParentTurnID,
 		ParentInvocationID:  req.ParentInvocationID,
 		Principal:           req.Principal,
 		AgentProfileRef:     "agent_profile:" + worker.RoleID,
@@ -216,7 +226,7 @@ func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequ
 		ContextScope:        contextScope,
 		ParentResultChannel: req.ParentResultChannel,
 		IdempotencyKey:      req.IdempotencyKey,
-	})
+	}, worker.ProfileID)
 }
 
 func (k *Kernel) RunAgentInvocation(ctx context.Context, req AgentInvocationRunRequest) (AgentInvocationRunProjection, error) {
@@ -267,7 +277,15 @@ func (k *Kernel) RunAgentInvocation(ctx context.Context, req AgentInvocationRunR
 		_ = k.appendAgentInvocationRunEvent("agent_invocation.run_failed", failed)
 		return failed, err
 	}
-	final, err := k.runAgentInvocationLoop(ctx, run, inputs, toolGateway)
+	provider, err := k.invocationProvider(invocation)
+	if err != nil {
+		failed := k.failedAgentInvocationRun(run, err)
+		if appendErr := k.appendAgentInvocationRunEvent("agent_invocation.run_failed", failed); appendErr != nil {
+			return AgentInvocationRunProjection{}, appendErr
+		}
+		return failed, err
+	}
+	final, err := k.runAgentInvocationLoop(ctx, run, inputs, toolGateway, provider)
 	if err != nil {
 		failed := k.failedAgentInvocationRun(run, err)
 		if appendErr := k.appendAgentInvocationRunEvent("agent_invocation.run_failed", failed); appendErr != nil {
@@ -319,6 +337,9 @@ func validateAgentInvocationAdmissionRequest(req AgentInvocationAdmissionRequest
 	if err := validateKernelControlToken("parent_invocation_id", req.ParentInvocationID); err != nil {
 		return err
 	}
+	if err := validateKernelControlToken("parent_turn_id", req.ParentTurnID); err != nil {
+		return err
+	}
 	if err := validateKernelRefIfPresent("agent_profile_ref", req.AgentProfileRef); err != nil {
 		return err
 	}
@@ -364,12 +385,30 @@ func validateAgentInvocationRunRequest(req AgentInvocationRunRequest) error {
 	return nil
 }
 
-func (k *Kernel) runAgentInvocationLoop(ctx context.Context, run AgentInvocationRunProjection, inputs []ModelInputItem, toolGateway ToolGateway) (FinalMessage, error) {
+func (k *Kernel) invocationProvider(invocation AgentInvocationProjection) (Provider, error) {
+	profileID := strings.TrimSpace(invocation.ModelProfileID)
+	if profileID == "" {
+		return k.provider, nil
+	}
+	if k.workerProviderResolver == nil {
+		return nil, errors.New("worker_provider_resolver_unavailable")
+	}
+	provider, err := k.workerProviderResolver(profileID)
+	if err != nil {
+		return nil, err
+	}
+	if provider == nil {
+		return nil, errors.New("worker_provider_resolver_unavailable")
+	}
+	return provider, nil
+}
+
+func (k *Kernel) runAgentInvocationLoop(ctx context.Context, run AgentInvocationRunProjection, inputs []ModelInputItem, toolGateway ToolGateway, provider Provider) (FinalMessage, error) {
 	toolRounds := []ModelToolRound{}
 	loopGuard := newToolLoopGuard()
 	budgetLease := k.newTurnBudgetLease()
 	for roundIndex := 0; ; roundIndex++ {
-		modelResp, _, err := k.completeModel(ctx, ModelRequest{
+		modelResp, _, err := completeModelWithProvider(ctx, provider, ModelRequest{
 			SessionID:    run.SessionID,
 			TurnID:       run.RunID,
 			InputItems:   inputs,
