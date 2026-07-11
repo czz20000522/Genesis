@@ -28,7 +28,7 @@ Genesis Kernel. Kernel primitive gaps belong in
 
 ### APP-WORKFLOW-RUNTIME-PHASE-A-20260711 - P1 - Fixed workflow contract has no runtime
 
-- Status: in_progress.
+- Status: blocked_no_real_workflow_available.
 - Requirement: `docs/applications/workflow-runtime-requirement.md`.
   - Design: `docs/applications/workflow-runtime-design.md`.
   - Closure: the user-space compiler now accepts only declared JSON/YAML graph
@@ -38,9 +38,9 @@ Genesis Kernel. Kernel primitive gaps belong in
   - Remaining gap: no real repeated workflow has been selected. Video transcript
     extraction remains a shared Skill or future Workflow; test graphs are not
     product workflow evidence.
-  - Next slice: after a real repeated process is selected with steps, terminal
-    outcomes, artifact contract, and approval points, add the Phase B runner
-    against that contract.
+  - Product decision: defer Workflow. Do not add a runner, scheduler, or
+    synthetic example workflow. Resume only after a real repeated process has
+    named steps, terminal outcomes, artifact contract, and approval points.
   - Reference alignment: Reasonix confirms transport-neutral durable run and
     approval ownership; Codex has thread operations but no comparable fixed
     workflow owner. Genesis keeps workflow state separate from both.
