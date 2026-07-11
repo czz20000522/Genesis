@@ -114,6 +114,7 @@ func New(config Config) (*Kernel, error) {
 		activeInvocationRuns:   map[string]struct{}{},
 	}
 	_ = k.recoverLostLocalManagedJobs()
+	_ = k.recoverQueuedDelegatedWorkers()
 	return k, nil
 }
 

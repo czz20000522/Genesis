@@ -449,6 +449,65 @@ func (k *Kernel) finishDelegatedWorker(run AgentInvocationRunProjection) {
 	go k.continueDelegatedParent(invocation.SessionID, invocation.ParentTurnID)
 }
 
+func (k *Kernel) recoverQueuedDelegatedWorkers() error {
+	invocations, err := k.agentInvocations()
+	if err != nil {
+		return err
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		return err
+	}
+	for _, invocation := range invocations {
+		if strings.TrimSpace(invocation.ParentTurnID) == "" || strings.TrimSpace(invocation.IdempotencyKey) == "" {
+			continue
+		}
+		if _, terminal, err := k.terminalAgentInvocationRun(invocation.InvocationID); err != nil || terminal {
+			continue
+		}
+		if agentInvocationHasStartedRun(events, invocation.InvocationID) {
+			continue
+		}
+		task, ok := queuedDelegatedWorkerTask(events, invocation)
+		if !ok {
+			continue
+		}
+		k.startAgentInvocation(AgentInvocationRunRequest{
+			InvocationID:   invocation.InvocationID,
+			Principal:      "application:kernel",
+			InputItems:     []InputItem{{Type: "text", Text: task}},
+			IdempotencyKey: invocation.IdempotencyKey,
+		})
+	}
+	return nil
+}
+
+func agentInvocationHasStartedRun(events []StoredEvent, invocationID string) bool {
+	for _, event := range events {
+		if event.Type == "agent_invocation.run_started" && event.Data.AgentInvocationRun != nil && event.Data.AgentInvocationRun.InvocationID == invocationID {
+			return true
+		}
+	}
+	return false
+}
+
+func queuedDelegatedWorkerTask(events []StoredEvent, invocation AgentInvocationProjection) (string, bool) {
+	for _, event := range events {
+		if event.SessionID != invocation.SessionID || event.TurnID != invocation.ParentTurnID || event.EventID != invocation.IdempotencyKey || event.Type != "tool.call" || event.Data.ToolCall == nil || event.Data.ToolCall.Tool != "delegate_worker" {
+			continue
+		}
+		var args delegateWorkerToolArguments
+		if err := json.Unmarshal([]byte(event.Data.ToolCall.Arguments), &args); err != nil {
+			return "", false
+		}
+		if strings.TrimSpace(args.Task) == "" {
+			return "", false
+		}
+		return strings.TrimSpace(args.Task), true
+	}
+	return "", false
+}
+
 func (k *Kernel) continueDelegatedParent(sessionID string, turnID string) {
 	runCtx, finish, admitted := k.tryBeginActiveTurn(context.Background(), sessionID, turnID)
 	if !admitted {

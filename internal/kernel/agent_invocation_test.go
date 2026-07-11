@@ -254,6 +254,47 @@ func TestModelToolRoundsUsesTerminalDelegateWorkerResultAfterQueuedReceipt(t *te
 	}
 }
 
+func TestNewRestartsQueuedDelegatedWorkerWithoutReplayingTools(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfig(t, []string{"resource_read"})
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
+	first := newAgentInvocationRunTestKernel(t, Config{
+		LedgerPath:             ledgerPath,
+		ToolPolicy:             ToolPolicy{PermissionMode: PermissionModePlan},
+		ParentWorkerConfigRoot: configRoot,
+	})
+	invocation, err := first.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+		ConfigRoot:     configRoot,
+		SessionID:      "restart-delegation",
+		ParentTurnID:   "turn_parent",
+		Principal:      "application:kernel",
+		RoleID:         "local-small-worker",
+		IdempotencyKey: "evt_delegate",
+	})
+	if err != nil {
+		t.Fatalf("AdmitWorkerInvocationFromRole returned error: %v", err)
+	}
+	if err := first.appendEvent(StoredEvent{EventID: "evt_delegate", SessionID: invocation.SessionID, TurnID: invocation.ParentTurnID, Type: "tool.call", Data: EventData{ToolCall: &ToolCallProjection{ToolCallEventID: "evt_delegate", ProviderToolCallID: "provider_delegate", Tool: "delegate_worker", Arguments: `{"role_id":"local-small-worker","task":"recover this task"}`}}}); err != nil {
+		t.Fatalf("append delegate tool call: %v", err)
+	}
+	first.Close()
+
+	child := &delegateWorkerChildProvider{completed: make(chan ModelRequest, 1)}
+	_ = newAgentInvocationRunTestKernel(t, Config{
+		LedgerPath:             ledgerPath,
+		ToolPolicy:             ToolPolicy{PermissionMode: PermissionModePlan},
+		ParentWorkerConfigRoot: configRoot,
+		WorkerProviderResolver: func(profileID string) (Provider, error) { return child, nil },
+	})
+	select {
+	case request := <-child.completed:
+		if len(request.InputItems) != 1 || request.InputItems[0].Text != "recover this task" {
+			t.Fatalf("recovered worker input = %+v, want focused task", request.InputItems)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued worker did not restart")
+	}
+}
+
 func TestAgentInvocationAdmissionRejectsUnknownParentAndTool(t *testing.T) {
 	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
