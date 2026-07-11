@@ -49,22 +49,53 @@ func TestRunWithConfigRefusesDisabledFeishuListenerBeforeSourceStart(t *testing.
 	}
 }
 
+func TestRunWithConfigRefusesEmptyRestrictedFeishuChatBindingBeforeSourceStart(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "feishu-listener-empty-chat-binding")
+	configRoot := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configRoot, 0o755); err != nil {
+		t.Fatalf("create config root: %v", err)
+	}
+	if err := os.WriteFile(localconfig.RuntimeSettingsPath(configRoot), []byte(`{"feishu":{"listener":{"enabled":true},"lark_cli":{"profile":"genesis","identity":"bot"},"allow_unbound_chats":false,"allowed_chat_ids":[]}}`), 0o600); err != nil {
+		t.Fatalf("write runtime settings: %v", err)
+	}
+	startedPath := filepath.Join(dir, "source-started.txt")
+	err := runWithConfig(context.Background(), []string{
+		"feishu-listen",
+		"--config-root", configRoot,
+		"--source-command", os.Args[0],
+		"--source-command-arg", "-test.run=TestFeishuListenSourceCommandHelper",
+		"--source-command-arg", "--",
+		"--source-command-arg", "record-start",
+		"--source-command-arg", startedPath,
+	}, strings.NewReader(""), io.Discard, io.Discard, true)
+	if err == nil || !strings.Contains(err.Error(), "allowed_chat_ids") {
+		t.Fatalf("runWithConfig error = %v, want empty restricted chat binding rejection", err)
+	}
+	if _, statErr := os.Stat(startedPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("source command side effect exists or stat failed: %v", statErr)
+	}
+}
+
 func TestRunWithConfigUsesEnabledFeishuBindingForSourceArguments(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "feishu-listener-enabled-binding")
 	configRoot := filepath.Join(dir, "config")
 	if err := os.MkdirAll(configRoot, 0o755); err != nil {
 		t.Fatalf("create config root: %v", err)
 	}
-	if err := os.WriteFile(localconfig.RuntimeSettingsPath(configRoot), []byte(`{"feishu":{"listener":{"enabled":true},"lark_cli":{"profile":"bound-profile","identity":"auto","command":"bound-cli"}}}`), 0o600); err != nil {
+	if err := os.WriteFile(localconfig.RuntimeSettingsPath(configRoot), []byte(`{"feishu":{"listener":{"enabled":true},"lark_cli":{"profile":"bound-profile","identity":"auto","command":"bound-cli"},"allow_unbound_chats":false,"allowed_chat_ids":["oc_allowed"]}}`), 0o600); err != nil {
 		t.Fatalf("write runtime settings: %v", err)
 	}
-	args, err := feishuListenerConfigArgs(configRoot, false, "", "", "")
+	binding, err := readFeishuListenerBinding(configRoot)
 	if err != nil {
-		t.Fatalf("feishuListenerConfigArgs returned error: %v", err)
+		t.Fatalf("readFeishuListenerBinding returned error: %v", err)
 	}
 	want := []string{"bound-profile", "bound-cli", "auto"}
-	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
-		t.Fatalf("binding args = %#v, want %#v", args, want)
+	got := []string{binding.Profile, binding.Command, binding.Identity}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("binding args = %#v, want %#v", got, want)
+	}
+	if !binding.RestrictToAllowedThreads || strings.Join(binding.AllowedThreadIDs, "\x00") != "oc_allowed" {
+		t.Fatalf("binding thread policy = %+v", binding)
 	}
 }
 

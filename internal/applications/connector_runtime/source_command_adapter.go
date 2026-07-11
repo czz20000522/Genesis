@@ -22,14 +22,16 @@ const (
 )
 
 type SourceCommandFrameConsumer struct {
-	ExpectedSourceID   string
-	ExpectedConnector  string
-	ExpectedAdapterRef string
-	SourceStore        SourceLifecycleStore
-	FailureStore       SourceFailureStore
-	IgnoreSenderIDs    []string
-	IdleTimeout        time.Duration
-	Now                func() time.Time
+	ExpectedSourceID         string
+	ExpectedConnector        string
+	ExpectedAdapterRef       string
+	SourceStore              SourceLifecycleStore
+	FailureStore             SourceFailureStore
+	IgnoreSenderIDs          []string
+	RestrictToAllowedThreads bool
+	AllowedThreadIDs         []string
+	IdleTimeout              time.Duration
+	Now                      func() time.Time
 }
 
 type SourceCommandAdapter struct {
@@ -44,6 +46,8 @@ type SourceCommandAdapter struct {
 	SourceStore               SourceLifecycleStore
 	FailureStore              SourceFailureStore
 	IgnoreSenderIDs           []string
+	RestrictToAllowedThreads  bool
+	AllowedThreadIDs          []string
 	ReadinessBlockReasonCode  string
 	ReadinessBlockDescription string
 	IdleTimeout               time.Duration
@@ -150,14 +154,16 @@ func (a SourceCommandAdapter) Consume(ctx context.Context, handle func(ExternalE
 		return sourceCommandBlockedError(err)
 	}
 	consumer := SourceCommandFrameConsumer{
-		ExpectedSourceID:   sourceID,
-		ExpectedConnector:  connector,
-		ExpectedAdapterRef: adapterRef,
-		SourceStore:        a.SourceStore,
-		FailureStore:       a.FailureStore,
-		IgnoreSenderIDs:    append([]string(nil), a.IgnoreSenderIDs...),
-		IdleTimeout:        a.IdleTimeout,
-		Now:                a.Now,
+		ExpectedSourceID:         sourceID,
+		ExpectedConnector:        connector,
+		ExpectedAdapterRef:       adapterRef,
+		SourceStore:              a.SourceStore,
+		FailureStore:             a.FailureStore,
+		IgnoreSenderIDs:          append([]string(nil), a.IgnoreSenderIDs...),
+		RestrictToAllowedThreads: a.RestrictToAllowedThreads,
+		AllowedThreadIDs:         append([]string(nil), a.AllowedThreadIDs...),
+		IdleTimeout:              a.IdleTimeout,
+		Now:                      a.Now,
 	}
 	consumeErr := ConsumeSourceCommandFrames(ctx, stdout, consumer, handle)
 	endedAt := sourceCommandNow(SourceCommandFrameConsumer{Now: a.Now})
@@ -220,6 +226,7 @@ func ConsumeSourceCommandFrames(ctx context.Context, reader io.Reader, consumer 
 	}
 	acceptedEvents := map[string]struct{}{}
 	ignoredSenderIDs := ignoreSenderIDSet(consumer.IgnoreSenderIDs)
+	allowedThreadIDs := allowedThreadIDSet(consumer.AllowedThreadIDs)
 	processLine := func(lineNumber int, line string) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -247,7 +254,7 @@ func ConsumeSourceCommandFrames(ctx context.Context, reader io.Reader, consumer 
 				return err
 			}
 		case SourceFrameKindEvent:
-			accepted, err := consumeSourceEventFrame(ctx, consumer, frame, ignoredSenderIDs, handle)
+			accepted, err := consumeSourceEventFrame(ctx, consumer, frame, ignoredSenderIDs, allowedThreadIDs, handle)
 			if err != nil {
 				return err
 			}
@@ -378,6 +385,9 @@ func (a SourceCommandAdapter) environment() ([]string, error) {
 }
 
 func (a SourceCommandAdapter) readinessBlock() (string, string, bool, error) {
+	if a.RestrictToAllowedThreads && len(allowedThreadIDSet(a.AllowedThreadIDs)) == 0 {
+		return SourceReadinessReasonSourceCommandInvalid, "source command allowed thread set is required when restriction is enabled", true, nil
+	}
 	reasonCode := strings.TrimSpace(a.ReadinessBlockReasonCode)
 	if reasonCode == "" {
 		return "", "", false, nil
@@ -474,7 +484,7 @@ func consumeSourceReadyFrame(ctx context.Context, consumer SourceCommandFrameCon
 	})
 }
 
-func consumeSourceEventFrame(ctx context.Context, consumer SourceCommandFrameConsumer, frame SourceCommandFrame, ignoredSenderIDs map[string]struct{}, handle func(ExternalEvent) error) (string, error) {
+func consumeSourceEventFrame(ctx context.Context, consumer SourceCommandFrameConsumer, frame SourceCommandFrame, ignoredSenderIDs map[string]struct{}, allowedThreadIDs map[string]struct{}, handle func(ExternalEvent) error) (string, error) {
 	if err := validateExpectedSourceFrame(consumer, frame); err != nil {
 		return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "malformed_source_frame", err), "")
 	}
@@ -499,6 +509,11 @@ func consumeSourceEventFrame(ctx context.Context, consumer SourceCommandFrameCon
 	}
 	if event.SourceValidation == SourceValidationRejected {
 		return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "source_policy_rejected", errors.New("source event is rejected")), "")
+	}
+	if consumer.RestrictToAllowedThreads {
+		if _, allowed := allowedThreadIDs[event.ThreadRef.ExternalID]; !allowed {
+			return "", recordSourceCommandFrameFailure(ctx, consumer, sourceFrameValidationFailure(frame, "source_policy_rejected", errors.New("external thread is not allowed by source binding")), "")
+		}
 	}
 	if event.SourceValidation == SourceValidationVerified {
 		if frame.VerificationEvidence == nil {
@@ -537,6 +552,16 @@ func consumeSourceEventFrame(ctx context.Context, consumer SourceCommandFrameCon
 		}
 	}
 	return event.ExternalEventID, nil
+}
+
+func allowedThreadIDSet(ids []string) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			allowed[id] = struct{}{}
+		}
+	}
+	return allowed
 }
 
 func consumeSourceCursorFrame(ctx context.Context, consumer SourceCommandFrameConsumer, frame SourceCommandFrame, acceptedEvents map[string]struct{}) error {

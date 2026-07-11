@@ -28,6 +28,14 @@ Neither reference owns a mobile-channel source/outbox lifecycle. Genesis keeps
 that truth in `connector_runtime`; the binding only supplies whether a specific
 adapter is allowed to activate and the typed values needed to invoke it.
 
+Codex's `connectors/src/filter.rs` applies an explicit filter before exposing
+connector entries to a caller, and its tests assert disallowed entries never
+survive the projection. Reasonix's `internal/permission/permission.go` keeps
+allow/deny evaluation pure before a tool reaches its executor. Genesis applies
+the same admission shape to external threads: the typed Feishu binding becomes
+one generic source-frame policy checked before the handler that maps sessions
+or submits a turn.
+
 ## Slice
 
 Phase A reads the existing user-home Feishu runtime binding for non-test
@@ -35,6 +43,10 @@ listeners. It requires `listener.enabled=true`; the configured profile,
 identity, and optional command are propagated into the Feishu source adapter.
 Missing, invalid, empty-profile, or disabled binding refuses before kernel
 runtime construction, source lifecycle persistence, or source process start.
+When `allow_unbound_chats=false`, the non-empty `allowed_chat_ids` list is
+applied by the generic source-frame consumer before its handler can map a
+request or submit a kernel turn. Rejected threads produce a bounded
+connector-local failure and never advance cursors.
 The literal `lark-cli` user setting is resolved to its installed direct binary
 when present, so a Windows npm PowerShell shim is never executed as the adapter
 command. Keep `stdin-jsonl` as the deterministic test surface. Do not invent a
@@ -55,6 +67,9 @@ Automated proof:
 - a disabled binding prevents the source helper side effect;
 - an enabled binding supplies its profile, command, and identity to source
   argument construction;
+- a restricted binding rejects an unlisted external thread before the kernel
+  handler and records `source_policy_rejected` without retaining its raw id;
+- an empty restricted allowlist refuses before source process start;
 - configured `lark-cli` resolves to the direct installed binary;
 - profile readiness continues to gate source start after binding resolution.
 

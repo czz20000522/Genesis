@@ -146,6 +146,14 @@ settings such as a Feishu bot profile, a mail watch subscription, or a QQ
 gateway intent remain typed adapter configuration rather than a forced
 lowest-common-denominator schema.
 
+An enabled connector binding may also constrain which external threads reach
+the application runtime. When an adapter binding declares a restricted thread
+set, every other normalized source event is rejected at the source boundary,
+recorded as connector-local `source_policy_rejected`, and never creates a
+request context, kernel turn, or reply. An empty restricted set is invalid
+configuration; permissive intake must be an explicit adapter policy, never an
+implicit consequence of a missing list.
+
 `connector_command` is the long-lived external adapter process boundary. The
 application connector runtime writes one typed `ConnectorAction` request to a
 configured adapter process and accepts one typed `ConnectorActionResult`

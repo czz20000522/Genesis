@@ -287,6 +287,15 @@ binding enabled=true -> resolve typed Feishu profile/identity -> profile probe
                          -> source_command -> lifecycle owner
 ```
 
+For Feishu, `allow_unbound_chats=false` makes `allowed_chat_ids` a fail-closed
+source policy. The ingress maps that typed adapter setting into the generic
+source-frame consumer's restricted external-thread set. A frame for an
+unlisted thread produces a connector-local `source_policy_rejected` failure
+without its raw chat id, is not delivered to the application runtime, and does
+not advance its cursor. A restricted binding with no allowed chat id is invalid
+before source start. `allow_unbound_chats=true` is the explicit permissive
+policy for a future user-approved broad listener.
+
 `stdin-jsonl` remains an isolated deterministic test surface and does not
 enable a real listener. Future mail, WeChat, or QQ adapters use the same
 enablement gate and generic lifecycle/outbox owners, while their protocol

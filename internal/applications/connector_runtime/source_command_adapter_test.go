@@ -103,6 +103,32 @@ func TestSourceCommandFramesRejectVerifiedEventWithoutEvidence(t *testing.T) {
 	}
 }
 
+func TestSourceCommandFramesRejectDisallowedThreadBeforeHandler(t *testing.T) {
+	ctx := context.Background()
+	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-thread-policy")
+	frames := `{"kind":"source.event","source_id":"source_feishu_chat","event":{"connector":"feishu","external_event_id":"evt_unlisted","event_type":"message.created","thread_ref":{"connector":"feishu","kind":"chat","external_id":"oc_unlisted"},"sender_ref":{"connector":"feishu","kind":"user","external_id":"ou_1"},"message_ref":{"connector":"feishu","kind":"message","external_id":"om_1"},"body":"hello","source_validation":"unchecked"}}` + "\n"
+
+	err := ConsumeSourceCommandFrames(ctx, strings.NewReader(frames), SourceCommandFrameConsumer{
+		SourceStore:              sourceStore,
+		FailureStore:             failureStore,
+		RestrictToAllowedThreads: true,
+		AllowedThreadIDs:         []string{"oc_allowed"},
+	}, func(event ExternalEvent) error {
+		t.Fatalf("disallowed thread reached handler: %+v", event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ConsumeSourceCommandFrames returned error: %v", err)
+	}
+	failures, err := failureStore.ListSourceFailures(ctx)
+	if err != nil {
+		t.Fatalf("ListSourceFailures returned error: %v", err)
+	}
+	if len(failures) != 1 || failures[0].Reason != "source_policy_rejected" || strings.Contains(failures[0].Detail, "oc_unlisted") {
+		t.Fatalf("failures = %+v, want redacted source policy rejection", failures)
+	}
+}
+
 func TestSourceCommandFramesRejectVerifiedEventWithUncheckedEvidence(t *testing.T) {
 	ctx := context.Background()
 	sourceStore, failureStore := newSourceCommandTestStores(t, "source-command-verified-weak-evidence")

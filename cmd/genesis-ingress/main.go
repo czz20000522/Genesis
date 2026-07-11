@@ -114,12 +114,14 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	if *sourceIdleTimeout < 0 {
 		return fmt.Errorf("feishu-listen --source-idle-timeout must not be negative")
 	}
+	binding := feishuListenerBinding{Profile: *profile, Command: *larkCLI, Identity: *identity}
 	if requireConnectorBinding && !*stdinJSONL {
-		binding, err := feishuListenerConfigArgs(*configRoot, false, *profile, *larkCLI, *identity)
+		var err error
+		binding, err = readFeishuListenerBinding(*configRoot)
 		if err != nil {
 			return err
 		}
-		*profile, *larkCLI, *identity = binding[0], binding[1], binding[2]
+		*profile, *larkCLI, *identity = binding.Profile, binding.Command, binding.Identity
 		*profileProbeCommand, profileProbeCommandArgs = defaultFeishuProfileProbeCommand(true, *profileProbeCommand, profileProbeCommandArgs, *sourceCommand)
 	}
 	_, runtime, err := buildRuntime(flags, stdin)
@@ -175,6 +177,8 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 		SourceStore:               sourceLifecycleStore,
 		FailureStore:              sourceFailureStore,
 		IgnoreSenderIDs:           append([]string(nil), ignoreSenderIDs...),
+		RestrictToAllowedThreads:  binding.RestrictToAllowedThreads,
+		AllowedThreadIDs:          append([]string(nil), binding.AllowedThreadIDs...),
 		ReadinessBlockReasonCode:  sourceReadinessBlockReason,
 		ReadinessBlockDescription: sourceReadinessBlockDescription,
 		IdleTimeout:               *sourceIdleTimeout,
@@ -284,26 +288,52 @@ func feishuSourceCommandArgs(prefix []string, profile string, larkCLI string, so
 	return args
 }
 
-func feishuListenerConfigArgs(configRoot string, stdinJSONL bool, profile string, larkCLI string, identity string) ([]string, error) {
-	if stdinJSONL {
-		return []string{strings.TrimSpace(profile), strings.TrimSpace(larkCLI), strings.TrimSpace(identity)}, nil
-	}
+type feishuListenerBinding struct {
+	Profile                  string
+	Command                  string
+	Identity                 string
+	RestrictToAllowedThreads bool
+	AllowedThreadIDs         []string
+}
+
+func readFeishuListenerBinding(configRoot string) (feishuListenerBinding, error) {
 	settings, err := localconfig.ReadRuntimeSettings(localconfig.RuntimeSettingsPath(configRoot))
 	if err != nil {
-		return nil, fmt.Errorf("read Feishu listener binding: %w", err)
+		return feishuListenerBinding{}, fmt.Errorf("read Feishu listener binding: %w", err)
 	}
 	if !settings.Feishu.Listener.Enabled {
-		return nil, errors.New("Feishu listener is disabled by runtime-settings.json")
+		return feishuListenerBinding{}, errors.New("Feishu listener is disabled by runtime-settings.json")
 	}
-	profile = strings.TrimSpace(settings.Feishu.LarkCLI.Profile)
+	profile := strings.TrimSpace(settings.Feishu.LarkCLI.Profile)
 	if profile == "" {
-		return nil, errors.New("Feishu listener binding requires lark_cli.profile")
+		return feishuListenerBinding{}, errors.New("Feishu listener binding requires lark_cli.profile")
 	}
-	identity = strings.TrimSpace(settings.Feishu.LarkCLI.Identity)
+	identity := strings.TrimSpace(settings.Feishu.LarkCLI.Identity)
 	if identity == "" {
 		identity = "bot"
 	}
-	return []string{profile, strings.TrimSpace(settings.Feishu.LarkCLI.Command), identity}, nil
+	allowedThreadIDs := nonEmptyStringValues(settings.Feishu.AllowedChatIDs)
+	restricted := !settings.Feishu.AllowUnboundChats
+	if restricted && len(allowedThreadIDs) == 0 {
+		return feishuListenerBinding{}, errors.New("Feishu listener binding requires allowed_chat_ids when allow_unbound_chats is false")
+	}
+	return feishuListenerBinding{
+		Profile:                  profile,
+		Command:                  strings.TrimSpace(settings.Feishu.LarkCLI.Command),
+		Identity:                 identity,
+		RestrictToAllowedThreads: restricted,
+		AllowedThreadIDs:         allowedThreadIDs,
+	}, nil
+}
+
+func nonEmptyStringValues(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func defaultFeishuProfileProbeCommand(boundListener bool, configuredCommand string, configuredArgs []string, sourceCommand string) (string, []string) {
