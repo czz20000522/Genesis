@@ -5,37 +5,32 @@
 
 ## Boundary
 
-The owner persists graph topology and role-task node proposals. It resolves the
-configured parent binding and calls the existing `AgentInvocation` admission
-and run primitives only when a node is ready. It does not execute tools or call
-providers directly; `AgentInvocation` owns that work. Workflow, job, resource,
-and approval remain their existing owners.
+The owner persists project task topology and reduces optional execution-owner
+projections to task state. It does not execute tools or call providers directly;
+AgentInvocation, Workflow, job, approval, and external wait owners retain that
+work. Parent and user can revise the graph in either planning direction.
 
 ## Facts
 
-`task_graph.created`, `task_graph.node_added`, `task_graph.edge_added`,
-`task_graph.node_started`, and `task_graph.node_transitioned` carry opaque ids,
-role/task proposal, invocation linkage, state, reason class, and evidence refs.
+`task_graph.created`, `task_graph.node_added`, `task_graph.edge_added`, and
+`task_graph.node_transitioned` carry opaque ids, task metadata, optional
+execution reference, state, reason class, and evidence refs.
 The read projection is reconstructed only from these facts. A transition
 validates the current reduced graph while the graph mutex is held.
 
 ## Validation
 
 The owner rejects self edges, duplicate edges, missing endpoints, cycles, and
-any transition outside the explicit state table. A proposal contains role/task
-only; it cannot name a provider or tool. Graph start occurs only after the
-parent has finished node/edge proposals. At readiness, the owner resolves the
-configured parent binding and calls `AdmitWorkerInvocationFromRole`, then
-persists invocation linkage before starting it. A node is ready when all
-predecessors completed.
+any transition outside the explicit state table. Graph topology does not imply
+execution. A later owner-controlled binding may reference an admitted
+invocation, workflow, job, approval, or external wait; it cannot name a
+provider or grant a tool. A node is ready when all predecessors completed.
 
 ## Recovery
 
-Restart rebuilds graph state from the ledger. Phase B resumes only a persisted
-invocation linkage with an unambiguous nonterminal checkpoint; otherwise it
-marks the node blocked with a sanitized recovery reason. A proposal with no
-created invocation may be admitted once when it is ready; started provider work
-is never replayed by TaskGraph.
+Restart rebuilds graph state from the ledger. Phase B reconciles only a
+persisted execution binding with its existing owner; ambiguous external work is
+blocked with a sanitized recovery reason and never replayed by TaskGraph.
 
 ## Reference alignment
 

@@ -15,9 +15,9 @@ path.
 
 - Explicit lifecycle facts: reject a cycle or illegal transition without an
   appended graph event, then reconstruct the accepted graph after restart.
-- Bounded role-task execution: prove a ready node persists a role/task proposal,
-  resolves the configured parent binding, and creates one invocation without
-  accepting tools, provider/profile data, or a fresh authority path.
+- Bounded execution binding: prove a ready task can reference an already
+  authorized owner without accepting tools, provider/profile data, or a fresh
+  authority path.
 
 ## Phase A
 
@@ -34,10 +34,9 @@ path.
 
 ## Phase B
 
-- Deliverable: parent role-task proposal, ready-node admission/start, persisted
-  invocation linkage, terminal state/evidence reduction, and fail-closed
-  restart reconciliation.
-- Red lines: no provider/tool fields in a proposal, no direct provider call,
-  no replay of a started invocation, and no generic scheduler outside the owner.
-- Red tests: role binding resolution, dependency-gated start, exactly-once
-  admission, terminal worker-to-node reduction, and ambiguous restart block.
+- Deliverable: optional owner-controlled execution binding, persisted linkage,
+  terminal state/evidence reduction, and fail-closed restart reconciliation.
+- Red lines: no provider/tool fields in a task proposal, no direct provider
+  call, no replay of a started invocation, and no generic scheduler.
+- Red tests: binding validation, dependency-gated eligibility, terminal owner
+  reduction, and ambiguous restart block.

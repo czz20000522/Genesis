@@ -32,13 +32,13 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Requirement: `docs/requirements/kernel-task-graph-runtime.md`.
   - Design: `docs/design/kernel-task-graph-runtime.md`.
 - Gap: Phase A now persists and reconstructs a DAG with dependency-ready and
-  blocked explanations, but it deliberately never starts work. The remaining
-  production gap is owner-created invocation linkage from a ready parent
-  role-task proposal.
+  blocked explanations, but it deliberately never executes or reconciles a
+  task's optional execution owner. The remaining production gap is a safe,
+  owner-controlled execution binding.
 - Next slice: Phase B only from
   `docs/implementation-plans/kernel-task-graph-runtime.md`: persist the
-  role/task proposal, create/start linkage, terminal reduction, and fail closed
-  on an ambiguous restart; do not introduce a generic scheduler.
+  optional execution binding, terminal reduction, and fail closed on an
+  ambiguous restart; do not introduce a generic scheduler.
 - Evidence: role-bound workers now have bounded lifecycle facts, parent result
   delivery, recovery semantics, and route/profile/role/parent admission limits.
 - Verification: DAG refusal/no-append, missing-reference refusal, readiness,
