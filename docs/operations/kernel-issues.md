@@ -51,27 +51,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
   tests project-local config loading. Genesis must additionally ledger-persist
   the binding and make `none` a durable chat state.
 
-### KERNEL-PROVIDER-CONTEXT-LAYERING-20260711 - P1 - Local provider command flattens semantic conversation
-
-- Status: accepted.
-- Requirement: `docs/requirements/kernel-provider-context-layering.md`.
-  - Design: `docs/design/kernel-provider-context-layering.md`.
-  - Closure: the kernel constructs a `system` stable prefix, variable
-    conversation window, and distinct current-user tail; the local llama.cpp
-    adapter now projects the canonical role sequence instead of flattening it.
-    Native tools remain structured. The opaque prefix fingerprint is persisted
-    in `model.context.accounted` and exposed through context inspection.
-  - Evidence: kernel tests cover prefix/current-tail ordering, fingerprint
-    stability and adapter invalidation, persisted inspection, compaction
-    preservation, and retry cloning. Python adapter tests cover
-    system/user/assistant/tool projection. A live local Qwen turn reasoned
-    about and returned the exact requested `PREFIX_CONTEXT_OK` value.
-  - Remaining production target: `role_policy` explanations require a persisted
-    role/context-policy binding snapshot; this remains explicitly deferred
-    rather than being inferred from an unowned runtime label.
-- Verification: `go test ./... -count=1`, `go build ./...`, Python adapter
-  tests/self-test, desktop tests/build, and live local Qwen acceptance.
-
 ### KERNEL-PROVIDER-REASONING-MESSAGES-20260710 - P1 - Provider reasoning lacks additional provider replay contracts
 
 - Status: open.

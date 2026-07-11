@@ -6,17 +6,17 @@
 
 ## Background
 
-Application connectors need external message sources: Feishu event streams,
-WeChat callbacks, email pollers, webhook receivers, console inputs, and future
-desktop or local automation sources. These sources are not kernel owners. They
-are user-space application infrastructure that bring external events into
-Genesis canonical world.
+Some future application connectors may need external message sources: callbacks,
+email pollers, webhook receivers, or local automation sources. These sources
+are not kernel owners. They are user-space application infrastructure that
+bring external events into Genesis canonical world. A user-directed installed
+CLI call is not an external message source and does not activate this owner.
 
-The current Feishu smoke listener proves the application line can receive a
-message and submit a kernel turn, but production source handling needs a harder
-boundary. A command that starts successfully, a profile that exists, or an
-event consume command that is available only proves source adapter readiness.
-It does not prove that any specific external event is authentic.
+The retired Feishu listener is not evidence for a current connector product.
+When a future source is proposed, a command that starts successfully, a profile
+that exists, or an event-consume command that is available proves only source
+adapter readiness. It does not prove that any specific external event is
+authentic.
 
 Core decision:
 
@@ -73,7 +73,7 @@ external threads to kernel sessions, does not choose skills, does not call
 `turn.submit`, and does not build provider context. Those remain the
 Application Connector Runtime and kernel responsibilities.
 
-This owner also does not own context quality. A Feishu, WeChat, email, webhook,
+This owner also does not own context quality. A future callback, email, webhook,
 or console source may deliver a normalized application request, but it must not
 summarize, truncate, compact, or rewrite provider context. Long inbound sessions
 are handled by kernel/session compaction commands and provider-context
@@ -89,8 +89,7 @@ Source adapters translate one external source protocol into typed source
 frames. They may internally use a webhook server, polling loop, event stream,
 external SDK, HTTP API, or CLI, but those protocol details stay inside the
 adapter implementation. The connector runtime consumes the `source_command`
-stream contract; it does not own Feishu, WeChat, email, webhook, or CLI command
-syntax.
+stream contract; it does not own vendor protocol or CLI command syntax.
 
 Connector Source Verification And Lifecycle owns source lifecycle, retry,
 readiness, event validation classification, source failure records, verification
@@ -201,8 +200,8 @@ external payload as durable fact.
 
 Raw external payloads are allowed only in restricted debug trace or a future
 resource/object owner with TTL, quota, redaction, and access boundary. A
-malformed Feishu payload, webhook body, email, or poll response must therefore
-produce a bounded failure record, not a raw durable source fact.
+malformed webhook body, email, or poll response must therefore produce a
+bounded failure record, not a raw durable source fact.
 
 Credential and profile handling is readiness only in this requirement. It is
 not a kernel credential plane and not a model-visible capability.
@@ -242,10 +241,10 @@ inbound events, fabricate verification evidence, or grant kernel authority.
 
 ## Non-Goals
 
-- No Feishu, WeChat, email, or webhook source owner inside kernel.
+- No channel-specific source owner inside kernel.
 - No source-lifecycle-owned session mapping, dedupe, `turn.submit`, provider context,
   skill selection, application reply strategy, or outbox policy.
-- No inference that `lark-cli` process readiness means event authenticity.
+- No inference that an adapter process's readiness means event authenticity.
 - No raw source payload in durable source failure facts.
 - No full credential store, automatic refresh broker, or credential authority in
   this requirement.
@@ -268,8 +267,8 @@ source lifecycle, Application Connector Runtime, and Kernel.
 ### Phase B: Connector-Local Source State
 
 Implement `SourceRun`, `SourceAttempt`, `SourceCursor`, and source readiness
-projection in connector-local storage. A smoke Feishu source can remain
-`unchecked` until real verification evidence exists.
+projection in connector-local storage. Any future source remains `unchecked`
+until real verification evidence exists.
 
 ### Phase C: Source Adapter Boundary
 
@@ -277,12 +276,10 @@ Replace hardcoded source command shape with the `source_command` typed streaming
 boundary. Runtime code starts a source adapter process, validates typed frames,
 records `SourceRun`, `SourceAttempt`, `SourceCursor`, `SourceFailureRecord`, and
 `SourceVerificationEvidence`, and emits normalized `ExternalEvent` values. It
-does not know `lark-cli event consume`, Feishu event keys, identity flags, SDK
-payloads, webhook body shapes, or other external source protocol details.
-
-The first Feishu source adapter may internally use `lark-cli`, SDK, HTTP, or
-webhook details, but those details are adapter-owned and observable to the
-runtime only through source frames.
+does not know vendor event commands, event keys, identity flags, SDK payloads,
+webhook body shapes, or other external source protocol details. A future source
+adapter may use CLI, SDK, HTTP, or webhook details, but those details remain
+adapter-owned and observable to the runtime only through source frames.
 
 This phase also includes bounded generic retry/backoff for recoverable
 `source_command` process failures. Retry applies to the source adapter process
@@ -334,8 +331,8 @@ kernel facts.
   evidence, or infer outbound delivery success.
 - External source identity and source validation status do not grant kernel
   permission, sandbox, credential, memory, or tool authority.
-- Runtime source code contains no Feishu-specific event consume argv, identity
-  flag, event key, or source protocol parser; those live only in Feishu source
-  adapter code.
+- Runtime source code contains no vendor-specific event argv, identity flag,
+  event key, or source protocol parser; those live only in a future source
+  adapter.
 - `SourceVerificationEvidence` is inspectable before any source is allowed to
   produce `source_validation=verified` events.

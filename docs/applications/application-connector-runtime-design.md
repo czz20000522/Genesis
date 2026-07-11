@@ -224,8 +224,9 @@ For the first mobile smoke loop, application policy may treat the kernel
 context. That policy creates a `send_message` command targeted at the
 connector-owned thread ref and deduped by request id plus kernel turn id. This
 is intentionally narrower than a rich external action API: it proves the
-inbound -> kernel -> outbox -> delivery loop without giving the kernel Feishu
-semantics and without letting the LLM or provider context own external delivery.
+inbound -> kernel -> outbox -> delivery loop without giving the kernel
+channel-specific semantics and without letting the LLM or provider context own
+external delivery.
 Duplicate inbound events reuse the existing request record and must not enqueue
 or send another reply.
 
@@ -257,12 +258,9 @@ uses a connector command environment allowlist and persists only safe opaque
 external action refs, not raw CLI output.
 
 Operator probes may discover a direct binary installed by an external package.
-For example, the official `@larksuite/cli` npm package installs a platform
-binary under its package `bin` directory and exposes `lark-cli` through npm
-shims. `command_template` configuration should point at the direct binary, such
-as `.../node_modules/@larksuite/cli/bin/lark-cli.exe` on Windows, not at the
-PATH shim. If only a shim is available, the connector must use a
-`connector_command` adapter process or another direct binary provider.
+`command_template` configuration must point at the direct binary rather than a
+shell or package-manager shim. If only a shim is available, the connector must
+use a `connector_command` adapter process or another direct binary provider.
 
 The long-lived adapter boundary is `connector_command`. The connector runtime
 starts a configured external adapter process, writes typed `ConnectorAction`
@@ -341,7 +339,7 @@ Listener runtime failure: connector may retry a bounded smoke source locally,
 recording connector-local source runtime failures. Production source lifecycle
 controls, credential/profile refresh, source verification, and driver migration
 require the connector source verification/lifecycle boundary; they must not
-accrete inside the Feishu smoke source function.
+accrete inside a channel-specific smoke source function.
 
 ## Reconciliation Probe Design
 
@@ -469,24 +467,26 @@ claims, and retry/recovery paths do not silently rewrite earlier facts.
 
 ## Rejected Alternatives
 
-Rejected: Feishu Bridge as first-class architecture. Feishu is only one adapter.
+Rejected: a named channel bridge as first-class architecture. A channel is only
+one adapter.
 
 Rejected: Channel Gateway with broad reply API. It would turn the connector
 runtime into a second kernel/application owner.
 
-Rejected: production default where the LLM shells out directly to external
-CLIs/APIs for outbound delivery. It cannot reliably own credentials, revoke
-auth, rate limits, idempotency, delivery receipts, or half-success recovery.
+Rejected: automatic production delivery where the LLM shells out directly to
+external CLIs/APIs. It cannot reliably own credentials, revoke auth, rate
+limits, idempotency, delivery receipts, or half-success recovery. A
+user-directed one-off CLI action remains governed tool work, not this automatic
+delivery path.
 
-Rejected: hardcoding Feishu, mail, or WeChat CLI argv in connector runtime code
-as the long-term adapter contract. CLI syntax is external tool protocol and must
-live in driver configuration or an external adapter process.
+Rejected: hardcoding channel, mail, or gateway CLI argv in connector runtime
+code as the long-term adapter contract. CLI syntax is external tool protocol and
+must live in driver configuration or an external adapter process.
 
 Rejected: treating `command_template` as the final production connector
-protocol. It reduces the immediate Feishu CLI drift risk, but it still leaves
-external command semantics in connector configuration. The long-lived boundary is
-`connector_command`, where the external adapter process owns vendor protocol
-drift behind typed action/result JSON.
+protocol. It leaves external command semantics in connector configuration. The
+long-lived boundary is `connector_command`, where the external adapter process
+owns vendor protocol drift behind typed action/result JSON.
 
 Rejected: connector-owned provider context. Provider context is kernel-owned.
 

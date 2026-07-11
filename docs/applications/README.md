@@ -71,13 +71,15 @@ User-space connector runtimes must not:
 - make external channel identity a kernel permission authority;
 - expose application-specific rich actions as kernel APIs;
 - let the LLM directly own external credentials or raw API credentials;
-- let the LLM freely compose external API or CLI calls as the production path;
+- let the LLM freely compose automatic external API or CLI delivery as the
+  production path; a user-directed installed CLI action instead uses the
+  ordinary governed tool path;
 - import kernel internals instead of using public kernel transport or syscalls.
 
 External channel actions belong to connector/action/outbox owners. A connector
-adapter may internally use an SDK, HTTP API, `lark-cli`, mail CLI, or another
-tool, but that is connector implementation detail rather than a kernel ability
-or model-owned external credential. CLI-backed adapters should translate
+adapter may internally use an SDK, HTTP API, mail CLI, or another tool, but that
+is connector implementation detail rather than a kernel ability or model-owned
+external credential. CLI-backed adapters should translate
 `ConnectorAction` through connector driver configuration or an external adapter
 process; connector runtime code should not become a permanent collection of
 hardcoded external CLI commands.
@@ -93,8 +95,8 @@ The long-running inbound source adapter process boundary is `source_command`.
 It is not the same protocol as `connector_command`: source adapters emit typed
 `source.ready`, `source.event`, `source.cursor`, `source.failed`, and
 `source.stopped` NDJSON frames. The connector runtime validates frames and
-writes source lifecycle, failure, cursor, and verification facts. Feishu,
-WeChat, email, webhook, SDK, HTTP, or CLI details stay in source adapter code,
+writes source lifecycle, failure, cursor, and verification facts. Vendor
+channel, email, webhook, SDK, HTTP, or CLI details stay in source adapter code,
 not in connector runtime. Genesis stores normalized source, action, result, and
 receipt facts, not external command lines, raw stdout, raw stderr, SDK payloads,
 or vendor HTTP responses.

@@ -14,6 +14,21 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-PROVIDER-CONTEXT-LAYERING-20260711 - Preserve semantic provider context layers
+
+- Status: ready_for_acceptance.
+- Conclusion: the kernel now constructs a stable system prefix, variable
+  conversation window, and distinct current-user tail; local llama.cpp projects
+  the canonical role sequence, while the opaque prefix fingerprint persists in
+  `model.context.accounted` and context inspection.
+- Evidence: prefix/current-tail ordering, fingerprint stability and adapter
+  invalidation, persistence, compaction, retry-cloning, Python adapter, and
+  live local-Qwen `PREFIX_CONTEXT_OK` checks passed.
+- Reference alignment: Codex retains stable thread configuration around turns;
+  Reasonix builds prompt state from controller/session configuration. Genesis
+  additionally persists a fingerprint while keeping role policy explanation
+  deferred until a role/context-policy binding is owned.
+
 ### KERNEL-LOCAL-PROVIDER-UNBOUNDED-20260711 - P1 - Explicit local provider requests have no generated deadline
 
 - Status: ready_for_acceptance.

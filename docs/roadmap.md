@@ -66,17 +66,16 @@ and accurately documented.
   projections.
 - The desktop's currently exposed bridge has a focused build/test proof and no
   known deterministic startup or reconnect break.
-- The Feishu connector has no claim of cursor replay that its actual adapter
-  cannot perform. Cursor state is documented as connector-local at-least-once
-  progress plus dedupe until a source protocol exposes an admissible replay
-  control.
-- The active connector lifecycle issue is either retired with proof or remains
-  the only explicit blocker, with its remaining gap stated precisely.
+- No cancelled external listener remains exposed as an active product path.
+  An on-demand external CLI operation is governed tool work, not a connector
+  lifecycle claim.
+- The generic connector runtime is retained only for a future protocol that
+  genuinely needs inbound event ownership and lifecycle evidence.
 - Closed implementation plans and campaign notes no longer describe completed
   work as active backlog.
 
 **Red lines:** do not add TaskGraph, new generic tools, new frameworks,
-capability marketplace behavior, or a Feishu-specific kernel owner.
+capability marketplace behavior, or a channel-specific kernel owner.
 
 ### 2. Desktop Daily Assistant
 
@@ -128,17 +127,18 @@ deferred rather than satisfied with a synthetic package.
 
 ### 4. Mobile And External Entry
 
-**Purpose:** make Feishu a reliable user-space entry and delivery channel for
-the same governed task loop.
+**Purpose:** add a real external entry only when its product semantics require
+inbound event ownership rather than user-directed CLI work.
 
 **Entry criteria:** a desktop task can produce a bounded final result or
 artifact and Stage 3 has at least one usable capability package.
 
 **Exit criteria:**
 
-- Inbound identity mapping, source validation posture, dedupe, session mapping,
-  turn submission, outbox delivery, and restart inspection have real evidence.
-- Profile expiry, permission denial, and external-process failure become
+- The selected protocol's inbound identity mapping, source validation posture,
+  dedupe, session mapping, turn submission, outbox delivery, and restart
+  inspection have real evidence.
+- The selected protocol's credential and external-process failure become
   observable connector state and recover through an approved owner path.
 - The connector never becomes kernel truth, provider-context, or credential
   authority owner.
@@ -146,8 +146,10 @@ artifact and Stage 3 has at least one usable capability package.
   operator can see the recovery coverage limit instead of being promised that
   downtime cannot lose messages.
 
-**Red lines:** no hardcoded nonexistent source cursor argument, no readiness
-treated as event authenticity, and no shell loop presented as supervision.
+**Red lines:** no assumed cursor replay, no readiness treated as event
+authenticity, and no shell loop presented as supervision. Do not turn a
+user-directed Feishu CLI operation into a listener without an approved routing
+and progress contract.
 
 ### 5. Accumulation And Long-Term Memory
 
@@ -321,15 +323,9 @@ approved implementation; connector gates retain their own stage boundaries.
      gap stays desktop-owned; an authority or projection gap moves to the
      kernel owner.
 
-4. Close the inaccurate Feishu cursor premise and select only an evidence-backed
-   connector slice.
-   - Keep the existing source lifecycle issue as the single connector gap.
-   - Treat the absent `--after-event-id` support as a source capability limit,
-     not a parameter bug to patch around.
-   - Before implementing automatic profile refresh or stronger source
-     supervision, inspect the actual profile and source protocol contract. If
-     it does not establish an owner or recovery behavior, stop for a product
-     decision.
+4. Keep the retired Feishu listener out of the active product surface. Select a
+   connector slice only after a future external protocol has an approved
+   routing, progress, and recovery contract.
 
 5. Run the Stage 1 closing gate.
    - Run focused checks, then `go test ./... -count=1`, `go build ./...`, and
@@ -352,8 +348,9 @@ approved implementation; connector gates retain their own stage boundaries.
 
 - A real provider credential and reachable provider are required for the live
   acceptance. The repository cannot prove that result without them.
-- A valid Feishu profile and an upstream source contract are required before
-  claiming source authenticity, replay, or automatic refresh behavior.
+- A future external source requires a valid profile/credential and an upstream
+  source contract before Genesis claims source authenticity, replay, or
+  automatic refresh behavior.
 - If either gate is unavailable, continue only with read-only reconciliation and
   local regression proof. Do not claim Stage 1 closed.
 

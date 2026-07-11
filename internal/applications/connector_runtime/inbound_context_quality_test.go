@@ -148,8 +148,6 @@ func TestConnectorSourceRuntimeDoesNotWriteKernelCompactionTruth(t *testing.T) {
 	root := testsupport.ProjectRoot(t)
 	for _, rel := range []string{
 		filepath.Join("internal", "applications", "connector_runtime"),
-		filepath.Join("cmd", "genesis-feishu-source-adapter"),
-		filepath.Join("cmd", "genesis-ingress"),
 	} {
 		dir := filepath.Join(root, rel)
 		if err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {

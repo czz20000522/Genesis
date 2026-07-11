@@ -6,8 +6,8 @@
 
 ## Background
 
-Genesis needs external applications such as Feishu, WeChat, email, webhooks,
-console, future desktop UI, and local automations to connect to the kernel
+Genesis may need external applications such as future chat channels, email,
+webhooks, console, desktop UI, and local automations to connect to the kernel
 without becoming kernel owners. Calling this layer a Feishu Bridge or Channel
 Gateway is misleading: it makes the first channel look architectural, or turns
 the middle layer into a broad external-channel API.
@@ -49,15 +49,15 @@ permission, sandbox, approval, provider context, tool execution, ledger, memory,
 job/work state, checkpoints, audit, and kernel projections.
 
 The LLM owns semantic intent only. It can express an action intent such as
-`send_message(channel=feishu, thread_ref=..., body=...)`, but it does not own
+`send_message(channel=external, thread_ref=..., body=...)`, but it does not own
 the credential, retry policy, rate-limit handling, duplicate-send prevention,
 attachment upload, delivery status, half-success recovery, or raw external API
 call.
 
 ## Users And Roles
 
-Ordinary users interact through an external application, such as a Feishu chat
-or console input.
+Ordinary users interact through an external application, such as a future
+channel or console input.
 
 Operators inspect application connector state: inbound events, request context,
 session mapping, outbox items, connector actions, delivery receipts, retries,
@@ -76,8 +76,9 @@ model execution, tool runtime, memory, work/jobs, events, audit, recovery, and
 kernel projections.
 
 The LLM produces semantic text and typed semantic intent. It cannot receive
-external credentials, cannot bypass connector outbox, and cannot turn external
-identity into kernel permission authority.
+external credentials or turn external identity into kernel permission authority.
+For a user-directed one-off CLI operation, the normal governed tool path is
+used instead of an automatic connector outbox route.
 
 ## Core Semantics
 
@@ -142,9 +143,8 @@ enables one connector and supplies its adapter-owned identity/policy binding.
 A listener is disabled unless its binding says otherwise; discovering a
 profile, adapter binary, or credential never starts it. Generic connector
 runtime fields stay limited to enablement and adapter identity. Channel-specific
-settings such as a Feishu bot profile, a mail watch subscription, or a QQ
-gateway intent remain typed adapter configuration rather than a forced
-lowest-common-denominator schema.
+settings such as a mail watch subscription or gateway intent remain typed
+adapter configuration rather than a forced lowest-common-denominator schema.
 
 An enabled connector binding may also constrain which external threads reach
 the application runtime. When an adapter binding declares a restricted thread
@@ -157,8 +157,8 @@ implicit consequence of a missing list.
 `connector_command` is the long-lived external adapter process boundary. The
 application connector runtime writes one typed `ConnectorAction` request to a
 configured adapter process and accepts one typed `ConnectorActionResult`
-response. The external adapter owns `lark-cli`, SDK, HTTP, vendor response
-parsing, and vendor error normalization. The connector runtime owns adapter
+response. The external adapter owns vendor CLI, SDK, HTTP, response parsing,
+and vendor error normalization. The connector runtime owns adapter
 configuration, process timeout, environment allowlist, result validation,
 outbox state transitions, and `DeliveryReceipt` persistence.
 
@@ -209,10 +209,12 @@ semantics are governed by
 
 ## Non-Goals
 
-- No Feishu, WeChat, email, calendar, or document owner inside the kernel.
+- No channel, email, calendar, or document owner inside the kernel.
 - No direct model access to external API credentials.
-- No production path where the LLM freely composes `curl`, SDK, or CLI commands
-  to send external messages.
+- No automatic background path where the LLM freely composes `curl`, SDK, or
+  CLI commands to send external messages. A user-directed CLI action may use
+  the ordinary governed tool path and its approval policy; it does not create a
+  connector listener, outbox, or special notification tool.
 - No connector-built provider context.
 - No connector writes to kernel ledger, memory truth, tool result, checkpoint,
   or audit truth.
@@ -249,20 +251,17 @@ app-local dedupe, and `turn.submit` through the kernel HTTP surface.
 
 Phase B adds the minimal connector outbox contract: `AppCommand`,
 `ConnectorOutbox`, `ConnectorAction`, and `DeliveryReceipt`, with console and
-Feishu delivery exercised through connector driver configuration and fake or
-local runners in tests. It also provides the minimal `connector_command`
+generic test delivery exercised through connector driver configuration and fake
+or local runners in tests. It also provides the minimal `connector_command`
 process runner so long-lived adapters can sit behind typed action/result JSON
 instead of hardcoded connector runtime argv. No rich cards, attachments, or
 production listener hardening.
 
-Phase C adds a Feishu inbound connector listener/poller, connector-local
-validation/retry/token handling, an ordinary final-text reply policy for mobile
-smoke testing, and an explicit installed-adapter capability probe. The ordinary
-reply policy may turn a kernel final text into one connector-owned
-`send_message` outbox item; it must remain application policy, not a kernel
-reply API. If Feishu delivery still uses `command_template`, the phase must keep
-it documented as a transitional driver and must not treat the rendered CLI argv
-as a Genesis contract.
+Phase C is intentionally deferred until a selected external protocol has an
+approved routing, progress, and recovery contract. It may add an inbound
+listener/poller, connector-local validation/retry/credential handling, and a
+bounded reply policy. It must not treat the rendered CLI argv as a Genesis
+contract, and it must not add a special notification tool for an installed CLI.
 
 Phase D adds operator console inspection for connector state plus kernel
 projections without letting the console reinterpret raw kernel events as its own
@@ -296,9 +295,10 @@ are backed by connector-owned idempotency, receipt, and recovery semantics.
   failure diagnostics without persisting raw external payloads in canonical
   connector state.
 - File-backed connector smoke stores preserve independent writes across
-  concurrently running listener, console, and worker processes.
-- Feishu is the first adapter, not a top-level architecture.
-- Console and Feishu use the same connector runtime primitives.
+  concurrently running listener, console, and worker processes when a future
+  external source is enabled.
+- A named channel is an adapter, not a top-level architecture.
+- Console and future adapters use the same connector runtime primitives.
 - Connector code does not import kernel internals, build provider context, write
   kernel ledgers, or expose external credentials to the LLM.
 - Tests cover inbound dedupe, opaque id mapping, outbox idempotency, delivery

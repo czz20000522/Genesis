@@ -49,11 +49,11 @@ summarize inbound history, truncate provider context, emit
 validated source facts and normalized `ExternalEvent` values; any compaction is
 admitted later by the kernel/session owner.
 
-The source adapter owns external protocol translation. For Feishu, that means
-the adapter can know how to call `lark-cli`, an SDK, HTTP API, or webhook
-server. The connector runtime cannot know those command lines, protocol keys,
-payload envelopes, or credential mechanics. Its only inbound source interface is
-the typed `source_command` stream.
+The source adapter owns external protocol translation. It can know how to call
+a vendor CLI, SDK, HTTP API, or webhook server. The connector runtime cannot
+know those command lines, protocol keys, payload envelopes, or credential
+mechanics. Its only inbound source interface is the typed `source_command`
+stream.
 
 ## Owner Responsibilities
 
@@ -198,8 +198,8 @@ Application Connector Runtime
      SourceVerificationEvidence
   -> emits ExternalEvent
 
-Feishu Source Adapter
-  -> owns lark-cli / SDK / HTTP / webhook details
+Future Source Adapter
+  -> owns vendor CLI / SDK / HTTP / webhook details
   -> emits source.ready / source.event / source.cursor / source.failed /
      source.stopped frames
 ```
@@ -253,53 +253,23 @@ adapter process configuration is binding/readiness state, not part of the
 stable source id unless changing it truly means the external message source is a
 different historical stream.
 
-## Feishu Profile Readiness Probe
-
-The Feishu source adapter exposes a separate `--profile-probe` mode for the
-generic `profile-probe-command` boundary. It runs only `lark-cli auth status`
-with the runtime-supplied explicit profile and emits one
-`ProfileReadinessCommandResult`; it never starts event consumption, sends a
-message, prints credentials, or creates source frames.
-
-The first mapping is deliberately conservative:
-
-- a structured Feishu CLI `config/not_configured` result becomes
-  `missing_profile`;
-- a bot identity with `available=true` and `status=ready` becomes ready;
-- every other exit, malformed result, unavailable bot identity, or unknown
-  upstream status becomes `operator_action_required`.
-
-The adapter must not infer `profile_expired`, `permission_denied`, or
-`refresh_required` from prose. Those more specific facts require an upstream
-typed status or a separately approved Feishu probe contract. This is readiness
-evidence only and cannot mark any source event verified.
-
 ## Connector Binding Configuration
 
-The connector runtime is generic, but adapter configuration is typed. The
-current user-home runtime settings bind Feishu by explicit `enabled`, bot
-profile, identity, and adapter policy. A non-test Feishu listener reads that
-binding before it creates source lifecycle state or launches an adapter:
+The connector runtime is generic, but a future adapter configuration is typed.
+Its explicit enablement, identity, and admission policy must be read before it
+creates source lifecycle state or launches an adapter:
 
 ```text
 binding missing or enabled=false -> listener refuses before source start
-binding enabled=true -> resolve typed Feishu profile/identity -> profile probe
-                         -> source_command -> lifecycle owner
+binding enabled=true -> resolve typed adapter identity -> profile probe
+                        -> source_command -> lifecycle owner
 ```
 
-For Feishu, `allow_unbound_chats=false` makes `allowed_chat_ids` a fail-closed
-source policy. The ingress maps that typed adapter setting into the generic
-source-frame consumer's restricted external-thread set. A frame for an
-unlisted thread produces a connector-local `source_policy_rejected` failure
-without its raw chat id, is not delivered to the application runtime, and does
-not advance its cursor. A restricted binding with no allowed chat id is invalid
-before source start. `allow_unbound_chats=true` is the explicit permissive
-policy for a future user-approved broad listener.
-
-`stdin-jsonl` remains an isolated deterministic test surface and does not
-enable a real listener. Future mail, WeChat, or QQ adapters use the same
-enablement gate and generic lifecycle/outbox owners, while their protocol
-configuration remains in their adapter binding. This avoids both accidental
+An adapter may constrain the external threads it accepts. A frame for an
+unlisted thread produces a connector-local `source_policy_rejected` failure,
+is not delivered to the application runtime, and does not advance its cursor.
+A restricted binding with no allowed thread is invalid before source start.
+Permissive intake must be an explicit policy. This avoids both accidental
 background listeners and a fake universal channel schema.
 
 `SourceFailureRecord`:
@@ -340,9 +310,9 @@ Examples:
 - an operator-approved local source provided a signed or otherwise trusted
   batch assertion.
 
-Readiness never upgrades an event to verified. A Feishu `lark-cli event consume`
-source that starts successfully emits unchecked events until the connector has
-durable event authenticity evidence.
+Readiness never upgrades an event to verified. A source that starts
+successfully emits unchecked events until the connector has durable event
+authenticity evidence.
 
 `source_validation=verified` requires evidence whose own status is verified,
 whose kind and reference are non-empty, and whose adapter binding matches the
@@ -437,15 +407,12 @@ If a profile is missing, expired, denied, or requires refresh, the source enters
 safe readiness reason and operator action hint, but it must not persist raw
 tokens, authorization headers, profile secrets, or platform credential payloads.
 
-The current Feishu ingress surface supports a connector-local profile readiness
-command probe. The probe is a direct executable boundary that receives the
-configured profile as a generated argument and returns typed readiness JSON. It
-does not start source adapters, send messages, call the kernel, or expose
-credentials to the model. Unsupported readiness values, command failure, or
-malformed output fail closed as connector-local operator action requirements.
-The probe has its own bounded timeout; explicit `ready=false` without a
-supported reason and timed-out probes both fail closed before source or delivery
-adapters start. This is an application connector boundary, not a kernel
+A future adapter may support a connector-local profile readiness command probe.
+It receives the configured profile as a generated argument and returns typed
+readiness JSON. It does not start source adapters, send messages, call the
+kernel, or expose credentials to the model. Unsupported readiness values,
+command failure, or malformed output fail closed as connector-local operator
+action requirements. This is an application connector boundary, not a kernel
 credential store.
 
 ## Operator Lifecycle Controls
@@ -544,21 +511,20 @@ authenticity evidence must be normalized before entering the core runtime.
 
 ## Rejected Alternatives
 
-- Treating `lark-cli` readiness as event verification. Rejected because adapter
+- Treating adapter readiness as event verification. Rejected because adapter
   availability does not authenticate individual events.
-- Putting Feishu listener supervision inside kernel. Rejected because Feishu is
-  a user-space connector, not a kernel owner.
+- Putting channel listener supervision inside kernel. Rejected because a
+  channel is a user-space connector, not a kernel owner.
 - Letting the source lifecycle owner call `turn.submit` or map sessions. Rejected because
   those are Application Connector Runtime responsibilities.
-- Keeping a `while true lark-cli` loop as the production source lifecycle
+- Keeping a `while true` CLI loop as the production source lifecycle
   implementation. Rejected because it lacks source run, attempt, cursor,
   readiness, and failure
   semantics.
-- Moving `lark-cli event consume ...` into an argv or string-template
-  configuration. Rejected because it preserves protocol drift, argument
-  escaping, output-shape, and credential handling problems inside Genesis
-  runtime configuration. Feishu command syntax belongs to a Feishu source
-  adapter implementation behind typed frames.
+- Moving vendor event commands into an argv or string-template configuration.
+  Rejected because it preserves protocol drift, argument escaping, output-shape,
+  and credential handling problems inside Genesis runtime configuration. Command
+  syntax belongs to a future source adapter implementation behind typed frames.
 - Reusing outbound `connector_command` for inbound source streams. Rejected
   because outbound actions are bounded request/result calls, while inbound
   sources are long-running lifecycle, event, cursor, verification, and failure

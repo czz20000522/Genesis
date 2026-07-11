@@ -10,6 +10,15 @@ tests, governing requirement/design, or still-active issues.
 
 ## Retired Issues
 
+### APP-CONNECTOR-FEISHU-LISTENER-20260623 - Retire Feishu listener product path
+
+- Retired: Feishu is now an explicit user-directed CLI operation through the
+  ordinary governed tool path; Genesis exposes no listener, inbound session
+  router, automatic reply path, special notification tool, or Feishu runtime
+  binding. The generic connector runtime remains reserved for a future protocol
+  with an approved routing, progress, and recovery contract. Evidence: retiring
+  Lore commit.
+
 ### APP-FIRST-RUN-PROVIDER-COMMAND-ACCEPTANCE-20260710 - Exercise configured local provider acceptance
 
 - Retired: configured local Qwen now completes the full `-UseConfiguredProfile`

@@ -14,7 +14,8 @@ environment around an LLM:
 - a kernel that owns authority, facts, tool execution, memory, credentials,
   event replay, and recovery;
 - a desktop shell for everyday interaction;
-- user-space connectors for external channels such as Feishu;
+- user-space protocol connectors when a product genuinely needs inbound external
+  events;
 - user-space capability packages for personal tools such as local report
   generation;
 - a `~/.genesis` user home for config, credentials, models, accumulation,
@@ -74,7 +75,8 @@ Secondary actors:
 
 - desktop chat usability: history, streaming, Markdown rendering, detail panel,
   attachment entry, and readable status;
-- Feishu ingress and egress for mobile interaction;
+- user-directed external CLI work through governed tools, with local transcript
+  evidence rather than a background chat bridge;
 - memory review, supersession, and a redesigned user-visible accumulation path;
 - more real capability packages under `~/.genesis/capabilities`;
 - clear movement between files, capability outputs, session context, and memory.
@@ -133,8 +135,10 @@ Genesis is successful when:
 - Desktop: Wails + Vue/Vite + Go bridge over kernel HTTP.
 - Provider boundary: Genesis model gateway, `provider_command`, and current
   OpenAI-compatible adapter support.
-- Connector boundary: user-space `source_command` and `connector_command`
-  adapters.
+- Connector boundary: future user-space `source_command` and
+  `connector_command` adapters when an inbound protocol actually needs them.
+  A one-off installed CLI action, including Feishu CLI, remains an ordinary
+  governed tool action rather than a connector product surface.
 - User home: `~/.genesis`.
 - User capabilities: `~/.genesis/capabilities/<id>` plus skill metadata under
   `~/.genesis/skills`.
