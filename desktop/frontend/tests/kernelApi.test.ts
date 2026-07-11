@@ -39,6 +39,8 @@ assert.equal(apiSource.includes('KernelRequest'), false, 'desktop production bri
 assert.equal(apiSource.includes('content_base64'), false, 'desktop upload bridge must not pass whole files as base64')
 assert.equal(providerPanelSource.includes('type="password"'), true, 'provider key input must not render as plain text')
 assert.equal(providerPanelSource.includes('localStorage'), false, 'provider key input must not persist in browser storage')
+assert.equal(appSource.includes('const localModelStarting = ref(false)'), true, 'App.vue must track explicit local-model startup')
+assert.equal(appSource.includes('localModelStarting.value = true'), true, 'App.vue must mark local-model startup before awaiting the bridge')
 
 globalThis.go = {
   main: {

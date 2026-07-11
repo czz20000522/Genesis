@@ -37,6 +37,7 @@ const liveUserText = ref('')
 const liveAssistantText = ref('')
 const liveStreaming = ref(false)
 const localModel = ref<LocalModelStatus>({})
+const localModelStarting = ref(false)
 const providerOpen = ref(false)
 const providerBusy = ref(false)
 const providerNotice = ref('')
@@ -94,6 +95,7 @@ const debugSummaryRows = computed(() => debugExport.value ? debugSummary(debugEx
 const compactionSummaryRows = computed(() => compaction.value ? compactionSummary(compaction.value) : [])
 const localModelRunning = computed(() => localModel.value.ownership === 'owned' && localModel.value.readiness === 'ready')
 const localModelLabel = computed(() => {
+  if (localModelStarting.value) return '正在加载本地模型…'
   if (localModelRunning.value) return `本地模型运行中${localModel.value.pid ? ` · PID ${localModel.value.pid}` : ''}`
   if (localModel.value.reason === 'local_model_disabled') return '本地模型未配置'
   return '本地模型已停止'
@@ -207,11 +209,23 @@ async function refreshLocalModelStatus() {
 }
 
 async function toggleLocalModel() {
+	if (localModelStarting.value) return
   error.value = ''
+	if (localModelRunning.value) {
+		try {
+			localModel.value = await stopLocalModel()
+		} catch (err) {
+			error.value = err instanceof Error ? err.message : String(err)
+		}
+		return
+	}
+	localModelStarting.value = true
   try {
-    localModel.value = localModelRunning.value ? await stopLocalModel() : await startLocalModel()
+		localModel.value = await startLocalModel()
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
+	} finally {
+		localModelStarting.value = false
   }
 }
 
@@ -525,6 +539,7 @@ async function initializeDesktop() {
           :inspector-open="inspectorOpen"
           :local-model="localModelLabel"
           :local-model-running="localModelRunning"
+		  :local-model-starting="localModelStarting"
           :provider-summary="providerSummary"
           @check-ready="checkReady"
           @toggle-local-model="toggleLocalModel"

@@ -8,6 +8,7 @@ defineProps<{
   inspectorOpen: boolean
   localModel: string
   localModelRunning: boolean
+  localModelStarting: boolean
   providerSummary: string
 }>()
 
@@ -31,7 +32,7 @@ defineEmits<{
     </div>
     <div class="topbar-actions">
       <button type="button" @click="$emit('checkReady')">检查连接</button>
-      <button type="button" class="secondary-button" @click="$emit('toggleLocalModel')">{{ localModelRunning ? '停止本地模型' : '启动本地模型' }}</button>
+      <button type="button" class="secondary-button" :disabled="localModelStarting" @click="$emit('toggleLocalModel')">{{ localModelStarting ? '正在启动…' : localModelRunning ? '停止本地模型' : '启动本地模型' }}</button>
       <button type="button" class="secondary-button" @click="$emit('toggleProvider')">模型</button>
       <button type="button" @click="$emit('toggleInspector')">{{ inspectorOpen ? '收起设置' : '设置' }}</button>
     </div>
