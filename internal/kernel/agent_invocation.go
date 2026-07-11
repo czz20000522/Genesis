@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -401,6 +402,60 @@ func (k *Kernel) invocationProvider(invocation AgentInvocationProjection) (Provi
 		return nil, errors.New("worker_provider_resolver_unavailable")
 	}
 	return provider, nil
+}
+
+func (k *Kernel) finishDelegatedWorker(run AgentInvocationRunProjection) {
+	if !isTerminalAgentInvocationRun(run) {
+		return
+	}
+	invocation, err := k.AgentInvocation(run.InvocationID)
+	if err != nil || strings.TrimSpace(invocation.ParentTurnID) == "" || strings.TrimSpace(invocation.IdempotencyKey) == "" {
+		return
+	}
+	conversation, err := k.AgentInvocationChildConversation(invocation.InvocationID)
+	if err != nil {
+		return
+	}
+	content, err := json.Marshal(struct {
+		Status       string       `json:"status"`
+		Executed     bool         `json:"executed"`
+		InvocationID string       `json:"invocation_id"`
+		RoleID       string       `json:"role_id"`
+		Final        FinalMessage `json:"final,omitempty"`
+		Usage        *TokenUsage  `json:"usage,omitempty"`
+		Error        *TurnError   `json:"error,omitempty"`
+		EvidenceRefs []string     `json:"evidence_refs,omitempty"`
+	}{
+		Status:       conversation.Status,
+		Executed:     true,
+		InvocationID: invocation.InvocationID,
+		RoleID:       agentInvocationRoleID(invocation.AgentProfileRef),
+		Final:        conversation.Final,
+		Usage:        conversation.Usage,
+		Error:        conversation.Error,
+		EvidenceRefs: conversation.EvidenceRefs,
+	})
+	if err != nil {
+		return
+	}
+	if err := k.appendToolResultEvent(invocation.SessionID, invocation.ParentTurnID, ModelToolResult{
+		ToolCallID:      invocation.IdempotencyKey,
+		ToolCallEventID: invocation.IdempotencyKey,
+		Name:            "delegate_worker",
+		Content:         string(content),
+	}, invocation.IdempotencyKey); err != nil {
+		return
+	}
+	go k.continueDelegatedParent(invocation.SessionID, invocation.ParentTurnID)
+}
+
+func (k *Kernel) continueDelegatedParent(sessionID string, turnID string) {
+	runCtx, finish, admitted := k.tryBeginActiveTurn(context.Background(), sessionID, turnID)
+	if !admitted {
+		return
+	}
+	defer finish()
+	_, _ = k.runTurnModelLoop(runCtx, sessionID, turnID, nil)
 }
 
 func (k *Kernel) runAgentInvocationLoop(ctx context.Context, run AgentInvocationRunProjection, inputs []ModelInputItem, toolGateway ToolGateway, provider Provider) (FinalMessage, error) {

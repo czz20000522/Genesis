@@ -245,7 +245,14 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 		}
 	}
 	defer finishActiveTurn()
+	return k.runTurnModelLoop(runCtx, sessionID, turnID, emit)
+}
 
+func (k *Kernel) runTurnModelLoop(runCtx context.Context, sessionID string, turnID string, emit func(TurnStreamEvent) error) (TurnResponse, error) {
+	toolGateway, err := k.toolGatewayForSession(sessionID)
+	if err != nil {
+		return TurnResponse{}, err
+	}
 	loopGuard := newToolLoopGuard()
 	budgetLease := k.newTurnBudgetLease()
 	for roundIndex := 0; ; roundIndex++ {
@@ -289,7 +296,7 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 			if err := k.appendEvent(completed); err != nil {
 				return TurnResponse{}, err
 			}
-			k.maybeSubmitAutoContextCompaction(ctx, sessionID, turnID, final)
+			k.maybeSubmitAutoContextCompaction(runCtx, sessionID, turnID, final)
 			events, err := k.TurnEvents(turnID)
 			if err != nil {
 				return TurnResponse{}, err
@@ -1287,6 +1294,9 @@ func modelToolRoundsFromStoredEvents(events []StoredEvent, turnID string) []Mode
 			})
 		case "tool.result":
 			if event.Data.ToolResult == nil {
+				continue
+			}
+			if event.Data.ToolResult.Tool == "delegate_worker" && event.Data.ToolResult.Status == "queued" {
 				continue
 			}
 			current.Results = append(current.Results, ModelToolResult{

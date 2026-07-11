@@ -239,6 +239,21 @@ func TestResolveParentWorkerRuntimeRejectsRecursiveDelegateWorkerTool(t *testing
 	}
 }
 
+func TestModelToolRoundsUsesTerminalDelegateWorkerResultAfterQueuedReceipt(t *testing.T) {
+	events := []StoredEvent{
+		{EventID: "evt_call", TurnID: "turn_parent", Type: "tool.call", Data: EventData{ToolCall: &ToolCallProjection{ToolCallEventID: "evt_call", ProviderToolCallID: "provider_call", Tool: "delegate_worker", Arguments: `{"role_id":"reviewer","task":"review"}`}}},
+		{EventID: "evt_queued", TurnID: "turn_parent", Type: "tool.result", Data: EventData{ToolResult: &ToolResultProjection{ForEventID: "evt_call", ProviderToolCallID: "provider_call", Tool: "delegate_worker", Status: "queued", Content: `{"status":"queued"}`}}},
+		{EventID: "evt_terminal", TurnID: "turn_parent", Type: "tool.result", Data: EventData{ToolResult: &ToolResultProjection{ForEventID: "evt_call", ProviderToolCallID: "provider_call", Tool: "delegate_worker", Status: "completed", Content: `{"status":"completed","final":"review accepted"}`}}},
+	}
+	rounds := modelToolRoundsFromStoredEvents(events, "turn_parent")
+	if len(rounds) != 1 || len(rounds[0].Calls) != 1 || len(rounds[0].Results) != 1 {
+		t.Fatalf("tool rounds = %+v, want one resolved delegation round", rounds)
+	}
+	if rounds[0].Results[0].Content != `{"status":"completed","final":"review accepted"}` {
+		t.Fatalf("delegation result = %s, want terminal result", rounds[0].Results[0].Content)
+	}
+}
+
 func TestAgentInvocationAdmissionRejectsUnknownParentAndTool(t *testing.T) {
 	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
 		PermissionMode: PermissionModeYolo,
@@ -592,7 +607,7 @@ func newAgentInvocationRunTestKernel(t *testing.T, config Config) *Kernel {
 
 func TestSubmitTurnDelegateWorkerPausesParentAndRunsRoleBoundLeaf(t *testing.T) {
 	configRoot := writeParentWorkerRuntimeConfig(t, []string{"resource_read"})
-	parent := &delegateWorkerParentProvider{}
+	parent := &delegateWorkerParentProvider{finalized: make(chan struct{}, 1)}
 	child := &delegateWorkerChildProvider{completed: make(chan ModelRequest, 1)}
 	resolvedProfileID := ""
 	k := newAgentInvocationRunTestKernel(t, Config{
@@ -658,6 +673,26 @@ func TestSubmitTurnDelegateWorkerPausesParentAndRunsRoleBoundLeaf(t *testing.T) 
 	if conversation.Status != AgentInvocationRunStatusCompleted || conversation.Final.Text != "worker final" {
 		t.Fatalf("child conversation = %+v, want bounded completed final", conversation)
 	}
+	select {
+	case <-parent.finalized:
+	case <-time.After(time.Second):
+		t.Fatal("parent did not continue after worker terminal result")
+	}
+	deadline := time.After(time.Second)
+	for {
+		parentEvents, err := k.TurnEvents(resp.TurnID)
+		if err != nil {
+			t.Fatalf("TurnEvents returned error: %v", err)
+		}
+		if len(parentEvents) > 0 && parentEvents[len(parentEvents)-1].Type == "model.final" {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("parent events = %+v, want parent final after terminal worker result", parentEvents)
+		case <-time.After(time.Millisecond):
+		}
+	}
 
 	for _, event := range resp.Events {
 		data, ok := event.Data.(EventData)
@@ -673,8 +708,9 @@ func TestSubmitTurnDelegateWorkerPausesParentAndRunsRoleBoundLeaf(t *testing.T) 
 }
 
 type delegateWorkerParentProvider struct {
-	mu       sync.Mutex
-	requests []ModelRequest
+	mu        sync.Mutex
+	requests  []ModelRequest
+	finalized chan struct{}
 }
 
 func (p *delegateWorkerParentProvider) Name() string { return "delegate-worker-parent" }
@@ -687,6 +723,12 @@ func (p *delegateWorkerParentProvider) Complete(_ context.Context, req ModelRequ
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.requests = append(p.requests, cloneModelRequest(req))
+	if len(req.ToolRounds) > 0 {
+		if p.finalized != nil {
+			p.finalized <- struct{}{}
+		}
+		return ModelResponse{Text: "parent reduced final", Model: "parent-model"}, nil
+	}
 	return ModelResponse{Model: "parent-model", ToolCalls: []ModelToolCall{{
 		ToolCallID: "delegate_worker_call",
 		Name:       "delegate_worker",

@@ -261,6 +261,7 @@ func (k *Kernel) commitToolExecutionResult(runCtx context.Context, sessionID str
 
 func (k *Kernel) startAgentInvocation(req AgentInvocationRunRequest) {
 	go func() {
-		_, _ = k.RunAgentInvocation(context.Background(), req)
+		run, _ := k.RunAgentInvocation(context.Background(), req)
+		k.finishDelegatedWorker(run)
 	}()
 }
