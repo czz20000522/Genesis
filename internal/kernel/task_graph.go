@@ -130,6 +130,29 @@ func (k *Kernel) TransitionTaskGraphNode(req TaskGraphNodeTransitionRequest) err
 }
 
 func (k *Kernel) TaskGraph(graphID string) (TaskGraphProjection, error) { return k.taskGraph(graphID) }
+
+func (k *Kernel) TaskGraphs(sessionID string) ([]TaskGraphProjection, error) {
+	graphs, err := k.taskGraphs()
+	if err != nil {
+		return nil, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	items := make([]TaskGraphProjection, 0)
+	for _, graph := range graphs {
+		if graph.SessionID == sessionID {
+			graph.Nodes = taskGraphProjectedNodes(graph)
+			items = append(items, graph)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].GraphID < items[j].GraphID
+		}
+		return items[i].CreatedAt.Before(items[j].CreatedAt)
+	})
+	return items, nil
+}
+
 func (k *Kernel) taskGraph(graphID string) (TaskGraphProjection, error) {
 	graphs, err := k.taskGraphs()
 	if err != nil {

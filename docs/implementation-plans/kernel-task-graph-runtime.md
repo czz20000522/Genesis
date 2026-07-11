@@ -42,3 +42,17 @@ path.
   call, no replay of a started invocation, and no generic scheduler.
 - Red tests: binding validation, dependency-gated eligibility, terminal owner
   reduction, and ambiguous restart block.
+
+## Phase C
+
+- Deliverable: authenticated graph list/read projection scoped to a session,
+  then a desktop inspector reader for task titles, status, blockers, dependency
+  edges, and evidence references.
+- Red lines: no desktop truth, no graph mutation route, no automatic start, and
+  no model-visible tool until its separate proposal contract exists.
+- Red tests: session scoping, unknown graph refusal, no write caused by graph
+  reads, and frontend API choke-point/static guard coverage.
+- Reference scan: Codex emits an explicit plan-update event through the tool
+  runtime before rendering it; Reasonix keeps planning as a model-session
+  handoff. Genesis uses the same command/projection separation but keeps the
+  project graph in the ledger.

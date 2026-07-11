@@ -38,10 +38,22 @@ Restart rebuilds graph state from the ledger. Phase B reconciles only a
 persisted execution binding with its existing owner; ambiguous external work is
 blocked with a sanitized recovery reason and never replayed by TaskGraph.
 
+## Phase C projection
+
+The kernel exposes only authenticated session-scoped graph reads in the first
+operator projection slice: `GET /sessions/{session_id}/task-graphs` and
+`GET /task-graphs/{graph_id}`. The first returns only graphs belonging to that
+session; the second returns the ledger-reduced graph. Neither route creates,
+updates, starts, or binds a task. Desktop may render title, status, dependency,
+blocked reason, and evidence reference, but it remains a reader in this slice.
+
 ## Reference alignment
 
-Codex's local spawned-agent control plane persists parent-child lifecycle and
-capacity activity; Reasonix creates isolated bounded tasks and returns final
-text. Neither local reference owns a durable dependency graph. Genesis aligns
-on explicit lifecycle facts and bounded references, and rejects in-memory task
-queues, free model overrides, and graph-derived authority.
+Codex's `core/src/tools/handlers/plan.rs` accepts a model plan update only
+through its tool runtime and emits an explicit event; its
+`tui/src/history_cell/plans.rs` renders the resulting state as a projection.
+Reasonix's `internal/agent/coordinator.go` keeps a planner's text as a separate
+conversation handoff rather than a project owner. Neither local reference owns
+a durable dependency graph. Genesis aligns on explicit proposal-to-fact and
+reader projection separation, and rejects in-memory task queues, free model
+overrides, and graph-derived authority.

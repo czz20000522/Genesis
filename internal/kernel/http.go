@@ -64,6 +64,8 @@ func Handler(k *Kernel) http.Handler {
 	route(http.MethodGet, "/sessions", false, handleListSessions)
 	route(http.MethodGet, "/sessions/search", false, handleSearchSessions)
 	route(http.MethodGet, "/sessions/{session_id}/agent-invocations", false, handleListSessionAgentInvocations)
+	route(http.MethodGet, "/sessions/{session_id}/task-graphs", false, handleListSessionTaskGraphs)
+	route(http.MethodGet, "/task-graphs/{graph_id}", false, handleGetTaskGraph)
 	route(http.MethodGet, "/sessions/{session_id}", false, handleGetSession)
 	route(http.MethodGet, "/turns/{turn_id}/context", false, handleGetTurnContext)
 	route(http.MethodGet, "/turns/{turn_id}/audit", false, handleGetTurnAudit)
