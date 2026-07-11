@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 
 	"genesis/internal/applications/connector_runtime"
 	feishucli "genesis/internal/applications/feishu_cli"
+	"genesis/localconfig"
 )
 
 func main() {
@@ -24,10 +26,14 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
-	return runWithIO(ctx, args, os.Stdin, os.Stdout, os.Stderr)
+	return runWithConfig(ctx, args, os.Stdin, os.Stdout, os.Stderr, true)
 }
 
 func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+	return runWithConfig(ctx, args, stdin, stdout, stderr, false)
+}
+
+func runWithConfig(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, requireConnectorBinding bool) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: genesis-ingress <console-once|feishu-once|feishu-listen|feishu-probe> [flags]")
 	}
@@ -37,7 +43,7 @@ func runWithIO(ctx context.Context, args []string, stdin io.Reader, stdout io.Wr
 	case "feishu-once":
 		return runOnce(ctx, args[1:], "feishu", false, stdin, stdout)
 	case "feishu-listen":
-		return runFeishuListen(ctx, args[1:], stdin, stdout, stderr)
+		return runFeishuListen(ctx, args[1:], stdin, stdout, stderr, requireConnectorBinding)
 	case "feishu-probe":
 		return runFeishuProbe(ctx, args[1:], stdout)
 	default:
@@ -66,15 +72,17 @@ func runOnce(ctx context.Context, args []string, defaultChannel string, printFin
 	return nil
 }
 
-func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, requireConnectorBinding bool) error {
 	fs := flag.NewFlagSet("feishu-listen", flag.ContinueOnError)
 	flags := registerCommonFlags(fs, "feishu")
+	configRoot := fs.String("config-root", "", "Genesis Home config directory containing runtime-settings.json")
 	profile := fs.String("profile", "", "explicit lark-cli profile passed to the Feishu connector adapter")
 	profileReadiness := fs.String("profile-readiness", "ok", "connector-local Feishu profile readiness posture: ok, missing_profile, profile_expired, permission_denied, or refresh_required")
 	profileProbeCommand := fs.String("profile-probe-command", "", "direct profile readiness probe executable; emits typed readiness JSON and does not start source or delivery adapters")
 	profileProbeTimeout := fs.Duration("profile-probe-timeout", 0, "bounded timeout for the profile readiness probe command")
 	stdinJSONL := fs.Bool("stdin-jsonl", false, "read ExternalEvent NDJSON from stdin")
 	larkCLI := fs.String("lark-cli", os.Getenv("GENESIS_FEISHU_CLI_EXECUTABLE"), "direct lark-cli executable passed to the Feishu connector adapter")
+	identity := fs.String("as", "bot", "Feishu event source identity: bot, user, or auto")
 	deliveryCommand := fs.String("delivery-command", envOrDefault("GENESIS_FEISHU_CONNECTOR_COMMAND", "genesis-feishu-connector-adapter"), "direct Feishu connector adapter executable for final delivery")
 	sourceCommand := fs.String("source-command", "", "direct source adapter executable that emits source_command NDJSON frames")
 	sourceID := fs.String("source-id", "feishu.im.message.receive", "stable connector source id; do not include profile or credential material")
@@ -105,6 +113,14 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	}
 	if *sourceIdleTimeout < 0 {
 		return fmt.Errorf("feishu-listen --source-idle-timeout must not be negative")
+	}
+	if requireConnectorBinding && !*stdinJSONL {
+		binding, err := feishuListenerConfigArgs(*configRoot, false, *profile, *larkCLI, *identity)
+		if err != nil {
+			return err
+		}
+		*profile, *larkCLI, *identity = binding[0], binding[1], binding[2]
+		*profileProbeCommand, profileProbeCommandArgs = defaultFeishuProfileProbeCommand(true, *profileProbeCommand, profileProbeCommandArgs, *sourceCommand)
 	}
 	_, runtime, err := buildRuntime(flags, stdin)
 	if err != nil {
@@ -145,7 +161,7 @@ func runFeishuListen(ctx context.Context, args []string, stdin io.Reader, stdout
 	if strings.TrimSpace(*sourceCommand) != "" {
 		sourceReadinessBlockReason = profileBlockedReason
 		if sourceReadinessBlockReason == "" {
-			sourceArgs = feishuSourceCommandArgs(sourceArgs, *profile, *larkCLI, *sourceID)
+			sourceArgs = feishuSourceCommandArgs(sourceArgs, *profile, *larkCLI, *sourceID, *identity)
 		} else {
 			sourceReadinessBlockDescription = sourceReadinessBlockReason
 		}
@@ -206,7 +222,7 @@ func runFeishuProbe(ctx context.Context, args []string, stdout io.Writer) error 
 	if strings.TrimSpace(*sourceCommand) != "" {
 		sourceBlockedReason = finalDeliveryBlockedReason
 		if sourceBlockedReason == "" {
-			sourceArgs = feishuSourceCommandArgs(sourceArgs, *profile, *larkCLI, "feishu.im.message.receive")
+			sourceArgs = feishuSourceCommandArgs(sourceArgs, *profile, *larkCLI, "feishu.im.message.receive", "bot")
 		}
 	}
 	finalDeliveryArgs := []string(nil)
@@ -256,13 +272,45 @@ func feishuConnectorCommandArgs(prefix []string, profile string, larkCLI string)
 	return args
 }
 
-func feishuSourceCommandArgs(prefix []string, profile string, larkCLI string, sourceID string) []string {
+func feishuSourceCommandArgs(prefix []string, profile string, larkCLI string, sourceID string, identity string) []string {
 	args := append([]string(nil), prefix...)
 	args = append(args, "--profile", strings.TrimSpace(profile), "--source-id", strings.TrimSpace(sourceID))
 	if strings.TrimSpace(larkCLI) != "" {
 		args = append(args, "--lark-cli", strings.TrimSpace(larkCLI))
 	}
+	if strings.TrimSpace(identity) != "" {
+		args = append(args, "--as", strings.TrimSpace(identity))
+	}
 	return args
+}
+
+func feishuListenerConfigArgs(configRoot string, stdinJSONL bool, profile string, larkCLI string, identity string) ([]string, error) {
+	if stdinJSONL {
+		return []string{strings.TrimSpace(profile), strings.TrimSpace(larkCLI), strings.TrimSpace(identity)}, nil
+	}
+	settings, err := localconfig.ReadRuntimeSettings(localconfig.RuntimeSettingsPath(configRoot))
+	if err != nil {
+		return nil, fmt.Errorf("read Feishu listener binding: %w", err)
+	}
+	if !settings.Feishu.Listener.Enabled {
+		return nil, errors.New("Feishu listener is disabled by runtime-settings.json")
+	}
+	profile = strings.TrimSpace(settings.Feishu.LarkCLI.Profile)
+	if profile == "" {
+		return nil, errors.New("Feishu listener binding requires lark_cli.profile")
+	}
+	identity = strings.TrimSpace(settings.Feishu.LarkCLI.Identity)
+	if identity == "" {
+		identity = "bot"
+	}
+	return []string{profile, strings.TrimSpace(settings.Feishu.LarkCLI.Command), identity}, nil
+}
+
+func defaultFeishuProfileProbeCommand(boundListener bool, configuredCommand string, configuredArgs []string, sourceCommand string) (string, []string) {
+	if !boundListener || strings.TrimSpace(configuredCommand) != "" || strings.TrimSpace(sourceCommand) == "" {
+		return strings.TrimSpace(configuredCommand), append([]string(nil), configuredArgs...)
+	}
+	return strings.TrimSpace(sourceCommand), []string{"--profile-probe"}
 }
 
 func feishuProfileReadinessBlockReason(ctx context.Context, profile string, readiness string, probeCommand string, probeArgs []string, probeTimeout time.Duration) (string, error) {

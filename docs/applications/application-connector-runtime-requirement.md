@@ -137,6 +137,15 @@ message. A CLI command shape is not part of the stable application semantic
 contract. The stable contract is the connector/action/outbox/receipt state; the
 driver may be changed or replaced when the external tool changes.
 
+`ConnectorBindingConfig` is a user-home application setting that explicitly
+enables one connector and supplies its adapter-owned identity/policy binding.
+A listener is disabled unless its binding says otherwise; discovering a
+profile, adapter binary, or credential never starts it. Generic connector
+runtime fields stay limited to enablement and adapter identity. Channel-specific
+settings such as a Feishu bot profile, a mail watch subscription, or a QQ
+gateway intent remain typed adapter configuration rather than a forced
+lowest-common-denominator schema.
+
 `connector_command` is the long-lived external adapter process boundary. The
 application connector runtime writes one typed `ConnectorAction` request to a
 configured adapter process and accepts one typed `ConnectorActionResult`
@@ -206,6 +215,8 @@ semantics are governed by
   surface as a kernel API.
 - No requirement that every connector use the same transport implementation.
   A connector adapter may use SDK, HTTP, CLI, or local IPC internally.
+- No automatic listener start merely because an adapter, profile, or
+  credential is present. Connector enablement is an explicit user setting.
 - No hardcoded long-term coupling between connector runtime code and a specific
   external CLI command line. Short-term CLI-backed adapters use argv-template
   driver configuration; longer-lived connectors may use an external adapter

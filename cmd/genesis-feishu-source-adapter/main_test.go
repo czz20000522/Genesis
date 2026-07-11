@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"genesis/internal/applications/connector_runtime"
+	feishucli "genesis/internal/applications/feishu_cli"
 )
 
 func TestFeishuSourceAdapterStdinJSONLEmitsTypedSourceFrames(t *testing.T) {
@@ -61,8 +62,8 @@ func TestFeishuEventCommandDoesNotInventUnsupportedCursorArgument(t *testing.T) 
 	if err != nil {
 		t.Fatalf("feishuEventCommand returned error: %v", err)
 	}
-	if executable != "lark-cli" {
-		t.Fatalf("executable = %q, want lark-cli", executable)
+	if executable != feishucli.SelectExecutable("lark-cli", feishucli.InstalledOfficialExecutable()) {
+		t.Fatalf("executable = %q, want resolved direct lark-cli binary", executable)
 	}
 	want := []string{"--profile", "genesis", "event", "consume", defaultFeishuMessageEventKey, "--as", "bot", "--max-events", "1", "--timeout", "30s"}
 	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
@@ -78,6 +79,36 @@ func TestFeishuEventCommandRequiresExplicitProfile(t *testing.T) {
 	if !strings.Contains(err.Error(), "explicit --profile") {
 		t.Fatalf("error = %v, want explicit profile readiness failure", err)
 	}
+}
+
+func TestRunProfileProbeWritesTypedReadinessWithoutStartingSource(t *testing.T) {
+	var stdout bytes.Buffer
+	runner := &profileProbeRunner{output: []byte(`{"identities":{"bot":{"status":"ready","available":true}}}`)}
+	if err := runProfileProbe(context.Background(), "genesis", "lark-cli", &stdout, runner); err != nil {
+		t.Fatalf("runProfileProbe returned error: %v", err)
+	}
+	var result connectorruntime.ProfileReadinessCommandResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode profile probe result: %v", err)
+	}
+	if result.Ready == nil || !*result.Ready || result.Reason != "" {
+		t.Fatalf("profile probe result = %+v, want ready", result)
+	}
+	if runner.executable != feishucli.SelectExecutable("lark-cli", feishucli.InstalledOfficialExecutable()) || strings.Join(runner.args, "\x00") != "auth\x00status\x00--profile\x00genesis" {
+		t.Fatalf("profile probe command = %q %#v", runner.executable, runner.args)
+	}
+}
+
+type profileProbeRunner struct {
+	executable string
+	args       []string
+	output     []byte
+}
+
+func (r *profileProbeRunner) Run(_ context.Context, executable string, args ...string) ([]byte, error) {
+	r.executable = executable
+	r.args = append([]string(nil), args...)
+	return append([]byte(nil), r.output...), nil
 }
 
 func decodeSourceFrames(t *testing.T, text string) []connectorruntime.SourceCommandFrame {

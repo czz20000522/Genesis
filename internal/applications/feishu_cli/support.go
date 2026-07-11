@@ -8,11 +8,13 @@ import (
 )
 
 func SelectExecutable(explicit string, installed string) string {
-	if strings.TrimSpace(explicit) != "" {
-		return strings.TrimSpace(explicit)
+	explicit = strings.TrimSpace(explicit)
+	installed = strings.TrimSpace(installed)
+	if explicit != "" && !(explicit == "lark-cli" && installed != "") {
+		return explicit
 	}
-	if strings.TrimSpace(installed) != "" {
-		return strings.TrimSpace(installed)
+	if installed != "" {
+		return installed
 	}
 	return "lark-cli"
 }

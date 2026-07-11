@@ -19,7 +19,61 @@ import (
 	"genesis/internal/applications/connector_runtime"
 	feishucli "genesis/internal/applications/feishu_cli"
 	"genesis/internal/testsupport"
+	"genesis/localconfig"
 )
+
+func TestRunWithConfigRefusesDisabledFeishuListenerBeforeSourceStart(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "feishu-listener-disabled-binding")
+	configRoot := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configRoot, 0o755); err != nil {
+		t.Fatalf("create config root: %v", err)
+	}
+	if err := os.WriteFile(localconfig.RuntimeSettingsPath(configRoot), []byte(`{"feishu":{"listener":{"enabled":false},"lark_cli":{"profile":"genesis","identity":"bot"}}}`), 0o600); err != nil {
+		t.Fatalf("write runtime settings: %v", err)
+	}
+	startedPath := filepath.Join(dir, "source-started.txt")
+	err := runWithConfig(context.Background(), []string{
+		"feishu-listen",
+		"--config-root", configRoot,
+		"--source-command", os.Args[0],
+		"--source-command-arg", "-test.run=TestFeishuListenSourceCommandHelper",
+		"--source-command-arg", "--",
+		"--source-command-arg", "record-start",
+		"--source-command-arg", startedPath,
+	}, strings.NewReader(""), io.Discard, io.Discard, true)
+	if err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("runWithConfig error = %v, want disabled listener binding", err)
+	}
+	if _, statErr := os.Stat(startedPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("source command side effect exists or stat failed: %v", statErr)
+	}
+}
+
+func TestRunWithConfigUsesEnabledFeishuBindingForSourceArguments(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "feishu-listener-enabled-binding")
+	configRoot := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configRoot, 0o755); err != nil {
+		t.Fatalf("create config root: %v", err)
+	}
+	if err := os.WriteFile(localconfig.RuntimeSettingsPath(configRoot), []byte(`{"feishu":{"listener":{"enabled":true},"lark_cli":{"profile":"bound-profile","identity":"auto","command":"bound-cli"}}}`), 0o600); err != nil {
+		t.Fatalf("write runtime settings: %v", err)
+	}
+	args, err := feishuListenerConfigArgs(configRoot, false, "", "", "")
+	if err != nil {
+		t.Fatalf("feishuListenerConfigArgs returned error: %v", err)
+	}
+	want := []string{"bound-profile", "bound-cli", "auto"}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("binding args = %#v, want %#v", args, want)
+	}
+}
+
+func TestDefaultFeishuProfileProbeUsesSourceAdapterInBoundListener(t *testing.T) {
+	command, args := defaultFeishuProfileProbeCommand(true, "", nil, "feishu-source-adapter")
+	if command != "feishu-source-adapter" || strings.Join(args, "\x00") != "--profile-probe" {
+		t.Fatalf("profile probe = %q %#v, want source adapter profile probe", command, args)
+	}
+}
 
 func TestFeishuOnceSubmitsInboundMessageWithoutOutboundCLIFlags(t *testing.T) {
 	var got connectorruntime.TurnSubmitRequest

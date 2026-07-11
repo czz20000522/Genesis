@@ -57,8 +57,12 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	maxEvents := fs.Int("max-events", 0, "stop Feishu source after N events; 0 means unlimited")
 	eventTimeout := fs.String("event-timeout", "", "stop Feishu source after duration such as 30s or 10m")
 	stdinJSONL := fs.Bool("stdin-jsonl", false, "read raw Feishu event NDJSON from stdin instead of running lark-cli")
+	profileProbe := fs.Bool("profile-probe", false, "emit typed profile readiness without starting event consumption")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *profileProbe {
+		return runProfileProbe(ctx, *profile, *larkCLI, stdout, connectorruntime.OSCommandRunner{})
 	}
 	if strings.TrimSpace(*sourceID) == "" {
 		return errors.New("Feishu source adapter requires --source-id")
@@ -103,6 +107,20 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		Kind:     connectorruntime.SourceFrameKindStopped,
 		SourceID: *sourceID,
 	})
+}
+
+func runProfileProbe(ctx context.Context, profile string, larkCLI string, stdout io.Writer, runner connectorruntime.CommandRunner) error {
+	profile = strings.TrimSpace(profile)
+	ready := false
+	if profile == "" {
+		return json.NewEncoder(stdout).Encode(connectorruntime.ProfileReadinessCommandResult{
+			Ready:  &ready,
+			Reason: connectorruntime.SourceReadinessReasonMissingProfile,
+		})
+	}
+	executable := feishucli.SelectExecutable(larkCLI, feishucli.InstalledOfficialExecutable())
+	output, err := runner.Run(ctx, executable, "auth", "status", "--profile", profile)
+	return json.NewEncoder(stdout).Encode(feishucli.ProfileReadinessFromAuthStatus(output, err))
 }
 
 type stdinSource struct {

@@ -253,6 +253,46 @@ adapter process configuration is binding/readiness state, not part of the
 stable source id unless changing it truly means the external message source is a
 different historical stream.
 
+## Feishu Profile Readiness Probe
+
+The Feishu source adapter exposes a separate `--profile-probe` mode for the
+generic `profile-probe-command` boundary. It runs only `lark-cli auth status`
+with the runtime-supplied explicit profile and emits one
+`ProfileReadinessCommandResult`; it never starts event consumption, sends a
+message, prints credentials, or creates source frames.
+
+The first mapping is deliberately conservative:
+
+- a structured Feishu CLI `config/not_configured` result becomes
+  `missing_profile`;
+- a bot identity with `available=true` and `status=ready` becomes ready;
+- every other exit, malformed result, unavailable bot identity, or unknown
+  upstream status becomes `operator_action_required`.
+
+The adapter must not infer `profile_expired`, `permission_denied`, or
+`refresh_required` from prose. Those more specific facts require an upstream
+typed status or a separately approved Feishu probe contract. This is readiness
+evidence only and cannot mark any source event verified.
+
+## Connector Binding Configuration
+
+The connector runtime is generic, but adapter configuration is typed. The
+current user-home runtime settings bind Feishu by explicit `enabled`, bot
+profile, identity, and adapter policy. A non-test Feishu listener reads that
+binding before it creates source lifecycle state or launches an adapter:
+
+```text
+binding missing or enabled=false -> listener refuses before source start
+binding enabled=true -> resolve typed Feishu profile/identity -> profile probe
+                         -> source_command -> lifecycle owner
+```
+
+`stdin-jsonl` remains an isolated deterministic test surface and does not
+enable a real listener. Future mail, WeChat, or QQ adapters use the same
+enablement gate and generic lifecycle/outbox owners, while their protocol
+configuration remains in their adapter binding. This avoids both accidental
+background listeners and a fake universal channel schema.
+
 `SourceFailureRecord`:
 
 ```text
@@ -482,6 +522,13 @@ in the model prompt.
 Reasonix readiness, retry, and event projection patterns are relevant because
 adapters can report operational state while the controller remains the owner of
 core execution semantics.
+
+For profile probing specifically, Codex's account processor reads auth state
+behind an account boundary and does not expose token material merely to report
+status (`codex-rs/app-server/src/request_processors/account_processor.rs`).
+Genesis follows that posture: the adapter emits only the bounded readiness
+classification, while the CLI output and any credential material remain outside
+connector state and model context.
 
 These references align on the principle that external protocol health and
 authenticity evidence must be normalized before entering the core runtime.
