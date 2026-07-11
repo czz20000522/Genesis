@@ -22,7 +22,18 @@ type TaskGraphNodeRequest struct {
 	Title        string `json:"title,omitempty"`
 	Description  string `json:"description,omitempty"`
 }
+type TaskGraphNodeUpdateRequest struct {
+	GraphID     string `json:"graph_id"`
+	NodeID      string `json:"node_id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
 type TaskGraphEdgeRequest struct {
+	GraphID    string `json:"graph_id"`
+	FromNodeID string `json:"from_node_id"`
+	ToNodeID   string `json:"to_node_id"`
+}
+type TaskGraphEdgeRemoveRequest struct {
 	GraphID    string `json:"graph_id"`
 	FromNodeID string `json:"from_node_id"`
 	ToNodeID   string `json:"to_node_id"`

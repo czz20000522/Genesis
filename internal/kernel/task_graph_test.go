@@ -69,6 +69,62 @@ func TestTaskGraphPersistsUnboundTaskMetadata(t *testing.T) {
 	}
 }
 
+func TestTaskGraphMutatesUnstartedTopologyWithoutRewritingTerminalEvidence(t *testing.T) {
+	ledgerPath := filepath.Join(testTempDir(t), "events.sqlite")
+	k := newTestKernel(t, ledgerPath)
+	graph, err := k.CreateTaskGraph(TaskGraphCreateRequest{SessionID: "graph-mutable"})
+	if err != nil {
+		t.Fatalf("create graph: %v", err)
+	}
+	first, err := k.AddTaskGraphNode(TaskGraphNodeRequest{GraphID: graph.GraphID, Title: "initial task"})
+	if err != nil {
+		t.Fatalf("add first node: %v", err)
+	}
+	second, err := k.AddTaskGraphNode(TaskGraphNodeRequest{GraphID: graph.GraphID, Title: "dependent task"})
+	if err != nil {
+		t.Fatalf("add second node: %v", err)
+	}
+	if err := k.AddTaskGraphEdge(TaskGraphEdgeRequest{GraphID: graph.GraphID, FromNodeID: first.NodeID, ToNodeID: second.NodeID}); err != nil {
+		t.Fatalf("add edge: %v", err)
+	}
+	if err := k.UpdateTaskGraphNode(TaskGraphNodeUpdateRequest{GraphID: graph.GraphID, NodeID: first.NodeID, Title: "refined task", Description: "discovered while exploring"}); err != nil {
+		t.Fatalf("update unstarted node: %v", err)
+	}
+	if err := k.RemoveTaskGraphEdge(TaskGraphEdgeRemoveRequest{GraphID: graph.GraphID, FromNodeID: first.NodeID, ToNodeID: second.NodeID}); err != nil {
+		t.Fatalf("remove pending edge: %v", err)
+	}
+	projection, err := k.TaskGraph(graph.GraphID)
+	if err != nil {
+		t.Fatalf("read graph: %v", err)
+	}
+	if node := taskGraphNodeByID(t, projection, first.NodeID); node.Title != "refined task" || node.Description != "discovered while exploring" {
+		t.Fatalf("updated node = %+v", node)
+	}
+	if len(projection.Edges) != 0 || taskGraphNodeByID(t, projection, second.NodeID).Status != TaskGraphNodeStatusReady {
+		t.Fatalf("mutable topology = %+v, want no edges and ready second node", projection)
+	}
+	k.Close()
+	k = newTestKernel(t, ledgerPath)
+	projection, err = k.TaskGraph(graph.GraphID)
+	if err != nil || len(projection.Edges) != 0 || taskGraphNodeByID(t, projection, first.NodeID).Title != "refined task" {
+		t.Fatalf("restarted mutable graph = %+v error = %v", projection, err)
+	}
+	if err := k.TransitionTaskGraphNode(TaskGraphNodeTransitionRequest{GraphID: graph.GraphID, NodeID: first.NodeID, Status: TaskGraphNodeStatusCompleted, EvidenceRefs: []string{"event:completed"}}); err != nil {
+		t.Fatalf("complete first node: %v", err)
+	}
+	before, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("load before terminal mutation: %v", err)
+	}
+	if err := k.UpdateTaskGraphNode(TaskGraphNodeUpdateRequest{GraphID: graph.GraphID, NodeID: first.NodeID, Title: "rewritten"}); err == nil {
+		t.Fatal("terminal node update accepted")
+	}
+	after, err := k.loadEvents()
+	if err != nil || len(after) != len(before) {
+		t.Fatalf("terminal mutation appended event %d -> %d error %v", len(before), len(after), err)
+	}
+}
+
 func TestTaskGraphRejectsCycleAndTerminalTransitionWithoutAppendingFact(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	first, err := k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{SessionID: "graph-reject", Principal: "application:test", CapabilityGrant: CapabilityGrant{ToolNames: []string{"resource_read"}}})

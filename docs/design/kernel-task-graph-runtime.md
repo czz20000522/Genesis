@@ -12,7 +12,8 @@ work. Parent and user can revise the graph in either planning direction.
 
 ## Facts
 
-`task_graph.created`, `task_graph.node_added`, `task_graph.edge_added`, and
+`task_graph.created`, `task_graph.node_added`, `task_graph.node_updated`,
+`task_graph.edge_added`, `task_graph.edge_removed`, and
 `task_graph.node_transitioned` carry opaque ids, task metadata, optional
 execution reference, state, reason class, and evidence refs.
 The read projection is reconstructed only from these facts. A transition
@@ -25,6 +26,11 @@ any transition outside the explicit state table. Graph topology does not imply
 execution. A later owner-controlled binding may reference an admitted
 invocation, workflow, job, approval, or external wait; it cannot name a
 provider or grant a tool. A node is ready when all predecessors completed.
+
+Task and edge mutations append new facts rather than rewriting history. The
+owner permits them only for nonterminal, unstarted tasks; it rejects a mutation
+that would alter terminal evidence, create a cycle, or make a running task's
+dependency meaning ambiguous.
 
 ## Recovery
 

@@ -31,19 +31,20 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Status: in_progress.
 - Requirement: `docs/requirements/kernel-task-graph-runtime.md`.
   - Design: `docs/design/kernel-task-graph-runtime.md`.
-- Gap: Phase A now persists and reconstructs a DAG with dependency-ready and
-  blocked explanations, but it deliberately never executes or reconciles a
-  task's optional execution owner. The remaining production gap is a safe,
-  owner-controlled execution binding.
+- Gap: Phase A now persists and reconstructs a dynamic DAG with dependency-ready
+  and blocked explanations. It can append unstarted task metadata and edge
+  changes without rewriting terminal evidence, but it deliberately never
+  executes or reconciles a task's optional execution owner. The remaining
+  production gap is a safe, owner-controlled execution binding.
 - Next slice: Phase B only from
   `docs/implementation-plans/kernel-task-graph-runtime.md`: persist the
   optional execution binding, terminal reduction, and fail closed on an
   ambiguous restart; do not introduce a generic scheduler.
 - Evidence: role-bound workers now have bounded lifecycle facts, parent result
   delivery, recovery semantics, and route/profile/role/parent admission limits.
-- Verification: DAG refusal/no-append, missing-reference refusal, readiness,
-  blocked failure reason, terminal immutability, restart projection, then full
-  Go tests and build.
+- Verification: DAG refusal/no-append, missing-reference refusal, unstarted
+  topology mutation/restart, readiness, blocked failure reason, terminal
+  immutability, restart projection, then full Go tests and build.
 - Reference alignment: Codex records explicit spawned-agent lifecycle; Reasonix
   runs bounded isolated tasks. Neither local reference supplies a durable DAG,
   so Genesis rejects an in-memory queue and keeps graph authority in the ledger.

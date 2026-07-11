@@ -20,6 +20,9 @@ workspace, credential, or permission data.
 - A node is `proposed`, `ready`, `running`, `waiting`, `blocked`, `completed`,
   `failed`, or `cancelled`; terminal nodes never transition again.
 - A node becomes `ready` only when every dependency completed successfully.
+- Parent and user may add tasks, revise task metadata, and add or remove
+  dependencies while the affected tasks have not begun execution. A completed,
+  failed, or cancelled task and its recorded evidence remain immutable.
 - Failure, cancellation, approval wait, or missing referenced execution leaves
   downstream nodes non-ready with an explainable reason; the owner never
   invents completion or replays unknown side effects.

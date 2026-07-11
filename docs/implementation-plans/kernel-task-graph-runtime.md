@@ -21,14 +21,16 @@ path.
 
 ## Phase A
 
-- Deliverable: ledger-owned graph/node/edge facts, DAG validation, lifecycle
-  reducer, ready/blocked projection, and restart reconstruction.
+- Deliverable: ledger-owned graph/node/edge facts, append-only unstarted task
+  metadata and edge mutations, DAG validation, lifecycle reducer,
+  ready/blocked projection, and restart reconstruction.
 - Red lines: no scheduler, no tool/provider execution, no new permissions.
 - Red tests: cycle/duplicate/missing edge refusal, dependency readiness,
   terminal immutability, restart identity, and no append on rejection.
 - Completion evidence: ledger-only graph/node/edge/transition facts now reject
   missing invocation references and cycles without an append, derive
-  ready/blocked dependency state, retain terminal evidence refs, and rebuild
+  ready/blocked dependency state, retain terminal evidence refs, allow only
+  unstarted task metadata and dependency mutations, and rebuild those mutations
   after restart.
 - Still short: referenced execution and desktop graph interaction.
 

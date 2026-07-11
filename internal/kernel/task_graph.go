@@ -58,7 +58,9 @@ func (k *Kernel) AddTaskGraphEdge(req TaskGraphEdgeRequest) error {
 	if from == "" || to == "" || from == to {
 		return errors.New("task graph edge invalid")
 	}
-	if !taskGraphHasNode(graph, from) || !taskGraphHasNode(graph, to) || taskGraphHasEdge(graph, from, to) {
+	fromNode, fromFound := taskGraphNode(graph, from)
+	toNode, toFound := taskGraphNode(graph, to)
+	if !fromFound || !toFound || !taskGraphNodeMutable(fromNode) || !taskGraphNodeMutable(toNode) || taskGraphHasEdge(graph, from, to) {
 		return errors.New("task graph edge invalid")
 	}
 	graph.Edges = append(graph.Edges, TaskGraphEdgeProjection{FromNodeID: from, ToNodeID: to})
@@ -68,6 +70,43 @@ func (k *Kernel) AddTaskGraphEdge(req TaskGraphEdgeRequest) error {
 	now := k.clock()
 	edge := TaskGraphEdgeProjection{FromNodeID: from, ToNodeID: to}
 	return k.appendTaskGraphEvent("task_graph.edge_added", TaskGraphEventProjection{GraphID: graph.GraphID, SessionID: graph.SessionID, Edge: &edge, CreatedAt: now})
+}
+
+func (k *Kernel) RemoveTaskGraphEdge(req TaskGraphEdgeRemoveRequest) error {
+	k.taskGraphMu.Lock()
+	defer k.taskGraphMu.Unlock()
+	graph, err := k.taskGraph(req.GraphID)
+	if err != nil {
+		return err
+	}
+	from, to := strings.TrimSpace(req.FromNodeID), strings.TrimSpace(req.ToNodeID)
+	fromNode, fromFound := taskGraphNode(graph, from)
+	toNode, toFound := taskGraphNode(graph, to)
+	if !fromFound || !toFound || !taskGraphNodeMutable(fromNode) || !taskGraphNodeMutable(toNode) || !taskGraphHasEdge(graph, from, to) {
+		return errors.New("task graph edge invalid")
+	}
+	now := k.clock()
+	edge := TaskGraphEdgeProjection{FromNodeID: from, ToNodeID: to}
+	return k.appendTaskGraphEvent("task_graph.edge_removed", TaskGraphEventProjection{GraphID: graph.GraphID, SessionID: graph.SessionID, Edge: &edge, CreatedAt: now})
+}
+
+func (k *Kernel) UpdateTaskGraphNode(req TaskGraphNodeUpdateRequest) error {
+	k.taskGraphMu.Lock()
+	defer k.taskGraphMu.Unlock()
+	graph, err := k.taskGraph(req.GraphID)
+	if err != nil {
+		return err
+	}
+	node, found := taskGraphNode(graph, strings.TrimSpace(req.NodeID))
+	if !found {
+		return errors.New("task graph node not found")
+	}
+	if !taskGraphNodeMutable(node) {
+		return errors.New("task graph node immutable")
+	}
+	now := k.clock()
+	node.Title, node.Description, node.UpdatedAt = strings.TrimSpace(req.Title), strings.TrimSpace(req.Description), now
+	return k.appendTaskGraphEvent("task_graph.node_updated", TaskGraphEventProjection{GraphID: graph.GraphID, SessionID: graph.SessionID, Node: &node, CreatedAt: now})
 }
 
 func (k *Kernel) TransitionTaskGraphNode(req TaskGraphNodeTransitionRequest) error {
@@ -134,8 +173,11 @@ func (k *Kernel) taskGraphs() (map[string]TaskGraphProjection, error) {
 				graph.Nodes = append(graph.Nodes, *data.Node)
 			}
 		}
-		if data.Edge != nil {
+		if data.Edge != nil && event.Type == "task_graph.edge_added" {
 			graph.Edges = append(graph.Edges, *data.Edge)
+		}
+		if data.Edge != nil && event.Type == "task_graph.edge_removed" {
+			graph.Edges = taskGraphWithoutEdge(graph.Edges, *data.Edge)
 		}
 		graphs[data.GraphID] = graph
 	}
@@ -144,13 +186,13 @@ func (k *Kernel) taskGraphs() (map[string]TaskGraphProjection, error) {
 func (k *Kernel) appendTaskGraphEvent(eventType string, data TaskGraphEventProjection) error {
 	return k.appendEvent(StoredEvent{EventID: newID("evt", k.clock()), SessionID: data.SessionID, Type: eventType, CreatedAt: data.CreatedAt, Data: EventData{TaskGraph: &data}})
 }
-func taskGraphHasNode(graph TaskGraphProjection, id string) bool {
+func taskGraphNode(graph TaskGraphProjection, id string) (TaskGraphNodeProjection, bool) {
 	for _, node := range graph.Nodes {
 		if node.NodeID == id {
-			return true
+			return node, true
 		}
 	}
-	return false
+	return TaskGraphNodeProjection{}, false
 }
 func taskGraphHasEdge(graph TaskGraphProjection, from string, to string) bool {
 	for _, edge := range graph.Edges {
@@ -159,6 +201,15 @@ func taskGraphHasEdge(graph TaskGraphProjection, from string, to string) bool {
 		}
 	}
 	return false
+}
+func taskGraphWithoutEdge(edges []TaskGraphEdgeProjection, remove TaskGraphEdgeProjection) []TaskGraphEdgeProjection {
+	filtered := make([]TaskGraphEdgeProjection, 0, len(edges))
+	for _, edge := range edges {
+		if edge.FromNodeID != remove.FromNodeID || edge.ToNodeID != remove.ToNodeID {
+			filtered = append(filtered, edge)
+		}
+	}
+	return filtered
 }
 func taskGraphHasCycle(graph TaskGraphProjection) bool {
 	next := map[string][]string{}
@@ -197,7 +248,7 @@ func taskGraphProjectedNodes(graph TaskGraphProjection) []TaskGraphNodeProjectio
 		completed[node.NodeID] = node.Status == TaskGraphNodeStatusCompleted
 	}
 	for i := range nodes {
-		if nodes[i].Status != TaskGraphNodeStatusProposed && nodes[i].Status != TaskGraphNodeStatusWaiting {
+		if !taskGraphNodeMutable(nodes[i]) {
 			continue
 		}
 		waiting := false
@@ -236,6 +287,9 @@ func taskGraphProjectedNodes(graph TaskGraphProjection) []TaskGraphNodeProjectio
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].NodeID < nodes[j].NodeID })
 	return nodes
+}
+func taskGraphNodeMutable(node TaskGraphNodeProjection) bool {
+	return node.Status != TaskGraphNodeStatusRunning && node.Status != TaskGraphNodeStatusCompleted && node.Status != TaskGraphNodeStatusFailed && node.Status != TaskGraphNodeStatusCancelled
 }
 func taskGraphTransitionAllowed(current string, next string) bool {
 	if current == TaskGraphNodeStatusReady {
