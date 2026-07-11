@@ -26,16 +26,18 @@ type TaskGraphEdgeRequest struct {
 	ToNodeID   string `json:"to_node_id"`
 }
 type TaskGraphNodeTransitionRequest struct {
-	GraphID string `json:"graph_id"`
-	NodeID  string `json:"node_id"`
-	Status  string `json:"status"`
-	Reason  string `json:"reason,omitempty"`
+	GraphID      string   `json:"graph_id"`
+	NodeID       string   `json:"node_id"`
+	Status       string   `json:"status"`
+	Reason       string   `json:"reason,omitempty"`
+	EvidenceRefs []string `json:"evidence_refs,omitempty"`
 }
 type TaskGraphNodeProjection struct {
 	NodeID       string    `json:"node_id"`
 	InvocationID string    `json:"invocation_id"`
 	Status       string    `json:"status"`
 	Reason       string    `json:"reason,omitempty"`
+	EvidenceRefs []string  `json:"evidence_refs,omitempty"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 type TaskGraphEdgeProjection struct {

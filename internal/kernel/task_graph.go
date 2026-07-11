@@ -80,7 +80,7 @@ func (k *Kernel) TransitionTaskGraphNode(req TaskGraphNodeTransitionRequest) err
 			if !taskGraphTransitionAllowed(node.Status, req.Status) {
 				return errors.New("task graph transition invalid")
 			}
-			node.Status, node.Reason, node.UpdatedAt = req.Status, strings.TrimSpace(req.Reason), k.clock()
+			node.Status, node.Reason, node.EvidenceRefs, node.UpdatedAt = req.Status, strings.TrimSpace(req.Reason), cloneStringSlice(req.EvidenceRefs), k.clock()
 			return k.appendTaskGraphEvent("task_graph.node_transitioned", TaskGraphEventProjection{GraphID: graph.GraphID, SessionID: graph.SessionID, Node: &node, CreatedAt: node.UpdatedAt})
 		}
 	}

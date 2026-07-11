@@ -28,5 +28,6 @@ path.
   terminal immutability, restart identity, and no append on rejection.
 - Completion evidence: ledger-only graph/node/edge/transition facts now reject
   missing invocation references and cycles without an append, derive
-  ready/blocked dependency state, and rebuild after restart.
+  ready/blocked dependency state, retain terminal evidence refs, and rebuild
+  after restart.
 - Still short: referenced execution and desktop graph interaction.

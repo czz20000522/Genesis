@@ -135,6 +135,29 @@ func TestTaskGraphFailureBlocksDependentWithReason(t *testing.T) {
 	}
 }
 
+func TestTaskGraphTerminalTransitionPersistsEvidenceRefs(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
+	invocation, err := k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{SessionID: "graph-evidence", Principal: "application:test", CapabilityGrant: CapabilityGrant{ToolNames: []string{"resource_read"}}})
+	if err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+	graph, err := k.CreateTaskGraph(TaskGraphCreateRequest{SessionID: "graph-evidence"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	node, err := k.AddTaskGraphNode(TaskGraphNodeRequest{GraphID: graph.GraphID, InvocationID: invocation.InvocationID})
+	if err != nil {
+		t.Fatalf("add node: %v", err)
+	}
+	if err := k.TransitionTaskGraphNode(TaskGraphNodeTransitionRequest{GraphID: graph.GraphID, NodeID: node.NodeID, Status: TaskGraphNodeStatusCompleted, EvidenceRefs: []string{"event:worker-final"}}); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	projection, err := k.TaskGraph(graph.GraphID)
+	if err != nil || len(taskGraphNodeByID(t, projection, node.NodeID).EvidenceRefs) != 1 || taskGraphNodeByID(t, projection, node.NodeID).EvidenceRefs[0] != "event:worker-final" {
+		t.Fatalf("node evidence = %+v error = %v", taskGraphNodeByID(t, projection, node.NodeID), err)
+	}
+}
+
 func taskGraphNodeByID(t *testing.T, graph TaskGraphProjection, nodeID string) TaskGraphNodeProjection {
 	t.Helper()
 	for _, node := range graph.Nodes {
