@@ -301,9 +301,9 @@ func genesisdCommand(req sidecarLaunchRequest) (string, []string, string, error)
 		return envPath, nil, req.WorkDir, nil
 	}
 	if executable, err := desktopExecutablePath(); err == nil {
-		dir := filepath.Dir(executable)
-		if candidate := filepath.Join(dir, "genesisd.exe"); fileExists(candidate) {
-			return candidate, nil, dir, nil
+		runtimeDir := filepath.Join(filepath.Dir(executable), "kernel")
+		if candidate := filepath.Join(runtimeDir, "genesisd.exe"); fileExists(candidate) {
+			return candidate, nil, runtimeDir, nil
 		}
 	}
 	root := req.WorkDir

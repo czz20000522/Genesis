@@ -28,7 +28,7 @@ ManifestDPIAware true
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe"
-InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}"
+InstallDir "D:\software\Genesis"
 InstallDirRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINST_KEY_NAME}" "InstallLocation"
 ShowInstDetails show
 
@@ -42,7 +42,11 @@ Section
 
     SetOutPath $INSTDIR
     !insertmacro wails.files
+
+    SetOutPath "$INSTDIR\kernel"
     File "/oname=genesisd.exe" "..\..\bin\genesisd.exe"
+
+    SetOutPath $INSTDIR
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -64,7 +68,9 @@ Section "uninstall"
     !insertmacro wails.deleteUninstaller
 
     Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
-    Delete "$INSTDIR\genesisd.exe"
     Delete "$INSTDIR\uninstall.exe"
     RMDir "$INSTDIR"
+
+    Delete "$INSTDIR\kernel\genesisd.exe"
+    RMDir "$INSTDIR\kernel"
 SectionEnd

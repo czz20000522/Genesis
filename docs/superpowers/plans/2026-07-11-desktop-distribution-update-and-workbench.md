@@ -2,49 +2,51 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `test-driven-development` before each behavior change. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a safe Windows desktop installer whose one visible executable starts its internal kernel child, preserves user directories on uninstall, and exposes explicit release updates in the approved workbench shell.
+**Goal:** Ship a safe Windows desktop installer whose selected directory exposes one application executable, preserves user directories on uninstall, and exposes explicit release updates in the approved workbench shell.
 
-**Architecture:** `cmd/genesisd` and the Wails child mode share an internal server bootstrap package. The desktop starts its own executable with `--genesisd-sidecar`, keeping the HTTP boundary while exposing only one application executable. A custom NSIS project owns install-location persistence and safe known-file deletion. The Go desktop bridge owns private-release HTTP, protected-token lookup, checksum validation, and installer launch; Vue only projects the resulting state through `kernelApi.ts`.
+**Architecture:** The NSIS installer defaults to `D:\software\Genesis` and places `genesisd.exe` in its `kernel` runtime directory. The desktop resolves that owned runtime before development fallbacks. A custom NSIS project owns install-location persistence and safe known-file deletion. The Go desktop bridge owns private-release HTTP, protected-token lookup, checksum validation, and installer launch; Vue only projects the resulting state through `kernelApi.ts`.
 
 **Tech Stack:** Go standard library, existing `localconfig` DPAPI secret storage, Wails v2, NSIS, Vue 3, TypeScript, scoped plain CSS.
 
 ---
 
-### Task 1: Run the kernel as a hidden same-executable child
+### Task 1: Run the kernel from a private runtime location
 
 **Files:**
-- Create: `internal/genesisdserver/server.go`
-- Modify: `cmd/genesisd/main.go`
-- Modify: `desktop/main.go`
 - Modify: `desktop/local_service_supervisor.go`
 - Modify: `desktop/app_test.go`
+- Modify: `desktop/build/windows/installer/project.nsi`
+- Create: `scripts/build_desktop_release.ps1`
 
-- [ ] **Step 1: Write the failing same-executable child resolution test**
+- [ ] **Step 1: Write the failing private-runtime resolution test**
 
 ```go
-func TestGenesisdCommandUsesDesktopChildMode(t *testing.T) {
-    // Override the executable-path seam and assert the command is the desktop
-    // executable with --genesisd-sidecar, never a sibling genesisd.exe.
+func TestGenesisdCommandUsesPrivateRuntime(t *testing.T) {
+    // Override the runtime-directory seam and create genesisd.exe under it.
+    // Assert genesisdCommand resolves that path before development fallbacks.
 }
 ```
 
 - [ ] **Step 2: Run the focused test and confirm it fails because the sibling is not considered.**
 
-Run: `cd desktop; go test . -run TestGenesisdCommandUsesDesktopChildMode -count=1`
+Run: `cd desktop; go test . -run TestGenesisdCommandUsesPrivateRuntime -count=1`
 
-- [ ] **Step 3: Move the server bootstrap behind an internal package and invoke the desktop child mode.**
+- [ ] **Step 3: Resolve the private runtime before development fallbacks and build it for release.**
 
 ```go
-if executable, err := desktopExecutablePath(); err == nil {
-    return executable, []string{"--genesisd-sidecar"}, filepath.Dir(executable), nil
+if runtimeDir, err := desktopRuntimeDirectory(); err == nil {
+    if candidate := filepath.Join(runtimeDir, "genesisd.exe"); fileExists(candidate) {
+        return candidate, nil, runtimeDir, nil
+    }
 }
 ```
 
 ```powershell
-if slices.Contains(os.Args[1:], "--genesisd-sidecar") { genesisdserver.Run(); return }
+go build -o "$PSScriptRoot\..\desktop\build\bin\genesisd.exe" "$PSScriptRoot\..\cmd\genesisd"
+& $Wails build -nsis
 ```
 
-- [ ] **Step 4: Run focused desktop tests and inspect the installer to confirm no kernel executable is present.**
+- [ ] **Step 4: Install the kernel in the private runtime, then inspect the application directory to confirm no kernel executable is present.**
 
 Run: `cd desktop; go test . -count=1`
 

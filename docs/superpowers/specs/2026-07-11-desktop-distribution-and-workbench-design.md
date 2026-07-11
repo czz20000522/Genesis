@@ -14,10 +14,10 @@ The radius scale is 4px for small controls, 8px for inputs and buttons, and 12px
 
 ## Distribution contract
 
-- The NSIS installer records `InstallLocation` in its own uninstall registry key and uses it as the next install default. The user can still select a different directory.
-- The selected installation directory exposes only `genesis-desktop.exe` and its uninstaller. The desktop starts the same executable with an internal `--genesisd-sidecar` argument; the child is hidden and remains lifecycle-owned by its parent.
+- The NSIS installer defaults to `D:\software\Genesis`, records `InstallLocation` in its own uninstall registry key, and uses it as the next install default. The user can still select a different directory.
+- The selected installation directory is the complete installed application: `genesis-desktop.exe`, its uninstaller, and a `kernel` runtime directory containing the owned `genesisd.exe`. The desktop starts that kernel process hidden.
 - Uninstall deletes only the two installed executables, its shortcuts, and its own uninstall registry key. It never recursively removes `$INSTDIR`, WebView data, `~/.genesis`, or user-created files.
-- The `genesisd` command and desktop child mode share one internal server bootstrap package so provider, ledger, and kernel behavior do not drift.
+- The private runtime sidecar remains the existing `genesisd` command; the desktop does not duplicate its server bootstrap.
 
 ## Update contract
 
@@ -35,6 +35,6 @@ The radius scale is 4px for small controls, 8px for inputs and buttons, and 12px
 ## Acceptance
 
 1. Reinstalling defaults to the prior selected directory, and a custom directory is not recursively removed by uninstall.
-2. A packaged desktop starts its hidden same-executable kernel child and reports ready when its local configuration is valid.
+2. A packaged desktop starts its hidden private-runtime kernel and reports ready when its local configuration is valid.
 3. Settings can check a private latest release with a configured token, reject a checksum mismatch, and launch only a verified installer after user confirmation.
 4. The first viewport puts navigation, connection/model state, and a usable composer in a compact workbench layout without a centered decorative welcome card.

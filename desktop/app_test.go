@@ -110,23 +110,26 @@ func TestLocalServiceSupervisorStartsOwnedKernelProcess(t *testing.T) {
 	}
 }
 
-func TestGenesisdCommandUsesBundledSiblingExecutable(t *testing.T) {
+func TestGenesisdCommandUsesPrivateRuntime(t *testing.T) {
 	dir := desktopTestTempDir(t)
-	desktopExecutable := filepath.Join(dir, "genesis-desktop.exe")
-	bundledKernel := filepath.Join(dir, "genesisd.exe")
+	runtimeDir := filepath.Join(dir, "kernel")
+	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
+		t.Fatalf("create runtime directory: %v", err)
+	}
+	bundledKernel := filepath.Join(runtimeDir, "genesisd.exe")
 	if err := os.WriteFile(bundledKernel, []byte("test"), 0o600); err != nil {
 		t.Fatalf("write bundled kernel: %v", err)
 	}
 	previous := desktopExecutablePath
-	desktopExecutablePath = func() (string, error) { return desktopExecutable, nil }
+	desktopExecutablePath = func() (string, error) { return filepath.Join(dir, "genesis-desktop.exe"), nil }
 	t.Cleanup(func() { desktopExecutablePath = previous })
 
 	exe, args, workDir, err := genesisdCommand(sidecarLaunchRequest{})
 	if err != nil {
 		t.Fatalf("genesisdCommand returned error: %v", err)
 	}
-	if exe != bundledKernel || len(args) != 0 || workDir != dir {
-		t.Fatalf("command = %q %v in %q, want bundled sibling", exe, args, workDir)
+	if exe != bundledKernel || len(args) != 0 || workDir != runtimeDir {
+		t.Fatalf("command = %q %v in %q, want private runtime kernel", exe, args, workDir)
 	}
 }
 
@@ -139,7 +142,9 @@ func TestNSISInstallerRemembersPathAndDoesNotRecursivelyDeleteIt(t *testing.T) {
 	for _, required := range []string{
 		"InstallDirRegKey HKLM \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${UNINST_KEY_NAME}\" \"InstallLocation\"",
 		"WriteRegStr HKLM \"${UNINST_KEY}\" \"InstallLocation\" \"$INSTDIR\"",
-		"Delete \"$INSTDIR\\genesisd.exe\"",
+		"InstallDir \"D:\\software\\Genesis\"",
+		"SetOutPath \"$INSTDIR\\kernel\"",
+		"Delete \"$INSTDIR\\kernel\\genesisd.exe\"",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("installer project missing %q", required)
@@ -147,6 +152,11 @@ func TestNSISInstallerRemembersPathAndDoesNotRecursivelyDeleteIt(t *testing.T) {
 	}
 	if strings.Contains(text, "RMDir /r $INSTDIR") {
 		t.Fatal("installer recursively deletes the selected installation directory")
+	}
+	runtimeSetOutPath := strings.Index(text, "SetOutPath \"$INSTDIR\\kernel\"")
+	kernelFile := strings.Index(text, "File \"/oname=genesisd.exe\" \"..\\..\\bin\\genesisd.exe\"")
+	if runtimeSetOutPath < 0 || kernelFile < runtimeSetOutPath {
+		t.Fatal("installer does not place genesisd.exe in the private runtime directory")
 	}
 }
 
