@@ -44,6 +44,7 @@ type Kernel struct {
 	approvalMu             sync.Mutex
 	memoryReviewMu         sync.Mutex
 	workMu                 sync.Mutex
+	taskGraphMu            sync.Mutex
 	activeInvocationRuns   map[string]struct{}
 }
 

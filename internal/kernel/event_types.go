@@ -79,4 +79,5 @@ type EventData struct {
 	AgentInvocationRun         *AgentInvocationRunProjection        `json:"agent_invocation_run,omitempty"`
 	MemoryCandidate            *MemoryCandidateProjection           `json:"memory_candidate,omitempty"`
 	ReplacementMemoryCandidate *MemoryCandidateProjection           `json:"replacement_memory_candidate,omitempty"`
+	TaskGraph                  *TaskGraphEventProjection            `json:"task_graph,omitempty"`
 }
