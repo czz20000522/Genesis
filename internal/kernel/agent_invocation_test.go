@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -206,8 +207,100 @@ func TestAdmitWorkerInvocationFromRoleUsesPresetToolsAndAllowsSameRoleInstances(
 	_, err = k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
 		ConfigRoot: configRoot, SessionID: "worker-role-session", Principal: "application:test", RoleID: "local-small-worker", IdempotencyKey: "worker-3",
 	})
-	if err == nil || !strings.Contains(err.Error(), "worker_role_concurrency_limited") {
+	if err == nil || !strings.Contains(err.Error(), "parallel_limit_exceeded") {
 		t.Fatalf("third worker error = %v, want worker role concurrency limit", err)
+	}
+}
+
+func TestAdmitWorkerInvocationFromRoleDefaultsRoleConcurrencyToSix(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfigWithLimits(t, []string{"resource_read"}, 0, 0)
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
+		PermissionMode: PermissionModePlan,
+	})
+
+	for index := 0; index < 6; index++ {
+		_, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+			ConfigRoot:     configRoot,
+			SessionID:      "worker-default-role-limit",
+			Principal:      "application:test",
+			RoleID:         "local-small-worker",
+			IdempotencyKey: fmt.Sprintf("worker-%d", index),
+		})
+		if err != nil {
+			t.Fatalf("worker %d admission returned error: %v", index+1, err)
+		}
+	}
+	_, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+		ConfigRoot:     configRoot,
+		SessionID:      "worker-default-role-limit",
+		Principal:      "application:test",
+		RoleID:         "local-small-worker",
+		IdempotencyKey: "worker-7",
+	})
+	if err == nil || !strings.Contains(err.Error(), "parallel_limit_exceeded") {
+		t.Fatalf("seventh worker error = %v, want role parallel limit", err)
+	}
+}
+
+func TestAdmitWorkerInvocationFromRoleDefaultsParentChildLimitToTwentyFour(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfigWithLimits(t, []string{"resource_read"}, 30, 0)
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
+		PermissionMode: PermissionModePlan,
+	})
+
+	for index := 0; index < 24; index++ {
+		_, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+			ConfigRoot:     configRoot,
+			SessionID:      "worker-default-parent-limit",
+			Principal:      "application:test",
+			RoleID:         "local-small-worker",
+			IdempotencyKey: fmt.Sprintf("worker-%d", index),
+		})
+		if err != nil {
+			t.Fatalf("worker %d admission returned error: %v", index+1, err)
+		}
+	}
+	_, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+		ConfigRoot:     configRoot,
+		SessionID:      "worker-default-parent-limit",
+		Principal:      "application:test",
+		RoleID:         "local-small-worker",
+		IdempotencyKey: "worker-25",
+	})
+	if err == nil || !strings.Contains(err.Error(), "parallel_limit_exceeded") || !strings.Contains(err.Error(), "parent_max_children") {
+		t.Fatalf("twenty-fifth child error = %v, want parent child limit", err)
+	}
+}
+
+func TestAdmitWorkerInvocationFromRoleEnforcesParentChildLimitAcrossRoles(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfigWithRoles(t, 2, map[string]int{
+		"reader":   6,
+		"reviewer": 6,
+	})
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{
+		PermissionMode: PermissionModePlan,
+	})
+	for index, roleID := range []string{"reader", "reviewer"} {
+		_, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+			ConfigRoot:     configRoot,
+			SessionID:      "worker-parent-limit",
+			Principal:      "application:test",
+			RoleID:         roleID,
+			IdempotencyKey: fmt.Sprintf("worker-%d", index+1),
+		})
+		if err != nil {
+			t.Fatalf("%s worker admission returned error: %v", roleID, err)
+		}
+	}
+	_, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+		ConfigRoot:     configRoot,
+		SessionID:      "worker-parent-limit",
+		Principal:      "application:test",
+		RoleID:         "reader",
+		IdempotencyKey: "worker-3",
+	})
+	if err == nil || !strings.Contains(err.Error(), "parallel_limit_exceeded") || !strings.Contains(err.Error(), "parent_max_children") {
+		t.Fatalf("third child error = %v, want parent child limit", err)
 	}
 }
 
@@ -372,11 +465,58 @@ func TestAgentInvocationAdmissionRejectsUnknownParentAndTool(t *testing.T) {
 }
 
 func writeParentWorkerRuntimeConfig(t *testing.T, toolSet []string) string {
+	return writeParentWorkerRuntimeConfigWithLimits(t, toolSet, 2, 0)
+}
+
+func writeParentWorkerRuntimeConfigWithLimits(t *testing.T, toolSet []string, maxParallel int, maxChildren int) string {
 	t.Helper()
 	tools := make([]any, 0, len(toolSet))
 	for _, tool := range toolSet {
 		tools = append(tools, tool)
 	}
+	parent := map[string]any{
+		"allowed_worker_roles": []any{"local-small-worker"},
+		"default_worker_role":  "local-small-worker",
+		"can_create_workers":   true,
+	}
+	if maxChildren > 0 {
+		parent["max_children"] = maxChildren
+	}
+	worker := map[string]any{
+		"profile_id": "worker-profile",
+		"tool_set":   tools,
+		"leaf_only":  true,
+	}
+	if maxParallel > 0 {
+		worker["max_parallel"] = maxParallel
+	}
+	return writeParentWorkerRuntimeConfigWithBindings(t, parent, map[string]any{
+		"local-small-worker": worker,
+	})
+}
+
+func writeParentWorkerRuntimeConfigWithRoles(t *testing.T, maxChildren int, roleLimits map[string]int) string {
+	t.Helper()
+	roles := make([]any, 0, len(roleLimits))
+	workers := make(map[string]any, len(roleLimits))
+	for roleID, maxParallel := range roleLimits {
+		roles = append(roles, roleID)
+		workers[roleID] = map[string]any{
+			"profile_id":   "worker-profile",
+			"tool_set":     []any{"resource_read"},
+			"max_parallel": maxParallel,
+			"leaf_only":    true,
+		}
+	}
+	return writeParentWorkerRuntimeConfigWithBindings(t, map[string]any{
+		"allowed_worker_roles": roles,
+		"can_create_workers":   true,
+		"max_children":         maxChildren,
+	}, workers)
+}
+
+func writeParentWorkerRuntimeConfigWithBindings(t *testing.T, parent map[string]any, workers map[string]any) string {
+	t.Helper()
 	return writeModelsConfig(t, map[string]any{
 		"model_gateway": map[string]any{
 			"protocol":       "openai-chat-completions",
@@ -402,20 +542,9 @@ func writeParentWorkerRuntimeConfig(t *testing.T, toolSet []string) string {
 		},
 		"parent_worker_runtime": map[string]any{
 			"parents": map[string]any{
-				DefaultModelRole: map[string]any{
-					"allowed_worker_roles": []any{"local-small-worker"},
-					"default_worker_role":  "local-small-worker",
-					"can_create_workers":   true,
-				},
+				DefaultModelRole: parent,
 			},
-			"worker_roles": map[string]any{
-				"local-small-worker": map[string]any{
-					"profile_id":   "worker-profile",
-					"tool_set":     tools,
-					"max_parallel": 2,
-					"leaf_only":    true,
-				},
-			},
+			"worker_roles": workers,
 		},
 	})
 }

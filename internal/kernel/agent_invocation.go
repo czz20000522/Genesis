@@ -16,10 +16,10 @@ var (
 )
 
 func (k *Kernel) AdmitAgentInvocation(req AgentInvocationAdmissionRequest) (AgentInvocationProjection, error) {
-	return k.admitAgentInvocation(req, "")
+	return k.admitAgentInvocation(req, "", "")
 }
 
-func (k *Kernel) admitAgentInvocation(req AgentInvocationAdmissionRequest, modelProfileID string) (AgentInvocationProjection, error) {
+func (k *Kernel) admitAgentInvocation(req AgentInvocationAdmissionRequest, modelProfileID string, parentRoleID string) (AgentInvocationProjection, error) {
 	if err := validateAgentInvocationAdmissionRequest(req); err != nil {
 		return AgentInvocationProjection{}, err
 	}
@@ -28,7 +28,10 @@ func (k *Kernel) admitAgentInvocation(req AgentInvocationAdmissionRequest, model
 	}
 	k.workMu.Lock()
 	defer k.workMu.Unlock()
+	return k.admitAgentInvocationLocked(req, modelProfileID, parentRoleID)
+}
 
+func (k *Kernel) admitAgentInvocationLocked(req AgentInvocationAdmissionRequest, modelProfileID string, parentRoleID string) (AgentInvocationProjection, error) {
 	sessionID := strings.TrimSpace(req.SessionID)
 	if key := strings.TrimSpace(req.IdempotencyKey); key != "" {
 		existing, ok, err := k.agentInvocationByIdempotencyKey(sessionID, key)
@@ -63,6 +66,7 @@ func (k *Kernel) admitAgentInvocation(req AgentInvocationAdmissionRequest, model
 	invocation := AgentInvocationProjection{
 		InvocationID:        newID("invocation", now),
 		SessionID:           sessionID,
+		ParentRoleID:        strings.TrimSpace(parentRoleID),
 		ParentTurnID:        strings.TrimSpace(req.ParentTurnID),
 		ParentInvocationID:  parentInvocationID,
 		Principal:           strings.TrimSpace(req.Principal),
@@ -210,6 +214,11 @@ func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequ
 	if !ok {
 		return AgentInvocationProjection{}, ErrGenesisWorkerRoleBindingMissing
 	}
+	k.workMu.Lock()
+	defer k.workMu.Unlock()
+	if err := k.admitWorkerParentConcurrency(runtime.Parent); err != nil {
+		return AgentInvocationProjection{}, err
+	}
 	if err := k.admitWorkerRoleConcurrency(worker); err != nil {
 		return AgentInvocationProjection{}, err
 	}
@@ -220,7 +229,7 @@ func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequ
 	if contextScope == "" {
 		contextScope = strings.TrimSpace(worker.ContextPolicyRef)
 	}
-	return k.admitAgentInvocation(AgentInvocationAdmissionRequest{
+	return k.admitAgentInvocationLocked(AgentInvocationAdmissionRequest{
 		SessionID:           req.SessionID,
 		ParentTurnID:        req.ParentTurnID,
 		ParentInvocationID:  req.ParentInvocationID,
@@ -230,7 +239,32 @@ func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequ
 		ContextScope:        contextScope,
 		ParentResultChannel: req.ParentResultChannel,
 		IdempotencyKey:      req.IdempotencyKey,
-	}, worker.ProfileID)
+	}, worker.ProfileID, runtime.Parent.ParentID)
+}
+
+func (k *Kernel) admitWorkerParentConcurrency(parent ParentBindingProjection) error {
+	invocations, err := k.agentInvocations()
+	if err != nil {
+		return err
+	}
+	runs, err := k.agentInvocationRuns()
+	if err != nil {
+		return err
+	}
+	active := 0
+	for _, invocation := range invocations {
+		if strings.TrimSpace(invocation.ParentRoleID) != parent.ParentID {
+			continue
+		}
+		if run, ok := runsForInvocation(runs, invocation.InvocationID); ok && isTerminalAgentInvocationRun(run) {
+			continue
+		}
+		active++
+	}
+	if active >= parent.MaxChildren {
+		return errors.New("parallel_limit_exceeded: parent_max_children")
+	}
+	return nil
 }
 
 func (k *Kernel) admitWorkerRoleConcurrency(worker WorkerRoleBindingProjection) error {
@@ -253,7 +287,7 @@ func (k *Kernel) admitWorkerRoleConcurrency(worker WorkerRoleBindingProjection) 
 		active++
 	}
 	if active >= worker.MaxParallel {
-		return errors.New("worker_role_concurrency_limited")
+		return errors.New("parallel_limit_exceeded: worker_role")
 	}
 	return nil
 }
@@ -918,6 +952,7 @@ func isTerminalAgentInvocationRun(run AgentInvocationRunProjection) bool {
 func sameAgentInvocation(left AgentInvocationProjection, right AgentInvocationProjection) bool {
 	return left.InvocationID == right.InvocationID &&
 		left.SessionID == right.SessionID &&
+		left.ParentRoleID == right.ParentRoleID &&
 		left.ParentInvocationID == right.ParentInvocationID &&
 		left.Principal == right.Principal &&
 		left.AgentProfileRef == right.AgentProfileRef &&

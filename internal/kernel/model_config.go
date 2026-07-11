@@ -17,6 +17,8 @@ const DefaultModelRole = "coordinator"
 const (
 	modelGatewayProtocolChatCompletions = "openai-chat-completions"
 	modelGatewayProtocolProviderCommand = "provider_command"
+	defaultWorkerRoleMaxParallel        = 6
+	defaultParentMaxChildren            = 24
 )
 
 var (
@@ -61,6 +63,7 @@ type ParentBindingProjection struct {
 	DefaultWorkerRole  string   `json:"default_worker_role,omitempty"`
 	AllowedWorkerRoles []string `json:"allowed_worker_roles,omitempty"`
 	CanCreateWorkers   bool     `json:"can_create_workers"`
+	MaxChildren        int      `json:"max_children"`
 }
 
 type WorkerRoleBindingProjection struct {
@@ -222,6 +225,7 @@ func ResolveParentWorkerRuntimeFromGenesis(req ParentWorkerRuntimeRequest) (Pare
 			DefaultWorkerRole:  defaultWorkerRole,
 			AllowedWorkerRoles: allowedRoles,
 			CanCreateWorkers:   parent.CanCreateWorkers,
+			MaxChildren:        normalizedMaxChildren(parent.MaxChildren),
 		},
 		WorkerRoles: workers,
 	}, nil
@@ -421,7 +425,14 @@ func stringSliceContains(values []string, needle string) bool {
 
 func normalizedMaxParallel(value int) int {
 	if value <= 0 {
-		return 1
+		return defaultWorkerRoleMaxParallel
+	}
+	return value
+}
+
+func normalizedMaxChildren(value int) int {
+	if value <= 0 {
+		return defaultParentMaxChildren
 	}
 	return value
 }

@@ -416,7 +416,7 @@ func TestResolveParentWorkerRuntimeFromGenesisProjectsRoleBindings(t *testing.T)
 	if projection.Parent.ProfileID != "parent-profile" || projection.Parent.ModelID != "frontier-parent" {
 		t.Fatalf("parent projection = %+v", projection.Parent)
 	}
-	if !projection.Parent.CanCreateWorkers || projection.Parent.DefaultWorkerRole != "local-small-worker" {
+	if !projection.Parent.CanCreateWorkers || projection.Parent.DefaultWorkerRole != "local-small-worker" || projection.Parent.MaxChildren != 24 {
 		t.Fatalf("parent worker controls = %+v", projection.Parent)
 	}
 	if len(projection.WorkerRoles) != 1 {

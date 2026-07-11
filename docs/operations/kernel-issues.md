@@ -26,25 +26,28 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-PARENT-WORKER-DELEGATE-20260712 - P1 - Parent delegation cannot yet resume after restart
+### KERNEL-PARENT-WORKER-DELEGATE-20260712 - P1 - Parent-worker runtime lacks provider/profile admission and desktop acceptance
 
 - Status: in_progress.
 - Requirement: `docs/requirements/kernel-parent-worker-runtime.md`.
   - Design: `docs/design/kernel-parent-worker-runtime.md`.
-- Gap: Phase A adds constrained asynchronous dispatch and a paused parent turn,
-  but the daemon does not yet recover an unfinished worker after restart or
-  append its bounded terminal result back into the paused parent turn for
-  automatic continuation.
-- Next slice: implement Phase B from
-  `docs/implementation-plans/kernel-parent-worker-delegate-worker.md`: persist
-  a recoverable focused task/checkpoint, reconstruct only unambiguous work, and
-  resume the parent through its existing provider context path.
-- Evidence: `delegate_worker` creates one role-bound `AgentInvocation`, resolves
-  its configured model profile through the daemon resolver, excludes recursive
-  delegation from the worker manifest, and emits a queued receipt before the
-  parent pauses. The child terminal projection remains separate.
-- Verification: parent tool-loop pause, role-profile resolver, leaf grant
-  filtering, child projection, then full Go tests and build.
+- Gap: role-bound dispatch now resumes the parent after normal completion and
+  restart recovery, fails closed for an ambiguous started worker, enforces role
+  concurrency (default 6), and enforces parent `max_children` across roles
+  (default 24). Provider-route/model-profile concurrency admission and the
+  desktop child-conversation operator projection remain unimplemented.
+- Next slice: add only the missing provider/profile admission ownership after
+  its configuration schema and projection are approved, then deliver the
+  existing Phase C desktop projection; do not introduce a TaskGraph scheduler.
+- Evidence: `delegate_worker` creates one role-bound `AgentInvocation`,
+  snapshots its parent binding id and worker profile, resolves the configured
+  provider through the daemon resolver, excludes recursive delegation from the
+  worker manifest, and returns a bounded terminal result into the paused parent
+  turn. Queued work recovers after restart and ambiguous started work records a
+  sanitized failure instead of replaying it.
+- Verification: parent tool-loop pause and continuation, queued/terminal/ambiguous
+  restart recovery, role/profile resolver, leaf grant filtering, role and
+  parent concurrency limits, then full Go tests and build.
 - Reference alignment: Codex persists parent-child spawn/lifecycle and parent
   completion delivery; Reasonix starts fresh filtered subagents and returns only
   final text. Genesis rejects their free profile/fork controls in favor of role

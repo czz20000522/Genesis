@@ -43,6 +43,7 @@ type WorkerInvocationAdmissionRequest struct {
 type AgentInvocationProjection struct {
 	InvocationID        string          `json:"invocation_id"`
 	SessionID           string          `json:"session_id"`
+	ParentRoleID        string          `json:"parent_role_id,omitempty"`
 	ParentTurnID        string          `json:"parent_turn_id,omitempty"`
 	ParentInvocationID  string          `json:"parent_invocation_id,omitempty"`
 	Principal           string          `json:"principal"`

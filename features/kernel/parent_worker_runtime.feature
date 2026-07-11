@@ -15,6 +15,12 @@ Feature: Parent-led worker runtime configuration
     Then Genesis treats them as separate invocation identities
     And both invocations use the same preset tool set
 
+  Scenario: Parent and role concurrency limits are configuration-driven
+    Given a worker role omits max_parallel and a parent binding omits max_children
+    When Genesis projects the parent-worker runtime bindings
+    Then the role max_parallel is 6 and the parent max_children is 24
+    And an explicit parent max_children limits active workers across its allowed roles
+
   Scenario: Parent cannot add tools at invocation time
     Given a worker role binding only presets resource_read
     When a parent tries to create that worker with workspace_edit

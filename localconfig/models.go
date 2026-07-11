@@ -94,6 +94,7 @@ type ParentBinding struct {
 	AllowedWorkerRoles []string `json:"allowed_worker_roles"`
 	DefaultWorkerRole  string   `json:"default_worker_role"`
 	CanCreateWorkers   bool     `json:"can_create_workers"`
+	MaxChildren        int      `json:"max_children"`
 }
 
 type WorkerRoleBinding struct {

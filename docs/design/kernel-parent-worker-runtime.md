@@ -82,7 +82,7 @@ Role binding 把 worker role 绑定到 profile 与能力：
 
 Role binding 是准入输入，不是权限本身。内核运行时会把预设 `tool_set` 降为 `CapabilityGrant` 并按 ToolPolicy、parent 可创建范围和 ToolGateway 逐步校验。Parent 只能选择 role，不能在调用时给 worker 追加工具。
 
-同一 `role_id` 可以同时创建多个 worker invocation。它们共享 role binding，但拥有不同 invocation id、任务输入、状态和输出；并发由 role/profile/provider 上限限制。
+同一 `role_id` 可以同时创建多个 worker invocation。它们共享 role binding，但拥有不同 invocation id、任务输入、状态和输出；并发由 role/profile/provider 上限限制。`max_parallel` 省略或非正值时归一为 6；对独占本地模型，operator 必须显式配置 1。
 
 ### Parent Binding
 
@@ -94,11 +94,14 @@ Parent binding 定义 user-facing parent：
   "profile_id": "frontier-parent",
   "allowed_worker_roles": ["local-small-worker", "code-review-worker"],
   "default_worker_role": "local-small-worker",
-  "can_create_workers": true
+  "can_create_workers": true,
+  "max_children": 24
 }
 ```
 
 对外命名使用 `parent` 或 `coordinator`，不使用 `foreground.coordinator` 这类前后台区分。前后台是应用展示问题，不是内核角色语义。
+
+`max_children` 对一个 parent 的所有未终态 worker invocation 合并计数，不按 role 分开计算；省略或非正值时归一为 24。内核将 parent binding id 快照写入 worker invocation，因此重启后的准入仍可按原 parent 计数，不由应用临时状态决定。
 
 ## 数据流
 
@@ -107,7 +110,7 @@ Parent binding 定义 user-facing parent：
 3. Operator 创建 parent binding 和 worker role binding。
 4. 用户向 parent 提交 turn。
 5. Parent 生成 plan 或 worker invocation 请求；task graph 请求由独立 task graph 需求定义。
-6. 内核验证 parent 身份、role binding、预设工具集合、leaf-only 和并发约束。
+6. 内核验证 parent 身份、role binding、预设工具集合、leaf-only、role 并发与 parent 子代理总量约束。
 7. 内核创建 worker invocation，并按 profile/provider readiness 调用 Model Gateway。
 8. Worker 如需工具，ToolGateway 按 invocation grant 校验。
 9. Worker 返回 terminal result；内核记录状态、usage 和 sanitized failure。
@@ -226,10 +229,11 @@ Worker 输出可以像 parent 对话一样单独渲染为 child conversation pro
 - provider route `max_parallel`；
 - model profile `max_parallel`；
 - role binding `max_parallel`；
+- parent binding `max_children`；
 - parent 或 session 级预算上限；
 - 当前 ToolPolicy 或 operator policy。
 
-本地 llama.cpp profile 可以配置为 `max_parallel=1`。云端 profile 可以配置更高并发。内核不假设所有 provider 都能并行，也不把并发能力从 provider 名称中推断出来。
+本地 llama.cpp profile 可以配置为 `max_parallel=1`。云端 profile 可以配置更高并发。Role 未配置上限时默认 6，parent 未配置总量时默认 24。内核不假设所有 provider 都能并行，也不把并发能力从 provider 名称中推断出来。
 
 ## 失败语义
 
