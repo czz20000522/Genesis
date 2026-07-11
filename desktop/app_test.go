@@ -151,7 +151,7 @@ func TestDesktopStartupAndShutdownRouteThroughLocalServiceSupervisor(t *testing.
 	}
 }
 
-func TestDesktopShutdownStopsOnlyTheLocalModelItStarted(t *testing.T) {
+func TestDesktopStartupLeavesLocalModelStoppedUntilManualStart(t *testing.T) {
 	app := NewApp()
 	app.supervisor = NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
 		KernelBaseURL: "http://127.0.0.1:9999",
@@ -181,8 +181,12 @@ func TestDesktopShutdownStopsOnlyTheLocalModelItStarted(t *testing.T) {
 	})
 
 	app.startup(context.Background())
-	if status := app.LocalModelStatus(); status.Ownership != serviceOwnershipOwned || status.PID != process.pid {
-		t.Fatalf("local model after startup = %+v, want the owned fake process", status)
+	if status := app.LocalModelStatus(); status.Ownership != serviceOwnershipUnowned || status.Reason != localModelStopped {
+		t.Fatalf("local model after startup = %+v, want stopped and unowned", status)
+	}
+
+	if status := app.StartLocalModel(); status.Ownership != serviceOwnershipOwned || status.PID != process.pid {
+		t.Fatalf("local model after manual start = %+v, want the owned fake process", status)
 	}
 
 	app.shutdown(context.Background())

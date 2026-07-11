@@ -83,7 +83,7 @@ func (a *App) startup(ctx context.Context) {
 		a.config.Sidecar = a.supervisor.StartKernel(ctx)
 	}
 	if a.localModel != nil {
-		a.config.LocalModel = a.localModel.Start(ctx)
+		a.config.LocalModel = a.localModel.Status()
 	}
 }
 
