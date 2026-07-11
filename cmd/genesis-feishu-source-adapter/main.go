@@ -77,6 +77,13 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return err
 	}
 	cmd := exec.CommandContext(ctx, executable, argv...)
+	stdinReader, stdinWriter, err := newEventCommandStdin()
+	if err != nil {
+		return err
+	}
+	defer stdinReader.Close()
+	defer stdinWriter.Close()
+	cmd.Stdin = stdinReader
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -107,6 +114,10 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		Kind:     connectorruntime.SourceFrameKindStopped,
 		SourceID: *sourceID,
 	})
+}
+
+func newEventCommandStdin() (*os.File, *os.File, error) {
+	return os.Pipe()
 }
 
 func runProfileProbe(ctx context.Context, profile string, larkCLI string, stdout io.Writer, runner connectorruntime.CommandRunner) error {

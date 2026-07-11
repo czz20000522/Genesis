@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"genesis/internal/applications/connector_runtime"
 	feishucli "genesis/internal/applications/feishu_cli"
@@ -96,6 +97,38 @@ func TestRunProfileProbeWritesTypedReadinessWithoutStartingSource(t *testing.T) 
 	}
 	if runner.executable != feishucli.SelectExecutable("lark-cli", feishucli.InstalledOfficialExecutable()) || strings.Join(runner.args, "\x00") != "auth\x00status\x00--profile\x00genesis" {
 		t.Fatalf("profile probe command = %q %#v", runner.executable, runner.args)
+	}
+}
+
+func TestEventCommandStdinStaysOpenUntilSourceStops(t *testing.T) {
+	reader, writer, err := newEventCommandStdin()
+	if err != nil {
+		t.Fatalf("newEventCommandStdin returned error: %v", err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+
+	readResult := make(chan error, 1)
+	go func() {
+		var buffer [1]byte
+		_, err := reader.Read(buffer[:])
+		readResult <- err
+	}()
+	select {
+	case err := <-readResult:
+		t.Fatalf("event command stdin closed before source stopped: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close event command stdin writer: %v", err)
+	}
+	select {
+	case err := <-readResult:
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("event command stdin read error = %v, want EOF after close", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("event command stdin reader did not observe close")
 	}
 }
 
