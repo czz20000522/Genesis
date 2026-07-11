@@ -153,6 +153,20 @@ export type AgentInvocationChildConversation = {
   evidence_refs?: string[]
 }
 
+export type TaskGraphNodeProjection = {
+  node_id?: string
+  title?: string
+  status?: string
+  reason?: string
+  evidence_refs?: string[]
+}
+
+export type TaskGraphProjection = {
+  graph_id?: string
+  nodes?: TaskGraphNodeProjection[]
+  edges?: Array<{ from_node_id?: string, to_node_id?: string }>
+}
+
 export type SessionWorkspaceKind = 'project' | 'task' | 'none'
 
 export type ProjectDirectorySelection = {
@@ -351,6 +365,11 @@ export async function getSession(config: KernelConfig, sessionId: string) {
 export async function getSessionAgentInvocations(config: KernelConfig, sessionId: string) {
   const session = requiredSessionId(sessionId)
   return requestKernel<AgentInvocationProjection[]>(config, `/sessions/${encodeURIComponent(session)}/agent-invocations`)
+}
+
+export async function getSessionTaskGraphs(config: KernelConfig, sessionId: string) {
+  const session = requiredSessionId(sessionId)
+  return requestKernel<TaskGraphProjection[]>(config, `/sessions/${encodeURIComponent(session)}/task-graphs`)
 }
 
 export async function getAgentInvocationChildConversation(config: KernelConfig, invocationId: string) {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { AgentInvocationChildConversation, AgentInvocationProjection, DesktopUpdate, KernelTimelineDetail } from '../api/kernelApi'
+import type { AgentInvocationChildConversation, AgentInvocationProjection, DesktopUpdate, KernelTimelineDetail, TaskGraphProjection } from '../api/kernelApi'
 
 const props = defineProps<{
   baseUrl: string
@@ -13,6 +13,7 @@ const props = defineProps<{
   compactionSummaryRows: string[]
   workerInvocations: AgentInvocationProjection[]
   workerConversation: AgentInvocationChildConversation | null
+  taskGraphs: TaskGraphProjection[]
   debugExportReady: boolean
   updateToken: string
   update: DesktopUpdate | null
@@ -29,6 +30,7 @@ defineEmits<{
   downloadDebug: []
   compactContext: []
   refreshWorkers: []
+  refreshTaskGraphs: []
   selectWorker: [invocationId: string]
   'update:updateToken': [value: string]
   saveUpdateToken: []
@@ -49,6 +51,13 @@ function workerRole(worker: AgentInvocationProjection) {
 
 function workerStatus(worker: AgentInvocationProjection) {
   return String(worker.status ?? 'admitted')
+}
+
+function taskSummary(graph: TaskGraphProjection) {
+  const nodes = graph.nodes ?? []
+  const done = nodes.filter((node) => node.status === 'completed').length
+  const blocked = nodes.filter((node) => node.status === 'blocked').length
+  return `${done}/${nodes.length} 已完成${blocked ? ` · ${blocked} 项受阻` : ''}`
 }
 </script>
 
@@ -73,6 +82,18 @@ function workerStatus(worker: AgentInvocationProjection) {
         <input :value="runtimeToken" type="password" spellcheck="false" @input="$emit('update:runtimeToken', ($event.target as HTMLInputElement).value)" />
       </label>
       <button type="button" class="secondary-button" @click="$emit('checkReady')">检查连接</button>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <p class="eyebrow">项目任务图</p>
+        <button type="button" class="secondary-button" @click="$emit('refreshTaskGraphs')">刷新</button>
+      </div>
+      <p v-if="!taskGraphs.length" class="status">当前会话尚未记录项目任务图。</p>
+      <div v-for="graph in taskGraphs" :key="graph.graph_id" class="worker-row">
+        <span>任务图 · {{ String(graph.graph_id || '').slice(-8) || 'unknown' }}</span>
+        <small>{{ taskSummary(graph) }}</small>
+      </div>
     </section>
 
     <section class="panel">

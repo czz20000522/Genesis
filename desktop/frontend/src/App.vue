@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { applyProviderRole, bindSessionWorkspace, checkForUpdate, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TurnResponse } from './api/kernelApi'
+import { applyProviderRole, bindSessionWorkspace, checkForUpdate, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -34,6 +34,7 @@ const debugExport = ref<SessionDebugExport | null>(null)
 const compaction = ref<ContextCompactionResponse | null>(null)
 const workerInvocations = ref<AgentInvocationProjection[]>([])
 const workerConversation = ref<AgentInvocationChildConversation | null>(null)
+const taskGraphs = ref<TaskGraphProjection[]>([])
 const inspectorOpen = ref(false)
 const liveUserText = ref('')
 const liveAssistantText = ref('')
@@ -174,6 +175,7 @@ function resetSessionViewState() {
   compaction.value = null
   workerInvocations.value = []
   workerConversation.value = null
+  taskGraphs.value = []
   messageText.value = ''
   liveUserText.value = ''
   liveAssistantText.value = ''
@@ -379,6 +381,7 @@ async function loadTimeline() {
     timeline.value = await getTimeline(config.value, session)
     await loadSessionApproval(session)
     await loadWorkerInvocations(session)
+    await loadTaskGraphs(session)
     lastTurn.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -411,6 +414,7 @@ async function sendMessage() {
     timeline.value = await getTimeline(config.value, session)
     await loadSessionApproval(session)
     await loadWorkerInvocations(session)
+    await loadTaskGraphs(session)
     await loadSessions()
     liveUserText.value = ''
     liveAssistantText.value = ''
@@ -466,6 +470,11 @@ async function loadSessionApproval(session = currentSession()) {
 async function loadWorkerInvocations(session = currentSession()) {
   if (!session) return
   workerInvocations.value = await getSessionAgentInvocations(config.value, session)
+}
+
+async function loadTaskGraphs(session = currentSession()) {
+  if (!session) return
+  taskGraphs.value = await getSessionTaskGraphs(config.value, session)
 }
 
 async function loadWorkerConversation(invocationID: string) {
@@ -684,6 +693,7 @@ async function initializeDesktop() {
       :compaction-summary-rows="compactionSummaryRows"
 	  :worker-invocations="workerInvocations"
 	  :worker-conversation="workerConversation"
+	  :task-graphs="taskGraphs"
       :debug-export-ready="Boolean(debugExport)"
 	  :update-token="updateToken"
 	  :update="update"
@@ -697,6 +707,7 @@ async function initializeDesktop() {
       @download-debug="downloadDebugExport"
       @compact-context="compactContext"
 	  @refresh-workers="loadWorkerInvocations()"
+	  @refresh-task-graphs="loadTaskGraphs()"
 	  @select-worker="loadWorkerConversation"
 	  @update:update-token="updateToken = $event"
 	  @save-update-token="saveDesktopUpdateToken"
