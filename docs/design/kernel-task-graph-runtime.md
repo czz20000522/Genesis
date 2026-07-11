@@ -47,6 +47,14 @@ session; the second returns the ledger-reduced graph. Neither route creates,
 updates, starts, or binds a task. Desktop may render title, status, dependency,
 blocked reason, and evidence reference, but it remains a reader in this slice.
 
+`task_graph_edit` is a model-visible kernel-control tool for the ordinary parent
+session gateway and is never exposed through an invocation capability grant. Each call carries one named
+topology operation and no execution, authority, or provider field. The tool
+dispatches to the existing TaskGraph owner methods under their validation lock,
+then returns the resulting opaque identifiers or projection. A rejected
+proposal writes no graph fact; a leaf worker is denied by its grant before any
+owner call.
+
 ## Reference alignment
 
 Codex's `core/src/tools/handlers/plan.rs` accepts a model plan update only

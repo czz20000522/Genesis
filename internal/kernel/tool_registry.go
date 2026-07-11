@@ -34,6 +34,7 @@ type toolInvocationContext interface {
 	prepareJobWaitToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareJobCancelToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 	prepareDelegateWorkerToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
+	prepareTaskGraphEditToolCall(string, string, string, json.RawMessage) (preparedModelToolCall, error)
 }
 
 type ToolRegistry struct {
@@ -70,6 +71,9 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 		shellPolicy = normalizedShellTimeoutPolicy(policies[0])
 	}
 	return []registeredTool{
+		{Spec: ToolSpec{Name: "task_graph_edit", Description: "Propose one validated project task-graph topology edit without starting or authorizing work.", InputSchema: toolInputSchema(taskGraphEditToolArguments{}, map[string]string{"operation": "One of create_graph, add_task, update_task, add_dependency, or remove_dependency."}), SideEffectLevel: ToolSideEffectWrite, ExecutionKind: ToolExecutionKindKernelControl, Scheduling: delegateWorkerToolSchedulingSpec()}, Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+			return ctx.prepareTaskGraphEditToolCall(eventID, providerCallID, name, arguments)
+		}},
 		{
 			Spec: ToolSpec{
 				Name:        "delegate_worker",

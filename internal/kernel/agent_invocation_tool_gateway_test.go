@@ -107,6 +107,57 @@ func TestInvocationToolGatewayRejectsUngrantToolsWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestTaskGraphEditIsParentOnlyAndReturnsGraphReceipt(t *testing.T) {
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{PermissionMode: PermissionModeYolo})
+	parentGateway := k.toolGateway()
+	prepared, err := parentGateway.PrepareBatch([]ModelToolCall{{
+		ToolCallID: "call_graph", ToolCallEventID: "evt_graph", Name: "task_graph_edit", Arguments: mustMarshalToolArgs(t, map[string]interface{}{"operation": "create_graph"}),
+	}})
+	if err != nil {
+		t.Fatalf("prepare parent edit: %v", err)
+	}
+	result, err := parentGateway.Execute(context.Background(), "task-graph-parent", "turn-parent", prepared[0])
+	if err != nil {
+		t.Fatalf("execute parent edit: %v", err)
+	}
+	var graph TaskGraphProjection
+	if err := json.Unmarshal([]byte(result.Content), &graph); err != nil || graph.GraphID == "" || graph.SessionID != "task-graph-parent" {
+		t.Fatalf("parent graph receipt = %s error = %v", result.Content, err)
+	}
+
+	leaf, err := k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{
+		SessionID: "task-graph-leaf", Principal: "application:test", CapabilityGrant: CapabilityGrant{ToolNames: []string{"resource_read"}},
+	})
+	if err != nil {
+		t.Fatalf("admit leaf: %v", err)
+	}
+	leafGateway, err := k.ToolGatewayForInvocation(leaf.InvocationID)
+	if err != nil {
+		t.Fatalf("leaf gateway: %v", err)
+	}
+	before, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("load before leaf request: %v", err)
+	}
+	prepared, err = leafGateway.PrepareBatch([]ModelToolCall{{
+		ToolCallID: "call_leaf", ToolCallEventID: "evt_leaf", Name: "task_graph_edit", Arguments: mustMarshalToolArgs(t, map[string]interface{}{"operation": "create_graph"}),
+	}})
+	if err != nil {
+		t.Fatalf("prepare leaf edit: %v", err)
+	}
+	result, err = leafGateway.Execute(context.Background(), leaf.SessionID, "turn-leaf", prepared[0])
+	if err != nil {
+		t.Fatalf("execute leaf edit: %v", err)
+	}
+	if !strings.Contains(result.Content, "capability_grant_tool_not_allowed") {
+		t.Fatalf("leaf result = %s, want grant refusal", result.Content)
+	}
+	after, err := k.loadEvents()
+	if err != nil || len(after) != len(before) {
+		t.Fatalf("leaf edit changed events %d -> %d error %v", len(before), len(after), err)
+	}
+}
+
 func TestInvocationToolGatewayRejectsUnknownInvocation(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	_, err := k.ToolGatewayForInvocation("invocation_missing")

@@ -30,6 +30,10 @@ workspace, credential, or permission data.
   rejects malformed nodes, cycles, duplicate edges, and illegal state
   transitions before appending a fact. Execution binding is optional and is a
   separate owner-controlled decision, not a graph-side permission grant.
+- A parent session may submit one `task_graph_edit` proposal at a time. Its operation is
+  limited to graph creation, task addition, task metadata replacement, or
+  dependency addition/removal; the receipt returns only admitted graph/node
+  identifiers and projection metadata. Child invocations never receive this tool.
 - TaskGraph, Workflow, and AgentInvocation cooperate by stable references only.
   Workflow owns fixed procedure; AgentInvocation owns bounded agent work;
   TaskGraph owns dependency topology and project progress.

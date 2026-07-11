@@ -56,3 +56,5 @@ path.
   runtime before rendering it; Reasonix keeps planning as a model-session
   handoff. Genesis uses the same command/projection separation but keeps the
   project graph in the ledger.
+- Follow-up: parent-only `task_graph_edit` tool, one validated topology command
+  per call, child-invocation refusal, and no execution binding or start.

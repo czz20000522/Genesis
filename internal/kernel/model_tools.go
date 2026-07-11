@@ -76,6 +76,16 @@ type delegateWorkerToolArguments struct {
 	Task   string `json:"task"`
 }
 
+type taskGraphEditToolArguments struct {
+	Operation   string `json:"operation"`
+	GraphID     string `json:"graph_id,omitempty"`
+	NodeID      string `json:"node_id,omitempty"`
+	FromNodeID  string `json:"from_node_id,omitempty"`
+	ToNodeID    string `json:"to_node_id,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 type preparedModelToolCall struct {
 	eventID                string
 	providerCallID         string
@@ -111,6 +121,9 @@ func (c workspaceToolInvocationContext) prepareWorkspaceEditToolCall(eventID str
 
 func (c workspaceToolInvocationContext) prepareDelegateWorkerToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 	return c.Kernel.prepareDelegateWorkerToolCall(eventID, providerCallID, name, arguments)
+}
+func (c workspaceToolInvocationContext) prepareTaskGraphEditToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	return c.Kernel.prepareTaskGraphEditToolCall(eventID, providerCallID, name, arguments)
 }
 
 func (g ToolGateway) invocationContext() toolInvocationContext {
@@ -213,6 +226,9 @@ func (g ToolGateway) prepareCall(call ModelToolCall) (preparedModelToolCall, err
 func (g ToolGateway) toolAllowed(name string) bool {
 	if g.allowedTools == nil {
 		return true
+	}
+	if strings.TrimSpace(name) == "task_graph_edit" {
+		return false
 	}
 	_, ok := g.allowedTools[strings.TrimSpace(name)]
 	return ok
@@ -605,6 +621,43 @@ func (k *Kernel) prepareDelegateWorkerToolCall(eventID string, providerCallID st
 			return k.delegateWorkerModelToolResult(sessionID, turnID, eventID, providerCallID, name, args)
 		},
 	}, nil
+}
+
+func (k *Kernel) prepareTaskGraphEditToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	var args taskGraphEditToolArguments
+	if err := decodeStrictModelToolArguments("task_graph_edit", arguments, &args); err != nil {
+		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
+	}
+	args.Operation, args.GraphID, args.NodeID = strings.TrimSpace(args.Operation), strings.TrimSpace(args.GraphID), strings.TrimSpace(args.NodeID)
+	return preparedModelToolCall{eventID: eventID, providerCallID: providerCallID, name: name, accessPlan: delegateWorkerToolAccessPlan(name), execute: func(_ context.Context, sessionID string, _ string) (ModelToolResult, error) {
+		var result interface{}
+		var err error
+		switch args.Operation {
+		case "create_graph":
+			result, err = k.CreateTaskGraph(TaskGraphCreateRequest{SessionID: sessionID})
+		case "add_task":
+			result, err = k.AddTaskGraphNode(TaskGraphNodeRequest{GraphID: args.GraphID, Title: args.Title, Description: args.Description})
+		case "add_dependency":
+			err = k.AddTaskGraphEdge(TaskGraphEdgeRequest{GraphID: args.GraphID, FromNodeID: args.FromNodeID, ToNodeID: args.ToNodeID})
+			result = map[string]string{"status": "accepted"}
+		case "remove_dependency":
+			err = k.RemoveTaskGraphEdge(TaskGraphEdgeRemoveRequest{GraphID: args.GraphID, FromNodeID: args.FromNodeID, ToNodeID: args.ToNodeID})
+			result = map[string]string{"status": "accepted"}
+		case "update_task":
+			err = k.UpdateTaskGraphNode(TaskGraphNodeUpdateRequest{GraphID: args.GraphID, NodeID: args.NodeID, Title: args.Title, Description: args.Description})
+			result = map[string]string{"status": "accepted"}
+		default:
+			return invalidModelToolResult(eventID, providerCallID, name, "invalid_task_graph_operation", "invalid task_graph_edit operation")
+		}
+		if err != nil {
+			return invalidModelToolResult(eventID, providerCallID, name, "task_graph_edit_failed", err.Error())
+		}
+		content, err := json.Marshal(result)
+		if err != nil {
+			return ModelToolResult{}, err
+		}
+		return ModelToolResult{ToolCallID: providerCallID, ToolCallEventID: eventID, Name: name, Content: string(content)}, nil
+	}}, nil
 }
 
 func (k *Kernel) delegateWorkerModelToolResult(sessionID string, turnID string, eventID string, providerCallID string, name string, args delegateWorkerToolArguments) (ModelToolResult, error) {
