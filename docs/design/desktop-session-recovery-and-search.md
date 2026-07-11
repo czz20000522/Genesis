@@ -1,19 +1,23 @@
 # Design: Desktop Session Recovery And Search
 
 - **Requirement:** `docs/requirements/desktop-session-recovery-and-search.md`.
-- **Boundary:** the existing kernel `/sessions/search` projection remains the
-  single search truth; desktop resubmits, but does not repair, a failed turn.
+- **Boundary:** the existing kernel `/sessions/search` projection and
+  `/sessions/{session_id}/interrupt` command remain the single source of
+  search and interruption truth; desktop resubmits or requests an interrupt,
+  but does not repair a terminal turn.
 
 ## Reference Scan
 
-Codex's app-server protocol defines `thread/search` as a server operation
-(`codex-rs/app-server-protocol/src/protocol/v2/thread.rs`) and its local store
-returns search-only result metadata (`codex-rs/thread-store/src/local/search_threads.rs`).
-Genesis aligns by using its existing server search endpoint rather than a Vue
-index. Reasonix's desktop locale and controller expose session-search UI while
-provider retry logic remains in its provider owner; Genesis intentionally keeps
-operator retry explicit and makes it a fresh turn rather than replaying a
-transport request.
+Codex's app-server protocol defines both `thread/search` and `turn/interrupt`
+as server operations (`codex-rs/app-server-protocol/src/protocol/v2/thread.rs`,
+`.../v2/turn.rs`); its interrupt suite waits for the terminal interrupted
+notification rather than changing local history first. Reasonix's
+`desktop/app.go:Cancel` delegates to the controller's in-flight cancel handle,
+while `internal/acp/service.go:sessionCancel` owns the active turn and its
+eventual terminal result. Genesis aligns: search remains the existing server
+projection, and the desktop requests its existing interrupt route then reloads
+the resulting timeline. It intentionally differs from neither reference by
+inventing a frontend terminal event or using transport cancellation as truth.
 
 ## Desktop Shape
 
@@ -21,10 +25,15 @@ Add a compact search input above the session rail. Non-empty search replaces
 the grouped rail with kernel results. A failed-turn card exposes one `重试`
 action only when the timeline has the settled user text needed to create a new
 turn. The action uses the existing stream submit path and refreshes the same
-timeline.
+timeline. While that stream is active, the composer replaces send with one
+`停止生成` action. It requests the kernel session interrupt with the fixed
+operator reason `user requested stop`; the stream and timeline remain the
+source of the settled interruption message.
 
 ## Failure Semantics
 
 Search errors preserve the existing rail and show the normal desktop error
 surface. Retry refusal preserves the failed turn and reports the kernel error.
-The desktop never guesses whether a provider failure is retryable.
+An interrupt conflict reloads the current timeline because the turn may have
+settled concurrently. The desktop never guesses whether a provider failure is
+retryable or whether a request has become terminal.

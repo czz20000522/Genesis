@@ -17,6 +17,15 @@ already present in the local timeline. Submit through the existing stream path
 with a fresh idempotency key; test that original error evidence is retained and
 approval/paused outcomes offer no retry.
 
+## Phase C: Explicit Interrupt
+
+Expose the existing kernel session-interrupt command through the shared desktop
+API client and composer only while its current stream is active. The action sends
+one fixed operator reason, does not cancel the transport locally, and reloads
+the timeline after a successful request or a `no_active_turn` race. Add a
+frontend API regression test; reuse the kernel interrupt suite for durable
+event semantics.
+
 ## Verification
 
 Run frontend tests/build, desktop tests/build, focused kernel search tests, and

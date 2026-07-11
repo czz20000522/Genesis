@@ -156,7 +156,13 @@ Genesis Kernel. Kernel primitive gaps belong in
   and a missing-config `provider_unavailable` probe all passed without an API
   key. On 2026-07-11, real Qwen reached the configured command but generated
   unbounded reasoning until the verify deadline, producing structured
-  `provider_error`; its WSL launcher was then stopped.
+  `provider_error`; its WSL launcher was then stopped. On 2026-07-12, the
+  same isolated acceptance surface passed against configured OpenCode Go GLM
+  5.2 (`coder` / `opencode-go-glm-5-2`): provider verify was ready, the final
+  was `GENESIS_LIVE_LLM_ACCEPTANCE_OK`, restart replay retained one timeline
+  item, three events, and ready context, and the missing-config probe returned
+  `provider_config_missing` / `provider_unavailable`. This closes the Stage 1
+  real-provider proof, not the pending local-Qwen acceptance.
 - Verification: The selected acceptance surface must execute a real turn,
   restart against the same ledger, replay the settled projections, and retain a
   negative readiness or credential-path proof appropriate to its provider kind.
@@ -192,6 +198,31 @@ Genesis Kernel. Kernel primitive gaps belong in
   entry points while retaining thread history; Reasonix makes session cwd an
   explicit controller input. Genesis intentionally retains local chat records
   even when the model call is cloud-backed.
+
+### APP-DESKTOP-TURN-INTERRUPT-20260712 - P1 - Desktop cannot stop an unbounded local turn
+
+- Status: manual_test_pending.
+- Requirement: `docs/requirements/desktop-session-recovery-and-search.md`.
+  - Design: `docs/design/desktop-session-recovery-and-search.md`.
+  - Kernel/owner pressure: the kernel already owns
+    `POST /sessions/{session_id}/interrupt`, active-turn cancellation, and
+    durable `assistant.interrupted` evidence. Desktop must request that
+    command, not treat a cancelled frontend stream as a settled turn.
+- Gap: an explicitly unbounded llama.cpp turn can run legitimately for a long
+  time, but the desktop exposes no stop action even though the kernel supports
+  caller-driven interruption.
+- Closure: the composer exposes `停止生成` only while its current stream is
+  active. It calls the existing authenticated kernel route through the shared
+  desktop API client; an interrupted stream reloads the kernel timeline, while
+  a `no_active_turn` race does not forge a local terminal message.
+- Remaining acceptance: start the desktop-owned local Qwen process, submit a
+  deliberately long Project, Task, and Chat turn, stop each from the composer,
+  and confirm their durable interrupted projections remain readable after
+  desktop restart.
+- Reference alignment: Codex's app-server owns `turn/interrupt` and terminal
+  interruption notifications; Reasonix's desktop delegates cancellation to its
+  controller. Genesis follows both by retaining interruption truth in kernel
+  events and projections.
 
 ### APP-CONNECTOR-FEISHU-LISTENER-20260623 - P2 - Connector source verification and lifecycle gate
 

@@ -16,6 +16,8 @@ const props = defineProps<{
   readiness: string
   approvals: ApprovalProjection[]
   retryText: string
+  interruptAvailable: boolean
+  interrupting: boolean
 }>()
 
 const emit = defineEmits<{
@@ -26,6 +28,7 @@ const emit = defineEmits<{
   selectMaterial: [event: Event]
   loadDetail: [detailRef: string]
   retry: []
+  interrupt: []
 }>()
 
 const approvalRows = computed(() => props.approvals.map((approval) => ({
@@ -116,7 +119,8 @@ function useStarter(text: string) {
             ＋
             <input type="file" accept=".zip,application/zip,application/x-zip-compressed" @click="$emit('pickMaterial')" @change="$emit('selectMaterial', $event)" />
           </label>
-          <button type="button" class="send-button" @click="$emit('sendMessage')">发送</button>
+          <button v-if="interruptAvailable" type="button" class="secondary-button" :disabled="interrupting" @click="$emit('interrupt')">{{ interrupting ? '正在停止…' : '停止生成' }}</button>
+          <button v-else type="button" class="send-button" @click="$emit('sendMessage')">发送</button>
         </div>
       </div>
       <div class="composer-meta">

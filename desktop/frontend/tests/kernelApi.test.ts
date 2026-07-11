@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { applyProviderRole, bindSessionWorkspace, compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
+import { applyProviderRole, bindSessionWorkspace, compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -146,6 +146,35 @@ try {
   assert.equal(bound.workspace_mode, 'project')
 } finally {
   globalThis.fetch = originalFetchForWorkspaceBinding
+}
+
+let interruptURL = ''
+let interruptMethod = ''
+let interruptAuth = ''
+let interruptBody: Record<string, unknown> = {}
+const originalFetchForInterrupt = globalThis.fetch
+globalThis.fetch = async (input, init) => {
+  interruptURL = String(input)
+  interruptMethod = String(init?.method ?? '')
+  interruptAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  interruptBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+  return new Response(JSON.stringify({ session_id: 'project/session', terminal_outcome: 'interrupted' }), {
+    status: 202,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  await interruptSession({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'project/session', 'user requested stop')
+  assert.equal(interruptURL, 'http://127.0.0.1:8765/sessions/project%2Fsession/interrupt')
+  assert.equal(interruptMethod, 'POST')
+  assert.equal(interruptAuth, 'Bearer secret')
+  assert.deepEqual(interruptBody, { reason: 'user requested stop' })
+} finally {
+  globalThis.fetch = originalFetchForInterrupt
 }
 
 let searchUrl = ''

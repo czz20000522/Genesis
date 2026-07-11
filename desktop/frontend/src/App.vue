@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { applyProviderRole, bindSessionWorkspace, checkForUpdate, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, installUpdate, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TurnResponse } from './api/kernelApi'
+import { applyProviderRole, bindSessionWorkspace, checkForUpdate, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -36,6 +36,7 @@ const inspectorOpen = ref(false)
 const liveUserText = ref('')
 const liveAssistantText = ref('')
 const liveStreaming = ref(false)
+const stopRequested = ref(false)
 const localModel = ref<LocalModelStatus>({})
 const localModelStarting = ref(false)
 const providerOpen = ref(false)
@@ -173,6 +174,7 @@ function resetSessionViewState() {
   liveUserText.value = ''
   liveAssistantText.value = ''
   liveStreaming.value = false
+  stopRequested.value = false
   error.value = ''
   inspectorOpen.value = false
 }
@@ -407,9 +409,35 @@ async function sendMessage() {
     liveUserText.value = ''
     liveAssistantText.value = ''
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    const message = err instanceof Error ? err.message : String(err)
+    if (stopRequested.value && message.includes('turn_interrupted')) {
+      timeline.value = await getTimeline(config.value, session)
+      await loadSessionApproval(session)
+      await loadSessions()
+    } else {
+      error.value = message
+    }
   } finally {
     liveStreaming.value = false
+    stopRequested.value = false
+  }
+}
+
+async function interruptCurrentTurn() {
+  if (!liveStreaming.value || stopRequested.value) return
+  const session = currentSession()
+  if (!session) return
+  error.value = ''
+  stopRequested.value = true
+  try {
+    await interruptSession(config.value, session)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (!message.includes('no active turn')) {
+      error.value = message
+      return
+    }
+    await loadTimeline()
   }
 }
 
@@ -606,6 +634,8 @@ async function initializeDesktop() {
         :readiness="readiness"
         :approvals="pendingApprovals"
         :retry-text="retryText"
+        :interrupt-available="liveStreaming"
+        :interrupting="stopRequested"
         @update:message-text="messageText = $event"
         @send-message="sendMessage"
         @decide-approval="answerApproval"
@@ -613,6 +643,7 @@ async function initializeDesktop() {
         @load-detail="loadDetail"
         @select-material="selectMaterial"
         @retry="retryFailedTurn"
+        @interrupt="interruptCurrentTurn"
       />
     </section>
 

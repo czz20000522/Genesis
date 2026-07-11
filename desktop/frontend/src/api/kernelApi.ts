@@ -391,6 +391,14 @@ export async function submitTurn(config: KernelConfig, sessionId: string, text: 
   })
 }
 
+export async function interruptSession(config: KernelConfig, sessionId: string, reason = 'user requested stop') {
+  const session = requiredSessionId(sessionId)
+  return requestKernel<Record<string, unknown>>(config, `/sessions/${encodeURIComponent(session)}/interrupt`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: String(reason || 'user requested stop').trim() || 'user requested stop' }),
+  })
+}
+
 export async function submitTurnStream(
   config: KernelConfig,
   sessionId: string,
