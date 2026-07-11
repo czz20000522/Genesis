@@ -8,8 +8,9 @@
 TaskGraph is the durable owner of a long-running user objective's nodes,
 dependencies, state, evidence, and recovery checkpoints. A parent may propose a
 graph, but only the owner validates, persists, and executes it. A parent node
-proposal contains only a configured worker `role_id` and focused `task`; when
-its dependencies are ready, the owner creates and starts the bounded
+proposal contains only a configured worker `role_id` and focused `task`; after
+the parent has finished proposing the graph and starts it, the owner creates
+and starts each dependency-ready bounded
 `AgentInvocation`. A node never accepts provider, tool, workspace, credential,
 or permission data.
 
@@ -50,7 +51,7 @@ Do not schedule execution.
 ### Phase B: Role-task execution and recovery
 
 Let the owner persist a role-task node proposal, create the invocation only
-after its dependencies are ready, persist the linkage before provider work, and
+after graph start and dependency readiness, persist the linkage before provider work, and
 fail closed when restart cannot prove whether an external effect started.
 
 ### Phase C: Operator and parent projection

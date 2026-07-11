@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"strings"
@@ -42,6 +43,77 @@ func (k *Kernel) AddTaskGraphNode(req TaskGraphNodeRequest) (TaskGraphNodeProjec
 		return TaskGraphNodeProjection{}, err
 	}
 	return node, nil
+}
+
+func (k *Kernel) ProposeTaskGraphWorkerNode(req TaskGraphWorkerNodeProposal) (TaskGraphNodeProjection, error) {
+	if strings.TrimSpace(req.RoleID) == "" || strings.TrimSpace(req.Task) == "" {
+		return TaskGraphNodeProjection{}, errors.New("task graph role and task are required")
+	}
+	runtime, err := ResolveParentWorkerRuntimeFromGenesis(ParentWorkerRuntimeRequest{ConfigRoot: k.parentWorkerConfigRoot, ParentID: k.parentWorkerParentID})
+	if err != nil || !runtime.Parent.CanCreateWorkers {
+		if err != nil {
+			return TaskGraphNodeProjection{}, err
+		}
+		return TaskGraphNodeProjection{}, errors.New("parent_worker_creation_denied")
+	}
+	if _, ok := workerRoleByID(runtime.WorkerRoles, strings.TrimSpace(req.RoleID)); !ok {
+		return TaskGraphNodeProjection{}, ErrGenesisWorkerRoleBindingMissing
+	}
+	k.taskGraphMu.Lock()
+	graph, err := k.taskGraph(req.GraphID)
+	if err != nil {
+		k.taskGraphMu.Unlock()
+		return TaskGraphNodeProjection{}, err
+	}
+	now := k.clock()
+	node := TaskGraphNodeProjection{NodeID: newID("task_node", now), RoleID: strings.TrimSpace(req.RoleID), Task: strings.TrimSpace(req.Task), Status: TaskGraphNodeStatusProposed, UpdatedAt: now}
+	err = k.appendTaskGraphEvent("task_graph.node_added", TaskGraphEventProjection{GraphID: graph.GraphID, SessionID: graph.SessionID, Node: &node, CreatedAt: now})
+	k.taskGraphMu.Unlock()
+	if err != nil {
+		return TaskGraphNodeProjection{}, err
+	}
+	return node, nil
+}
+
+func (k *Kernel) StartTaskGraph(graphID string) error {
+	if _, err := k.TaskGraph(graphID); err != nil {
+		return err
+	}
+	go k.startReadyTaskGraphNodes(graphID)
+	return nil
+}
+
+func (k *Kernel) startReadyTaskGraphNodes(graphID string) {
+	k.taskGraphMu.Lock()
+	defer k.taskGraphMu.Unlock()
+	graph, err := k.taskGraph(graphID)
+	if err != nil {
+		return
+	}
+	for _, node := range graph.Nodes {
+		if node.Status != TaskGraphNodeStatusReady || node.InvocationID != "" || node.RoleID == "" {
+			continue
+		}
+		invocation, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{ConfigRoot: k.parentWorkerConfigRoot, ParentID: k.parentWorkerParentID, RoleID: node.RoleID, SessionID: graph.SessionID, Principal: "application:kernel", IdempotencyKey: node.NodeID})
+		if err != nil {
+			continue
+		}
+		node.InvocationID, node.Status, node.UpdatedAt = invocation.InvocationID, TaskGraphNodeStatusRunning, k.clock()
+		if k.appendTaskGraphEvent("task_graph.node_started", TaskGraphEventProjection{GraphID: graph.GraphID, SessionID: graph.SessionID, Node: &node, CreatedAt: node.UpdatedAt}) != nil {
+			continue
+		}
+		go k.runTaskGraphInvocation(graph.GraphID, node)
+	}
+}
+
+func (k *Kernel) runTaskGraphInvocation(graphID string, node TaskGraphNodeProjection) {
+	run, err := k.RunAgentInvocation(context.Background(), AgentInvocationRunRequest{InvocationID: node.InvocationID, Principal: "application:kernel", InputItems: []InputItem{{Type: "text", Text: node.Task}}, IdempotencyKey: node.NodeID})
+	status, reason := TaskGraphNodeStatusCompleted, ""
+	if err != nil || run.Status == AgentInvocationRunStatusFailed {
+		status, reason = TaskGraphNodeStatusFailed, "worker_failed"
+	}
+	_ = k.TransitionTaskGraphNode(TaskGraphNodeTransitionRequest{GraphID: graphID, NodeID: node.NodeID, Status: status, Reason: reason, EvidenceRefs: []string{"agent_invocation_run:" + run.RunID}})
+	k.startReadyTaskGraphNodes(graphID)
 }
 
 func (k *Kernel) AddTaskGraphEdge(req TaskGraphEdgeRequest) error {

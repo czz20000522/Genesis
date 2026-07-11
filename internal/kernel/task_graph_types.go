@@ -20,6 +20,11 @@ type TaskGraphNodeRequest struct {
 	GraphID      string `json:"graph_id"`
 	InvocationID string `json:"invocation_id"`
 }
+type TaskGraphWorkerNodeProposal struct {
+	GraphID string `json:"graph_id"`
+	RoleID  string `json:"role_id"`
+	Task    string `json:"task"`
+}
 type TaskGraphEdgeRequest struct {
 	GraphID    string `json:"graph_id"`
 	FromNodeID string `json:"from_node_id"`
@@ -35,6 +40,8 @@ type TaskGraphNodeTransitionRequest struct {
 type TaskGraphNodeProjection struct {
 	NodeID       string    `json:"node_id"`
 	InvocationID string    `json:"invocation_id"`
+	RoleID       string    `json:"role_id,omitempty"`
+	Task         string    `json:"task,omitempty"`
 	Status       string    `json:"status"`
 	Reason       string    `json:"reason,omitempty"`
 	EvidenceRefs []string  `json:"evidence_refs,omitempty"`

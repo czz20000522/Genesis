@@ -23,7 +23,8 @@ validates the current reduced graph while the graph mutex is held.
 
 The owner rejects self edges, duplicate edges, missing endpoints, cycles, and
 any transition outside the explicit state table. A proposal contains role/task
-only; it cannot name a provider or tool. At readiness, the owner resolves the
+only; it cannot name a provider or tool. Graph start occurs only after the
+parent has finished node/edge proposals. At readiness, the owner resolves the
 configured parent binding and calls `AdmitWorkerInvocationFromRole`, then
 persists invocation linkage before starting it. A node is ready when all
 predecessors completed.

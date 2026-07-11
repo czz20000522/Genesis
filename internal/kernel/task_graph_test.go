@@ -3,6 +3,7 @@ package kernel
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestTaskGraphDependenciesProjectReadyAndSurviveRestart(t *testing.T) {
@@ -155,6 +156,57 @@ func TestTaskGraphTerminalTransitionPersistsEvidenceRefs(t *testing.T) {
 	projection, err := k.TaskGraph(graph.GraphID)
 	if err != nil || len(taskGraphNodeByID(t, projection, node.NodeID).EvidenceRefs) != 1 || taskGraphNodeByID(t, projection, node.NodeID).EvidenceRefs[0] != "event:worker-final" {
 		t.Fatalf("node evidence = %+v error = %v", taskGraphNodeByID(t, projection, node.NodeID), err)
+	}
+}
+
+func TestTaskGraphRoleTaskProposalCreatesAndStartsBoundWorker(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfig(t, []string{"resource_read"})
+	child := &delegateWorkerChildProvider{completed: make(chan ModelRequest, 1)}
+	k := newAgentInvocationRunTestKernel(t, Config{LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy: ToolPolicy{PermissionMode: PermissionModePlan}, ParentWorkerConfigRoot: configRoot, WorkerProviderResolver: func(string) (Provider, error) { return child, nil }})
+	graph, err := k.CreateTaskGraph(TaskGraphCreateRequest{SessionID: "graph-role-task"})
+	if err != nil {
+		t.Fatalf("create graph: %v", err)
+	}
+	node, err := k.ProposeTaskGraphWorkerNode(TaskGraphWorkerNodeProposal{GraphID: graph.GraphID, RoleID: "local-small-worker", Task: "inspect this focused task"})
+	if err != nil {
+		t.Fatalf("propose node: %v", err)
+	}
+	if err := k.StartTaskGraph(graph.GraphID); err != nil {
+		t.Fatalf("start graph: %v", err)
+	}
+	select {
+	case request := <-child.completed:
+		if len(request.InputItems) != 1 || request.InputItems[0].Text != "inspect this focused task" {
+			t.Fatalf("worker request = %+v", request)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("task graph did not start worker")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		projection, err := k.TaskGraph(graph.GraphID)
+		if err == nil && taskGraphNodeByID(t, projection, node.NodeID).InvocationID != "" {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("task graph did not persist invocation linkage")
+}
+
+func TestTaskGraphRoleTaskProposalRejectsUnknownRoleBeforeAppend(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfig(t, []string{"resource_read"})
+	k := newAgentInvocationRunTestKernel(t, Config{LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy: ToolPolicy{PermissionMode: PermissionModePlan}, ParentWorkerConfigRoot: configRoot})
+	graph, err := k.CreateTaskGraph(TaskGraphCreateRequest{SessionID: "graph-invalid-role"})
+	if err != nil {
+		t.Fatalf("create graph: %v", err)
+	}
+	before, _ := k.loadEvents()
+	if _, err := k.ProposeTaskGraphWorkerNode(TaskGraphWorkerNodeProposal{GraphID: graph.GraphID, RoleID: "unknown", Task: "do not run"}); err == nil {
+		t.Fatal("unknown role accepted")
+	}
+	after, _ := k.loadEvents()
+	if len(after) != len(before) {
+		t.Fatalf("unknown role appended event %d -> %d", len(before), len(after))
 	}
 }
 
