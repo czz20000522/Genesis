@@ -35,12 +35,12 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
   restart recovery, fails closed for an ambiguous started worker, enforces role
   concurrency (default 6), and enforces parent `max_children` across roles
   (default 24). Desktop now lists the current session's worker projections and
-  opens each child conversation only in its inspector; provider-route/model-
-  profile concurrency admission and manual desktop acceptance remain.
+  opens each child conversation only in its inspector; configured positive
+  provider-route/model-profile limits now also participate in admission. Manual
+  desktop acceptance remains.
 - Next slice: complete manual desktop acceptance for the child-conversation
-  inspector, then add only the missing provider/profile admission ownership
-  after its configuration schema and projection are approved; do not introduce
-  a TaskGraph scheduler.
+  inspector, then use real multi-role work to validate the bounded runtime; do
+  not introduce a TaskGraph scheduler.
 - Evidence: `delegate_worker` creates one role-bound `AgentInvocation`,
   snapshots its parent binding id and worker profile, resolves the configured
   provider through the daemon resolver, excludes recursive delegation from the

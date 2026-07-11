@@ -42,6 +42,7 @@ type ModelGateway struct {
 	WorkingDir            string                  `json:"working_dir"`
 	RequestTimeoutSec     float64                 `json:"request_timeout_sec"`
 	AllowUnboundedRequest bool                    `json:"allow_unbounded_request"`
+	MaxParallel           int                     `json:"max_parallel,omitempty"`
 	Routes                map[string]GatewayRoute `json:"routes"`
 }
 
@@ -55,6 +56,7 @@ type GatewayRoute struct {
 	WorkingDir            string   `json:"working_dir"`
 	RequestTimeoutSec     float64  `json:"request_timeout_sec"`
 	AllowUnboundedRequest bool     `json:"allow_unbounded_request"`
+	MaxParallel           int      `json:"max_parallel,omitempty"`
 }
 
 type ModelProfiles struct {
@@ -71,6 +73,7 @@ type GatewayProfile struct {
 	ModelID                  string `json:"model_id"`
 	GatewayRoute             string `json:"gateway_route"`
 	ContextWindowTokens      int    `json:"context_window_tokens,omitempty"`
+	MaxParallel              int    `json:"max_parallel,omitempty"`
 	ProviderAdapterID        string `json:"provider_adapter_id,omitempty"`
 	ProviderAdapterProfileID string `json:"provider_adapter_profile_id,omitempty"`
 }

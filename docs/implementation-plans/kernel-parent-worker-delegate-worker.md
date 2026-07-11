@@ -60,8 +60,10 @@
 - Concurrency completion: role `max_parallel` is enforced at admission (default
   6) and parent `max_children` is enforced across roles (default 24); each
   admitted worker snapshots its parent binding id for restart-safe accounting.
-- Still short of production: provider-route and model-profile concurrency
-  admission remain a separate bounded slice, not TaskGraph scheduling.
+- Concurrency completion: configured positive provider-route and model-profile
+  `max_parallel` limits are now also enforced from the persisted invocation
+  snapshot; omitted values add no limit. This remains admission only, not
+  TaskGraph scheduling.
 
 ## Phase C: Operator And Desktop Projection
 

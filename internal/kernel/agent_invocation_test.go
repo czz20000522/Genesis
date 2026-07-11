@@ -272,6 +272,32 @@ func TestAdmitWorkerInvocationFromRoleDefaultsParentChildLimitToTwentyFour(t *te
 	}
 }
 
+func TestAdmitWorkerInvocationFromRoleEnforcesProfileAndRouteParallelLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		profileLimit int
+		routeLimit   int
+		want         string
+	}{
+		{name: "profile", profileLimit: 1, want: "model_profile"},
+		{name: "route", profileLimit: 6, routeLimit: 1, want: "provider_route"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configRoot := writeParentWorkerRuntimeConfigWithAllLimits(t, []string{"resource_read"}, 6, 0, tc.profileLimit, tc.routeLimit)
+			k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{PermissionMode: PermissionModePlan})
+			for index := 1; index <= 2; index++ {
+				_, err := k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{ConfigRoot: configRoot, SessionID: "worker-" + tc.name, Principal: "application:test", RoleID: "local-small-worker", IdempotencyKey: fmt.Sprintf("worker-%d", index)})
+				if index == 1 && err != nil {
+					t.Fatalf("first admission returned error: %v", err)
+				}
+				if index == 2 && (err == nil || !strings.Contains(err.Error(), "parallel_limit_exceeded") || !strings.Contains(err.Error(), tc.want)) {
+					t.Fatalf("second admission error = %v, want %s parallel limit", err, tc.want)
+				}
+			}
+		})
+	}
+}
+
 func TestAdmitWorkerInvocationFromRoleEnforcesParentChildLimitAcrossRoles(t *testing.T) {
 	configRoot := writeParentWorkerRuntimeConfigWithRoles(t, 2, map[string]int{
 		"reader":   6,
@@ -469,6 +495,10 @@ func writeParentWorkerRuntimeConfig(t *testing.T, toolSet []string) string {
 }
 
 func writeParentWorkerRuntimeConfigWithLimits(t *testing.T, toolSet []string, maxParallel int, maxChildren int) string {
+	return writeParentWorkerRuntimeConfigWithAllLimits(t, toolSet, maxParallel, maxChildren, 0, 0)
+}
+
+func writeParentWorkerRuntimeConfigWithAllLimits(t *testing.T, toolSet []string, maxParallel int, maxChildren int, profileMaxParallel int, routeMaxParallel int) string {
 	t.Helper()
 	tools := make([]any, 0, len(toolSet))
 	for _, tool := range toolSet {
@@ -490,9 +520,17 @@ func writeParentWorkerRuntimeConfigWithLimits(t *testing.T, toolSet []string, ma
 	if maxParallel > 0 {
 		worker["max_parallel"] = maxParallel
 	}
+	profile := map[string]any{"profile_id": "worker-profile", "model_id": "worker-model", "gateway_route": "worker-route"}
+	if profileMaxParallel > 0 {
+		profile["max_parallel"] = profileMaxParallel
+	}
+	route := map[string]any{}
+	if routeMaxParallel > 0 {
+		route["max_parallel"] = routeMaxParallel
+	}
 	return writeParentWorkerRuntimeConfigWithBindings(t, parent, map[string]any{
 		"local-small-worker": worker,
-	})
+	}, profile, route)
 }
 
 func writeParentWorkerRuntimeConfigWithRoles(t *testing.T, maxChildren int, roleLimits map[string]int) string {
@@ -512,16 +550,17 @@ func writeParentWorkerRuntimeConfigWithRoles(t *testing.T, maxChildren int, role
 		"allowed_worker_roles": roles,
 		"can_create_workers":   true,
 		"max_children":         maxChildren,
-	}, workers)
+	}, workers, map[string]any{"profile_id": "worker-profile", "model_id": "worker-model", "gateway_route": "worker-route"}, map[string]any{})
 }
 
-func writeParentWorkerRuntimeConfigWithBindings(t *testing.T, parent map[string]any, workers map[string]any) string {
+func writeParentWorkerRuntimeConfigWithBindings(t *testing.T, parent map[string]any, workers map[string]any, profile map[string]any, route map[string]any) string {
 	t.Helper()
 	return writeModelsConfig(t, map[string]any{
 		"model_gateway": map[string]any{
 			"protocol":       "openai-chat-completions",
 			"base_url":       "https://provider.example.com/api",
 			"credential_ref": "secret://models/provider/default",
+			"routes":         map[string]any{"worker-route": route},
 		},
 		"active_model_profile_bindings": map[string]any{
 			DefaultModelRole: "parent-profile",
@@ -533,10 +572,7 @@ func writeParentWorkerRuntimeConfigWithBindings(t *testing.T, parent map[string]
 						"profile_id": "parent-profile",
 						"model_id":   "frontier-parent",
 					},
-					"worker-profile": map[string]any{
-						"profile_id": "worker-profile",
-						"model_id":   "worker-model",
-					},
+					"worker-profile": profile,
 				},
 			},
 		},

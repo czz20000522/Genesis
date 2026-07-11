@@ -359,6 +359,7 @@ func TestResolveParentWorkerRuntimeFromGenesisProjectsRoleBindings(t *testing.T)
 				"local-qwen": map[string]any{
 					"base_url":       "http://127.0.0.1:8080/v1",
 					"credential_ref": "secret://models/local/qwen",
+					"max_parallel":   2,
 				},
 			},
 		},
@@ -382,6 +383,7 @@ func TestResolveParentWorkerRuntimeFromGenesisProjectsRoleBindings(t *testing.T)
 						"model_id":              "qwen-agentworld",
 						"gateway_route":         "local-qwen",
 						"context_window_tokens": 262144,
+						"max_parallel":          1,
 					},
 				},
 			},
@@ -432,7 +434,7 @@ func TestResolveParentWorkerRuntimeFromGenesisProjectsRoleBindings(t *testing.T)
 	if strings.Join(worker.ToolSet, ",") != "resource_read,source_read" {
 		t.Fatalf("tool set = %v, want sorted unique preset tools", worker.ToolSet)
 	}
-	if worker.ContextPolicyRef != "context:diff-plus-issue" || worker.MaxParallel != 1 || !worker.LeafOnly {
+	if worker.ContextPolicyRef != "context:diff-plus-issue" || worker.MaxParallel != 1 || worker.ProfileMaxParallel != 1 || worker.RouteMaxParallel != 2 || !worker.LeafOnly {
 		t.Fatalf("worker controls = %+v", worker)
 	}
 	encoded, err := json.Marshal(projection)

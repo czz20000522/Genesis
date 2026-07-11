@@ -49,6 +49,7 @@ type AgentInvocationProjection struct {
 	Principal           string          `json:"principal"`
 	AgentProfileRef     string          `json:"agent_profile_ref,omitempty"`
 	ModelProfileID      string          `json:"model_profile_id,omitempty"`
+	ProviderRoute       string          `json:"provider_route,omitempty"`
 	CapabilityGrant     CapabilityGrant `json:"capability_grant"`
 	ContextScope        string          `json:"context_scope,omitempty"`
 	ParentResultChannel string          `json:"parent_result_channel,omitempty"`

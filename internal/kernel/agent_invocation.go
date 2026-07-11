@@ -16,10 +16,10 @@ var (
 )
 
 func (k *Kernel) AdmitAgentInvocation(req AgentInvocationAdmissionRequest) (AgentInvocationProjection, error) {
-	return k.admitAgentInvocation(req, "", "")
+	return k.admitAgentInvocation(req, "", "", "")
 }
 
-func (k *Kernel) admitAgentInvocation(req AgentInvocationAdmissionRequest, modelProfileID string, parentRoleID string) (AgentInvocationProjection, error) {
+func (k *Kernel) admitAgentInvocation(req AgentInvocationAdmissionRequest, modelProfileID string, providerRoute string, parentRoleID string) (AgentInvocationProjection, error) {
 	if err := validateAgentInvocationAdmissionRequest(req); err != nil {
 		return AgentInvocationProjection{}, err
 	}
@@ -28,10 +28,10 @@ func (k *Kernel) admitAgentInvocation(req AgentInvocationAdmissionRequest, model
 	}
 	k.workMu.Lock()
 	defer k.workMu.Unlock()
-	return k.admitAgentInvocationLocked(req, modelProfileID, parentRoleID)
+	return k.admitAgentInvocationLocked(req, modelProfileID, providerRoute, parentRoleID)
 }
 
-func (k *Kernel) admitAgentInvocationLocked(req AgentInvocationAdmissionRequest, modelProfileID string, parentRoleID string) (AgentInvocationProjection, error) {
+func (k *Kernel) admitAgentInvocationLocked(req AgentInvocationAdmissionRequest, modelProfileID string, providerRoute string, parentRoleID string) (AgentInvocationProjection, error) {
 	sessionID := strings.TrimSpace(req.SessionID)
 	if key := strings.TrimSpace(req.IdempotencyKey); key != "" {
 		existing, ok, err := k.agentInvocationByIdempotencyKey(sessionID, key)
@@ -72,6 +72,7 @@ func (k *Kernel) admitAgentInvocationLocked(req AgentInvocationAdmissionRequest,
 		Principal:           strings.TrimSpace(req.Principal),
 		AgentProfileRef:     strings.TrimSpace(req.AgentProfileRef),
 		ModelProfileID:      strings.TrimSpace(modelProfileID),
+		ProviderRoute:       strings.TrimSpace(providerRoute),
 		CapabilityGrant:     grant,
 		ContextScope:        strings.TrimSpace(req.ContextScope),
 		ParentResultChannel: strings.TrimSpace(req.ParentResultChannel),
@@ -229,6 +230,9 @@ func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequ
 	if err := k.admitWorkerRoleConcurrency(worker); err != nil {
 		return AgentInvocationProjection{}, err
 	}
+	if err := k.admitWorkerProfileAndRouteConcurrency(worker); err != nil {
+		return AgentInvocationProjection{}, err
+	}
 	if err := validateRequestedWorkerTools(req.RequestedToolNames, worker.ToolSet); err != nil {
 		return AgentInvocationProjection{}, err
 	}
@@ -246,7 +250,7 @@ func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequ
 		ContextScope:        contextScope,
 		ParentResultChannel: req.ParentResultChannel,
 		IdempotencyKey:      req.IdempotencyKey,
-	}, worker.ProfileID, runtime.Parent.ParentID)
+	}, worker.ProfileID, worker.ProviderRoute, runtime.Parent.ParentID)
 }
 
 func (k *Kernel) admitWorkerParentConcurrency(parent ParentBindingProjection) error {
@@ -295,6 +299,39 @@ func (k *Kernel) admitWorkerRoleConcurrency(worker WorkerRoleBindingProjection) 
 	}
 	if active >= worker.MaxParallel {
 		return errors.New("parallel_limit_exceeded: worker_role")
+	}
+	return nil
+}
+
+func (k *Kernel) admitWorkerProfileAndRouteConcurrency(worker WorkerRoleBindingProjection) error {
+	if worker.ProfileMaxParallel <= 0 && worker.RouteMaxParallel <= 0 {
+		return nil
+	}
+	invocations, err := k.agentInvocations()
+	if err != nil {
+		return err
+	}
+	runs, err := k.agentInvocationRuns()
+	if err != nil {
+		return err
+	}
+	profileActive, routeActive := 0, 0
+	for _, invocation := range invocations {
+		if run, ok := runsForInvocation(runs, invocation.InvocationID); ok && isTerminalAgentInvocationRun(run) {
+			continue
+		}
+		if invocation.ModelProfileID == worker.ProfileID {
+			profileActive++
+		}
+		if invocation.ProviderRoute == worker.ProviderRoute {
+			routeActive++
+		}
+	}
+	if worker.ProfileMaxParallel > 0 && profileActive >= worker.ProfileMaxParallel {
+		return errors.New("parallel_limit_exceeded: model_profile")
+	}
+	if worker.RouteMaxParallel > 0 && routeActive >= worker.RouteMaxParallel {
+		return errors.New("parallel_limit_exceeded: provider_route")
 	}
 	return nil
 }
@@ -969,6 +1006,8 @@ func sameAgentInvocation(left AgentInvocationProjection, right AgentInvocationPr
 		left.ParentInvocationID == right.ParentInvocationID &&
 		left.Principal == right.Principal &&
 		left.AgentProfileRef == right.AgentProfileRef &&
+		left.ModelProfileID == right.ModelProfileID &&
+		left.ProviderRoute == right.ProviderRoute &&
 		left.ContextScope == right.ContextScope &&
 		left.ParentResultChannel == right.ParentResultChannel &&
 		left.Status == right.Status &&

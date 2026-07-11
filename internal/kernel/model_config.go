@@ -75,6 +75,8 @@ type WorkerRoleBindingProjection struct {
 	ToolSet             []string `json:"tool_set,omitempty"`
 	ContextPolicyRef    string   `json:"context_policy_ref,omitempty"`
 	MaxParallel         int      `json:"max_parallel"`
+	ProfileMaxParallel  int      `json:"profile_max_parallel,omitempty"`
+	RouteMaxParallel    int      `json:"route_max_parallel,omitempty"`
 	LeafOnly            bool     `json:"leaf_only"`
 }
 
@@ -358,6 +360,10 @@ func projectWorkerRoleBinding(config genesisModelsConfig, roleID string, worker 
 	if err != nil {
 		return WorkerRoleBindingProjection{}, err
 	}
+	route, err := selectGatewayRoute(config.ModelGateway, profile.GatewayRoute)
+	if err != nil {
+		return WorkerRoleBindingProjection{}, err
+	}
 	return WorkerRoleBindingProjection{
 		RoleID:              roleID,
 		ProfileID:           firstNonEmpty(worker.ProfileID, profile.ProfileID),
@@ -367,6 +373,8 @@ func projectWorkerRoleBinding(config genesisModelsConfig, roleID string, worker 
 		ToolSet:             toolSet,
 		ContextPolicyRef:    strings.TrimSpace(worker.ContextPolicyRef),
 		MaxParallel:         normalizedMaxParallel(worker.MaxParallel),
+		ProfileMaxParallel:  profile.MaxParallel,
+		RouteMaxParallel:    route.MaxParallel,
 		LeafOnly:            true,
 	}, nil
 }

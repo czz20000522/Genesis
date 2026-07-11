@@ -233,7 +233,7 @@ Worker 输出可以像 parent 对话一样单独渲染为 child conversation pro
 - parent 或 session 级预算上限；
 - 当前 ToolPolicy 或 operator policy。
 
-本地 llama.cpp profile 可以配置为 `max_parallel=1`。云端 profile 可以配置更高并发。Role 未配置上限时默认 6，parent 未配置总量时默认 24。内核不假设所有 provider 都能并行，也不把并发能力从 provider 名称中推断出来。
+本地 llama.cpp profile 可以配置为 `max_parallel=1`。云端 profile 可以配置更高并发。Role 未配置上限时默认 6，parent 未配置总量时默认 24；route/profile 的 `max_parallel` 只有正数才形成额外上限，省略时不改变 role/parent 的准入。内核不假设所有 provider 都能并行，也不把并发能力从 provider 名称中推断出来。
 
 ## 失败语义
 
