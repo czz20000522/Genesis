@@ -166,6 +166,6 @@ unbound OpenAI-compatible model.
 ## Relationship To Existing Issues
 
 `KERNEL-PROVIDER-REASONING-MESSAGES-20260710` tracks the implementation gap.
-`APP-FIRST-RUN-PROVIDER-COMMAND-ACCEPTANCE-20260710` is the downstream
-acceptance-runbook gap and must use the canonical reasoning path when Phase A
-is available.
+The downstream configured-provider acceptance is retired in
+`docs/operations/application-retirement-log.md`; it uses the canonical
+reasoning path when the selected adapter exposes it.

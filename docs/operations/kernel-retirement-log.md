@@ -14,6 +14,27 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-LOCAL-PROVIDER-UNBOUNDED-20260711 - P1 - Explicit local provider requests have no generated deadline
+
+- Status: ready_for_acceptance.
+- Conclusion: the selected local `provider_command` route alone may declare
+  `allow_unbounded_request`; it omits `max_tokens` and command/HTTP deadlines
+  while preserving caller cancellation, and cloud or undeclared routes remain
+  bounded.
+- Evidence: `TestCommandProviderExplicitUnboundedRequestDoesNotAddDeadline`,
+  resolver/verify policy tests, and llama.cpp adapter self-test pass. On
+  2026-07-12, configured Qwen completed the exact live acceptance turn,
+  survived daemon restart with four turn events and ready context, and the
+  missing-config probe returned `provider_config_missing` /
+  `provider_unavailable`; the test-owned WSL PID was then stopped with no
+  remaining `llama-server` process.
+- Verification: `go test ./... -count=1`; `go build ./...`; configured
+  `scripts/first_run_live_llm_acceptance.ps1 -UseConfiguredProfile` run.
+- Reference alignment: Codex resolves turn configuration before execution and
+  Reasonix builds from the selected session configuration. Genesis keeps the
+  same resolved-owner rule while restricting unbounded behavior to one local
+  provider-command route.
+
 ### KERNEL-LEDGER-DEAD-WRITER-RESTART-20260710 - P1 - Dead writer lock blocks immediate restart
 
 - Status: ready_for_acceptance.

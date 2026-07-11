@@ -126,51 +126,6 @@ Genesis Kernel. Kernel primitive gaps belong in
   Reasonix session-owned process handles; intentionally rejects background
   service discovery and automatic restart.
 
-### APP-FIRST-RUN-PROVIDER-COMMAND-ACCEPTANCE-20260710 - P1 - First-run acceptance skips the configured local provider path
-
-- Status: manual_test_pending.
-- Exception: obvious acceptance-test and runbook gap. This issue does not add a
-  provider capability or change the kernel provider contract.
-  - Kernel/owner pressure: the model gateway accepts provider output only through
-    the configured provider adapter; provider commands own local wire-format
-    translation before a result reaches the kernel.
-- Gap: `scripts/first_run_live_llm_acceptance.ps1` constructs a generic
-    OpenAI-compatible profile from `-BaseUrl`, `-Model`, and an API key. The
-    configured local Qwen route uses `provider_command`, which maps llama.cpp
-    `reasoning_content` into a canonical reasoning message. A new
-    `-UseConfiguredProfile` path now selects the configured route without
-    fabricating an API key; the remaining local-Qwen gap is the explicit
-    unbounded-request kernel contract, because no output ceiling or outer
-    deadline may truncate a valid local answer.
-- Dependency: `KERNEL-PROVIDER-REASONING-MESSAGES-20260710` must first provide
-  the canonical reasoning path. The acceptance runbook must prove that path
-  rather than forcing the local adapter through a generic OpenAI-compatible
-  profile.
-- Next slice: after
-  `KERNEL-LOCAL-PROVIDER-UNBOUNDED-20260711` provides the explicit local
-  no-deadline contract, run the configured Qwen acceptance path without a
-  generated output cap. Do not make the generic OpenAI-compatible provider
-  discard unknown vendor fields or invent an API key for a provider command.
-- Evidence: `-UseConfiguredProfile` passed end-to-end against an isolated
-  deterministic provider command: provider verify, final turn, restart replay,
-  and a missing-config `provider_unavailable` probe all passed without an API
-  key. On 2026-07-11, real Qwen reached the configured command but generated
-  unbounded reasoning until the verify deadline, producing structured
-  `provider_error`; its WSL launcher was then stopped. On 2026-07-12, the
-  same isolated acceptance surface passed against configured OpenCode Go GLM
-  5.2 (`coder` / `opencode-go-glm-5-2`): provider verify was ready, the final
-  was `GENESIS_LIVE_LLM_ACCEPTANCE_OK`, restart replay retained one timeline
-  item, three events, and ready context, and the missing-config probe returned
-  `provider_config_missing` / `provider_unavailable`. This closes the Stage 1
-  real-provider proof, not the pending local-Qwen acceptance.
-- Verification: The selected acceptance surface must execute a real turn,
-  restart against the same ledger, replay the settled projections, and retain a
-  negative readiness or credential-path proof appropriate to its provider kind.
-- Reference alignment: This preserves the existing provider boundary: the
-  OpenAI-compatible adapter rejects unrecognized vendor response fields, while
-  `provider_command` owns adapter-specific translation. No connector, desktop,
-  or kernel truth owner should translate or suppress that field.
-
 ### APP-DESKTOP-PERSISTENT-SESSION-WORKSPACES-20260711 - P1 - Local-model acceptance is incomplete after Project/Task/Chat entry implementation
 
 - Status: manual_test_pending.

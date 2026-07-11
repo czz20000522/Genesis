@@ -26,33 +26,6 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
-### KERNEL-LOCAL-PROVIDER-UNBOUNDED-20260711 - P1 - Explicit local provider requests still inherit generated deadlines
-
-- Status: open.
-- Requirement: `docs/requirements/kernel-local-provider-unbounded.md`.
-  - Design: `docs/design/kernel-local-provider-unbounded.md`.
-  - Gap: The configured local llama.cpp provider command currently receives a
-    finite default command deadline, a separate live-verify deadline, and a
-    Python HTTP deadline. Its Qwen model can validly exceed those deadlines
-    while emitting visible reasoning; an output `max_tokens` limit would also
-    be an unacceptable truncation policy.
-  - Next slice: add and test the explicit provider-command-only
-    `allow_unbounded_request` contract from the approved plan. Preserve all
-    cloud and undeclared command defaults, strict response validation, and
-    caller-driven interruption.
-  - Evidence: On 2026-07-11, configured local Qwen reached the provider
-    command at roughly 52 generated tokens/second but continued past the live
-    verification deadline while producing reasoning. Stopping the exact
-    desktop-owned process tree left no llama process. The configured-profile
-    first-run path itself passes with a deterministic command fixture.
-- Verification: resolver and command cancellation tests; provider verify CLI
-  policy tests; llama adapter self-test; real configured local turn plus
-  restart replay; full Go/build/desktop checks.
-- Reference alignment: Codex starts turns from a selected configuration
-  snapshot and Reasonix builds each ACP controller from selected session
-  parameters. Genesis uses the same resolved-owner principle but intentionally
-  limits unbounded operation to one explicitly declared local command route.
-
 ### KERNEL-SESSION-WORKSPACE-BINDING-20260711 - P1 - Desktop end-to-end acceptance remains after session-scoped binding implementation
 
 - Status: open.

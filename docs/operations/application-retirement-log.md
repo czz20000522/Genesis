@@ -10,6 +10,13 @@ tests, governing requirement/design, or still-active issues.
 
 ## Retired Issues
 
+### APP-FIRST-RUN-PROVIDER-COMMAND-ACCEPTANCE-20260710 - Exercise configured local provider acceptance
+
+- Retired: configured local Qwen now completes the full `-UseConfiguredProfile`
+  acceptance flow without generated output or request deadlines, including
+  provider verify, final turn, restart replay, and missing-config rejection.
+  Evidence: `dbf6454a3` plus the 2026-07-12 live acceptance run.
+
 ### APP-CONNECTOR-OPERATOR-CONSOLE-20260623 - Add connector-local reconciliation probe evidence
 
 - Retired: `genesis-console probe-outbox` now records read-only `ReconciliationEvidence` for `recovery_required` outbox items using exact lookup handles only, `inspect` projects the evidence, and terminal recovery remains an explicit connector-owned `resolve-outbox` step without adapter resend or kernel mutation. Evidence: retiring Lore commit.
