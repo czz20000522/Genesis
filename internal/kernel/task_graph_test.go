@@ -210,6 +210,46 @@ func TestTaskGraphRoleTaskProposalRejectsUnknownRoleBeforeAppend(t *testing.T) {
 	}
 }
 
+func TestTaskGraphWorkerCompletionStartsReadyDependent(t *testing.T) {
+	configRoot := writeParentWorkerRuntimeConfig(t, []string{"resource_read"})
+	child := &delegateWorkerChildProvider{completed: make(chan ModelRequest, 2)}
+	k := newAgentInvocationRunTestKernel(t, Config{LedgerPath: filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy: ToolPolicy{PermissionMode: PermissionModePlan}, ParentWorkerConfigRoot: configRoot, WorkerProviderResolver: func(string) (Provider, error) { return child, nil }})
+	graph, _ := k.CreateTaskGraph(TaskGraphCreateRequest{SessionID: "graph-dependent-worker"})
+	first, err := k.ProposeTaskGraphWorkerNode(TaskGraphWorkerNodeProposal{GraphID: graph.GraphID, RoleID: "local-small-worker", Task: "first"})
+	if err != nil {
+		t.Fatalf("propose first: %v", err)
+	}
+	second, err := k.ProposeTaskGraphWorkerNode(TaskGraphWorkerNodeProposal{GraphID: graph.GraphID, RoleID: "local-small-worker", Task: "second"})
+	if err != nil {
+		t.Fatalf("propose second: %v", err)
+	}
+	if err := k.AddTaskGraphEdge(TaskGraphEdgeRequest{GraphID: graph.GraphID, FromNodeID: first.NodeID, ToNodeID: second.NodeID}); err != nil {
+		t.Fatalf("add edge: %v", err)
+	}
+	if err := k.StartTaskGraph(graph.GraphID); err != nil {
+		t.Fatalf("start graph: %v", err)
+	}
+	for _, want := range []string{"first", "second"} {
+		select {
+		case request := <-child.completed:
+			if request.InputItems[0].Text != want {
+				t.Fatalf("worker task = %q, want %q", request.InputItems[0].Text, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("worker %q did not start", want)
+		}
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		projection, _ := k.TaskGraph(graph.GraphID)
+		if taskGraphNodeByID(t, projection, first.NodeID).Status == TaskGraphNodeStatusCompleted && taskGraphNodeByID(t, projection, second.NodeID).InvocationID != "" {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("graph did not reduce first completion and link second worker")
+}
+
 func taskGraphNodeByID(t *testing.T, graph TaskGraphProjection, nodeID string) TaskGraphNodeProjection {
 	t.Helper()
 	for _, node := range graph.Nodes {
