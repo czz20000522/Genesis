@@ -466,7 +466,14 @@ func (k *Kernel) recoverQueuedDelegatedWorkers() error {
 		if strings.TrimSpace(invocation.ParentTurnID) == "" || strings.TrimSpace(invocation.IdempotencyKey) == "" {
 			continue
 		}
-		if _, terminal, err := k.terminalAgentInvocationRun(invocation.InvocationID); err != nil || terminal {
+		if terminalRun, terminal, err := k.terminalAgentInvocationRun(invocation.InvocationID); err != nil {
+			return err
+		} else if terminal {
+			if !delegationTerminalResultRecorded(events, invocation) {
+				k.finishDelegatedWorker(terminalRun)
+			} else if !turnHasFinal(events, invocation.ParentTurnID) {
+				go k.continueDelegatedParent(invocation.SessionID, invocation.ParentTurnID)
+			}
 			continue
 		}
 		if agentInvocationHasStartedRun(events, invocation.InvocationID) {
@@ -494,6 +501,24 @@ func (k *Kernel) recoverQueuedDelegatedWorkers() error {
 		})
 	}
 	return nil
+}
+
+func delegationTerminalResultRecorded(events []StoredEvent, invocation AgentInvocationProjection) bool {
+	for _, event := range events {
+		if event.SessionID == invocation.SessionID && event.TurnID == invocation.ParentTurnID && event.Type == "tool.result" && event.Data.ToolResult != nil && event.Data.ToolResult.ForEventID == invocation.IdempotencyKey && event.Data.ToolResult.Status != "queued" {
+			return true
+		}
+	}
+	return false
+}
+
+func turnHasFinal(events []StoredEvent, turnID string) bool {
+	for _, event := range events {
+		if event.TurnID == turnID && event.Type == "model.final" && event.Data.Final != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func runsForInvocation(runs map[string]AgentInvocationRunProjection, invocationID string) (AgentInvocationRunProjection, bool) {
