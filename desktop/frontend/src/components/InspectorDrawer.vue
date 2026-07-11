@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { DesktopUpdate, KernelTimelineDetail } from '../api/kernelApi'
+import type { AgentInvocationChildConversation, AgentInvocationProjection, DesktopUpdate, KernelTimelineDetail } from '../api/kernelApi'
 
 const props = defineProps<{
   baseUrl: string
@@ -11,6 +11,8 @@ const props = defineProps<{
   materialSummary: string[]
   debugSummaryRows: string[]
   compactionSummaryRows: string[]
+  workerInvocations: AgentInvocationProjection[]
+  workerConversation: AgentInvocationChildConversation | null
   debugExportReady: boolean
   updateToken: string
   update: DesktopUpdate | null
@@ -26,6 +28,8 @@ defineEmits<{
   exportDebug: []
   downloadDebug: []
   compactContext: []
+  refreshWorkers: []
+  selectWorker: [invocationId: string]
   'update:updateToken': [value: string]
   saveUpdateToken: []
   checkUpdate: []
@@ -37,6 +41,14 @@ const detailItem = computed(() => props.detail?.item ?? {})
 
 function detailField(name: string) {
   return String(detailItem.value[name] ?? '').trim()
+}
+
+function workerRole(worker: AgentInvocationProjection) {
+  return String(worker.agent_profile_ref ?? '').replace(/^agent_profile:/, '') || 'worker'
+}
+
+function workerStatus(worker: AgentInvocationProjection) {
+  return String(worker.status ?? 'admitted')
 }
 </script>
 
@@ -61,6 +73,37 @@ function detailField(name: string) {
         <input :value="runtimeToken" type="password" spellcheck="false" @input="$emit('update:runtimeToken', ($event.target as HTMLInputElement).value)" />
       </label>
       <button type="button" class="secondary-button" @click="$emit('checkReady')">检查连接</button>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <p class="eyebrow">工作代理</p>
+        <button type="button" class="secondary-button" @click="$emit('refreshWorkers')">刷新</button>
+      </div>
+      <p v-if="!workerInvocations.length" class="status">当前会话尚未创建工作代理。</p>
+      <button v-for="worker in workerInvocations" :key="worker.invocation_id" type="button" class="worker-row" @click="$emit('selectWorker', String(worker.invocation_id || ''))">
+        <span>{{ workerRole(worker) }}</span>
+        <small>{{ workerStatus(worker) }}</small>
+      </button>
+    </section>
+
+    <section v-if="workerConversation" class="detail-panel">
+      <p class="eyebrow">工作代理对话</p>
+      <h2>{{ workerConversation.role_id || 'worker' }} · {{ workerConversation.status || 'unknown' }}</h2>
+      <dl>
+        <template v-if="workerConversation.model">
+          <dt>模型</dt>
+          <dd>{{ workerConversation.model }}</dd>
+        </template>
+        <template v-if="workerConversation.final?.text">
+          <dt>终态</dt>
+          <dd><pre>{{ workerConversation.final.text }}</pre></dd>
+        </template>
+        <template v-if="workerConversation.error?.code || workerConversation.error?.message">
+          <dt>失败</dt>
+          <dd>{{ workerConversation.error?.code || 'worker_failed' }}{{ workerConversation.error?.message ? `: ${workerConversation.error.message}` : '' }}</dd>
+        </template>
+      </dl>
     </section>
 
     <section class="panel">

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { applyProviderRole, bindSessionWorkspace, compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
+import { applyProviderRole, bindSessionWorkspace, compactSessionContext, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -265,6 +265,45 @@ try {
   assert.deepEqual(detail.item, { kind: 'operation_detail', visible_output: 'done' })
 } finally {
   globalThis.fetch = originalFetch
+}
+
+let workerProjectionURL = ''
+let workerProjectionAuth = ''
+const originalFetchForWorkerProjection = globalThis.fetch
+globalThis.fetch = async (input, init) => {
+  workerProjectionURL = String(input)
+  workerProjectionAuth = new Headers(init?.headers).get('Authorization') ?? ''
+  return new Response(JSON.stringify([{ invocation_id: 'worker-1', agent_profile_ref: 'agent_profile:reviewer', status: 'admitted' }]), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const workers = await getSessionAgentInvocations({ baseUrl: 'http://127.0.0.1:8765/', runtimeToken: 'secret' }, 'session/a')
+  assert.equal(workerProjectionURL, 'http://127.0.0.1:8765/sessions/session%2Fa/agent-invocations')
+  assert.equal(workerProjectionAuth, 'Bearer secret')
+  assert.equal(workers[0]?.invocation_id, 'worker-1')
+} finally {
+  globalThis.fetch = originalFetchForWorkerProjection
+}
+
+let childConversationURL = ''
+const originalFetchForChildConversation = globalThis.fetch
+globalThis.fetch = async (input) => {
+  childConversationURL = String(input)
+  return new Response(JSON.stringify({ invocation_id: 'worker-1', role_id: 'reviewer', status: 'completed', final: { text: 'review accepted' } }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const child = await getAgentInvocationChildConversation({ baseUrl: 'http://127.0.0.1:8765', runtimeToken: '' }, 'worker/1')
+  assert.equal(childConversationURL, 'http://127.0.0.1:8765/agent-invocations/worker%2F1/child-conversation')
+  assert.equal(child.final?.text, 'review accepted')
+} finally {
+  globalThis.fetch = originalFetchForChildConversation
 }
 
 let streamUrl = ''

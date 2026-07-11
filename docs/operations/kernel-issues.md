@@ -34,17 +34,22 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Gap: role-bound dispatch now resumes the parent after normal completion and
   restart recovery, fails closed for an ambiguous started worker, enforces role
   concurrency (default 6), and enforces parent `max_children` across roles
-  (default 24). Provider-route/model-profile concurrency admission and the
-  desktop child-conversation operator projection remain unimplemented.
-- Next slice: add only the missing provider/profile admission ownership after
-  its configuration schema and projection are approved, then deliver the
-  existing Phase C desktop projection; do not introduce a TaskGraph scheduler.
+  (default 24). Desktop now lists the current session's worker projections and
+  opens each child conversation only in its inspector; provider-route/model-
+  profile concurrency admission and manual desktop acceptance remain.
+- Next slice: complete manual desktop acceptance for the child-conversation
+  inspector, then add only the missing provider/profile admission ownership
+  after its configuration schema and projection are approved; do not introduce
+  a TaskGraph scheduler.
 - Evidence: `delegate_worker` creates one role-bound `AgentInvocation`,
   snapshots its parent binding id and worker profile, resolves the configured
   provider through the daemon resolver, excludes recursive delegation from the
   worker manifest, and returns a bounded terminal result into the paused parent
   turn. Queued work recovers after restart and ambiguous started work records a
   sanitized failure instead of replaying it.
+- Desktop evidence: the existing HTTP choke point reads only the session worker
+  list and individual bounded child projection; the main transcript remains
+  parent-only and the desktop does not write delegation facts.
 - Verification: parent tool-loop pause and continuation, queued/terminal/ambiguous
   restart recovery, role/profile resolver, leaf grant filtering, role and
   parent concurrency limits, then full Go tests and build.

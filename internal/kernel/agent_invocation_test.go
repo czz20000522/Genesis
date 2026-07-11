@@ -881,6 +881,10 @@ func TestSubmitTurnDelegateWorkerPausesParentAndRunsRoleBoundLeaf(t *testing.T) 
 	if conversation.Status != AgentInvocationRunStatusCompleted || conversation.Final.Text != "worker final" {
 		t.Fatalf("child conversation = %+v, want bounded completed final", conversation)
 	}
+	invocations, err = k.AgentInvocations("delegate-worker-parent")
+	if err != nil || len(invocations) != 1 || invocations[0].Status != AgentInvocationRunStatusCompleted {
+		t.Fatalf("worker list = %+v error = %v, want completed status", invocations, err)
+	}
 	select {
 	case <-parent.finalized:
 	case <-time.After(time.Second):

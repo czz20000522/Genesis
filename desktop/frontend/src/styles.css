@@ -911,6 +911,37 @@ label {
   box-shadow: 0 1px 3px rgb(20 26 33 / 10%);
 }
 
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.worker-row {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  color: var(--text);
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+}
+
+.worker-row small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.worker-row:active {
+  transform: scale(.96);
+}
+
 dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

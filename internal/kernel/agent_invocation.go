@@ -171,9 +171,16 @@ func (k *Kernel) AgentInvocations(sessionID string) ([]AgentInvocationProjection
 	if err != nil {
 		return nil, err
 	}
+	runs, err := k.agentInvocationRuns()
+	if err != nil {
+		return nil, err
+	}
 	items := make([]AgentInvocationProjection, 0, len(invocations))
 	for _, invocation := range invocations {
 		if invocation.SessionID == sessionID {
+			if run, ok := runsForInvocation(runs, invocation.InvocationID); ok {
+				invocation.Status = run.Status
+			}
 			items = append(items, invocation)
 		}
 	}
@@ -584,12 +591,18 @@ func turnHasFinal(events []StoredEvent, turnID string) bool {
 }
 
 func runsForInvocation(runs map[string]AgentInvocationRunProjection, invocationID string) (AgentInvocationRunProjection, bool) {
+	var selected AgentInvocationRunProjection
+	found := false
 	for _, run := range runs {
-		if run.InvocationID == invocationID {
-			return run, true
+		if run.InvocationID != invocationID {
+			continue
+		}
+		if !found || run.StartedAt.After(selected.StartedAt) || (run.StartedAt.Equal(selected.StartedAt) && run.RunID > selected.RunID) {
+			selected = run
+			found = true
 		}
 	}
-	return AgentInvocationRunProjection{}, false
+	return selected, found
 }
 
 func agentInvocationHasStartedRun(events []StoredEvent, invocationID string) bool {

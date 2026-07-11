@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { applyProviderRole, bindSessionWorkspace, checkForUpdate, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TurnResponse } from './api/kernelApi'
+import { applyProviderRole, bindSessionWorkspace, checkForUpdate, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -32,6 +32,8 @@ const selectedFile = ref<File | MaterialFileSelection | null>(null)
 const material = ref<MaterialIntakeProjection | null>(null)
 const debugExport = ref<SessionDebugExport | null>(null)
 const compaction = ref<ContextCompactionResponse | null>(null)
+const workerInvocations = ref<AgentInvocationProjection[]>([])
+const workerConversation = ref<AgentInvocationChildConversation | null>(null)
 const inspectorOpen = ref(false)
 const liveUserText = ref('')
 const liveAssistantText = ref('')
@@ -170,6 +172,8 @@ function resetSessionViewState() {
   material.value = null
   debugExport.value = null
   compaction.value = null
+  workerInvocations.value = []
+  workerConversation.value = null
   messageText.value = ''
   liveUserText.value = ''
   liveAssistantText.value = ''
@@ -374,6 +378,7 @@ async function loadTimeline() {
   try {
     timeline.value = await getTimeline(config.value, session)
     await loadSessionApproval(session)
+    await loadWorkerInvocations(session)
     lastTurn.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -405,6 +410,7 @@ async function sendMessage() {
     if (fileWasSelected) selectedFile.value = null
     timeline.value = await getTimeline(config.value, session)
     await loadSessionApproval(session)
+    await loadWorkerInvocations(session)
     await loadSessions()
     liveUserText.value = ''
     liveAssistantText.value = ''
@@ -413,6 +419,7 @@ async function sendMessage() {
     if (stopRequested.value && message.includes('turn_interrupted')) {
       timeline.value = await getTimeline(config.value, session)
       await loadSessionApproval(session)
+      await loadWorkerInvocations(session)
       await loadSessions()
     } else {
       error.value = message
@@ -454,6 +461,24 @@ async function loadSessionApproval(session = currentSession()) {
     const approvalSession = String(approval.session_id ?? session).trim()
     return approval.status === 'pending' && approvalSession === session
   })
+}
+
+async function loadWorkerInvocations(session = currentSession()) {
+  if (!session) return
+  workerInvocations.value = await getSessionAgentInvocations(config.value, session)
+}
+
+async function loadWorkerConversation(invocationID: string) {
+  const normalized = String(invocationID || '').trim()
+  if (!normalized) return
+  error.value = ''
+  saveKernelConfig(config.value)
+  try {
+    workerConversation.value = await getAgentInvocationChildConversation(config.value, normalized)
+    inspectorOpen.value = true
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
 }
 
 async function answerApproval(approvalID: string, decision: ApprovalDecision) {
@@ -657,6 +682,8 @@ async function initializeDesktop() {
       :material-summary="materialSummary"
       :debug-summary-rows="debugSummaryRows"
       :compaction-summary-rows="compactionSummaryRows"
+	  :worker-invocations="workerInvocations"
+	  :worker-conversation="workerConversation"
       :debug-export-ready="Boolean(debugExport)"
 	  :update-token="updateToken"
 	  :update="update"
@@ -669,6 +696,8 @@ async function initializeDesktop() {
       @export-debug="exportDebug"
       @download-debug="downloadDebugExport"
       @compact-context="compactContext"
+	  @refresh-workers="loadWorkerInvocations()"
+	  @select-worker="loadWorkerConversation"
 	  @update:update-token="updateToken = $event"
 	  @save-update-token="saveDesktopUpdateToken"
 	  @check-update="refreshDesktopUpdate"

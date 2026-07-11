@@ -67,6 +67,9 @@
 
 - Deliverable: project delegation status, child conversation link, safe failure,
   and parent continuation state for desktop inspection.
+- Current slice: the desktop inspector reads the existing session invocation
+  list and bounded child-conversation endpoint; the list folds the latest run
+  status into its read projection, while the parent transcript remains isolated.
 - Red lines: no raw child trace in parent projection and no desktop-owned facts.
 - Tests: HTTP/session projection and desktop bridge rendering proof.
 

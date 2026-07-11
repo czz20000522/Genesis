@@ -122,6 +122,37 @@ export type SessionProjection = {
   approvals?: ApprovalProjection[]
 }
 
+export type AgentInvocationProjection = {
+  invocation_id?: string
+  session_id?: string
+  parent_turn_id?: string
+  parent_invocation_id?: string
+  parent_role_id?: string
+  agent_profile_ref?: string
+  model_profile_id?: string
+  context_scope?: string
+  status?: string
+  admitted_at?: string
+}
+
+export type AgentInvocationChildConversation = {
+  invocation_id?: string
+  run_id?: string
+  session_id?: string
+  role_id?: string
+  status?: string
+  model?: string
+  final?: {
+    text?: string
+  }
+  error?: {
+    code?: string
+    message?: string
+  }
+  usage?: Record<string, number>
+  evidence_refs?: string[]
+}
+
 export type SessionWorkspaceKind = 'project' | 'task' | 'none'
 
 export type ProjectDirectorySelection = {
@@ -315,6 +346,17 @@ export async function getSession(config: KernelConfig, sessionId: string) {
   const bridge = wailsAppBridge()
   if (bridge?.ReadSession) return bridge.ReadSession(session) as Promise<SessionProjection>
   return requestKernel<SessionProjection>(config, `/sessions/${encodeURIComponent(session)}`)
+}
+
+export async function getSessionAgentInvocations(config: KernelConfig, sessionId: string) {
+  const session = requiredSessionId(sessionId)
+  return requestKernel<AgentInvocationProjection[]>(config, `/sessions/${encodeURIComponent(session)}/agent-invocations`)
+}
+
+export async function getAgentInvocationChildConversation(config: KernelConfig, invocationId: string) {
+  const invocation = String(invocationId || '').trim()
+  if (!invocation) throw new Error('invocation id is required')
+  return requestKernel<AgentInvocationChildConversation>(config, `/agent-invocations/${encodeURIComponent(invocation)}/child-conversation`)
 }
 
 export async function bindSessionWorkspace(config: KernelConfig, sessionId: string, kind: SessionWorkspaceKind, root = '') {
