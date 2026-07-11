@@ -110,6 +110,46 @@ func TestLocalServiceSupervisorStartsOwnedKernelProcess(t *testing.T) {
 	}
 }
 
+func TestGenesisdCommandUsesBundledSiblingExecutable(t *testing.T) {
+	dir := desktopTestTempDir(t)
+	desktopExecutable := filepath.Join(dir, "genesis-desktop.exe")
+	bundledKernel := filepath.Join(dir, "genesisd.exe")
+	if err := os.WriteFile(bundledKernel, []byte("test"), 0o600); err != nil {
+		t.Fatalf("write bundled kernel: %v", err)
+	}
+	previous := desktopExecutablePath
+	desktopExecutablePath = func() (string, error) { return desktopExecutable, nil }
+	t.Cleanup(func() { desktopExecutablePath = previous })
+
+	exe, args, workDir, err := genesisdCommand(sidecarLaunchRequest{})
+	if err != nil {
+		t.Fatalf("genesisdCommand returned error: %v", err)
+	}
+	if exe != bundledKernel || len(args) != 0 || workDir != dir {
+		t.Fatalf("command = %q %v in %q, want bundled sibling", exe, args, workDir)
+	}
+}
+
+func TestNSISInstallerRemembersPathAndDoesNotRecursivelyDeleteIt(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("build", "windows", "installer", "project.nsi"))
+	if err != nil {
+		t.Fatalf("read installer project: %v", err)
+	}
+	text := string(payload)
+	for _, required := range []string{
+		"InstallDirRegKey HKLM \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${UNINST_KEY_NAME}\" \"InstallLocation\"",
+		"WriteRegStr HKLM \"${UNINST_KEY}\" \"InstallLocation\" \"$INSTDIR\"",
+		"Delete \"$INSTDIR\\genesisd.exe\"",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("installer project missing %q", required)
+		}
+	}
+	if strings.Contains(text, "RMDir /r $INSTDIR") {
+		t.Fatal("installer recursively deletes the selected installation directory")
+	}
+}
+
 func TestLocalServiceSupervisorProjectsExternalKernelWithoutOwnership(t *testing.T) {
 	t.Setenv("GENESIS_KERNEL_BASE_URL", "http://127.0.0.1:9999")
 	t.Setenv("GENESIS_RUNTIME_TOKEN", "token")

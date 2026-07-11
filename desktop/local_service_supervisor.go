@@ -74,6 +74,8 @@ type LocalServiceSupervisor struct {
 	stopAttempted  bool
 }
 
+var desktopExecutablePath = os.Executable
+
 func NewLocalServiceSupervisor(cfg LocalServiceSupervisorConfig) *LocalServiceSupervisor {
 	cfg.KernelBaseURL = strings.TrimRight(strings.TrimSpace(cfg.KernelBaseURL), "/")
 	cfg.RuntimeToken = strings.TrimSpace(cfg.RuntimeToken)
@@ -297,6 +299,12 @@ func genesisdCommand(req sidecarLaunchRequest) (string, []string, string, error)
 	}
 	if envPath := strings.TrimSpace(os.Getenv("GENESIS_DESKTOP_GENESISD_PATH")); envPath != "" {
 		return envPath, nil, req.WorkDir, nil
+	}
+	if executable, err := desktopExecutablePath(); err == nil {
+		dir := filepath.Dir(executable)
+		if candidate := filepath.Join(dir, "genesisd.exe"); fileExists(candidate) {
+			return candidate, nil, dir, nil
+		}
 	}
 	root := req.WorkDir
 	if root == "" {

@@ -3,4 +3,6 @@ frontend/dist/
 frontend/package.json.md5
 frontend/wailsjs/
 build/bin/
+build/windows/installer/wails_tools.nsh
+build/windows/installer/tmp/
 *.exe
