@@ -26,6 +26,25 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
+### KERNEL-TASK-GRAPH-RUNTIME-20260712 - P1 - Long-running objectives lack a ledger-owned dependency graph
+
+- Status: in_progress.
+- Requirement: `docs/requirements/kernel-task-graph-runtime.md`.
+  - Design: `docs/design/kernel-task-graph-runtime.md`.
+- Gap: parent-worker invocations expose identity and terminal evidence, but no
+  kernel owner persists dependency topology, validates a DAG, explains blocked
+  progress, or reconstructs a project graph after restart.
+- Next slice: Phase A only from
+  `docs/implementation-plans/kernel-task-graph-runtime.md`: durable graph
+  facts, validation, reducer, and read projection; no scheduler or execution.
+- Evidence: role-bound workers now have bounded lifecycle facts, parent result
+  delivery, recovery semantics, and route/profile/role/parent admission limits.
+- Verification: DAG refusal/no-append, readiness, terminal immutability,
+  restart projection, then full Go tests and build.
+- Reference alignment: Codex records explicit spawned-agent lifecycle; Reasonix
+  runs bounded isolated tasks. Neither local reference supplies a durable DAG,
+  so Genesis rejects an in-memory queue and keeps graph authority in the ledger.
+
 ### KERNEL-PARENT-WORKER-DELEGATE-20260712 - P1 - Parent-worker runtime lacks provider/profile admission and desktop acceptance
 
 - Status: in_progress.
