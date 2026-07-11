@@ -203,6 +203,12 @@ func TestAdmitWorkerInvocationFromRoleUsesPresetToolsAndAllowsSameRoleInstances(
 	if len(items) != 2 {
 		t.Fatalf("invocations = %+v, want two same-role worker identities", items)
 	}
+	_, err = k.AdmitWorkerInvocationFromRole(WorkerInvocationAdmissionRequest{
+		ConfigRoot: configRoot, SessionID: "worker-role-session", Principal: "application:test", RoleID: "local-small-worker", IdempotencyKey: "worker-3",
+	})
+	if err == nil || !strings.Contains(err.Error(), "worker_role_concurrency_limited") {
+		t.Fatalf("third worker error = %v, want worker role concurrency limit", err)
+	}
 }
 
 func TestAdmitWorkerInvocationFromRoleRejectsExtraParentToolsBeforeAppend(t *testing.T) {
@@ -404,9 +410,10 @@ func writeParentWorkerRuntimeConfig(t *testing.T, toolSet []string) string {
 			},
 			"worker_roles": map[string]any{
 				"local-small-worker": map[string]any{
-					"profile_id": "worker-profile",
-					"tool_set":   tools,
-					"leaf_only":  true,
+					"profile_id":   "worker-profile",
+					"tool_set":     tools,
+					"max_parallel": 2,
+					"leaf_only":    true,
 				},
 			},
 		},

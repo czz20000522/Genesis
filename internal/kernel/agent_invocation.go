@@ -210,6 +210,9 @@ func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequ
 	if !ok {
 		return AgentInvocationProjection{}, ErrGenesisWorkerRoleBindingMissing
 	}
+	if err := k.admitWorkerRoleConcurrency(worker); err != nil {
+		return AgentInvocationProjection{}, err
+	}
 	if err := validateRequestedWorkerTools(req.RequestedToolNames, worker.ToolSet); err != nil {
 		return AgentInvocationProjection{}, err
 	}
@@ -228,6 +231,31 @@ func (k *Kernel) AdmitWorkerInvocationFromRole(req WorkerInvocationAdmissionRequ
 		ParentResultChannel: req.ParentResultChannel,
 		IdempotencyKey:      req.IdempotencyKey,
 	}, worker.ProfileID)
+}
+
+func (k *Kernel) admitWorkerRoleConcurrency(worker WorkerRoleBindingProjection) error {
+	invocations, err := k.agentInvocations()
+	if err != nil {
+		return err
+	}
+	runs, err := k.agentInvocationRuns()
+	if err != nil {
+		return err
+	}
+	active := 0
+	for _, invocation := range invocations {
+		if agentInvocationRoleID(invocation.AgentProfileRef) != worker.RoleID {
+			continue
+		}
+		if run, ok := runsForInvocation(runs, invocation.InvocationID); ok && isTerminalAgentInvocationRun(run) {
+			continue
+		}
+		active++
+	}
+	if active >= worker.MaxParallel {
+		return errors.New("worker_role_concurrency_limited")
+	}
+	return nil
 }
 
 func (k *Kernel) RunAgentInvocation(ctx context.Context, req AgentInvocationRunRequest) (AgentInvocationRunProjection, error) {
