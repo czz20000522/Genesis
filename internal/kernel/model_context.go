@@ -1,12 +1,14 @@
 package kernel
 
 import (
+	"encoding/json"
 	"strings"
 )
 
 const (
 	sourceSnapshotContextBytes = 4096
 	sourceSnapshotLabelBytes   = 160
+	stableProviderInstruction  = "You are Genesis, a local-first personal AI assistant. Follow the user's request, use available tools only when they help, and return a clear visible answer."
 )
 
 type conversationHistoryTurn struct {
@@ -182,6 +184,51 @@ func modelInputKinds(items []ModelInputItem) []string {
 	return kinds
 }
 
+func modelUserTextWithoutHistory(items []ModelInputItem) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.Kind != ModelInputKindConversationHistoryContext && item.Text != "" {
+			parts = append(parts, item.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func stableSystemPrefix(items []ModelInputItem) string {
+	instruction, skillIndex := stableSystemPrefixParts(items)
+	parts := []string{instruction}
+	if skillIndex != "" {
+		parts = append(parts, skillIndex)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func stableSystemPrefixParts(items []ModelInputItem) (string, string) {
+	skillParts := []string{}
+	for _, item := range items {
+		if item.Kind == ModelInputKindSkillIndexContext && strings.TrimSpace(item.Text) != "" {
+			skillParts = append(skillParts, item.Text)
+		}
+	}
+	return stableProviderInstruction, strings.Join(skillParts, "\n\n")
+}
+
+func currentConversationMessages(items []ModelInputItem) []ModelConversationMessage {
+	messages := []ModelConversationMessage{}
+	for _, item := range items {
+		if item.Kind == ModelInputKindConversationHistoryContext || item.Kind == ModelInputKindSkillIndexContext || item.Kind == ModelInputKindUserText || strings.TrimSpace(item.Text) == "" {
+			continue
+		}
+		messages = append(messages, ModelConversationMessage{Role: "user", Text: "Context (" + item.Kind + "):\n" + item.Text})
+	}
+	for _, item := range items {
+		if item.Kind == ModelInputKindUserText && strings.TrimSpace(item.Text) != "" {
+			messages = append(messages, ModelConversationMessage{Role: "user", Text: item.Text})
+		}
+	}
+	return messages
+}
+
 func skillIndexContext(skills []SkillCatalogItemProjection, budget int) string {
 	if budget <= 0 || len(skills) == 0 {
 		return ""
@@ -227,6 +274,37 @@ func cloneInputItems(items []InputItem) []InputItem {
 func cloneModelInputItems(items []ModelInputItem) []ModelInputItem {
 	cloned := make([]ModelInputItem, len(items))
 	copy(cloned, items)
+	return cloned
+}
+
+func cloneModelConversationMessages(messages []ModelConversationMessage) []ModelConversationMessage {
+	cloned := make([]ModelConversationMessage, 0, len(messages))
+	for _, message := range messages {
+		next := message
+		next.ToolCalls = make([]ModelToolCall, 0, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			next.ToolCalls = append(next.ToolCalls, ModelToolCall{
+				ToolCallID:      call.ToolCallID,
+				ToolCallEventID: call.ToolCallEventID,
+				Name:            call.Name,
+				Arguments:       append(json.RawMessage(nil), call.Arguments...),
+			})
+		}
+		cloned = append(cloned, next)
+	}
+	return cloned
+}
+
+func cloneModelToolCalls(calls []ModelToolCall) []ModelToolCall {
+	cloned := make([]ModelToolCall, 0, len(calls))
+	for _, call := range calls {
+		cloned = append(cloned, ModelToolCall{
+			ToolCallID:      call.ToolCallID,
+			ToolCallEventID: call.ToolCallEventID,
+			Name:            call.Name,
+			Arguments:       append(json.RawMessage(nil), call.Arguments...),
+		})
+	}
 	return cloned
 }
 

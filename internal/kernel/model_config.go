@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"genesis/localconfig"
 )
 
 const DefaultModelRole = "coordinator"
@@ -100,6 +102,10 @@ func ResolveProviderConfigFromGenesis(req GenesisModelConfigRequest) (ResolvedPr
 	route := selected.route
 	protocol := firstNonEmpty(route.Protocol, gateway.Protocol)
 	timeout := firstPositiveFloat(route.RequestTimeoutSec, gateway.RequestTimeoutSec)
+	allowUnboundedRequest := route.AllowUnboundedRequest || gateway.AllowUnboundedRequest
+	if allowUnboundedRequest && protocol != modelGatewayProtocolProviderCommand {
+		return ResolvedProviderConfig{}, ErrGenesisModelConfigInvalid
+	}
 	switch protocol {
 	case modelGatewayProtocolChatCompletions:
 		baseURL := firstNonEmpty(route.BaseURL, gateway.BaseURL)
@@ -144,15 +150,21 @@ func ResolveProviderConfigFromGenesis(req GenesisModelConfigRequest) (ResolvedPr
 		if err := validateProviderCommandEnv(env); err != nil {
 			return ResolvedProviderConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelProviderCommandEnvRejected, err)
 		}
+		adapter := providerAdapterBindingFromProfile(profile, protocol)
+		if err := validateProviderAdapterBinding(adapter); err != nil {
+			return ResolvedProviderConfig{}, ErrGenesisModelProviderAdapterInvalid
+		}
 		return ResolvedProviderConfig{
 			Kind: "provider_command",
 			Command: ProviderCommandConfig{
-				Command:        command,
-				Args:           firstStringSlice(route.Args, gateway.Args),
-				Env:            env,
-				WorkingDir:     firstNonEmpty(route.WorkingDir, gateway.WorkingDir),
-				Model:          profile.ModelID,
-				RequestTimeout: durationSeconds(timeout),
+				Command:               command,
+				Args:                  firstStringSlice(route.Args, gateway.Args),
+				Env:                   env,
+				WorkingDir:            firstNonEmpty(route.WorkingDir, gateway.WorkingDir),
+				Model:                 profile.ModelID,
+				Adapter:               adapter,
+				RequestTimeout:        durationSeconds(timeout),
+				AllowUnboundedRequest: allowUnboundedRequest,
 			},
 		}, nil
 	default:
@@ -278,14 +290,7 @@ func ProviderConfigReason(err error) string {
 }
 
 func resolveGenesisConfigRoot(configRoot string) string {
-	if root := strings.TrimSpace(configRoot); root != "" {
-		return filepath.Clean(expandHome(root))
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return filepath.Join(".genesis", "config")
-	}
-	return filepath.Join(home, ".genesis", "config")
+	return localconfig.ResolveConfigRoot(configRoot)
 }
 
 func selectGatewayProfile(config genesisModelsConfig, req GenesisModelConfigRequest) (genesisGatewayProfile, error) {
@@ -467,36 +472,9 @@ func expandHome(value string) string {
 	return text
 }
 
-type genesisModelsConfig struct {
-	ModelGateway               genesisModelGateway                    `json:"model_gateway"`
-	ActiveModelProfileBindings map[string]string                      `json:"active_model_profile_bindings"`
-	ModelProfiles              genesisModelProfiles                   `json:"model_profiles"`
-	ProviderModelCatalogs      map[string]genesisProviderModelCatalog `json:"provider_model_catalogs,omitempty"`
-	ParentWorkerRuntime        genesisParentWorkerRuntime             `json:"parent_worker_runtime,omitempty"`
-}
-
-type genesisModelGateway struct {
-	BaseURL           string                         `json:"base_url"`
-	CredentialRef     string                         `json:"credential_ref"`
-	Protocol          string                         `json:"protocol"`
-	Command           string                         `json:"command"`
-	Args              []string                       `json:"args"`
-	Env               []string                       `json:"env"`
-	WorkingDir        string                         `json:"working_dir"`
-	RequestTimeoutSec float64                        `json:"request_timeout_sec"`
-	Routes            map[string]genesisGatewayRoute `json:"routes"`
-}
-
-type genesisGatewayRoute struct {
-	BaseURL           string   `json:"base_url"`
-	CredentialRef     string   `json:"credential_ref"`
-	Protocol          string   `json:"protocol"`
-	Command           string   `json:"command"`
-	Args              []string `json:"args"`
-	Env               []string `json:"env"`
-	WorkingDir        string   `json:"working_dir"`
-	RequestTimeoutSec float64  `json:"request_timeout_sec"`
-}
+type genesisModelsConfig = localconfig.ModelsConfig
+type genesisModelGateway = localconfig.ModelGateway
+type genesisGatewayRoute = localconfig.GatewayRoute
 
 type selectedGatewayConfig struct {
 	gateway genesisModelGateway
@@ -504,51 +482,10 @@ type selectedGatewayConfig struct {
 	route   genesisGatewayRoute
 }
 
-type genesisModelProfiles struct {
-	Cloud genesisGatewayProfileBranch `json:"cloud"`
-	Local genesisGatewayProfileBranch `json:"local"`
-}
-
-type genesisGatewayProfileBranch struct {
-	Gateway map[string]genesisGatewayProfile `json:"gateway"`
-}
-
-type genesisGatewayProfile struct {
-	ProfileID                string `json:"profile_id"`
-	ModelID                  string `json:"model_id"`
-	GatewayRoute             string `json:"gateway_route"`
-	ContextWindowTokens      int    `json:"context_window_tokens,omitempty"`
-	ProviderAdapterID        string `json:"provider_adapter_id,omitempty"`
-	ProviderAdapterProfileID string `json:"provider_adapter_profile_id,omitempty"`
-	HiddenReasoningPolicy    string `json:"hidden_reasoning_policy,omitempty"`
-}
-
-type genesisProviderModelCatalog struct {
-	Route       string   `json:"route"`
-	Protocol    string   `json:"protocol"`
-	Models      []string `json:"models"`
-	RefreshedAt string   `json:"refreshed_at"`
-	Source      string   `json:"source"`
-}
-
-type genesisParentWorkerRuntime struct {
-	Parents     map[string]genesisParentBinding     `json:"parents"`
-	WorkerRoles map[string]genesisWorkerRoleBinding `json:"worker_roles"`
-}
-
-type genesisParentBinding struct {
-	ParentID           string   `json:"parent_id"`
-	ProfileID          string   `json:"profile_id"`
-	AllowedWorkerRoles []string `json:"allowed_worker_roles"`
-	DefaultWorkerRole  string   `json:"default_worker_role"`
-	CanCreateWorkers   bool     `json:"can_create_workers"`
-}
-
-type genesisWorkerRoleBinding struct {
-	RoleID           string   `json:"role_id"`
-	ProfileID        string   `json:"profile_id"`
-	ToolSet          []string `json:"tool_set"`
-	ContextPolicyRef string   `json:"context_policy_ref"`
-	MaxParallel      int      `json:"max_parallel"`
-	LeafOnly         bool     `json:"leaf_only"`
-}
+type genesisModelProfiles = localconfig.ModelProfiles
+type genesisGatewayProfileBranch = localconfig.ProfileBranch
+type genesisGatewayProfile = localconfig.GatewayProfile
+type genesisProviderModelCatalog = localconfig.ProviderModelCatalog
+type genesisParentWorkerRuntime = localconfig.ParentWorkerRuntime
+type genesisParentBinding = localconfig.ParentBinding
+type genesisWorkerRoleBinding = localconfig.WorkerRoleBinding

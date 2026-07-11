@@ -143,6 +143,14 @@ func NewVendorFieldUnsupportedError() error {
 	}
 }
 
+func NewReasoningContinuationUnavailableError() error {
+	return &ClassifiedError{
+		Code:      "provider_reasoning_continuation_unavailable",
+		Message:   "provider continuation requires unavailable canonical reasoning",
+		Retryable: false,
+	}
+}
+
 func IsRetryableStatus(statusCode int) bool {
 	return statusCode == http.StatusRequestTimeout || statusCode == http.StatusTooManyRequests || (statusCode >= 500 && statusCode <= 599)
 }

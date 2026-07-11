@@ -15,6 +15,7 @@ const props = defineProps<{
   selectedFileName: string
   readiness: string
   approvals: ApprovalProjection[]
+  retryText: string
 }>()
 
 const emit = defineEmits<{
@@ -24,6 +25,7 @@ const emit = defineEmits<{
   pickMaterial: []
   selectMaterial: [event: Event]
   loadDetail: [detailRef: string]
+  retry: []
 }>()
 
 const approvalRows = computed(() => props.approvals.map((approval) => ({
@@ -72,8 +74,12 @@ function useStarter(text: string) {
             <span v-if="row.meta" class="row-meta">{{ row.meta }}</span>
           </div>
           <template v-else>
-            <p v-if="row.meta" class="eyebrow">{{ row.meta }}</p>
-            <AssistantMessage v-if="row.kind === 'assistant'" :text="row.text || row.kind" :streaming="row.streaming" />
+            <p v-if="row.meta && row.kind !== 'reasoning'" class="eyebrow">{{ row.meta }}</p>
+            <details v-if="row.kind === 'reasoning'" class="reasoning-message">
+              <summary>{{ row.meta }}</summary>
+              <AssistantMessage :text="row.text || row.kind" :streaming="row.streaming" />
+            </details>
+            <AssistantMessage v-else-if="row.kind === 'assistant'" :text="row.text || row.kind" :streaming="row.streaming" />
             <pre v-else>{{ row.text || row.kind }}</pre>
           </template>
           <button v-if="row.detailAvailable" type="button" class="secondary-button" @click="$emit('loadDetail', row.detailRef)">详情</button>
@@ -95,6 +101,7 @@ function useStarter(text: string) {
         </div>
       </div>
       <p v-if="turnStatus" class="turn-status">{{ turnStatus }}</p>
+      <button v-if="retryText" type="button" class="secondary-button" @click="$emit('retry')">重试上一条失败请求</button>
       <div class="composer-card">
         <textarea
           :value="messageText"

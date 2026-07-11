@@ -21,6 +21,7 @@ func TestCommandProviderStrictlyRejectsUnknownResponseFields(t *testing.T) {
 		{mode: "tool-lease-id", wantError: "unknown field"},
 		{mode: "tool-budget-lease-id", wantError: "unknown field"},
 		{mode: "tool-unknown-field", wantError: "unknown field"},
+		{mode: "empty-reasoning", wantError: "reasoning missing text"},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			provider := strictProviderCommandHelper(t, tc.mode)
@@ -82,6 +83,82 @@ func TestCommandProviderStrictDecoderPreservesValidResponses(t *testing.T) {
 	}
 }
 
+func TestCommandProviderReturnsReasoningAsStructuredResponse(t *testing.T) {
+	provider := strictProviderCommandHelper(t, "final-with-reasoning")
+
+	resp, err := provider.Complete(context.Background(), providerCommandStrictTestRequest())
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if resp.Text != "strict final" {
+		t.Fatalf("final text = %q, want strict final", resp.Text)
+	}
+	if resp.Reasoning == nil || resp.Reasoning.Text != "inspect the request before answering" {
+		t.Fatalf("reasoning = %#v, want structured provider reasoning", resp.Reasoning)
+	}
+}
+
+func TestCommandProviderForwardsCanonicalConversation(t *testing.T) {
+	provider := strictProviderCommandHelper(t, "assert-conversation")
+	response, err := provider.Complete(context.Background(), ModelRequest{
+		SessionID: "canonical-session",
+		TurnID:    "canonical-turn",
+		Conversation: []ModelConversationMessage{
+			{Role: "system", Text: "stable prefix"},
+			{Role: "user", Text: "latest user request"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if response.Text != "canonical conversation forwarded" {
+		t.Fatalf("response text = %q", response.Text)
+	}
+}
+
+func TestCommandProviderExplicitUnboundedRequestDoesNotAddDeadline(t *testing.T) {
+	provider := NewCommandProvider(ProviderCommandConfig{
+		Command:               os.Args[0],
+		Args:                  []string{"-test.run=TestStrictProviderCommandAdapterHelper", "--", "delayed-final"},
+		Model:                 "command-model",
+		RequestTimeout:        5 * time.Millisecond,
+		AllowUnboundedRequest: true,
+		Env:                   []string{"GENESIS_PROVIDER_COMMAND_STRICT_HELPER=1"},
+	})
+
+	response, err := provider.Complete(context.Background(), providerCommandStrictTestRequest())
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if response.Text != "delayed final" {
+		t.Fatalf("response text = %q, want delayed final", response.Text)
+	}
+}
+
+func TestCommandProviderReasoningPersistsAsAssistantMessage(t *testing.T) {
+	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
+	k.provider = strictProviderCommandHelper(t, "final-with-reasoning")
+
+	response, err := k.SubmitTurn(context.Background(), TurnRequest{
+		SessionID:  "provider-command-reasoning",
+		InputItems: []InputItem{{Type: "text", Text: "explain this"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn returned error: %v", err)
+	}
+	for _, event := range response.Events {
+		if event.Type != "model.reasoning" {
+			continue
+		}
+		data, ok := event.Data.(EventData)
+		if !ok || data.Reasoning == nil || data.Reasoning.Text != "inspect the request before answering" {
+			t.Fatalf("reasoning event = %#v, want persisted provider-command reasoning", event.Data)
+		}
+		return
+	}
+	t.Fatalf("turn events = %#v, want model.reasoning", response.Events)
+}
+
 func TestOpenAICompatibleProviderToleratesVendorNativeExtraFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -139,6 +216,13 @@ func TestStrictProviderCommandAdapterHelper(t *testing.T) {
 	switch mode {
 	case "valid-final":
 		_, _ = os.Stdout.WriteString(`{"kind":"final","model":"command-model","text":"strict final"}`)
+	case "delayed-final":
+		time.Sleep(40 * time.Millisecond)
+		_, _ = os.Stdout.WriteString(`{"kind":"final","model":"command-model","text":"delayed final"}`)
+	case "final-with-reasoning":
+		_, _ = os.Stdout.WriteString(`{"kind":"final","model":"command-model","text":"strict final","reasoning":{"text":"inspect the request before answering"}}`)
+	case "empty-reasoning":
+		_, _ = os.Stdout.WriteString(`{"kind":"final","model":"command-model","text":"strict final","reasoning":{"text":" "}}`)
 	case "extra-final-field":
 		_, _ = os.Stdout.WriteString(`{"kind":"final","model":"command-model","text":"strict final","extra":"drift"}`)
 	case "tool-lease-id":
@@ -159,6 +243,17 @@ func TestStrictProviderCommandAdapterHelper(t *testing.T) {
 			os.Exit(0)
 		}
 		_, _ = os.Stdout.WriteString(`{"kind":"final","model":"command-model","text":"strict tool loop final"}`)
+	case "assert-conversation":
+		var req providerCommandRequest
+		decoder := json.NewDecoder(os.Stdin)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			t.Fatalf("decode provider command request: %v", err)
+		}
+		if len(req.Conversation) != 2 || req.Conversation[0].Role != "system" || req.Conversation[0].Text != "stable prefix" || req.Conversation[1].Role != "user" || req.Conversation[1].Text != "latest user request" {
+			t.Fatalf("conversation = %#v, want canonical ordered messages", req.Conversation)
+		}
+		_, _ = os.Stdout.WriteString(`{"kind":"final","model":"command-model","text":"canonical conversation forwarded"}`)
 	default:
 		t.Fatalf("unknown strict helper mode %q", mode)
 	}

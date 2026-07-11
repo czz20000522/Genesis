@@ -59,6 +59,11 @@ func (k *Kernel) buildUITimeline(sessionID string, includeDiagnostics bool) (UIT
 				continue
 			}
 			turn.applyJob(event.Type, *event.Data.Job, event.CreatedAt)
+		case "model.reasoning":
+			if event.Data.Reasoning == nil {
+				continue
+			}
+			turn.appendReasoningMessage(*event.Data.Reasoning, event.CreatedAt)
 		case "model.final":
 			if event.Data.Final == nil {
 				continue
@@ -127,6 +132,7 @@ func timelineHandlesEvent(eventType string) bool {
 		"job.completed",
 		"job.failed",
 		"job.cancelled",
+		"model.reasoning",
 		"model.final",
 		"turn.paused",
 		"assistant.interrupted",
@@ -232,6 +238,26 @@ func (b *timelineTurnBuilder) appendMessage(kind string, text string, createdAt 
 		Kind:      kind,
 		Text:      text,
 		CreatedAt: createdAt,
+	})
+	b.messageOrdinal++
+}
+
+func (b *timelineTurnBuilder) appendReasoningMessage(message ReasoningMessage, eventCreatedAt time.Time) {
+	createdAt := message.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = eventCreatedAt
+	}
+	itemID := strings.TrimSpace(message.ReasoningID)
+	if itemID == "" {
+		itemID = timelineItemID(b.item.ItemID, "assistant_reasoning", b.messageOrdinal)
+	}
+	b.item.Children = append(b.item.Children, UITimelineItem{
+		ItemID:      itemID,
+		TurnID:      b.item.TurnID,
+		ReasoningID: strings.TrimSpace(message.ReasoningID),
+		Kind:        "assistant_reasoning",
+		Text:        message.Text,
+		CreatedAt:   createdAt,
 	})
 	b.messageOrdinal++
 }

@@ -1,6 +1,6 @@
 //go:build windows
 
-package kernel
+package localconfig
 
 import (
 	"fmt"
@@ -23,22 +23,11 @@ type dataBlob struct {
 
 func dpapiProtect(data []byte) ([]byte, error) {
 	if len(data) == 0 {
-		return nil, ErrLocalSecretUnreadable
+		return nil, ErrCredentialUnreadable
 	}
-	inBlob := dataBlob{
-		cbData: uint32(len(data)),
-		pbData: &data[0],
-	}
+	inBlob := dataBlob{cbData: uint32(len(data)), pbData: &data[0]}
 	var outBlob dataBlob
-	r1, _, err := procCryptProtectData.Call(
-		uintptr(unsafe.Pointer(&inBlob)),
-		0,
-		0,
-		0,
-		0,
-		0,
-		uintptr(unsafe.Pointer(&outBlob)),
-	)
+	r1, _, err := procCryptProtectData.Call(uintptr(unsafe.Pointer(&inBlob)), 0, 0, 0, 0, 0, uintptr(unsafe.Pointer(&outBlob)))
 	if r1 == 0 {
 		if err != syscall.Errno(0) {
 			return nil, err
@@ -47,29 +36,16 @@ func dpapiProtect(data []byte) ([]byte, error) {
 	}
 	defer procLocalFree.Call(uintptr(unsafe.Pointer(outBlob.pbData)))
 	protected := unsafe.Slice(outBlob.pbData, int(outBlob.cbData))
-	result := make([]byte, len(protected))
-	copy(result, protected)
-	return result, nil
+	return append([]byte(nil), protected...), nil
 }
 
 func dpapiUnprotect(data []byte) ([]byte, error) {
 	if len(data) == 0 {
-		return nil, ErrLocalSecretUnreadable
+		return nil, ErrCredentialUnreadable
 	}
-	inBlob := dataBlob{
-		cbData: uint32(len(data)),
-		pbData: &data[0],
-	}
+	inBlob := dataBlob{cbData: uint32(len(data)), pbData: &data[0]}
 	var outBlob dataBlob
-	r1, _, err := procCryptUnprotectData.Call(
-		uintptr(unsafe.Pointer(&inBlob)),
-		0,
-		0,
-		0,
-		0,
-		0,
-		uintptr(unsafe.Pointer(&outBlob)),
-	)
+	r1, _, err := procCryptUnprotectData.Call(uintptr(unsafe.Pointer(&inBlob)), 0, 0, 0, 0, 0, uintptr(unsafe.Pointer(&outBlob)))
 	if r1 == 0 {
 		if err != syscall.Errno(0) {
 			return nil, err
@@ -78,7 +54,5 @@ func dpapiUnprotect(data []byte) ([]byte, error) {
 	}
 	defer procLocalFree.Call(uintptr(unsafe.Pointer(outBlob.pbData)))
 	plain := unsafe.Slice(outBlob.pbData, int(outBlob.cbData))
-	result := make([]byte, len(plain))
-	copy(result, plain)
-	return result, nil
+	return append([]byte(nil), plain...), nil
 }

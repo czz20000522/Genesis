@@ -52,6 +52,23 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_accepta
 
 Use `-SkipFailureProbe` only when another process owns the test port and the positive live path is the current focus.
 
+For a configured `provider_command` profile such as the local llama.cpp route,
+do not supply a fake API key or re-create its config. The same script can use
+the active configured role directly:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 `
+  -UseConfiguredProfile `
+  -ModelRole coordinator `
+  -ProfileId local-qwen-agentworld `
+  -Addr 127.0.0.1:8765
+```
+
+This path uses `~/.genesis/config` and `~/.genesis/credentials` unless roots
+are provided explicitly. It verifies the configured provider, performs the
+same turn and restart checks, and uses a missing-config negative probe because
+a provider command has no API-key credential requirement.
+
 ## Manual Acceptance
 
 Build the binaries:
@@ -177,6 +194,27 @@ Invoke-RestMethod -Headers $headers "http://127.0.0.1:8765/sessions/manual-live-
 Session debug is opt-in. Its artifact is a debug trace stored outside transcript/audit truth. Deleting it must not affect session resume, timeline, context inspection, or audit replay. It should be used to inspect provider-step input kinds, model-visible tool manifest, bounded input/tool-result previews, provider final/error, and usage when live model behavior is poor.
 
 Stop and restart `genesisd` with the same `-ledger`, `-config-root`, and `-credential-store-root`, then re-run the three inspection requests. The same turn must remain readable after restart.
+
+## Desktop Acceptance
+
+Use the Genesis desktop application with its configured local Qwen profile.
+Do not start llama.cpp outside the desktop: the application must own the WSL
+process it starts and stop only that process on exit.
+
+1. Create a **Project**, select this Genesis repository, and ask: “阅读此仓库，说明它做什么。” Confirm reasoning/final text, then restart the desktop and reopen the same session.
+2. Create two **Tasks** and one **Chat**. Confirm Task directories are distinct
+   under the configured Genesis task root; Chat remains persisted and has no
+   workspace. Search the Chat from the session rail after restart.
+3. Open **模型**, select a configured cloud profile, enter/rotate its key,
+   verify it, apply `coordinator`, and confirm the desktop restarts only its
+   owned `genesisd`. Submit one turn and reopen the earlier Project session.
+4. Cause one deterministic provider failure, restore the provider, then use
+   **重试上一条失败请求**. Confirm the failed turn stays in the timeline and the
+   retry is a distinct later turn.
+
+Record only session ids, selected profile/model, readiness/result states, and
+whether the prior session remained readable. Never record or paste API keys,
+credential paths, or raw provider payloads.
 
 ## Failure Diagnostic Check
 

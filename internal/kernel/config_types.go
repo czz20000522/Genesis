@@ -5,6 +5,7 @@ import "time"
 type Config struct {
 	LedgerPath            string
 	Provider              Provider
+	ProviderVerifier      ProviderVerifier
 	JobExecutor           ManagedJobExecutor
 	RuntimeToken          string
 	ToolPolicy            ToolPolicy
@@ -18,6 +19,13 @@ type Config struct {
 	MaterialStorePath     string
 	Clock                 func() time.Time
 }
+
+type ProviderVerificationRequest struct {
+	ModelRole string `json:"model_role,omitempty"`
+	ProfileID string `json:"profile_id,omitempty"`
+}
+
+type ProviderVerifier func(ProviderVerificationRequest) ProviderLiveVerifyResult
 
 type ToolPolicy struct {
 	PermissionMode string

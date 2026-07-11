@@ -18,6 +18,7 @@ import (
 type Kernel struct {
 	ledger                Ledger
 	provider              Provider
+	providerVerifier      ProviderVerifier
 	jobExecutor           ManagedJobExecutor
 	runtimeToken          string
 	toolPolicy            ToolPolicy
@@ -88,6 +89,7 @@ func New(config Config) (*Kernel, error) {
 	k := &Kernel{
 		ledger:                NewSQLiteLedger(config.LedgerPath),
 		provider:              provider,
+		providerVerifier:      config.ProviderVerifier,
 		jobExecutor:           jobExecutor,
 		runtimeToken:          strings.TrimSpace(config.RuntimeToken),
 		toolPolicy:            normalizedToolPolicy(config.ToolPolicy),
@@ -193,6 +195,10 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 	if sessionID == "" {
 		sessionID = newID("sess", now)
 	}
+	toolGateway, err := k.toolGatewayForSession(sessionID)
+	if err != nil {
+		return TurnResponse{}, err
+	}
 	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
 	var turnID string
 	var runCtx context.Context
@@ -209,7 +215,7 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 			if !admitted {
 				err = ErrSessionActive
 			} else {
-				_, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now)
+				_, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now, toolGateway)
 				if err != nil {
 					finishActiveTurn()
 				}
@@ -226,7 +232,7 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 		if !admitted {
 			return TurnResponse{}, ErrSessionActive
 		}
-		_, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now)
+		_, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now, toolGateway)
 		if err != nil {
 			finishActiveTurn()
 			return TurnResponse{}, err
@@ -234,7 +240,6 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 	}
 	defer finishActiveTurn()
 
-	toolGateway := k.toolGateway()
 	loopGuard := newToolLoopGuard()
 	budgetLease := k.newTurnBudgetLease()
 	for roundIndex := 0; ; roundIndex++ {
@@ -257,6 +262,9 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 			return TurnResponse{}, err
 		}
 		if err := k.appendModelContextAccounting(sessionID, turnID, roundIndex, providerContext, modelResp); err != nil {
+			return TurnResponse{}, err
+		}
+		if err := k.appendModelReasoning(sessionID, turnID, modelResp.Reasoning); err != nil {
 			return TurnResponse{}, err
 		}
 		if len(modelResp.ToolCalls) == 0 {
@@ -338,7 +346,36 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 	return TurnResponse{}, errors.New("unreachable model tool loop state")
 }
 
-func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string, idempotencyKey string, ingressRisks []IngressRisk, now time.Time) ([]ModelInputItem, error) {
+func (k *Kernel) appendModelReasoning(sessionID string, turnID string, reasoning *ReasoningMessage) error {
+	if reasoning == nil {
+		return nil
+	}
+	text := strings.TrimSpace(reasoning.Text)
+	if text == "" {
+		return errors.New("provider reasoning message missing text")
+	}
+	now := k.clock()
+	persisted := ReasoningMessage{
+		ReasoningID:      newID("reasoning", now),
+		TurnID:           turnID,
+		Text:             text,
+		AdapterID:        strings.TrimSpace(reasoning.AdapterID),
+		AdapterProfileID: strings.TrimSpace(reasoning.AdapterProfileID),
+		CreatedAt:        now,
+	}
+	return k.appendEvent(StoredEvent{
+		EventID:   newID("evt", now),
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      "model.reasoning",
+		CreatedAt: now,
+		Data: EventData{
+			Reasoning: &persisted,
+		},
+	})
+}
+
+func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string, idempotencyKey string, ingressRisks []IngressRisk, now time.Time, toolGateway ToolGateway) ([]ModelInputItem, error) {
 	events, err := k.loadEvents()
 	if err != nil {
 		return nil, err
@@ -360,7 +397,7 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 			InputItems:       req.InputItems,
 			IngressRisks:     ingressRisks,
 			ModelInputKinds:  modelInputKinds(modelInputs),
-			ToolManifest:     k.toolGateway().ToolManifest(),
+			ToolManifest:     toolGateway.ToolManifest(),
 			SkillCatalog:     skillIndex,
 			SourceSnapshots:  sourceSnapshots,
 			RuntimeContext:   k.contextRuntimeSnapshot(),
@@ -479,11 +516,13 @@ func (k *Kernel) completeModel(ctx context.Context, request ModelRequest, emit f
 
 func cloneModelRequest(req ModelRequest) ModelRequest {
 	return ModelRequest{
-		SessionID:    req.SessionID,
-		TurnID:       req.TurnID,
-		InputItems:   cloneModelInputItems(req.InputItems),
-		ToolManifest: cloneToolSpecs(req.ToolManifest),
-		ToolRounds:   cloneModelToolRounds(req.ToolRounds),
+		SessionID:         req.SessionID,
+		TurnID:            req.TurnID,
+		InputItems:        cloneModelInputItems(req.InputItems),
+		Conversation:      cloneModelConversationMessages(req.Conversation),
+		ToolManifest:      cloneToolSpecs(req.ToolManifest),
+		ToolRounds:        cloneModelToolRounds(req.ToolRounds),
+		PrefixFingerprint: req.PrefixFingerprint,
 	}
 }
 
@@ -871,10 +910,17 @@ func (k *Kernel) appendModelContextAccounting(sessionID string, turnID string, r
 	if response.Usage == nil {
 		return nil
 	}
+	events, err := k.loadEvents()
+	if err != nil {
+		return err
+	}
 	now := k.clock()
 	accounting := ModelContextAccountingProjection{
 		RoundIndex:             roundIndex,
 		Model:                  strings.TrimSpace(response.Model),
+		PrefixFingerprint:      providerContext.PrefixFingerprint,
+		PrefixComponents:       providerContext.PrefixComponents,
+		PrefixChangeReasons:    prefixChangeReasons(previousPrefixComponents(events, sessionID), providerContext.PrefixComponents),
 		ModelInputKinds:        modelInputKinds(providerContext.InputItems),
 		HistoryTurnIDs:         append([]string(nil), providerContext.HistoryTurnIDs...),
 		CompactedThroughTurnID: providerContext.CompactedThroughTurnID,
@@ -937,11 +983,113 @@ func (k *Kernel) providerContextProjectionFromStoredEvents(events []StoredEvent,
 	observations := pendingKernelObservations(events, projection.SessionID)
 	observationContext, deliveredObservationIDs := kernelObservationContext(observations)
 	projection.InputItems = k.modelInputItemsFromSubmittedEvent(submitted, history.Text, policy.SkillIndexChars, observationContext)
+	projection.Conversation = modelConversationMessagesFromStoredEvents(events, projection.SessionID, turnID, history, projection.InputItems)
 	projection.KernelObservationEventIDs = deliveredObservationIDs
 	projection.ToolRounds = modelToolRoundsFromStoredEvents(events, turnID)
+	systemInstruction, skillIndex := stableSystemPrefixParts(projection.InputItems)
+	projection.PrefixComponents = providerPrefixFingerprintComponents(providerPrefixIdentity(k.provider), systemInstruction, skillIndex, projection.ToolManifest)
+	projection.PrefixFingerprint = projection.PrefixComponents.Fingerprint
 	projection.HistoryTurnIDs = history.TurnIDs()
 	projection.CompactedThroughTurnID = history.CompactedThroughTurnID
 	return projection, true
+}
+
+func previousPrefixComponents(events []StoredEvent, sessionID string) PrefixFingerprintComponents {
+	for index := len(events) - 1; index >= 0; index-- {
+		event := events[index]
+		if event.SessionID != sessionID || event.Type != "model.context.accounted" || event.Data.ModelContextAccounting == nil {
+			continue
+		}
+		return event.Data.ModelContextAccounting.PrefixComponents
+	}
+	return PrefixFingerprintComponents{}
+}
+
+func modelConversationMessagesFromStoredEvents(events []StoredEvent, sessionID string, turnID string, history sameSessionHistoryProjection, currentInputs []ModelInputItem) []ModelConversationMessage {
+	allowedHistory := map[string]bool{}
+	for _, historicalTurnID := range history.TurnIDs() {
+		allowedHistory[historicalTurnID] = true
+	}
+	messages := []ModelConversationMessage{{Role: "system", Text: stableSystemPrefix(currentInputs)}}
+	if compaction := latestSessionContextCompaction(events, sessionID, turnID); strings.TrimSpace(compaction.Summary) != "" {
+		messages = append(messages, ModelConversationMessage{Role: "user", Text: "Compacted earlier conversation:\n" + strings.TrimSpace(compaction.Summary)})
+	}
+	messages = append(messages, conversationMessagesForTurns(events, sessionID, allowedHistory, false)...)
+	messages = append(messages, currentConversationMessages(currentInputs)...)
+	messages = append(messages, conversationMessagesForTurns(events, sessionID, map[string]bool{turnID: true}, true)...)
+	if len(messages) == 0 {
+		return nil
+	}
+	return messages
+}
+
+func conversationMessagesForTurns(events []StoredEvent, sessionID string, turnIDs map[string]bool, skipSubmitted bool) []ModelConversationMessage {
+	messages := []ModelConversationMessage{}
+	var reasoning *ReasoningMessage
+	calls := []ModelToolCall{}
+	flushCalls := func() {
+		if len(calls) == 0 {
+			return
+		}
+		message := ModelConversationMessage{Role: "assistant", ToolCalls: cloneModelToolCalls(calls)}
+		if reasoning != nil {
+			message.ReasoningText = reasoning.Text
+			message.ReasoningAdapterID = reasoning.AdapterID
+			message.ReasoningAdapterProfile = reasoning.AdapterProfileID
+		}
+		messages = append(messages, message)
+		calls = nil
+		reasoning = nil
+	}
+	for _, event := range events {
+		if event.SessionID != sessionID || !turnIDs[event.TurnID] {
+			continue
+		}
+		switch event.Type {
+		case "turn.submitted":
+			if !skipSubmitted {
+				if text := inputItemsText(event.Data.InputItems); strings.TrimSpace(text) != "" {
+					messages = append(messages, ModelConversationMessage{Role: "user", Text: text})
+				}
+			}
+		case "model.reasoning":
+			if event.Data.Reasoning != nil {
+				copied := *event.Data.Reasoning
+				reasoning = &copied
+			}
+		case "tool.call":
+			if event.Data.ToolCall != nil {
+				calls = append(calls, ModelToolCall{
+					ToolCallID: event.Data.ToolCall.ProviderToolCallID,
+					Name:       event.Data.ToolCall.Tool,
+					Arguments:  json.RawMessage(event.Data.ToolCall.Arguments),
+				})
+			}
+		case "tool.result":
+			flushCalls()
+			if event.Data.ToolResult != nil {
+				messages = append(messages, ModelConversationMessage{
+					Role:       "tool",
+					ToolCallID: event.Data.ToolResult.ProviderToolCallID,
+					Text:       event.Data.ToolResult.Content,
+				})
+			}
+		case "model.final":
+			flushCalls()
+			if event.Data.Final != nil {
+				message := ModelConversationMessage{Role: "assistant", Text: event.Data.Final.Text}
+				if reasoning != nil {
+					message.ReasoningText = reasoning.Text
+					message.ReasoningAdapterID = reasoning.AdapterID
+					message.ReasoningAdapterProfile = reasoning.AdapterProfileID
+				}
+				messages = append(messages, message)
+			}
+			reasoning = nil
+			calls = nil
+		}
+	}
+	return messages
 }
 
 func (k *Kernel) modelInputItemsFromSubmittedEvent(data EventData, historyContext string, skillIndexBudget int, observationContext string) []ModelInputItem {

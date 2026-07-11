@@ -5,12 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Provider interface {
 	Name() string
 	Ready() ProviderStatus
 	Complete(ctx context.Context, req ModelRequest) (ModelResponse, error)
+}
+
+// ProviderPrefixIdentityProvider exposes the non-secret provider configuration
+// that affects how a stable Genesis prefix is projected to that provider.
+// Providers that do not implement it fall back to their public provider name.
+type ProviderPrefixIdentityProvider interface {
+	PrefixIdentity() string
 }
 
 type StreamingProvider interface {
@@ -24,19 +32,24 @@ type ModelStreamDelta struct {
 var ErrProviderUnavailable = errors.New("provider unavailable")
 
 type ModelRequest struct {
-	SessionID    string
-	TurnID       string
-	InputItems   []ModelInputItem
-	ToolManifest []ToolSpec
-	ToolRounds   []ModelToolRound
+	SessionID         string
+	TurnID            string
+	InputItems        []ModelInputItem
+	Conversation      []ModelConversationMessage
+	ToolManifest      []ToolSpec
+	ToolRounds        []ModelToolRound
+	PrefixFingerprint string
 }
 
 type ProviderContextProjection struct {
 	SessionID                 string
 	TurnID                    string
 	InputItems                []ModelInputItem
+	Conversation              []ModelConversationMessage
 	ToolManifest              []ToolSpec
 	ToolRounds                []ModelToolRound
+	PrefixFingerprint         string
+	PrefixComponents          PrefixFingerprintComponents
 	KernelObservationEventIDs []string
 	HistoryTurnIDs            []string
 	CompactedThroughTurnID    string
@@ -44,11 +57,13 @@ type ProviderContextProjection struct {
 
 func (p ProviderContextProjection) ModelRequest() ModelRequest {
 	return ModelRequest{
-		SessionID:    p.SessionID,
-		TurnID:       p.TurnID,
-		InputItems:   cloneModelInputItems(p.InputItems),
-		ToolManifest: cloneToolSpecs(p.ToolManifest),
-		ToolRounds:   cloneModelToolRounds(p.ToolRounds),
+		SessionID:         p.SessionID,
+		TurnID:            p.TurnID,
+		InputItems:        cloneModelInputItems(p.InputItems),
+		Conversation:      cloneModelConversationMessages(p.Conversation),
+		ToolManifest:      cloneToolSpecs(p.ToolManifest),
+		ToolRounds:        cloneModelToolRounds(p.ToolRounds),
+		PrefixFingerprint: p.PrefixFingerprint,
 	}
 }
 
@@ -67,11 +82,38 @@ type ModelInputItem struct {
 	Text string
 }
 
+type ModelConversationMessage struct {
+	Role                    string          `json:"role"`
+	Text                    string          `json:"text,omitempty"`
+	ReasoningText           string          `json:"reasoning_text,omitempty"`
+	ReasoningAdapterID      string          `json:"-"`
+	ReasoningAdapterProfile string          `json:"-"`
+	ToolCalls               []ModelToolCall `json:"tool_calls,omitempty"`
+	ToolCallID              string          `json:"tool_call_id,omitempty"`
+}
+
 type ModelResponse struct {
+	Reasoning *ReasoningMessage
 	Text      string
 	Model     string
 	ToolCalls []ModelToolCall
 	Usage     *TokenUsage
+}
+
+type ReasoningMessage struct {
+	ReasoningID      string    `json:"reasoning_id"`
+	TurnID           string    `json:"turn_id"`
+	Text             string    `json:"text"`
+	AdapterID        string    `json:"adapter_id,omitempty"`
+	AdapterProfileID string    `json:"adapter_profile_id,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+type ReasoningMessageProjection struct {
+	ReasoningID string    `json:"reasoning_id"`
+	TurnID      string    `json:"turn_id"`
+	Text        string    `json:"text"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type FakeProvider struct{}

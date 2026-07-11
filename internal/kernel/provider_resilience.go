@@ -32,6 +32,10 @@ func newProviderVendorFieldUnsupportedError() error {
 	return modelgateway.NewVendorFieldUnsupportedError()
 }
 
+func newProviderReasoningContinuationUnavailableError() error {
+	return modelgateway.NewReasoningContinuationUnavailableError()
+}
+
 func providerFailureFromError(err error) ProviderAttemptProjection {
 	return modelgateway.FailureClassifier{
 		ProviderUnavailable: ErrProviderUnavailable,

@@ -583,6 +583,15 @@ type sqliteLedgerLockRecord struct {
 }
 
 func recoverStaleSQLiteLedgerLock(lockPath string, now time.Time) (bool, error) {
+	guard, acquired, err := acquireSQLiteLedgerRecoveryGuard(lockPath)
+	if err != nil {
+		return false, err
+	}
+	if !acquired {
+		return false, nil
+	}
+	defer guard.Close()
+
 	info, err := os.Stat(lockPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -602,14 +611,16 @@ func recoverStaleSQLiteLedgerLock(lockPath string, now time.Time) (bool, error) 
 	if createdAt.IsZero() {
 		createdAt = info.ModTime()
 	}
-	if createdAt.IsZero() || now.Sub(createdAt) < sqliteLedgerLockStaleAge {
-		return false, nil
-	}
+	deadWriterConfirmed := false
 	if record.PID > 0 {
 		live, known := sqliteLedgerProcessLiveness(record.PID)
 		if !known || live {
 			return false, nil
 		}
+		deadWriterConfirmed = true
+	}
+	if !deadWriterConfirmed && (createdAt.IsZero() || now.Sub(createdAt) < sqliteLedgerLockStaleAge) {
+		return false, nil
 	}
 	current, err := os.ReadFile(lockPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -628,6 +639,23 @@ func recoverStaleSQLiteLedgerLock(lockPath string, now time.Time) (bool, error) 
 		return false, err
 	}
 	return true, nil
+}
+
+func acquireSQLiteLedgerRecoveryGuard(lockPath string) (*os.File, bool, error) {
+	guard, err := os.OpenFile(lockPath+".recover", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, false, err
+	}
+	acquired, err := tryLockSQLiteLedgerRecoveryFile(guard)
+	if err != nil {
+		guard.Close()
+		return nil, false, err
+	}
+	if !acquired {
+		guard.Close()
+		return nil, false, nil
+	}
+	return guard, true, nil
 }
 
 func parseSQLiteLedgerLockRecord(content []byte) sqliteLedgerLockRecord {

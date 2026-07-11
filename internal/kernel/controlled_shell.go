@@ -38,7 +38,7 @@ type controlledShellCommand struct {
 func prepareShellExecution(policy ResolvedToolPolicy, req ShellExecRequest) (shellExecutionPlan, string) {
 	plan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
 	switch policy.SandboxProfile {
-	case SandboxProfileControlledWorkspace:
+	case SandboxProfileControlledWorkspace, SandboxProfileReadOnly:
 		return prepareDefaultShellExecution(policy, req)
 	}
 	return plan, ""
@@ -46,15 +46,9 @@ func prepareShellExecution(policy ResolvedToolPolicy, req ShellExecRequest) (she
 
 func prepareDefaultShellExecution(policy ResolvedToolPolicy, req ShellExecRequest) (shellExecutionPlan, string) {
 	plan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
-	if strings.TrimSpace(policy.WorkspaceRoot) == "" {
-		return plan, "workspace_root_required"
-	}
-	if !pathWithin(req.CWD, policy.WorkspaceRoot) {
-		return plan, "cwd_outside_workspace"
-	}
 	cwd, err := canonicalPathForContainment(req.CWD)
 	if err != nil {
-		return plan, "cwd_outside_workspace"
+		return plan, "cwd_unavailable"
 	}
 	plan.cwd = cwd
 	fields, err := splitCommandFields(req.Command)
@@ -220,11 +214,30 @@ func controlledReadCommand(fields []string, cwd string, workspaceRoot string) (c
 	if !ok {
 		return controlledShellCommand{}, "unsupported_default_command"
 	}
-	path, reason := resolveWorkspacePath(cwd, workspaceRoot, pathArg)
+	path, reason := resolveReadablePath(cwd, pathArg)
 	if reason != "" {
 		return controlledShellCommand{}, reason
 	}
 	return controlledShellCommand{kind: "read", path: path}, ""
+}
+
+func resolveReadablePath(cwd string, pathArg string) (string, string) {
+	pathArg = strings.TrimSpace(pathArg)
+	if pathArg == "" {
+		return "", "unsupported_default_command"
+	}
+	target := pathArg
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(cwd, target)
+	}
+	resolved, err := canonicalPathForContainment(target)
+	if err != nil {
+		return "", "command_path_unavailable"
+	}
+	if targetHasUnsafeHardlinkAlias(resolved) {
+		return "", "command_path_unsafe_link"
+	}
+	return resolved, ""
 }
 
 func parseSetContentFields(fields []string) (string, string, bool, bool) {

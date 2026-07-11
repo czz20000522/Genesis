@@ -29,40 +29,50 @@ var (
 )
 
 type ProviderCommandConfig struct {
-	Command        string
-	Args           []string
-	Env            []string
-	WorkingDir     string
-	Model          string
-	RequestTimeout time.Duration
+	Command               string
+	Args                  []string
+	Env                   []string
+	WorkingDir            string
+	Model                 string
+	Adapter               ProviderAdapterBinding
+	RequestTimeout        time.Duration
+	AllowUnboundedRequest bool
 }
 
 type CommandProvider struct {
-	command        string
-	args           []string
-	env            []string
-	workingDir     string
-	model          string
-	requestTimeout time.Duration
+	command               string
+	args                  []string
+	env                   []string
+	workingDir            string
+	model                 string
+	adapter               ProviderAdapterBinding
+	requestTimeout        time.Duration
+	allowUnboundedRequest bool
 }
 
 func NewCommandProvider(config ProviderCommandConfig) *CommandProvider {
 	timeout := config.RequestTimeout
-	if timeout <= 0 {
+	if timeout <= 0 && !config.AllowUnboundedRequest {
 		timeout = defaultProviderCommandTimeout
 	}
 	return &CommandProvider{
-		command:        strings.TrimSpace(config.Command),
-		args:           append([]string(nil), config.Args...),
-		env:            append([]string(nil), config.Env...),
-		workingDir:     strings.TrimSpace(config.WorkingDir),
-		model:          strings.TrimSpace(config.Model),
-		requestTimeout: timeout,
+		command:               strings.TrimSpace(config.Command),
+		args:                  append([]string(nil), config.Args...),
+		env:                   append([]string(nil), config.Env...),
+		workingDir:            strings.TrimSpace(config.WorkingDir),
+		model:                 strings.TrimSpace(config.Model),
+		adapter:               config.Adapter,
+		requestTimeout:        timeout,
+		allowUnboundedRequest: config.AllowUnboundedRequest,
 	}
 }
 
 func (p *CommandProvider) Name() string {
 	return "provider_command"
+}
+
+func (p *CommandProvider) PrefixIdentity() string {
+	return providerPrefixIdentityFromBinding(p.Name(), p.adapter, p.model)
 }
 
 func (p *CommandProvider) Ready() ProviderStatus {
@@ -94,6 +104,7 @@ func (p *CommandProvider) Complete(ctx context.Context, req ModelRequest) (Model
 		TurnID:       req.TurnID,
 		Model:        p.model,
 		InputItems:   req.InputItems,
+		Conversation: req.Conversation,
 		ToolManifest: req.ToolManifest,
 		ToolRounds:   providerCommandModelToolRounds(req.ToolRounds),
 	}
@@ -102,7 +113,11 @@ func (p *CommandProvider) Complete(ctx context.Context, req ModelRequest) (Model
 		return ModelResponse{}, err
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, p.requestTimeout)
+	runCtx := ctx
+	cancel := func() {}
+	if !p.allowUnboundedRequest {
+		runCtx, cancel = context.WithTimeout(ctx, p.requestTimeout)
+	}
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, p.command, p.args...)
@@ -196,6 +211,7 @@ type providerCommandRequest struct {
 	TurnID       string                     `json:"turn_id"`
 	Model        string                     `json:"model,omitempty"`
 	InputItems   []ModelInputItem           `json:"input_items"`
+	Conversation []ModelConversationMessage `json:"conversation,omitempty"`
 	ToolManifest []ToolSpec                 `json:"tool_manifest,omitempty"`
 	ToolRounds   []providerCommandToolRound `json:"tool_rounds,omitempty"`
 }
@@ -235,19 +251,25 @@ func providerCommandModelToolRounds(rounds []ModelToolRound) []providerCommandTo
 }
 
 type providerCommandResponse struct {
-	Kind      string          `json:"kind"`
-	Model     string          `json:"model,omitempty"`
-	Text      string          `json:"text,omitempty"`
-	ToolCalls []ModelToolCall `json:"tool_calls,omitempty"`
-	Usage     *TokenUsage     `json:"usage,omitempty"`
+	Kind      string            `json:"kind"`
+	Model     string            `json:"model,omitempty"`
+	Text      string            `json:"text,omitempty"`
+	Reasoning *ReasoningMessage `json:"reasoning,omitempty"`
+	ToolCalls []ModelToolCall   `json:"tool_calls,omitempty"`
+	Usage     *TokenUsage       `json:"usage,omitempty"`
 }
 
 type providerCommandResponsePayload struct {
 	Kind      string                           `json:"kind"`
 	Model     string                           `json:"model,omitempty"`
 	Text      string                           `json:"text,omitempty"`
+	Reasoning *providerCommandReasoningPayload `json:"reasoning,omitempty"`
 	ToolCalls []providerCommandToolCallPayload `json:"tool_calls,omitempty"`
 	Usage     *TokenUsage                      `json:"usage,omitempty"`
+}
+
+type providerCommandReasoningPayload struct {
+	Text string `json:"text"`
 }
 
 type providerCommandToolCallPayload struct {
@@ -284,10 +306,19 @@ func decodeProviderCommandResponse(data []byte) (providerCommandResponse, error)
 		}
 		toolCalls = append(toolCalls, next)
 	}
+	var reasoning *ReasoningMessage
+	if payload.Reasoning != nil {
+		text := strings.TrimSpace(payload.Reasoning.Text)
+		if text == "" {
+			return providerCommandResponse{}, errors.New("provider command reasoning missing text")
+		}
+		reasoning = &ReasoningMessage{Text: text}
+	}
 	return providerCommandResponse{
 		Kind:      payload.Kind,
 		Model:     payload.Model,
 		Text:      payload.Text,
+		Reasoning: reasoning,
 		ToolCalls: toolCalls,
 		Usage:     payload.Usage,
 	}, nil
@@ -304,9 +335,10 @@ func (r providerCommandResponse) toModelResponse(defaultModel string) (ModelResp
 			return ModelResponse{}, errors.New("provider command final response missing text")
 		}
 		return ModelResponse{
-			Text:  r.Text,
-			Model: model,
-			Usage: r.Usage,
+			Reasoning: r.Reasoning,
+			Text:      r.Text,
+			Model:     model,
+			Usage:     r.Usage,
 		}, nil
 	case providerCommandResponseKindToolCalls:
 		if len(r.ToolCalls) == 0 {
@@ -318,6 +350,7 @@ func (r providerCommandResponse) toModelResponse(defaultModel string) (ModelResp
 			}
 		}
 		return ModelResponse{
+			Reasoning: r.Reasoning,
 			Model:     model,
 			ToolCalls: r.ToolCalls,
 			Usage:     r.Usage,

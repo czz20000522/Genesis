@@ -6,8 +6,11 @@ concept definitions across documents. Keep one canonical source and link to it.
 
 ## Canonical Sources
 
-- `project-brief.md`: product purpose, target user, roadmap, success standards,
-  and current technical baseline.
+- `project-brief.md`: product purpose, target user, high-level product
+  direction, success standards, and current technical baseline.
+- `roadmap.md`: stage order, entry and exit criteria, red lines, and the
+  current-stage execution card. It does not replace issue ledgers or phase
+  implementation plans.
 - `kernel-contract.md`: kernel authority boundary, reference model, state
   semantics, provider/tool/session/memory contracts, and non-application rule.
 - `minimal-closed-loop.md`: the smallest kernel loop that must work before

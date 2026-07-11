@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -196,6 +198,73 @@ func TestSQLiteLedgerRecoversStaleWriterLock(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Append with stale lock returned error: %v", err)
 	}
+}
+
+func TestSQLiteLedgerRecoversFreshDeadWriterLock(t *testing.T) {
+	dir := testTempDir(t)
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	child := exec.Command(os.Args[0], "-test.run=^$")
+	if err := child.Start(); err != nil {
+		t.Fatalf("start child process: %v", err)
+	}
+	pid := child.Process.Pid
+	if err := child.Wait(); err != nil {
+		t.Fatalf("wait child process: %v", err)
+	}
+	lock := "pid=" + strconv.Itoa(pid) + "\ncreated_at=" + time.Now().Format(time.RFC3339Nano) + "\n"
+	if err := os.WriteFile(ledgerPath+".lock", []byte(lock), 0o644); err != nil {
+		t.Fatalf("write fresh dead lock: %v", err)
+	}
+	ledger := NewSQLiteLedger(ledgerPath)
+	if err := ledger.Append(StoredEvent{
+		EventID:   "evt_fresh_dead_lock",
+		SessionID: "session-fresh-dead-lock",
+		TurnID:    "turn-fresh-dead-lock",
+		Type:      "turn.submitted",
+		CreatedAt: time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC),
+		Data:      EventData{InputItems: []InputItem{{Type: "text", Text: "hello"}}},
+	}); err != nil {
+		t.Fatalf("Append with fresh dead writer lock returned error: %v", err)
+	}
+}
+
+func TestSQLiteLedgerRecoversFreshForceStoppedWriterLock(t *testing.T) {
+	dir := testTempDir(t)
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	child := exec.Command(os.Args[0], "-test.run=^TestSQLiteLedgerDeadWriterHelper$")
+	child.Env = append(os.Environ(), "GENESIS_SQLITE_LEDGER_DEAD_WRITER_HELPER=1")
+	if err := child.Start(); err != nil {
+		t.Fatalf("start child process: %v", err)
+	}
+	pid := child.Process.Pid
+	if err := child.Process.Kill(); err != nil {
+		t.Fatalf("kill child process: %v", err)
+	}
+	if err := child.Wait(); err == nil {
+		t.Fatal("wait child process returned nil after forced stop")
+	}
+	lock := "pid=" + strconv.Itoa(pid) + "\ncreated_at=" + time.Now().Format(time.RFC3339Nano) + "\n"
+	if err := os.WriteFile(ledgerPath+".lock", []byte(lock), 0o644); err != nil {
+		t.Fatalf("write fresh force-stopped lock: %v", err)
+	}
+	ledger := NewSQLiteLedger(ledgerPath)
+	if err := ledger.Append(StoredEvent{
+		EventID:   "evt_fresh_force_stopped_lock",
+		SessionID: "session-fresh-force-stopped-lock",
+		TurnID:    "turn-fresh-force-stopped-lock",
+		Type:      "turn.submitted",
+		CreatedAt: time.Date(2026, 7, 10, 2, 0, 0, 0, time.UTC),
+		Data:      EventData{InputItems: []InputItem{{Type: "text", Text: "hello"}}},
+	}); err != nil {
+		t.Fatalf("Append with fresh force-stopped writer lock returned error: %v", err)
+	}
+}
+
+func TestSQLiteLedgerDeadWriterHelper(t *testing.T) {
+	if os.Getenv("GENESIS_SQLITE_LEDGER_DEAD_WRITER_HELPER") != "1" {
+		return
+	}
+	select {}
 }
 
 func TestSQLiteLedgerFailsClosedWhenExternalWriterLockExists(t *testing.T) {

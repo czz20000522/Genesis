@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -28,12 +29,19 @@ type App struct {
 	config     DesktopConfig
 	client     *KernelHTTPClient
 	supervisor *LocalServiceSupervisor
+	localModel *LocalModelSupervisor
+
+	providerControl              desktopProviderControlConfig
+	desktopTurnMu                sync.Mutex
+	activeDesktopTurns           int
+	providerActivationInProgress bool
 }
 
 type DesktopConfig struct {
 	KernelBaseURL string        `json:"kernel_base_url"`
 	RuntimeToken  string        `json:"runtime_token,omitempty"`
 	Sidecar       SidecarStatus `json:"sidecar"`
+	LocalModel    SidecarStatus `json:"local_model"`
 }
 
 type SidecarStatus struct {
@@ -55,10 +63,17 @@ func NewApp() *App {
 		External:      cfg.Sidecar.Ownership == serviceOwnershipExternal,
 		GenesisdPath:  strings.TrimSpace(os.Getenv("GENESIS_DESKTOP_GENESISD_PATH")),
 	})
+	localModel := NewLocalModelSupervisor(LocalModelSupervisorConfig{Runtime: loadLocalModelRuntimeConfig()})
+	cfg.LocalModel = localModel.Status()
 	return &App{
 		config:     cfg,
 		client:     NewKernelHTTPClient(cfg.KernelBaseURL, cfg.RuntimeToken, nil),
 		supervisor: supervisor,
+		localModel: localModel,
+		providerControl: desktopProviderControlConfig{
+			ConfigRoot:          strings.TrimSpace(os.Getenv("GENESIS_CONFIG_ROOT")),
+			CredentialStoreRoot: strings.TrimSpace(os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT")),
+		},
 	}
 }
 
@@ -67,16 +82,54 @@ func (a *App) startup(ctx context.Context) {
 	if a.supervisor != nil {
 		a.config.Sidecar = a.supervisor.StartKernel(ctx)
 	}
+	if a.localModel != nil {
+		a.config.LocalModel = a.localModel.Start(ctx)
+	}
 }
 
 func (a *App) shutdown(ctx context.Context) {
 	if a.supervisor != nil {
 		a.config.Sidecar = a.supervisor.StopOwned(ctx)
 	}
+	if a.localModel != nil {
+		a.config.LocalModel = a.localModel.StopOwned(ctx)
+	}
 }
 
 func (a *App) DesktopConfig() DesktopConfig {
 	return a.config
+}
+
+func (a *App) LocalModelStatus() SidecarStatus {
+	if a == nil || a.localModel == nil {
+		return SidecarStatus{}
+	}
+	a.config.LocalModel = a.localModel.Status()
+	return a.config.LocalModel
+}
+
+func (a *App) StartLocalModel() SidecarStatus {
+	if a == nil || a.localModel == nil {
+		return SidecarStatus{}
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	a.config.LocalModel = a.localModel.Start(ctx)
+	return a.config.LocalModel
+}
+
+func (a *App) StopLocalModel() SidecarStatus {
+	if a == nil || a.localModel == nil {
+		return SidecarStatus{}
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	a.config.LocalModel = a.localModel.StopOwned(ctx)
+	return a.config.LocalModel
 }
 
 func (a *App) KernelReady() (map[string]any, error) {
@@ -98,6 +151,15 @@ type MaterialBridgeRequest struct {
 type MaterialFileSelection struct {
 	FilePath string `json:"file_path"`
 	Filename string `json:"filename"`
+}
+
+type ProjectDirectorySelection struct {
+	Root string `json:"root"`
+	Name string `json:"name"`
+}
+
+type TaskWorkspaceSelection struct {
+	Root string `json:"root"`
 }
 
 func (a *App) Ready() (map[string]any, error) {
@@ -124,7 +186,11 @@ func (a *App) SearchSessions(query string, limit int) (map[string]any, error) {
 }
 
 func (a *App) SubmitTurn(sessionID string, text string, idempotencyKey string) (map[string]any, error) {
-	ctx, cancel := a.requestContext()
+	if err := a.beginDesktopTurn(); err != nil {
+		return nil, err
+	}
+	defer a.endDesktopTurn()
+	ctx, cancel := a.turnRequestContext()
 	defer cancel()
 	body, _ := json.Marshal(map[string]any{
 		"session_id":      strings.TrimSpace(sessionID),
@@ -135,7 +201,11 @@ func (a *App) SubmitTurn(sessionID string, text string, idempotencyKey string) (
 }
 
 func (a *App) SubmitTurnStream(sessionID string, text string, idempotencyKey string) (map[string]any, error) {
-	ctx, cancel := a.requestContext()
+	if err := a.beginDesktopTurn(); err != nil {
+		return nil, err
+	}
+	defer a.endDesktopTurn()
+	ctx, cancel := a.turnRequestContext()
 	defer cancel()
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	body, _ := json.Marshal(map[string]any{
@@ -206,6 +276,63 @@ func (a *App) PickMaterialFile() (*MaterialFileSelection, error) {
 	return &MaterialFileSelection{FilePath: path, Filename: filepath.Base(path)}, nil
 }
 
+func (a *App) PickProjectDirectory() (*ProjectDirectorySelection, error) {
+	if a.ctx == nil {
+		return nil, errors.New("desktop window is not ready")
+	}
+	path, err := wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{Title: "选择项目目录"})
+	if err != nil || strings.TrimSpace(path) == "" {
+		return nil, err
+	}
+	root, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	return &ProjectDirectorySelection{Root: root, Name: filepath.Base(root)}, nil
+}
+
+func (a *App) CreateTaskWorkspace(sessionID string) (*TaskWorkspaceSelection, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	root, err := createTaskWorkspace(filepath.Join(home, "Documents", "Genesis"), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return &TaskWorkspaceSelection{Root: root}, nil
+}
+
+func (a *App) BindSessionWorkspace(sessionID string, kind string, root string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	body, _ := json.Marshal(map[string]string{
+		"kind": strings.TrimSpace(kind),
+		"root": strings.TrimSpace(root),
+	})
+	return a.client.RequestJSON(ctx, http.MethodPost, "/sessions/"+url.PathEscape(strings.TrimSpace(sessionID))+"/workspace", true, body)
+}
+
+func createTaskWorkspace(root string, sessionID string) (string, error) {
+	root = strings.TrimSpace(root)
+	sessionID = strings.TrimSpace(sessionID)
+	if root == "" {
+		return "", errors.New("task workspace root is required")
+	}
+	if sessionID == "" || filepath.Base(sessionID) != sessionID || sessionID == "." {
+		return "", errors.New("task session_id must be a single path component")
+	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	workspace := filepath.Join(root, sessionID)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		return "", err
+	}
+	return workspace, nil
+}
+
 func (a *App) UploadMaterial(req MaterialBridgeRequest) (map[string]any, error) {
 	ctx, cancel := a.requestContext()
 	defer cancel()
@@ -251,6 +378,38 @@ func (a *App) requestContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, 30*time.Second)
 }
 
+func (a *App) turnRequestContext() (context.Context, context.CancelFunc) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithCancel(ctx)
+}
+
+func (a *App) beginDesktopTurn() error {
+	if a == nil {
+		return errors.New("desktop app is unavailable")
+	}
+	a.desktopTurnMu.Lock()
+	defer a.desktopTurnMu.Unlock()
+	if a.providerActivationInProgress {
+		return errors.New(providerActivationInProgressReason)
+	}
+	a.activeDesktopTurns++
+	return nil
+}
+
+func (a *App) endDesktopTurn() {
+	if a == nil {
+		return
+	}
+	a.desktopTurnMu.Lock()
+	defer a.desktopTurnMu.Unlock()
+	if a.activeDesktopTurns > 0 {
+		a.activeDesktopTurns--
+	}
+}
+
 func loadDesktopConfig() DesktopConfig {
 	baseURL := strings.TrimSpace(os.Getenv("GENESIS_KERNEL_BASE_URL"))
 	external := baseURL != ""
@@ -264,10 +423,12 @@ func loadDesktopConfig() DesktopConfig {
 		External:      external,
 		GenesisdPath:  strings.TrimSpace(os.Getenv("GENESIS_DESKTOP_GENESISD_PATH")),
 	})
+	localModel := NewLocalModelSupervisor(LocalModelSupervisorConfig{Runtime: loadLocalModelRuntimeConfig()})
 	return DesktopConfig{
 		KernelBaseURL: strings.TrimRight(baseURL, "/"),
 		RuntimeToken:  token,
 		Sidecar:       supervisor.KernelStatus(),
+		LocalModel:    localModel.Status(),
 	}
 }
 

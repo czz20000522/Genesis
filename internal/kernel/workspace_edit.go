@@ -31,7 +31,11 @@ type WorkspaceEditResult struct {
 }
 
 func (k *Kernel) admitWorkspaceEditRequest(args workspaceEditToolArguments) (workspaceEditRequest, string, error) {
-	relativePath, absolutePath, code, err := resolveWorkspaceEditPath(k.toolPolicy.WorkspaceRoot, args.Path)
+	return k.admitWorkspaceEditRequestWithRoot(k.toolPolicy.WorkspaceRoot, args)
+}
+
+func (k *Kernel) admitWorkspaceEditRequestWithRoot(workspaceRoot string, args workspaceEditToolArguments) (workspaceEditRequest, string, error) {
+	relativePath, absolutePath, code, err := resolveWorkspaceEditPath(workspaceRoot, args.Path)
 	if err != nil {
 		return workspaceEditRequest{}, code, err
 	}

@@ -379,10 +379,27 @@ func (r *ToolRegistry) CapabilityProjections() []ToolCapabilityProjection {
 }
 
 func (k *Kernel) toolGateway() ToolGateway {
+	return k.toolGatewayWithPolicy(k.toolPolicy)
+}
+
+func (k *Kernel) toolGatewayWithPolicy(policy ToolPolicy) ToolGateway {
 	return ToolGateway{
 		kernel:   k,
 		registry: k.toolRegistry,
+		policy:   normalizedToolPolicy(policy),
 	}
+}
+
+func (k *Kernel) toolGatewayForSession(sessionID string) (ToolGateway, error) {
+	events, err := k.loadEvents()
+	if err != nil {
+		return ToolGateway{}, err
+	}
+	policy := k.toolPolicy
+	if binding, ok := sessionWorkspaceBindingFromEvents(events, strings.TrimSpace(sessionID)); ok {
+		policy.WorkspaceRoot = binding.Root
+	}
+	return k.toolGatewayWithPolicy(policy), nil
 }
 
 func (k *Kernel) ToolGatewayForInvocation(invocationID string) (ToolGateway, error) {
@@ -393,6 +410,7 @@ func (k *Kernel) ToolGatewayForInvocation(invocationID string) (ToolGateway, err
 	return ToolGateway{
 		kernel:       k,
 		registry:     k.toolRegistry,
+		policy:       k.toolPolicy,
 		allowedTools: capabilityGrantToolSet(invocation.CapabilityGrant),
 	}, nil
 }

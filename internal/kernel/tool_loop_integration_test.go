@@ -57,8 +57,9 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 				"choices": []interface{}{
 					map[string]interface{}{
 						"message": map[string]interface{}{
-							"role":    "assistant",
-							"content": nil,
+							"role":              "assistant",
+							"content":           nil,
+							"reasoning_content": "choose shell_exec before finalizing",
 							"tool_calls": []interface{}{
 								map[string]interface{}{
 									"id":   "call_write_file",
@@ -80,6 +81,9 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 			assistantMessage, ok := messages[1].(map[string]interface{})
 			if !ok {
 				t.Fatalf("assistant message = %#v", messages[1])
+			}
+			if assistantMessage["reasoning_content"] != "choose shell_exec before finalizing" {
+				t.Fatalf("assistant message = %#v, want DeepSeek reasoning before tool call", assistantMessage)
 			}
 			assistantToolCalls, ok := assistantMessage["tool_calls"].([]interface{})
 			if !ok || len(assistantToolCalls) != 1 {
@@ -137,6 +141,11 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 			BaseURL: server.URL,
 			APIKey:  "test-key",
 			Model:   "test-model",
+			Adapter: ProviderAdapterBinding{
+				AdapterID:         "deepseek",
+				ProfileID:         "deepseek-v4-flash",
+				TransportProtocol: "openai-chat-completions",
+			},
 		}),
 		RuntimeToken: testRuntimeToken,
 		ToolPolicy: ToolPolicy{
@@ -184,31 +193,31 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	for _, event := range events {
 		eventTypes = append(eventTypes, event.Type)
 	}
-	wantTypes := []string{"turn.submitted", "tool.call", "operation.running", "operation.completed", "tool.result", "model.final"}
+	wantTypes := []string{"turn.submitted", "model.reasoning", "tool.call", "operation.running", "operation.completed", "tool.result", "model.final"}
 	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
 		t.Fatalf("turn event types = %v, want %v", eventTypes, wantTypes)
 	}
-	toolCallData, ok := events[1].Data.(EventData)
+	toolCallData, ok := events[2].Data.(EventData)
 	if !ok {
-		t.Fatalf("tool call data = %#v, want EventData", events[1].Data)
+		t.Fatalf("tool call data = %#v, want EventData", events[2].Data)
 	}
 	if toolCallData.ToolCall == nil || toolCallData.ToolCall.Tool != "shell_exec" || toolCallData.ToolCall.ToolCallEventID == "" {
 		t.Fatalf("tool call event = %+v, want canonical shell_exec", toolCallData.ToolCall)
 	}
-	if toolCallData.ToolCall.ToolCallEventID != events[1].EventID || toolCallData.ToolCall.ProviderToolCallID != "call_write_file" {
+	if toolCallData.ToolCall.ToolCallEventID != events[2].EventID || toolCallData.ToolCall.ProviderToolCallID != "call_write_file" {
 		t.Fatalf("tool call event = %+v, want event id identity and provider correlation", toolCallData.ToolCall)
 	}
 	if !strings.Contains(toolCallData.ToolCall.Arguments, "tool-result.txt") {
 		t.Fatalf("tool call arguments = %s, want provider replay arguments", toolCallData.ToolCall.Arguments)
 	}
-	toolResultData, ok := events[4].Data.(EventData)
+	toolResultData, ok := events[5].Data.(EventData)
 	if !ok {
-		t.Fatalf("tool result data = %#v, want EventData", events[4].Data)
+		t.Fatalf("tool result data = %#v, want EventData", events[5].Data)
 	}
-	if toolResultData.ToolResult == nil || toolResultData.ToolResult.ForEventID != events[1].EventID || toolResultData.ToolResult.Status != "completed" {
-		t.Fatalf("tool result event = %+v, want result linked to %s", toolResultData.ToolResult, events[1].EventID)
+	if toolResultData.ToolResult == nil || toolResultData.ToolResult.ForEventID != events[2].EventID || toolResultData.ToolResult.Status != "completed" {
+		t.Fatalf("tool result event = %+v, want result linked to %s", toolResultData.ToolResult, events[2].EventID)
 	}
-	if toolResultData.ToolResult.ToolCallEventID != events[1].EventID || toolResultData.ToolResult.ProviderToolCallID != "call_write_file" {
+	if toolResultData.ToolResult.ToolCallEventID != events[2].EventID || toolResultData.ToolResult.ProviderToolCallID != "call_write_file" {
 		t.Fatalf("tool result event = %+v, want event id identity and provider correlation", toolResultData.ToolResult)
 	}
 	if toolCallData.ToolCall.Arguments != string(toolArgs) {
@@ -221,11 +230,11 @@ func TestSubmitTurnExecutesOpenAICompatibleToolCallBeforeFinal(t *testing.T) {
 	if len(session.Events) != len(events) {
 		t.Fatalf("session events = %d, want %d", len(session.Events), len(events))
 	}
-	if session.Events[1].Data.ToolCall == nil || session.Events[1].Data.ToolCall.Tool != "shell_exec" {
-		t.Fatalf("session tool.call event = %+v, want payload", session.Events[1].Data.ToolCall)
+	if session.Events[2].Data.ToolCall == nil || session.Events[2].Data.ToolCall.Tool != "shell_exec" {
+		t.Fatalf("session tool.call event = %+v, want payload", session.Events[2].Data.ToolCall)
 	}
-	if session.Events[4].Data.ToolResult == nil || session.Events[4].Data.ToolResult.ForEventID != session.Events[1].EventID {
-		t.Fatalf("session tool.result event = %+v, want for_event_id=%s", session.Events[4].Data.ToolResult, session.Events[1].EventID)
+	if session.Events[5].Data.ToolResult == nil || session.Events[5].Data.ToolResult.ForEventID != session.Events[2].EventID {
+		t.Fatalf("session tool.result event = %+v, want for_event_id=%s", session.Events[5].Data.ToolResult, session.Events[2].EventID)
 	}
 }
 

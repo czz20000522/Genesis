@@ -26,6 +26,7 @@ const (
 	sidecarStopped                  = "sidecar_stopped"
 	sidecarStarting                 = "sidecar_starting"
 	sidecarStartFailed              = "sidecar_start_failed"
+	sidecarStopFailed               = "sidecar_stop_failed"
 	sidecarReadinessProbeFailed     = "kernel_readiness_probe_failed"
 	sidecarKernelNotReady           = "kernel_not_ready"
 )
@@ -165,6 +166,27 @@ func (s *LocalServiceSupervisor) StopOwned(ctx context.Context) SidecarStatus {
 	s.status.Readiness = "not_ready"
 	s.status.Reason = sidecarStopped
 	return s.status
+}
+
+func (s *LocalServiceSupervisor) RestartOwned(ctx context.Context) SidecarStatus {
+	if s == nil {
+		return SidecarStatus{}
+	}
+	if s.cfg.External {
+		s.status = s.initialKernelStatus()
+		return s.status
+	}
+	if s.process != nil {
+		pid := s.process.PID()
+		startedAt := s.status.StartedAt
+		logPath := s.status.LogPath
+		if err := s.process.Stop(ctx); err != nil {
+			s.status = s.ownedStatus("not_ready", sidecarStopFailed, pid, startedAt, logPath)
+			return s.status
+		}
+		s.process = nil
+	}
+	return s.StartKernel(ctx)
 }
 
 func (s *LocalServiceSupervisor) initialKernelStatus() SidecarStatus {

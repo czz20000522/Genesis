@@ -75,7 +75,11 @@ func TestSetupOpenAICompatibleProviderWritesConfigAndProtectedCredential(t *test
 	if strings.Contains(string(credentialPayload), apiKey) {
 		t.Fatalf("credential record leaked API key: %s", string(credentialPayload))
 	}
-	var credentialRecord localSecretRecord
+	var credentialRecord struct {
+		RecordType    string `json:"record_type"`
+		CredentialRef string `json:"credential_ref"`
+		ProtectedData string `json:"protected_data_b64"`
+	}
 	if err := json.Unmarshal(credentialPayload, &credentialRecord); err != nil {
 		t.Fatalf("decode credential record: %v", err)
 	}
@@ -184,13 +188,12 @@ func TestRotateActiveProviderCredentialRepairsExplicitProfileMetadata(t *testing
 		ModelRole:           DefaultModelRole,
 		APIKey:              apiKey,
 		RepairProfileMetadata: &OpenAICompatibleProviderProfileMetadataRepair{
-			ProfileID:             "deepseek-flash",
-			ModelID:               "deepseek-v4-flash",
-			GatewayRoute:          "deepseek",
-			ProviderAdapterID:     "deepseek",
-			AdapterProfileID:      "deepseek-v4-flash",
-			HiddenReasoningPolicy: "discard",
-			ContextWindowTokens:   1000000,
+			ProfileID:           "deepseek-flash",
+			ModelID:             "deepseek-v4-flash",
+			GatewayRoute:        "deepseek",
+			ProviderAdapterID:   "deepseek",
+			AdapterProfileID:    "deepseek-v4-flash",
+			ContextWindowTokens: 1000000,
 		},
 		SecretProtector: func(secret []byte) ([]byte, error) {
 			if string(secret) != apiKey {
@@ -221,7 +224,6 @@ func TestRotateActiveProviderCredentialRepairsExplicitProfileMetadata(t *testing
 	for _, want := range []string{
 		`"provider_adapter_id": "deepseek"`,
 		`"provider_adapter_profile_id": "deepseek-v4-flash"`,
-		`"hidden_reasoning_policy": "discard"`,
 		`"context_window_tokens": 1000000`,
 	} {
 		if !strings.Contains(configText, want) {
@@ -258,12 +260,11 @@ func TestRotateActiveProviderCredentialRefusesMismatchedProfileMetadataRepair(t 
 		ModelRole:           DefaultModelRole,
 		APIKey:              "sk-rotated-secret",
 		RepairProfileMetadata: &OpenAICompatibleProviderProfileMetadataRepair{
-			ProfileID:             "deepseek-flash",
-			ModelID:               "deepseek-v4-flash",
-			GatewayRoute:          "deepseek",
-			ProviderAdapterID:     "deepseek",
-			AdapterProfileID:      "deepseek-v4-flash",
-			HiddenReasoningPolicy: "discard",
+			ProfileID:         "deepseek-flash",
+			ModelID:           "deepseek-v4-flash",
+			GatewayRoute:      "deepseek",
+			ProviderAdapterID: "deepseek",
+			AdapterProfileID:  "deepseek-v4-flash",
 		},
 		SecretProtector: func(secret []byte) ([]byte, error) {
 			return []byte("protected"), nil
@@ -301,12 +302,11 @@ func TestRotateActiveProviderCredentialDoesNotWriteSecretWhenMetadataRepairConfi
 		ModelRole:           DefaultModelRole,
 		APIKey:              "sk-rotated-secret",
 		RepairProfileMetadata: &OpenAICompatibleProviderProfileMetadataRepair{
-			ProfileID:             "deepseek-flash",
-			ModelID:               "deepseek-v4-flash",
-			GatewayRoute:          "deepseek",
-			ProviderAdapterID:     "deepseek",
-			AdapterProfileID:      "deepseek-v4-flash",
-			HiddenReasoningPolicy: "discard",
+			ProfileID:         "deepseek-flash",
+			ModelID:           "deepseek-v4-flash",
+			GatewayRoute:      "deepseek",
+			ProviderAdapterID: "deepseek",
+			AdapterProfileID:  "deepseek-v4-flash",
 		},
 		SecretProtector: func(secret []byte) ([]byte, error) {
 			secretProtectorCalled = true

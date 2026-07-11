@@ -20,6 +20,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Genesis provider_command adapter for llama.cpp server")
     parser.add_argument("--base-url", default="http://127.0.0.1:8080/v1")
     parser.add_argument("--timeout-sec", type=float, default=300)
+    parser.add_argument("--max-tokens", type=int, default=0)
     parser.add_argument("--lock-path", default="")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
@@ -29,43 +30,78 @@ def main() -> int:
 
     request = json.load(sys.stdin)
     with single_process_lock(args.lock_path):
-        upstream = post_chat_completion(args.base_url, build_chat_payload(request), args.timeout_sec)
+        upstream = post_chat_completion(args.base_url, build_chat_payload(request, args.max_tokens), args.timeout_sec)
     json.dump(to_provider_command_response(upstream), sys.stdout, ensure_ascii=False, separators=(",", ":"))
     sys.stdout.write("\n")
     return 0
 
 
-def build_chat_payload(request):
+def build_chat_payload(request, max_tokens=0):
     if request.get("protocol") != PROTOCOL:
         raise SystemExit("unsupported provider_command protocol")
     model = str(request.get("model") or "").strip()
     if not model:
         raise SystemExit("provider_command request missing model")
 
+    conversation = request.get("conversation") or []
     payload = {
         "model": model,
-        "messages": [{"role": "user", "content": model_user_text(request.get("input_items") or [])}],
+        "messages": conversation_messages(conversation) if conversation else [{"role": "user", "content": model_user_text(request.get("input_items") or [])}],
     }
     tools = chat_tools(request.get("tool_manifest") or [])
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
+    if max_tokens > 0:
+        payload["max_tokens"] = max_tokens
 
-    for round_payload in request.get("tool_rounds") or []:
-        calls = chat_tool_calls(round_payload.get("calls") or [])
-        if calls:
-            payload["messages"].append({"role": "assistant", "tool_calls": calls})
-        for result in round_payload.get("results") or []:
-            payload["messages"].append({
-                "role": "tool",
-                "tool_call_id": str(result.get("tool_call_id") or "").strip(),
-                "content": str(result.get("content") or ""),
-            })
+    if not conversation:
+        for round_payload in request.get("tool_rounds") or []:
+            calls = chat_tool_calls(round_payload.get("calls") or [])
+            if calls:
+                payload["messages"].append({"role": "assistant", "tool_calls": calls})
+            for result in round_payload.get("results") or []:
+                payload["messages"].append({
+                    "role": "tool",
+                    "tool_call_id": str(result.get("tool_call_id") or "").strip(),
+                    "content": str(result.get("content") or ""),
+                })
     return payload
 
 
 def model_user_text(items):
     return "\n".join(str(item.get("text") or "") for item in items if item.get("text"))
+
+
+def conversation_messages(conversation):
+    messages = []
+    for message in conversation:
+        role = str(message.get("role") or "").strip()
+        text = str(message.get("text") or "")
+        if role in {"system", "user"}:
+            messages.append({"role": role, "content": text})
+            continue
+        if role == "assistant":
+            next_message = {"role": role}
+            if text:
+                next_message["content"] = text
+            calls = chat_tool_calls(message.get("tool_calls") or [])
+            if calls:
+                next_message["tool_calls"] = calls
+            if "content" not in next_message and "tool_calls" not in next_message:
+                raise SystemExit("canonical assistant message missing content or tool_calls")
+            messages.append(next_message)
+            continue
+        if role == "tool":
+            tool_call_id = str(message.get("tool_call_id") or "").strip()
+            if not tool_call_id:
+                raise SystemExit("canonical tool message missing tool_call_id")
+            messages.append({"role": role, "tool_call_id": tool_call_id, "content": text})
+            continue
+        raise SystemExit(f"unsupported canonical conversation role: {role}")
+    if not messages:
+        raise SystemExit("canonical conversation is empty")
+    return messages
 
 
 def chat_tools(tools):
@@ -109,13 +145,19 @@ def post_chat_completion(base_url, payload, timeout_sec):
     data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=timeout_sec) as response:
+        with urllib.request.urlopen(request, **request_timeout_kwargs(timeout_sec)) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as err:
         body = err.read().decode("utf-8", "replace")[:2000]
         raise SystemExit(f"llama.cpp server returned HTTP {err.code}: {body}") from err
     except urllib.error.URLError as err:
         raise SystemExit(f"llama.cpp server unavailable: {err.reason}") from err
+
+
+def request_timeout_kwargs(timeout_sec):
+    if timeout_sec <= 0:
+        return {}
+    return {"timeout": timeout_sec}
 
 
 def to_provider_command_response(upstream):
@@ -125,15 +167,26 @@ def to_provider_command_response(upstream):
     message = choices[0].get("message") or {}
     model = str(upstream.get("model") or "").strip()
     usage = token_usage(upstream.get("usage") or {})
+    # llama.cpp exposes an OpenAI-compatible reasoning_content field. Convert it
+    # into Genesis's semantic provider-command field; the kernel owns persistence.
+    # Do not forward a vendor-shaped response or replay directive from this adapter.
+    reasoning_text = str(message.get("reasoning_content") or "").strip()
+    reasoning = {"text": reasoning_text} if reasoning_text else None
 
     tool_calls = message.get("tool_calls") or []
     if tool_calls:
-        return {"kind": "tool_calls", "model": model, "tool_calls": provider_tool_calls(tool_calls), "usage": usage}
+        response = {"kind": "tool_calls", "model": model, "tool_calls": provider_tool_calls(tool_calls), "usage": usage}
+        if reasoning:
+            response["reasoning"] = reasoning
+        return response
 
     text = str(message.get("content") or "")
     if not text.strip():
         raise SystemExit("llama.cpp response missing visible final text")
-    return {"kind": "final", "model": model, "text": text, "usage": usage}
+    response = {"kind": "final", "model": model, "text": text, "usage": usage}
+    if reasoning:
+        response["reasoning"] = reasoning
+    return response
 
 
 def provider_tool_calls(tool_calls):
@@ -208,6 +261,10 @@ def self_test():
     assert payload["messages"] == [{"role": "user", "content": "hello"}]
     assert payload["tools"][0]["function"]["name"] == "shell_exec"
     assert "max_tokens" not in payload
+    bounded_payload = build_chat_payload(request, 128)
+    assert bounded_payload["max_tokens"] == 128
+    assert request_timeout_kwargs(0) == {}
+    assert request_timeout_kwargs(300) == {"timeout": 300}
     final = to_provider_command_response({
         "model": "local-model",
         "choices": [{"message": {"content": "ok", "reasoning_content": "hidden"}}],
@@ -217,13 +274,15 @@ def self_test():
         "kind": "final",
         "model": "local-model",
         "text": "ok",
+        "reasoning": {"text": "hidden"},
         "usage": {"input_tokens": 2, "output_tokens": 3, "total_tokens": 5},
     }
     tool = to_provider_command_response({
         "model": "local-model",
-        "choices": [{"message": {"tool_calls": [{"id": "call_1", "function": {"name": "shell_exec", "arguments": "{\"command\":\"pwd\"}"}}]}}],
+        "choices": [{"message": {"reasoning_content": "inspect before tool call", "tool_calls": [{"id": "call_1", "function": {"name": "shell_exec", "arguments": "{\"command\":\"pwd\"}"}}]}}],
     })
     assert tool["tool_calls"][0]["arguments"] == {"command": "pwd"}
+    assert tool["reasoning"] == {"text": "inspect before tool call"}
     print("ok")
 
 

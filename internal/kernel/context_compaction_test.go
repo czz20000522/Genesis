@@ -78,6 +78,15 @@ func TestAutoCompactionProjectsSummaryPlusRecentTail(t *testing.T) {
 	if strings.Contains(thirdContext, "first fact should be compacted") {
 		t.Fatalf("third context = %q, must not include compacted raw turn", thirdContext)
 	}
+	firstPrefix := provider.normalRequests[0].Conversation[0]
+	thirdPrefix := provider.normalRequests[2].Conversation[0]
+	if firstPrefix.Role != "system" || thirdPrefix.Role != "system" || firstPrefix.Text != thirdPrefix.Text {
+		t.Fatalf("prefixes = %#v %#v, want byte-identical stable system prefix across compaction", firstPrefix, thirdPrefix)
+	}
+	thirdConversation := provider.normalRequests[2].Conversation
+	if len(thirdConversation) < 2 || thirdConversation[len(thirdConversation)-1].Role != "user" || thirdConversation[len(thirdConversation)-1].Text != "third asks with compacted context" {
+		t.Fatalf("third conversation = %#v, want current user as final message after compacted history", thirdConversation)
+	}
 
 	timeline, err := k.UITimeline("compact-session")
 	if err != nil {

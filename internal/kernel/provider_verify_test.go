@@ -166,6 +166,20 @@ func TestVerifyProviderLiveRunsProviderCommandConfig(t *testing.T) {
 	}
 }
 
+func TestProviderVerifyContextUsesUnboundedModeOnlyWhenConfigured(t *testing.T) {
+	unbounded, cancelUnbounded := providerVerifyContext(0, true)
+	defer cancelUnbounded()
+	if _, ok := unbounded.Deadline(); ok {
+		t.Fatal("unbounded provider verify context unexpectedly has a deadline")
+	}
+
+	bounded, cancelBounded := providerVerifyContext(0, false)
+	defer cancelBounded()
+	if _, ok := bounded.Deadline(); !ok {
+		t.Fatal("ordinary provider verify context has no deadline")
+	}
+}
+
 func writeLiveVerifyModelsConfig(t *testing.T, endpoint string, model string, protocol string) string {
 	t.Helper()
 	gateway := map[string]any{

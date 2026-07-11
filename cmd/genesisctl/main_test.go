@@ -277,7 +277,6 @@ func TestProviderUseDeepSeekPresetWritesConfigWithoutPrintingSecret(t *testing.T
 		"deepseek-v4-flash",
 		"\"provider_adapter_id\": \"deepseek\"",
 		"\"provider_adapter_profile_id\": \"deepseek-v4-flash\"",
-		"\"hidden_reasoning_policy\": \"discard\"",
 		"secret://models/deepseek/local",
 		"openai-chat-completions",
 		"\"context_window_tokens\": 1000000",
@@ -408,9 +407,11 @@ func TestProviderVerifyRunsProviderCommandConfig(t *testing.T) {
 	}
 	configPayload, err := json.Marshal(map[string]any{
 		"model_gateway": map[string]any{
-			"protocol": "provider_command",
-			"command":  os.Args[0],
-			"args":     []string{"-test.run=TestProviderCommandVerifyHelper", "--", "provider-command-verify-helper"},
+			"protocol":                "provider_command",
+			"command":                 os.Args[0],
+			"args":                    []string{"-test.run=TestProviderCommandVerifyHelper", "--", "provider-command-verify-helper"},
+			"request_timeout_sec":     0,
+			"allow_unbounded_request": true,
 		},
 		"active_model_profile_bindings": map[string]any{
 			"coordinator": "verify-command-profile",
@@ -437,7 +438,7 @@ func TestProviderVerifyRunsProviderCommandConfig(t *testing.T) {
 	err = run([]string{
 		"provider", "verify",
 		"-config-root", configRoot,
-		"-timeout-sec", "1",
+		"-timeout-sec", "0",
 	}, strings.NewReader(""), &stdout)
 	if err != nil {
 		t.Fatalf("provider verify returned error: %v", err)

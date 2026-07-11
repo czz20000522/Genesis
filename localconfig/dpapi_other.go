@@ -1,11 +1,11 @@
 //go:build !windows
 
-package kernel
+package localconfig
 
 func dpapiProtect(_ []byte) ([]byte, error) {
-	return nil, ErrLocalSecretUnsupported
+	return nil, ErrCredentialUnsupported
 }
 
 func dpapiUnprotect(_ []byte) ([]byte, error) {
-	return nil, ErrLocalSecretUnsupported
+	return nil, ErrCredentialUnsupported
 }

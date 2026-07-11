@@ -73,7 +73,7 @@ func (b *sessionProjectionBuilder) appendRawEvent(event StoredEvent) {
 
 func (b *sessionProjectionBuilder) applyOwnerEvent(event StoredEvent) error {
 	switch event.Type {
-	case "turn.submitted", "model.final", "turn.paused", "turn.failed", "assistant.interrupted":
+	case "turn.submitted", "model.reasoning", "model.final", "turn.paused", "turn.failed", "assistant.interrupted":
 		b.applyTurnEvent(event)
 	case "operation.running", "operation.completed", "operation.failed", "operation.blocked", "operation.interrupted", "operation.tool_infrastructure_failed":
 		b.applyOperationEvent(event)
@@ -87,6 +87,10 @@ func (b *sessionProjectionBuilder) applyOwnerEvent(event StoredEvent) error {
 		return b.applyWorkEvent(event)
 	case "memory.candidate.created", "memory.candidate.approved", "memory.candidate.rejected", "memory.candidate.superseded", "memory.candidate.forgotten":
 		return b.applyMemoryCandidateEvent(event)
+	case "session.workspace_bound":
+		if event.Data.SessionWorkspace != nil {
+			b.projection.WorkspaceMode = event.Data.SessionWorkspace.Kind
+		}
 	}
 	return nil
 }
@@ -144,6 +148,12 @@ func (b *sessionProjectionBuilder) applyTurnEvent(event StoredEvent) {
 			ModelInputKinds: event.Data.ModelInputKinds,
 			StartedAt:       event.CreatedAt,
 		})
+	case "model.reasoning":
+		idx, ok := b.turnByID[event.TurnID]
+		if !ok || event.Data.Reasoning == nil {
+			return
+		}
+		b.projection.Turns[idx].ReasoningMessages = append(b.projection.Turns[idx].ReasoningMessages, reasoningMessageProjection(*event.Data.Reasoning))
 	case "model.final":
 		idx, ok := b.turnByID[event.TurnID]
 		if !ok {

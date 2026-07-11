@@ -33,6 +33,22 @@ type OpenAICompatibleProvider struct {
 	httpClient *http.Client
 }
 
+func (binding ProviderAdapterBinding) isDeepSeekThinking() bool {
+	return strings.EqualFold(strings.TrimSpace(binding.AdapterID), "deepseek") &&
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(binding.ProfileID)), "deepseek-v4-") &&
+		strings.EqualFold(strings.TrimSpace(binding.TransportProtocol), modelGatewayProtocolChatCompletions)
+}
+
+func (binding ProviderAdapterBinding) isZAIGLMThinking() bool {
+	return strings.TrimSpace(binding.AdapterID) == "zai-glm" &&
+		strings.TrimSpace(binding.ProfileID) == "glm-5.2" &&
+		strings.EqualFold(strings.TrimSpace(binding.TransportProtocol), modelGatewayProtocolChatCompletions)
+}
+
+func (binding ProviderAdapterBinding) acceptsReasoningContent() bool {
+	return binding.isDeepSeekThinking() || binding.isZAIGLMThinking()
+}
+
 func NewOpenAICompatibleProvider(config OpenAICompatibleConfig) *OpenAICompatibleProvider {
 	client := config.HTTPClient
 	if client == nil {
@@ -53,6 +69,10 @@ func NewOpenAICompatibleProvider(config OpenAICompatibleConfig) *OpenAICompatibl
 
 func (p *OpenAICompatibleProvider) Name() string {
 	return "openai-compatible"
+}
+
+func (p *OpenAICompatibleProvider) PrefixIdentity() string {
+	return providerPrefixIdentityFromBinding(p.Name(), p.adapter, p.model)
 }
 
 func (p *OpenAICompatibleProvider) Ready() ProviderStatus {
@@ -76,11 +96,16 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 		return ModelResponse{}, fmt.Errorf("%w: %s", ErrProviderUnavailable, status.ReadinessReason)
 	}
 
+	messages, err := chatMessagesFromModelRequestForAdapter(req, p.adapter)
+	if err != nil {
+		return ModelResponse{}, err
+	}
 	payload := chatCompletionRequest{
 		Model:    p.model,
-		Messages: chatMessagesFromModelRequest(req),
+		Messages: messages,
 		Tools:    chatToolsFromManifest(req.ToolManifest),
 	}
+	applyAdapterThinking(&payload, messages, p.adapter)
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = "auto"
 	}
@@ -124,30 +149,30 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, req ModelReques
 	if model == "" {
 		model = p.model
 	}
+	reasoning, err := p.reasoningFromChat(message)
+	if err != nil {
+		return ModelResponse{}, err
+	}
 	if len(message.ToolCalls) > 0 {
-		if err := p.handleVendorHiddenReasoning(message); err != nil {
-			return ModelResponse{}, err
-		}
 		calls, err := modelToolCallsFromChat(message.ToolCalls)
 		if err != nil {
 			return ModelResponse{}, err
 		}
 		return ModelResponse{
+			Reasoning: reasoning,
 			Model:     model,
 			ToolCalls: calls,
 			Usage:     tokenUsageFromChatUsage(decoded.Usage),
 		}, nil
 	}
-	if err := p.handleVendorHiddenReasoning(message); err != nil {
-		return ModelResponse{}, err
-	}
 	if strings.TrimSpace(message.Content) == "" {
 		return ModelResponse{}, newProviderVisibleFinalRequiredError()
 	}
 	return ModelResponse{
-		Text:  message.Content,
-		Model: model,
-		Usage: tokenUsageFromChatUsage(decoded.Usage),
+		Reasoning: reasoning,
+		Text:      message.Content,
+		Model:     model,
+		Usage:     tokenUsageFromChatUsage(decoded.Usage),
 	}, nil
 }
 
@@ -156,13 +181,18 @@ func (p *OpenAICompatibleProvider) StreamComplete(ctx context.Context, req Model
 		return ModelResponse{}, fmt.Errorf("%w: %s", ErrProviderUnavailable, status.ReadinessReason)
 	}
 
+	messages, err := chatMessagesFromModelRequestForAdapter(req, p.adapter)
+	if err != nil {
+		return ModelResponse{}, err
+	}
 	payload := chatCompletionRequest{
 		Model:         p.model,
-		Messages:      chatMessagesFromModelRequest(req),
+		Messages:      messages,
 		Tools:         chatToolsFromManifest(req.ToolManifest),
 		Stream:        true,
 		StreamOptions: &chatCompletionStreamOptions{IncludeUsage: true},
 	}
+	applyAdapterThinking(&payload, messages, p.adapter)
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = "auto"
 	}
@@ -202,6 +232,7 @@ func (p *OpenAICompatibleProvider) decodeChatStream(body io.Reader, emit func(Mo
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var content strings.Builder
+	var reasoning strings.Builder
 	model := p.model
 	toolCalls := map[int]*chatToolCall{}
 	var usage *TokenUsage
@@ -228,8 +259,12 @@ func (p *OpenAICompatibleProvider) decodeChatStream(body io.Reader, emit func(Mo
 			usage = tokenUsageFromChatUsage(chunk.Usage)
 		}
 		for _, choice := range chunk.Choices {
-			if err := p.handleVendorHiddenReasoning(choice.Delta); err != nil {
+			reasoningMessage, err := p.reasoningFromChat(choice.Delta)
+			if err != nil {
 				return ModelResponse{}, err
+			}
+			if reasoningMessage != nil {
+				reasoning.WriteString(reasoningMessage.Text)
 			}
 			if choice.Delta.Content != "" {
 				content.WriteString(choice.Delta.Content)
@@ -250,23 +285,35 @@ func (p *OpenAICompatibleProvider) decodeChatStream(body io.Reader, emit func(Mo
 		if err != nil {
 			return ModelResponse{}, err
 		}
-		return ModelResponse{Model: model, ToolCalls: calls, Usage: usage}, nil
+		return ModelResponse{Reasoning: p.reasoningFromText(reasoning.String()), Model: model, ToolCalls: calls, Usage: usage}, nil
 	}
 	text := content.String()
 	if strings.TrimSpace(text) == "" {
 		return ModelResponse{}, newProviderVisibleFinalRequiredError()
 	}
-	return ModelResponse{Text: text, Model: model, Usage: usage}, nil
+	return ModelResponse{Reasoning: p.reasoningFromText(reasoning.String()), Text: text, Model: model, Usage: usage}, nil
 }
 
-func (p *OpenAICompatibleProvider) handleVendorHiddenReasoning(message chatMessage) error {
+func (p *OpenAICompatibleProvider) reasoningFromChat(message chatMessage) (*ReasoningMessage, error) {
 	if strings.TrimSpace(message.ReasoningContent) == "" {
+		return nil, nil
+	}
+	if !p.adapter.acceptsReasoningContent() {
+		return nil, newProviderVendorFieldUnsupportedError()
+	}
+	return p.reasoningFromText(message.ReasoningContent), nil
+}
+
+func (p *OpenAICompatibleProvider) reasoningFromText(text string) *ReasoningMessage {
+	text = strings.TrimSpace(text)
+	if text == "" || !p.adapter.acceptsReasoningContent() {
 		return nil
 	}
-	if p.adapter.allowsHiddenReasoningDiscard() {
-		return nil
+	return &ReasoningMessage{
+		Text:             text,
+		AdapterID:        p.adapter.AdapterID,
+		AdapterProfileID: p.adapter.ProfileID,
 	}
-	return newProviderVendorFieldUnsupportedError()
 }
 
 func parseProviderRetryAfter(resp *http.Response) time.Duration {
@@ -285,6 +332,33 @@ func parseProviderRetryAfter(resp *http.Response) time.Duration {
 }
 
 func chatMessagesFromModelRequest(req ModelRequest) []chatMessage {
+	messages, _ := chatMessagesFromModelRequestForAdapter(req, ProviderAdapterBinding{})
+	return messages
+}
+
+func chatMessagesFromModelRequestForAdapter(req ModelRequest, binding ProviderAdapterBinding) ([]chatMessage, error) {
+	if len(req.Conversation) > 0 {
+		messages := make([]chatMessage, 0, len(req.Conversation))
+		replayToolReasoning := binding.isZAIGLMThinking() && conversationEndsWithToolResults(req.Conversation)
+		for _, message := range req.Conversation {
+			next := chatMessage{
+				Role:       strings.TrimSpace(message.Role),
+				Content:    message.Text,
+				ToolCallID: message.ToolCallID,
+				ToolCalls:  chatToolCallsFromModel(message.ToolCalls),
+			}
+			if next.Role == "assistant" && len(next.ToolCalls) > 0 && replayToolReasoning {
+				if strings.TrimSpace(message.ReasoningText) == "" ||
+					strings.TrimSpace(message.ReasoningAdapterID) != strings.TrimSpace(binding.AdapterID) ||
+					strings.TrimSpace(message.ReasoningAdapterProfile) != strings.TrimSpace(binding.ProfileID) {
+					return nil, newProviderReasoningContinuationUnavailableError()
+				}
+				next.ReasoningContent = message.ReasoningText
+			}
+			messages = append(messages, next)
+		}
+		return messages, nil
+	}
 	messages := []chatMessage{
 		{Role: "user", Content: modelUserText(req.InputItems)},
 	}
@@ -304,7 +378,53 @@ func chatMessagesFromModelRequest(req ModelRequest) []chatMessage {
 			})
 		}
 	}
-	return messages
+	return messages, nil
+}
+
+func conversationEndsWithToolResults(messages []ModelConversationMessage) bool {
+	lastToolAssistant := -1
+	for index, message := range messages {
+		if strings.TrimSpace(message.Role) == "assistant" && len(message.ToolCalls) > 0 {
+			lastToolAssistant = index
+		}
+	}
+	if lastToolAssistant < 0 || lastToolAssistant == len(messages)-1 {
+		return false
+	}
+	for _, message := range messages[lastToolAssistant+1:] {
+		if strings.TrimSpace(message.Role) != "tool" {
+			return false
+		}
+	}
+	return true
+}
+
+func applyAdapterThinking(payload *chatCompletionRequest, messages []chatMessage, binding ProviderAdapterBinding) {
+	if payload == nil || !binding.isZAIGLMThinking() {
+		return
+	}
+	payload.Thinking = &chatThinkingConfig{
+		Type:          "enabled",
+		ClearThinking: !conversationEndsWithChatToolResults(messages),
+	}
+}
+
+func conversationEndsWithChatToolResults(messages []chatMessage) bool {
+	lastToolAssistant := -1
+	for index, message := range messages {
+		if strings.TrimSpace(message.Role) == "assistant" && len(message.ToolCalls) > 0 {
+			lastToolAssistant = index
+		}
+	}
+	if lastToolAssistant < 0 || lastToolAssistant == len(messages)-1 {
+		return false
+	}
+	for _, message := range messages[lastToolAssistant+1:] {
+		if strings.TrimSpace(message.Role) != "tool" {
+			return false
+		}
+	}
+	return true
 }
 
 func modelUserText(items []ModelInputItem) string {
@@ -324,6 +444,12 @@ type chatCompletionRequest struct {
 	ToolChoice    string                       `json:"tool_choice,omitempty"`
 	Stream        bool                         `json:"stream,omitempty"`
 	StreamOptions *chatCompletionStreamOptions `json:"stream_options,omitempty"`
+	Thinking      *chatThinkingConfig          `json:"thinking,omitempty"`
+}
+
+type chatThinkingConfig struct {
+	Type          string `json:"type"`
+	ClearThinking bool   `json:"clear_thinking"`
 }
 
 type chatCompletionStreamOptions struct {
@@ -332,10 +458,10 @@ type chatCompletionStreamOptions struct {
 
 type chatMessage struct {
 	Role             string         `json:"role"`
-	Content          string         `json:"content,omitempty"`
+	Content          string         `json:"content"`
 	ToolCallID       string         `json:"tool_call_id,omitempty"`
-	ToolCalls        []chatToolCall `json:"tool_calls,omitempty"`
 	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	ToolCalls        []chatToolCall `json:"tool_calls,omitempty"`
 }
 
 type chatCompletionResponse struct {

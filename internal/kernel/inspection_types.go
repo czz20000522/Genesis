@@ -51,6 +51,7 @@ type UITimelineDetailResponse struct {
 type UITimelineItem struct {
 	ItemID              string           `json:"item_id"`
 	TurnID              string           `json:"turn_id"`
+	ReasoningID         string           `json:"reasoning_id,omitempty"`
 	Kind                string           `json:"kind"`
 	Phase               string           `json:"phase,omitempty"`
 	WaitReason          string           `json:"wait_reason,omitempty"`
@@ -86,18 +87,20 @@ type UITimelineItem struct {
 }
 
 type ContextInspectionResponse struct {
-	TurnID            string                       `json:"turn_id"`
-	SessionID         string                       `json:"session_id,omitempty"`
-	Readiness         string                       `json:"readiness"`
-	ReadinessReason   string                       `json:"readiness_reason,omitempty"`
-	InputItems        []InputItem                  `json:"input_items"`
-	ModelInputKinds   []string                     `json:"model_input_kinds"`
-	ToolManifest      []ToolManifestInspection     `json:"tool_manifest"`
-	SkillCatalog      []SkillCatalogItemProjection `json:"skill_catalog"`
-	SourceSnapshots   []SourceSnapshotDescriptor   `json:"source_snapshots,omitempty"`
-	HydratedContexts  []ContextHydrationProjection `json:"hydrated_contexts,omitempty"`
-	Runtime           *ContextRuntimeSnapshot      `json:"runtime,omitempty"`
-	UnavailableReason string                       `json:"unavailable_reason,omitempty"`
+	TurnID              string                       `json:"turn_id"`
+	SessionID           string                       `json:"session_id,omitempty"`
+	Readiness           string                       `json:"readiness"`
+	ReadinessReason     string                       `json:"readiness_reason,omitempty"`
+	InputItems          []InputItem                  `json:"input_items"`
+	ModelInputKinds     []string                     `json:"model_input_kinds"`
+	PrefixFingerprint   string                       `json:"prefix_fingerprint,omitempty"`
+	PrefixChangeReasons []string                     `json:"prefix_change_reasons,omitempty"`
+	ToolManifest        []ToolManifestInspection     `json:"tool_manifest"`
+	SkillCatalog        []SkillCatalogItemProjection `json:"skill_catalog"`
+	SourceSnapshots     []SourceSnapshotDescriptor   `json:"source_snapshots,omitempty"`
+	HydratedContexts    []ContextHydrationProjection `json:"hydrated_contexts,omitempty"`
+	Runtime             *ContextRuntimeSnapshot      `json:"runtime,omitempty"`
+	UnavailableReason   string                       `json:"unavailable_reason,omitempty"`
 }
 
 type ToolManifestInspection struct {
@@ -121,6 +124,7 @@ type PermissionInspection struct {
 
 type SessionProjection struct {
 	SessionID        string                       `json:"session_id"`
+	WorkspaceMode    string                       `json:"workspace_mode,omitempty"`
 	Turns            []TurnProjection             `json:"turns"`
 	Operations       []OperationProjection        `json:"operations"`
 	Jobs             []JobProjection              `json:"jobs"`

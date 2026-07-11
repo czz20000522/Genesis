@@ -87,7 +87,25 @@ type preparedModelToolCall struct {
 type ToolGateway struct {
 	kernel       *Kernel
 	registry     *ToolRegistry
+	policy       ToolPolicy
 	allowedTools map[string]struct{}
+}
+
+type workspaceToolInvocationContext struct {
+	*Kernel
+	policy ToolPolicy
+}
+
+func (c workspaceToolInvocationContext) prepareShellExecToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	return c.Kernel.prepareShellExecToolCallWithPolicy(c.policy, eventID, providerCallID, name, arguments)
+}
+
+func (c workspaceToolInvocationContext) prepareWorkspaceEditToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	return c.Kernel.prepareWorkspaceEditToolCallWithRoot(c.policy.WorkspaceRoot, eventID, providerCallID, name, arguments)
+}
+
+func (g ToolGateway) invocationContext() toolInvocationContext {
+	return workspaceToolInvocationContext{Kernel: g.kernel, policy: g.policy}
 }
 
 func (g ToolGateway) ToolManifest() []ToolSpec {
@@ -174,7 +192,7 @@ func (g ToolGateway) prepareCall(call ModelToolCall) (preparedModelToolCall, err
 	if !g.toolAllowed(name) {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, "capability_grant_tool_not_allowed", fmt.Sprintf("tool %q is not allowed by the admitted invocation capability grant", name)), nil
 	}
-	prepared, err := definition.Prepare(g.kernel, eventID, providerCallID, name, call.Arguments)
+	prepared, err := definition.Prepare(g.invocationContext(), eventID, providerCallID, name, call.Arguments)
 	if err != nil {
 		return preparedModelToolCall{}, err
 	}
@@ -192,13 +210,17 @@ func (g ToolGateway) toolAllowed(name string) bool {
 }
 
 func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	return k.prepareShellExecToolCallWithPolicy(k.toolPolicy, eventID, providerCallID, name, arguments)
+}
+
+func (k *Kernel) prepareShellExecToolCallWithPolicy(policy ToolPolicy, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 	var args shellExecToolArguments
 	if err := decodeStrictModelToolArguments("shell_exec", arguments, &args); err != nil {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
 	}
 	args.CWD = strings.TrimSpace(args.CWD)
 	if args.CWD == "" {
-		args.CWD = strings.TrimSpace(k.toolPolicy.WorkspaceRoot)
+		args.CWD = strings.TrimSpace(policy.WorkspaceRoot)
 	}
 	timeoutSec := k.shellTimeoutPolicy.DefaultForegroundTimeoutSec
 	if args.TimeoutSec != nil {
@@ -223,7 +245,7 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 		accessPlan:             k.shellExecAccessPlan(name, args.CWD, timeoutSec),
 		repeatSuccessSignature: k.shellExecRepeatSuccessSignature(args.CWD, args.Command, timeoutSec),
 		onDenied: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
-			return k.shellInvokeModelToolResult(ctx, sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
+			return k.shellInvokeModelToolResultWithPolicy(policy, ctx, sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
 				SessionID:      sessionID,
 				CWD:            args.CWD,
 				Command:        args.Command,
@@ -232,7 +254,7 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 			})
 		},
 		execute: func(ctx context.Context, sessionID string, turnID string) (ModelToolResult, error) {
-			return k.shellInvokeModelToolResult(ctx, sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
+			return k.shellInvokeModelToolResultWithPolicy(policy, ctx, sessionID, turnID, eventID, providerCallID, name, ShellExecRequest{
 				SessionID:      sessionID,
 				CWD:            args.CWD,
 				Command:        args.Command,
@@ -244,7 +266,11 @@ func (k *Kernel) prepareShellExecToolCall(eventID string, providerCallID string,
 }
 
 func (k *Kernel) shellInvokeModelToolResult(ctx context.Context, sessionID string, turnID string, eventID string, providerCallID string, name string, req ShellExecRequest) (ModelToolResult, error) {
-	result, err := k.toolGateway().InvokeShell(ctx, req, turnID, eventID, false)
+	return k.shellInvokeModelToolResultWithPolicy(k.toolPolicy, ctx, sessionID, turnID, eventID, providerCallID, name, req)
+}
+
+func (k *Kernel) shellInvokeModelToolResultWithPolicy(policy ToolPolicy, ctx context.Context, sessionID string, turnID string, eventID string, providerCallID string, name string, req ShellExecRequest) (ModelToolResult, error) {
+	result, err := k.toolGatewayWithPolicy(policy).InvokeShell(ctx, req, turnID, eventID, false)
 	if err != nil {
 		return ModelToolResult{}, fmt.Errorf("%w: %w", ErrToolInfrastructureFailed, err)
 	}
@@ -418,11 +444,15 @@ func (k *Kernel) sourceReadModelToolResult(eventID string, providerCallID string
 }
 
 func (k *Kernel) prepareWorkspaceEditToolCall(eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+	return k.prepareWorkspaceEditToolCallWithRoot(k.toolPolicy.WorkspaceRoot, eventID, providerCallID, name, arguments)
+}
+
+func (k *Kernel) prepareWorkspaceEditToolCallWithRoot(workspaceRoot string, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 	var args workspaceEditToolArguments
 	if err := decodeStrictModelToolArguments("workspace_edit", arguments, &args); err != nil {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
 	}
-	req, code, err := k.admitWorkspaceEditRequest(args)
+	req, code, err := k.admitWorkspaceEditRequestWithRoot(workspaceRoot, args)
 	if err != nil {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, code, fmt.Sprintf("invalid workspace_edit request: %v", err)), nil
 	}
@@ -576,7 +606,7 @@ func (g ToolGateway) Execute(ctx context.Context, sessionID string, turnID strin
 		}, nil
 	}
 	if prepared.hasSpec {
-		authorization := authorizeKernelTool(g.kernel.toolPolicy, prepared.spec)
+		authorization := authorizeKernelTool(g.policy, prepared.spec)
 		if !authorization.Allowed {
 			if prepared.onDenied != nil {
 				return prepared.onDenied(ctx, sessionID, turnID)

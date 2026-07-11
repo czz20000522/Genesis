@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"genesis/internal/capabilitypackage"
 	"genesis/internal/kernel"
 )
 
@@ -51,6 +52,7 @@ func main() {
 	sourceMaxReadBytes := flag.Int("source-max-read-bytes", envIntOrDefault("GENESIS_SOURCE_MAX_READ_BYTES", 0), "maximum source_read byte limit; 0 uses kernel default")
 	skillRoots := pathListFlag(nil)
 	disableDefaultSkillRoots := flag.Bool("disable-default-skill-roots", envBoolOrDefault("GENESIS_DISABLE_DEFAULT_SKILL_ROOTS", false), "smoke/dev escape hatch: scan only explicit --skill-root entries and do not include default global skill roots")
+	capabilityRoot := flag.String("capability-root", capabilitypackage.DefaultRoot(), "Genesis user capability package root")
 	flag.Var(&skillRoots, "skill-root", "external skill root to scan for SKILL.md metadata; repeatable")
 	flag.Parse()
 	effectiveSkills := effectiveSkillRoots(defaultSkillRoots(), skillRoots.Values(), *disableDefaultSkillRoots)
@@ -76,9 +78,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("create provider: %v", err)
 	}
+	capabilities, err := capabilityDescriptors(*capabilityRoot)
+	if err != nil {
+		log.Fatalf("discover capability packages: %v", err)
+	}
 	k, err := kernel.New(kernel.Config{
-		LedgerPath:   *ledgerPath,
-		Provider:     provider,
+		LedgerPath: *ledgerPath,
+		Provider:   provider,
+		ProviderVerifier: func(verifyRequest kernel.ProviderVerificationRequest) kernel.ProviderLiveVerifyResult {
+			return kernel.VerifyProviderLive(kernel.ProviderLiveVerifyRequest{
+				ConfigRoot:          *configRoot,
+				CredentialStoreRoot: *credentialStoreRoot,
+				ModelRole:           verifyRequest.ModelRole,
+				ModelProfileID:      verifyRequest.ProfileID,
+			})
+		},
 		RuntimeToken: *runtimeToken,
 		ToolPolicy:   toolPolicy,
 		ContextPolicy: kernel.ContextPolicy{
@@ -101,7 +115,8 @@ func main() {
 			DefaultReadBytes:            *sourceDefaultReadBytes,
 			MaxReadBytes:                *sourceMaxReadBytes,
 		},
-		SkillRoots: effectiveSkills,
+		SkillRoots:            effectiveSkills,
+		CapabilityDescriptors: capabilities,
 	})
 	if err != nil {
 		log.Fatalf("create kernel: %v", err)
@@ -117,6 +132,30 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("serve: %v", err)
 	}
+}
+
+func capabilityDescriptors(root string) ([]kernel.CapabilityDescriptor, error) {
+	items, err := capabilitypackage.Discover(root)
+	if err != nil {
+		return nil, err
+	}
+	descriptors := make([]kernel.CapabilityDescriptor, 0, len(items))
+	for _, item := range items {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = item.ID
+		}
+		summary := strings.TrimSpace(item.Description)
+		if summary == "" {
+			summary = name
+		}
+		health := item.Readiness
+		if item.Reason != "" {
+			health += ":" + item.Reason
+		}
+		descriptors = append(descriptors, kernel.CapabilityDescriptor{CapabilityRef: "capability:" + item.ID, Name: name, Summary: summary, InputSummary: strings.Join(item.Inputs, ","), HealthSummary: health})
+	}
+	return descriptors, nil
 }
 
 type providerBuildRequest struct {

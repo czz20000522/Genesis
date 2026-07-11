@@ -658,12 +658,12 @@ func TestOpenAICompatibleMalformedToolArgumentsReturnRepairFeedback(t *testing.T
 			})
 		case 2:
 			messages, ok := req["messages"].([]interface{})
-			if !ok || len(messages) != 3 {
-				t.Fatalf("second request messages = %#v, want user, assistant tool call, tool result", req["messages"])
+			if !ok || len(messages) != 4 {
+				t.Fatalf("second request messages = %#v, want system, user, assistant tool call, tool result", req["messages"])
 			}
-			toolMessage, ok := messages[2].(map[string]interface{})
+			toolMessage, ok := messages[3].(map[string]interface{})
 			if !ok || toolMessage["tool_call_id"] != "call_bad_json" {
-				t.Fatalf("tool message = %#v, want repair for call_bad_json", messages[2])
+				t.Fatalf("tool message = %#v, want repair for call_bad_json", messages[3])
 			}
 			repairContent, _ = toolMessage["content"].(string)
 			payload := decodeJSONMap(t, repairContent)

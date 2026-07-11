@@ -2,40 +2,26 @@ package kernel
 
 import "strings"
 
-const (
-	providerHiddenReasoningPolicyDiscard = "discard"
-)
-
 type ProviderAdapterBinding struct {
-	AdapterID             string
-	ProfileID             string
-	TransportProtocol     string
-	HiddenReasoningPolicy string
+	AdapterID         string
+	ProfileID         string
+	TransportProtocol string
 }
 
 func providerAdapterBindingFromProfile(profile genesisGatewayProfile, transportProtocol string) ProviderAdapterBinding {
 	return ProviderAdapterBinding{
-		AdapterID:             strings.TrimSpace(profile.ProviderAdapterID),
-		ProfileID:             strings.TrimSpace(profile.ProviderAdapterProfileID),
-		TransportProtocol:     strings.TrimSpace(transportProtocol),
-		HiddenReasoningPolicy: strings.TrimSpace(profile.HiddenReasoningPolicy),
+		AdapterID:         strings.TrimSpace(profile.ProviderAdapterID),
+		ProfileID:         strings.TrimSpace(profile.ProviderAdapterProfileID),
+		TransportProtocol: strings.TrimSpace(transportProtocol),
 	}
 }
 
 func validateProviderAdapterBinding(binding ProviderAdapterBinding) error {
-	switch strings.TrimSpace(binding.HiddenReasoningPolicy) {
-	case "":
+	if strings.TrimSpace(binding.AdapterID) == "" && strings.TrimSpace(binding.ProfileID) == "" {
 		return nil
-	case providerHiddenReasoningPolicyDiscard:
-		if strings.TrimSpace(binding.AdapterID) == "" || strings.TrimSpace(binding.ProfileID) == "" {
-			return ErrGenesisModelProviderAdapterInvalid
-		}
-		return nil
-	default:
+	}
+	if strings.TrimSpace(binding.AdapterID) == "" || strings.TrimSpace(binding.ProfileID) == "" {
 		return ErrGenesisModelProviderAdapterInvalid
 	}
-}
-
-func (binding ProviderAdapterBinding) allowsHiddenReasoningDiscard() bool {
-	return strings.EqualFold(strings.TrimSpace(binding.HiddenReasoningPolicy), providerHiddenReasoningPolicyDiscard)
+	return nil
 }

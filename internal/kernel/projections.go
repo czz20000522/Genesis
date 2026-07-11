@@ -34,35 +34,58 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 		if event.TurnID != turnID || event.Type != "turn.submitted" {
 			continue
 		}
+		prefixFingerprint, prefixChangeReasons := modelContextPrefixInspection(events, turnID)
+		if prefixFingerprint == "" {
+			if providerContext, ok := k.providerContextProjectionFromStoredEvents(events, turnID, k.contextPolicy); ok {
+				prefixFingerprint = providerContext.PrefixFingerprint
+			}
+		}
 		if len(event.Data.ToolManifest) == 0 && event.Data.RuntimeContext == nil {
 			return ContextInspectionResponse{
-				TurnID:            turnID,
-				SessionID:         event.SessionID,
-				Readiness:         ReadinessNotReady,
-				ReadinessReason:   "snapshot_unavailable",
-				InputItems:        cloneProjectionInputItems(event.Data.InputItems),
-				ModelInputKinds:   cloneStringSlice(event.Data.ModelInputKinds),
-				ToolManifest:      toolManifestInspection(nil),
-				SkillCatalog:      cloneSkillCatalogItems(nil),
-				SourceSnapshots:   cloneSourceSnapshotDescriptors(event.Data.SourceSnapshots),
-				HydratedContexts:  cloneContextHydrationProjections(event.Data.HydratedContexts),
-				UnavailableReason: "turn context snapshot was not recorded for this turn",
+				TurnID:              turnID,
+				SessionID:           event.SessionID,
+				Readiness:           ReadinessNotReady,
+				ReadinessReason:     "snapshot_unavailable",
+				InputItems:          cloneProjectionInputItems(event.Data.InputItems),
+				ModelInputKinds:     cloneStringSlice(event.Data.ModelInputKinds),
+				PrefixFingerprint:   prefixFingerprint,
+				PrefixChangeReasons: prefixChangeReasons,
+				ToolManifest:        toolManifestInspection(nil),
+				SkillCatalog:        cloneSkillCatalogItems(nil),
+				SourceSnapshots:     cloneSourceSnapshotDescriptors(event.Data.SourceSnapshots),
+				HydratedContexts:    cloneContextHydrationProjections(event.Data.HydratedContexts),
+				UnavailableReason:   "turn context snapshot was not recorded for this turn",
 			}, nil
 		}
 		return ContextInspectionResponse{
-			TurnID:           turnID,
-			SessionID:        event.SessionID,
-			Readiness:        ReadinessReady,
-			InputItems:       cloneProjectionInputItems(event.Data.InputItems),
-			ModelInputKinds:  cloneStringSlice(event.Data.ModelInputKinds),
-			ToolManifest:     toolManifestInspection(event.Data.ToolManifest),
-			SkillCatalog:     cloneSkillCatalogItems(event.Data.SkillCatalog),
-			SourceSnapshots:  cloneSourceSnapshotDescriptors(event.Data.SourceSnapshots),
-			HydratedContexts: cloneContextHydrationProjections(event.Data.HydratedContexts),
-			Runtime:          cloneContextRuntimeSnapshot(event.Data.RuntimeContext),
+			TurnID:              turnID,
+			SessionID:           event.SessionID,
+			Readiness:           ReadinessReady,
+			InputItems:          cloneProjectionInputItems(event.Data.InputItems),
+			ModelInputKinds:     cloneStringSlice(event.Data.ModelInputKinds),
+			PrefixFingerprint:   prefixFingerprint,
+			PrefixChangeReasons: prefixChangeReasons,
+			ToolManifest:        toolManifestInspection(event.Data.ToolManifest),
+			SkillCatalog:        cloneSkillCatalogItems(event.Data.SkillCatalog),
+			SourceSnapshots:     cloneSourceSnapshotDescriptors(event.Data.SourceSnapshots),
+			HydratedContexts:    cloneContextHydrationProjections(event.Data.HydratedContexts),
+			Runtime:             cloneContextRuntimeSnapshot(event.Data.RuntimeContext),
 		}, nil
 	}
 	return ContextInspectionResponse{}, ErrTurnNotFound
+}
+
+func modelContextPrefixInspection(events []StoredEvent, turnID string) (string, []string) {
+	for index := len(events) - 1; index >= 0; index-- {
+		event := events[index]
+		if event.TurnID != turnID || event.Type != "model.context.accounted" || event.Data.ModelContextAccounting == nil {
+			continue
+		}
+		if fingerprint := strings.TrimSpace(event.Data.ModelContextAccounting.PrefixFingerprint); fingerprint != "" {
+			return fingerprint, cloneStringSlice(event.Data.ModelContextAccounting.PrefixChangeReasons)
+		}
+	}
+	return "", nil
 }
 
 func (k *Kernel) AuditReplay(turnID string) (AuditReplayResponse, error) {
@@ -328,6 +351,7 @@ func toInspectionEvent(event StoredEvent) Event {
 
 func inspectionEventData(data EventData) EventData {
 	next := data
+	next.SessionWorkspace = nil
 	next.InputItems = cloneProjectionInputItems(data.InputItems)
 	next.HydratedContexts = cloneContextHydrationProjections(data.HydratedContexts)
 	next.SourceSnapshots = cloneSourceSnapshotDescriptors(data.SourceSnapshots)
@@ -352,6 +376,10 @@ func inspectionEventData(data EventData) EventData {
 	if data.Final != nil {
 		copied := cloneFinalMessage(*data.Final)
 		next.Final = &copied
+	}
+	if data.Reasoning != nil {
+		copied := cloneReasoningMessage(*data.Reasoning)
+		next.Reasoning = &copied
 	}
 	if data.TurnError != nil {
 		copied := cloneTurnError(*data.TurnError)
@@ -397,6 +425,24 @@ func inspectionEventData(data EventData) EventData {
 		next.ReplacementMemoryCandidate = &copied
 	}
 	return next
+}
+
+func cloneReasoningMessage(message ReasoningMessage) ReasoningMessage {
+	return ReasoningMessage{
+		ReasoningID: message.ReasoningID,
+		TurnID:      message.TurnID,
+		Text:        message.Text,
+		CreatedAt:   message.CreatedAt,
+	}
+}
+
+func reasoningMessageProjection(message ReasoningMessage) ReasoningMessageProjection {
+	return ReasoningMessageProjection{
+		ReasoningID: message.ReasoningID,
+		TurnID:      message.TurnID,
+		Text:        message.Text,
+		CreatedAt:   message.CreatedAt,
+	}
 }
 
 func redactProviderToolCallID(id string) string {

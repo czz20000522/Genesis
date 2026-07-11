@@ -1,22 +1,27 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { compactSessionContext, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, listSessions, pickMaterialFile, saveKernelConfig, submitTurnStream, uploadMaterial, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type MaterialFileSelection, type MaterialIntakeProjection, type SessionDebugExport, type SessionListItem, type TurnResponse } from './api/kernelApi'
+import { applyProviderRole, bindSessionWorkspace, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getReady, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
+import ProviderPanel from './components/ProviderPanel.vue'
 import SessionRail from './components/SessionRail.vue'
 import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
 import { isBlankSessionDraft } from './sessionDraft'
+import { loadSessionCatalog, recordSessionCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
 import { timelineDetailEntries } from './timelineDetail'
 import { timelineRows, type TimelineRow } from './timelineView'
 
 const config = ref(kernelConfig())
 const readiness = ref('unchecked')
 const error = ref('')
-const sessionId = ref(newDesktopSessionId())
+const sessionId = ref('')
 const sessions = ref<SessionListItem[]>([])
+const sessionSearchQuery = ref('')
+const sessionSearchResults = ref<SessionListItem[]>([])
+const sessionCatalog = ref<DesktopSessionCatalogEntry[]>(loadSessionCatalog())
 const messageText = ref('')
 const lastTurn = ref<TurnResponse | null>(null)
 const pendingApprovals = ref<ApprovalProjection[]>([])
@@ -31,8 +36,28 @@ const inspectorOpen = ref(false)
 const liveUserText = ref('')
 const liveAssistantText = ref('')
 const liveStreaming = ref(false)
+const localModel = ref<LocalModelStatus>({})
+const providerOpen = ref(false)
+const providerBusy = ref(false)
+const providerNotice = ref('')
+const providerProfilesState = ref<ProviderProfile[]>([])
+const providerRoleBindings = ref<Record<string, string>>({})
+const selectedProviderRole = ref('coordinator')
+const selectedProviderProfile = ref('')
+const providerCredential = ref('')
 
 const conversationRows = computed(() => timelineRows(timeline.value?.items))
+const retryText = computed(() => {
+  for (let index = conversationRows.value.length - 1; index >= 0; index--) {
+    const row = conversationRows.value[index]
+    if (row.kind !== 'processing' || row.terminalOutcome !== 'failed' || !row.turnId) continue
+    for (let prior = index - 1; prior >= 0; prior--) {
+      const user = conversationRows.value[prior]
+      if (user.turnId === row.turnId && user.kind === 'user' && user.text) return user.text
+    }
+  }
+  return ''
+})
 const displayedRows = computed(() => {
   const rows: TimelineRow[] = [...conversationRows.value]
   if (liveUserText.value) {
@@ -43,6 +68,8 @@ const displayedRows = computed(() => {
       meta: '',
       detailRef: '',
       detailAvailable: false,
+      turnId: '',
+      terminalOutcome: '',
     })
   }
   if (liveStreaming.value || liveAssistantText.value) {
@@ -53,6 +80,8 @@ const displayedRows = computed(() => {
       meta: liveStreaming.value ? '正在生成' : '',
       detailRef: '',
       detailAvailable: false,
+      turnId: '',
+      terminalOutcome: '',
       streaming: liveStreaming.value,
     })
   }
@@ -63,6 +92,17 @@ const selectedFileName = computed(() => selectedFile.value ? ('name' in selected
 const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
 const debugSummaryRows = computed(() => debugExport.value ? debugSummary(debugExport.value) : [])
 const compactionSummaryRows = computed(() => compaction.value ? compactionSummary(compaction.value) : [])
+const localModelRunning = computed(() => localModel.value.ownership === 'owned' && localModel.value.readiness === 'ready')
+const localModelLabel = computed(() => {
+  if (localModelRunning.value) return `本地模型运行中${localModel.value.pid ? ` · PID ${localModel.value.pid}` : ''}`
+  if (localModel.value.reason === 'local_model_disabled') return '本地模型未配置'
+  return '本地模型已停止'
+})
+const providerSummary = computed(() => {
+  const profile = providerProfilesState.value.find((item) => item.profile_id === selectedProviderProfile.value)
+  if (!profile) return '模型未配置'
+  return `${profile.model_id || profile.profile_id || '模型'} · ${selectedProviderRole.value || 'coordinator'}`
+})
 
 function currentSession() {
   const session = sessionId.value.trim()
@@ -73,14 +113,46 @@ function currentSession() {
   return session
 }
 
-function newSession() {
-  if (isCurrentSessionBlank()) {
-    resetSessionViewState()
-    return
+async function createProjectSession(existingRoot = '') {
+  error.value = ''
+  try {
+    const project = existingRoot
+      ? { root: existingRoot, name: existingRoot.split(/[\\/]/).filter(Boolean).at(-1) || '项目' }
+      : await pickProjectDirectory()
+    if (!project) return
+    await bindAndActivateSession('project', project.root, project.name)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
   }
+}
+
+async function createTaskSession() {
+  error.value = ''
   const next = newDesktopSessionId()
-  sessionId.value = next
+  try {
+    const workspace = await createTaskWorkspace(next)
+    await bindAndActivateSession('task', workspace.root, '', next)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function createChatSession() {
+  error.value = ''
+  try {
+    await bindAndActivateSession('chat', '')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function bindAndActivateSession(kind: DesktopSessionCatalogEntry['kind'], root: string, name = '', nextSessionId = newDesktopSessionId()) {
+  await bindSessionWorkspace(config.value, nextSessionId, kind === 'chat' ? 'none' : kind, root)
+  sessionId.value = nextSessionId
+  recordSessionCatalogEntry({ sessionId: nextSessionId, kind, root, name })
+  sessionCatalog.value = loadSessionCatalog()
   resetSessionViewState()
+  await loadSessions()
 }
 
 function resetSessionViewState() {
@@ -126,10 +198,116 @@ async function checkReady() {
   }
 }
 
+async function refreshLocalModelStatus() {
+  try {
+    localModel.value = await localModelStatus()
+  } catch {
+    localModel.value = {}
+  }
+}
+
+async function toggleLocalModel() {
+  error.value = ''
+  try {
+    localModel.value = localModelRunning.value ? await stopLocalModel() : await startLocalModel()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function loadProviderProfiles() {
+  const payload = await providerProfiles()
+  providerProfilesState.value = payload.profiles ?? []
+  providerRoleBindings.value = payload.role_bindings ?? {}
+  const bound = providerRoleBindings.value[selectedProviderRole.value]
+  if (bound && providerProfilesState.value.some((profile) => profile.profile_id === bound)) {
+    selectedProviderProfile.value = bound
+  } else if (!selectedProviderProfile.value || !providerProfilesState.value.some((profile) => profile.profile_id === selectedProviderProfile.value)) {
+    selectedProviderProfile.value = String(providerProfilesState.value[0]?.profile_id ?? '')
+  }
+}
+
+async function toggleProviderPanel() {
+  providerOpen.value = !providerOpen.value
+  if (!providerOpen.value) return
+  providerNotice.value = ''
+  try {
+    await loadProviderProfiles()
+  } catch (err) {
+    providerNotice.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function saveProviderCredential() {
+  providerBusy.value = true
+  providerNotice.value = ''
+  try {
+    const result = await rotateProviderCredential(selectedProviderProfile.value, providerCredential.value)
+    providerNotice.value = result.credential_present ? '凭据已保存到本地受保护存储。' : '凭据未保存。'
+    await loadProviderProfiles()
+  } catch (err) {
+    providerNotice.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    providerCredential.value = ''
+    providerBusy.value = false
+  }
+}
+
+async function verifySelectedProvider() {
+  providerBusy.value = true
+  providerNotice.value = ''
+  try {
+    const result = await verifyProvider(selectedProviderRole.value, selectedProviderProfile.value)
+    providerNotice.value = result.readiness === 'ready'
+      ? `验证成功：${result.model || selectedProviderProfile.value}`
+      : `验证未就绪：${result.readiness_reason || 'provider_not_ready'}`
+  } catch (err) {
+    providerNotice.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    providerBusy.value = false
+  }
+}
+
+async function applySelectedProvider() {
+  providerBusy.value = true
+  providerNotice.value = ''
+  try {
+    const result = await applyProviderRole(selectedProviderRole.value, selectedProviderProfile.value)
+    if (result.status === 'owned_kernel_restarted') {
+      providerNotice.value = '已应用并重启本地 Genesis 服务。'
+      await checkReady()
+    } else if (result.status === 'external_kernel_restart_required') {
+      providerNotice.value = '配置已保存；外部 Genesis 服务需要由其所有者重启。'
+    } else {
+      providerNotice.value = `配置已保存，但重启未就绪：${result.sidecar?.reason ?? result.status ?? 'unknown'}`
+    }
+    await loadProviderProfiles()
+  } catch (err) {
+    providerNotice.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    providerBusy.value = false
+  }
+}
+
 async function loadSessions() {
   saveKernelConfig(config.value)
   const payload = await listSessions(config.value)
   sessions.value = (payload.items ?? []).filter((item) => String(item.session_id || '').trim())
+}
+
+async function updateSessionSearch(query: string) {
+  sessionSearchQuery.value = query
+  const normalized = query.trim()
+  if (!normalized) {
+    sessionSearchResults.value = []
+    return
+  }
+  try {
+    const payload = await searchSessions(config.value, normalized, 30)
+    if (sessionSearchQuery.value.trim() === normalized) sessionSearchResults.value = payload.items ?? []
+  } catch (err) {
+    if (sessionSearchQuery.value.trim() === normalized) error.value = err instanceof Error ? err.message : String(err)
+  }
 }
 
 async function selectSession(nextSessionId: string) {
@@ -188,6 +366,12 @@ async function sendMessage() {
   } finally {
     liveStreaming.value = false
   }
+}
+
+async function retryFailedTurn() {
+  if (!retryText.value || liveStreaming.value) return
+  messageText.value = retryText.value
+  await sendMessage()
 }
 
 async function loadSessionApproval(session = currentSession()) {
@@ -301,8 +485,19 @@ function newDesktopIdempotencyKey() {
 }
 
 onMounted(() => {
-  void checkReady()
+  void initializeDesktop()
 })
+
+async function initializeDesktop() {
+  await refreshLocalModelStatus()
+  try {
+    await loadProviderProfiles()
+  } catch {
+    // Provider configuration is a desktop-only local surface; readiness still loads independently.
+  }
+  await checkReady()
+  if (!sessionId.value) await createChatSession()
+}
 </script>
 
 <template>
@@ -310,19 +505,50 @@ onMounted(() => {
     <SessionRail
       :session-id="sessionId"
       :sessions="sessions"
-      @new-session="newSession"
+      :catalog="sessionCatalog"
+      :search-query="sessionSearchQuery"
+      :search-results="sessionSearchResults"
+      @new-project="createProjectSession"
+      @new-project-session="createProjectSession"
+      @new-task="createTaskSession"
+      @new-chat="createChatSession"
       @select-session="selectSession"
+      @update:search-query="updateSessionSearch"
     />
 
     <section class="session-workspace">
-      <KernelTopBar
-        :session-id="sessionId"
-        :readiness="readiness"
-        :error="error"
-        :inspector-open="inspectorOpen"
-        @check-ready="checkReady"
-        @toggle-inspector="inspectorOpen = !inspectorOpen"
-      />
+      <div class="topbar-stack">
+        <KernelTopBar
+          :session-id="sessionId"
+          :readiness="readiness"
+          :error="error"
+          :inspector-open="inspectorOpen"
+          :local-model="localModelLabel"
+          :local-model-running="localModelRunning"
+          :provider-summary="providerSummary"
+          @check-ready="checkReady"
+          @toggle-local-model="toggleLocalModel"
+          @toggle-provider="toggleProviderPanel"
+          @toggle-inspector="inspectorOpen = !inspectorOpen"
+        />
+        <ProviderPanel
+          v-if="providerOpen"
+          :profiles="providerProfilesState"
+          :role-bindings="providerRoleBindings"
+          :selected-role="selectedProviderRole"
+          :selected-profile="selectedProviderProfile"
+          :credential="providerCredential"
+          :busy="providerBusy"
+          :notice="providerNotice"
+          @close="providerOpen = false"
+          @update:selected-role="selectedProviderRole = $event"
+          @update:selected-profile="selectedProviderProfile = $event"
+          @update:credential="providerCredential = $event"
+          @rotate-credential="saveProviderCredential"
+          @verify="verifySelectedProvider"
+          @apply="applySelectedProvider"
+        />
+      </div>
 
       <ConversationPane
         :session-id="sessionId"
@@ -333,12 +559,14 @@ onMounted(() => {
         :selected-file-name="selectedFileName"
         :readiness="readiness"
         :approvals="pendingApprovals"
+        :retry-text="retryText"
         @update:message-text="messageText = $event"
         @send-message="sendMessage"
         @decide-approval="answerApproval"
         @pick-material="pickMaterial"
         @load-detail="loadDetail"
         @select-material="selectMaterial"
+        @retry="retryFailedTurn"
       />
     </section>
 

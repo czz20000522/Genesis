@@ -1,10 +1,12 @@
 export type TimelineRow = {
   id: string
-  kind: 'user' | 'assistant' | 'processing' | 'action'
+  kind: 'user' | 'assistant' | 'reasoning' | 'processing' | 'action'
   text: string
   meta: string
   detailRef: string
   detailAvailable: boolean
+  turnId: string
+  terminalOutcome: string
   streaming?: boolean
 }
 
@@ -19,6 +21,7 @@ type TimelineItemLike = {
   detail_ref?: unknown
   detail_available?: unknown
   children?: unknown
+  terminal_outcome?: unknown
 }
 
 export function timelineRows(items: Array<Record<string, unknown>> | undefined): TimelineRow[] {
@@ -30,6 +33,7 @@ export function timelineRows(items: Array<Record<string, unknown>> | undefined):
 function collectRows(item: TimelineItemLike, rows: TimelineRow[]) {
   const kind = String(item.kind ?? '')
   if (kind === 'user_message') rows.push(row('user', item))
+  if (kind === 'assistant_reasoning') rows.push(row('reasoning', item))
   if (kind === 'assistant_message') rows.push(row('assistant', item))
   if (kind === 'processing_group') rows.push(row('processing', item))
   if (kind === 'user_action_request') rows.push(row('action', item))
@@ -49,6 +53,8 @@ function row(kind: TimelineRow['kind'], item: TimelineItemLike): TimelineRow {
     meta: rowMeta(kind, item),
     detailRef,
     detailAvailable: detailRef !== '',
+    turnId: String(item.turn_id ?? '').trim(),
+    terminalOutcome: String(item.terminal_outcome ?? '').trim(),
   }
 }
 
@@ -58,5 +64,6 @@ function rowMeta(kind: TimelineRow['kind'], item: TimelineItemLike) {
     return count > 0 ? `${count} 项操作` : ''
   }
   if (kind === 'action') return String(item.tool ?? '').trim() ? '需要确认' : ''
+  if (kind === 'reasoning') return '已思考'
   return ''
 }

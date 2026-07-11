@@ -12,7 +12,6 @@ type providerSetupPreset struct {
 	GatewayRoute        string
 	AdapterID           string
 	AdapterProfileID    string
-	HiddenReasoningMode string
 	BaseURL             string
 	CredentialRef       string
 	APIKeyEnv           string
@@ -39,7 +38,6 @@ func providerSetupPresets() []providerSetupPreset {
 			GatewayRoute:        "deepseek",
 			AdapterID:           "deepseek",
 			AdapterProfileID:    "deepseek-v4-flash",
-			HiddenReasoningMode: "discard",
 			BaseURL:             "https://api.deepseek.com",
 			CredentialRef:       "secret://models/deepseek/local",
 			APIKeyEnv:           "DEEPSEEK_API_KEY",
@@ -53,7 +51,6 @@ func providerSetupPresets() []providerSetupPreset {
 			GatewayRoute:        "deepseek",
 			AdapterID:           "deepseek",
 			AdapterProfileID:    "deepseek-v4-pro",
-			HiddenReasoningMode: "discard",
 			BaseURL:             "https://api.deepseek.com",
 			CredentialRef:       "secret://models/deepseek/local",
 			APIKeyEnv:           "DEEPSEEK_API_KEY",

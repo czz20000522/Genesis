@@ -49,6 +49,66 @@ func TestBuildProviderFromGenesisConfigCanSelectCommandProvider(t *testing.T) {
 	}
 }
 
+func TestCapabilityDescriptorsProjectPackageHealthWithoutRunnerDetails(t *testing.T) {
+	root := testsupport.ProjectTempDir(t, "genesisd-capabilities")
+	pkg := filepath.Join(root, "report")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "runner.exe"), []byte(""), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "genesis.capability.json"), []byte(`{"id":"report","name":"Report","description":"Generate report","entrypoint":"runner.exe","inputs":["path"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	descriptors, err := capabilityDescriptors(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(descriptors) != 1 || descriptors[0].CapabilityRef != "capability:report" || descriptors[0].HealthSummary != "ready" {
+		t.Fatalf("descriptors = %+v", descriptors)
+	}
+	if strings.Contains(strings.Join([]string{descriptors[0].Summary, descriptors[0].InputSummary, descriptors[0].HealthSummary}, " "), "runner.exe") {
+		t.Fatalf("descriptor leaked runner: %+v", descriptors[0])
+	}
+}
+
+func TestCapabilityDescriptorsEnterKernelDiscoveryWithoutPathLeak(t *testing.T) {
+	root := testsupport.ProjectTempDir(t, "genesisd-capability-discovery")
+	pkg := filepath.Join(root, "report")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "runner.exe"), []byte(""), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "genesis.capability.json"), []byte(`{"id":"report","name":"Report","description":"Generate report","entrypoint":"runner.exe"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	descriptors, err := capabilityDescriptors(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := kernel.New(kernel.Config{LedgerPath: filepath.Join(testsupport.ProjectTempDir(t, "genesisd-capability-ledger"), "events.sqlite"), Provider: kernel.FakeProvider{}, CapabilityDescriptors: descriptors})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	result, err := k.DiscoverContext(kernel.DiscoveryQueryRequest{Intent: "generate report", RequestedKinds: []string{kernel.MemoryKindCapabilityHint}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Candidates) != 1 || result.Candidates[0].Ref != "capability:report" {
+		t.Fatalf("candidates = %+v", result.Candidates)
+	}
+	encoded, _ := json.Marshal(result)
+	for _, forbidden := range []string{"runner.exe", "genesis.capability.json", root} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("discovery leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
 func TestBuildProviderEmptyNameDoesNotSelectFake(t *testing.T) {
 	provider, err := buildProvider(providerBuildRequest{name: "", configRoot: testsupport.ProjectTempDir(t, "genesisd-missing-config")})
 	if err != nil {

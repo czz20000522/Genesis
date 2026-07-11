@@ -77,9 +77,9 @@ func (g ToolGateway) InvokeShell(ctx context.Context, req ShellExecRequest, turn
 	if !ok {
 		return shellInvokeResult{}, fmt.Errorf("%w: shell_exec is not registered", ErrToolInfrastructureFailed)
 	}
-	authorization := authorizeKernelTool(g.kernel.toolPolicy, definition.Spec)
+	authorization := authorizeKernelTool(g.policy, definition.Spec)
 	if !authorization.Allowed && authorization.Reason == "approval_required" && strings.TrimSpace(req.approvedByID) != "" {
-		resolvedPolicy := resolveToolPolicy(g.kernel.toolPolicy)
+		resolvedPolicy := resolveToolPolicy(g.policy)
 		allowed, reason, err := g.kernel.approvalAuthorizesShellExecution(req.approvedByID, req, turnID, resolvedPolicy)
 		if err != nil {
 			return shellInvokeResult{}, err
@@ -90,7 +90,7 @@ func (g ToolGateway) InvokeShell(ctx context.Context, req ShellExecRequest, turn
 			authorization.Reason = reason
 		}
 	}
-	resolvedPolicy := resolveToolPolicy(g.kernel.toolPolicy)
+	resolvedPolicy := resolveToolPolicy(g.policy)
 	if !authorization.Allowed && authorization.Reason == "approval_required" {
 		executionPlan, reason := prepareShellExecution(resolvedPolicy, req)
 		if reason != "" {
@@ -157,7 +157,7 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 	defer k.operationMu.Unlock()
 
 	now := k.clock()
-	policy := k.toolPolicy
+	policy := g.policy
 	resolvedPolicy := resolveToolPolicy(policy)
 	rawCommand := strings.TrimSpace(req.Command)
 	sessionID := strings.TrimSpace(req.SessionID)
@@ -178,7 +178,11 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 	if !ok {
 		return OperationProjection{}, fmt.Errorf("%w: shell_exec is not registered", ErrToolInfrastructureFailed)
 	}
+	executionPlan, preparedReason := prepareShellExecution(resolvedPolicy, req)
 	authorization := authorizeKernelTool(policy, definition.Spec)
+	if resolvedPolicy.AuthorityPolicy == AuthorityPolicyReadOnly && preparedReason == "" && executionPlan.controlled != nil && (executionPlan.controlled.kind == "read" || executionPlan.controlled.kind == "stdout") {
+		authorization = toolAuthorizationDecision{Allowed: true}
+	}
 	if !authorization.Allowed && authorization.Reason == "approval_required" && strings.TrimSpace(req.approvedByID) != "" {
 		allowed, approvalReason, err := k.approvalAuthorizesShellExecution(req.approvedByID, req, turnID, resolvedPolicy)
 		if err != nil {
@@ -190,11 +194,8 @@ func (g ToolGateway) ExecShell(ctx context.Context, req ShellExecRequest, turnID
 			authorization.Reason = approvalReason
 		}
 	}
-	executionPlan := shellExecutionPlan{cwd: strings.TrimSpace(req.CWD)}
 	reason := authorization.Reason
 	if authorization.Allowed || reason == "approval_required" {
-		preparedPlan, preparedReason := prepareShellExecution(resolvedPolicy, req)
-		executionPlan = preparedPlan
 		if preparedReason != "" {
 			reason = preparedReason
 		}
@@ -357,7 +358,7 @@ func (g ToolGateway) recordBlockedShellOperation(req ShellExecRequest, turnID st
 func (g ToolGateway) recordBlockedShellOperationWithCWD(req ShellExecRequest, turnID string, reason string, cwd string) (OperationProjection, error) {
 	k := g.kernel
 	now := k.clock()
-	resolvedPolicy := resolveToolPolicy(k.toolPolicy)
+	resolvedPolicy := resolveToolPolicy(g.policy)
 	operation := OperationProjection{
 		OperationID:     newID("op", now),
 		SessionID:       strings.TrimSpace(req.SessionID),

@@ -62,6 +62,7 @@ type EventData struct {
 	ProviderAttempt            *ProviderAttemptProjection           `json:"provider_attempt,omitempty"`
 	ModelContextAccounting     *ModelContextAccountingProjection    `json:"model_context_accounting,omitempty"`
 	ContextCompaction          *ContextCompactionProjection         `json:"context_compaction,omitempty"`
+	Reasoning                  *ReasoningMessage                    `json:"reasoning,omitempty"`
 	Final                      *FinalMessage                        `json:"final,omitempty"`
 	TurnPause                  *TurnPauseProjection                 `json:"turn_pause,omitempty"`
 	TurnInterruption           *TurnInterruptionProjection          `json:"turn_interruption,omitempty"`
@@ -71,6 +72,7 @@ type EventData struct {
 	Approval                   *ApprovalProjection                  `json:"approval,omitempty"`
 	SandboxReadiness           *SandboxReadinessProjection          `json:"sandbox_readiness,omitempty"`
 	SessionDebug               *SessionDebugProjection              `json:"session_debug,omitempty"`
+	SessionWorkspace           *SessionWorkspaceBinding             `json:"session_workspace,omitempty"`
 	KernelObservationDelivery  *KernelObservationDeliveryProjection `json:"kernel_observation_delivery,omitempty"`
 	Work                       *WorkProjection                      `json:"work,omitempty"`
 	AgentInvocation            *AgentInvocationProjection           `json:"agent_invocation,omitempty"`

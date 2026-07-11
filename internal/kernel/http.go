@@ -31,10 +31,12 @@ func Handler(k *Kernel) http.Handler {
 	route(http.MethodGet, "/capabilities", false, func(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		writeJSON(w, http.StatusOK, k.Capabilities())
 	})
+	route(http.MethodPost, "/providers/verify", true, handleVerifyProvider)
 	route(http.MethodPost, "/discovery/query", true, handleDiscoveryQuery)
 	route(http.MethodPost, "/turn", true, handleSubmitTurn)
 	route(http.MethodPost, "/turn/stream", true, handleSubmitTurnStream)
 	route(http.MethodPost, "/sessions/{session_id}/interrupt", true, handleInterruptSession)
+	route(http.MethodPost, "/sessions/{session_id}/workspace", true, handleBindSessionWorkspace)
 	route(http.MethodPost, "/tools/shell_exec", true, handleExecShell)
 	route(http.MethodPost, "/context/admit_resource", true, handleAdmitContextResource)
 	route(http.MethodPost, "/materials/intake", true, handleIntakeMaterial)

@@ -12,6 +12,7 @@ param(
     [string]$RuntimeToken = "",
     [string]$ModelRole = "coordinator",
     [string]$ProfileId = "live-acceptance",
+    [switch]$UseConfiguredProfile,
     [string]$GatewayRoute = "live-acceptance",
     [string]$CredentialRef = "secret://models/provider/live-acceptance",
     [string]$Prompt = "Reply with exactly: GENESIS_LIVE_LLM_ACCEPTANCE_OK",
@@ -28,20 +29,25 @@ if ($Help) {
     @"
 Genesis live LLM first-run acceptance
 
-Required:
+Default OpenAI-compatible setup requires:
   -BaseUrl <openai-compatible base url>
   -Model <model id>
   `$env:$ApiKeyEnv=<provider api key>
+
+Use an existing Genesis profile instead:
+  -UseConfiguredProfile [-ConfigRoot <Genesis config root>]
+  [-CredentialStoreRoot <Genesis credential root>] [-ModelRole coordinator]
+  [-ProfileId <optional configured profile>]
 
 Example:
   `$env:GENESIS_PROVIDER_API_KEY = "<provider api key>"
   pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\first_run_live_llm_acceptance.ps1 -BaseUrl https://provider.example.com/api -Model provider-model
 
-The script builds genesisctl/genesisd, writes Genesis config and a secret:// credential
-record, verifies the provider against upstream auth before starting genesisd, starts
-genesisd through Genesis config, calls /ready and /turn, inspects timeline/events/context,
-restarts the server, replays the same projections, and optionally checks a
-missing-credential failure path. It never accepts the raw API key as a command-line
+The default path builds genesisctl/genesisd, writes Genesis config and a secret://
+credential record, verifies the provider, starts genesisd, calls /ready and /turn,
+inspects timeline/events/context, restarts the server, and checks a missing-credential
+failure path. -UseConfiguredProfile instead reuses the selected Genesis config and
+uses a missing-config failure path. Neither path accepts a raw API key as a command-line
 argument.
 "@
     exit 0
@@ -295,14 +301,18 @@ function Stop-Genesisd {
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $resolvedGo = Resolve-DefaultGoExe
+$effectiveProfileId = $ProfileId
+if ($UseConfiguredProfile -and $ProfileId -eq "live-acceptance") {
+    $effectiveProfileId = ""
+}
 
-if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+if (-not $UseConfiguredProfile -and [string]::IsNullOrWhiteSpace($BaseUrl)) {
     $envBaseUrl = [Environment]::GetEnvironmentVariable("GENESIS_PROVIDER_BASE_URL")
     if (-not [string]::IsNullOrWhiteSpace($envBaseUrl)) {
         $BaseUrl = $envBaseUrl
     }
 }
-if ([string]::IsNullOrWhiteSpace($Model)) {
+if (-not $UseConfiguredProfile -and [string]::IsNullOrWhiteSpace($Model)) {
     $envModel = [Environment]::GetEnvironmentVariable("GENESIS_PROVIDER_MODEL")
     if (-not [string]::IsNullOrWhiteSpace($envModel)) {
         $Model = $envModel
@@ -312,15 +322,18 @@ if ([string]::IsNullOrWhiteSpace($ApiKeyEnv)) {
     $ApiKeyEnv = "GENESIS_PROVIDER_API_KEY"
 }
 
-$apiKeyValue = [Environment]::GetEnvironmentVariable($ApiKeyEnv)
-if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
-    throw "-BaseUrl or GENESIS_PROVIDER_BASE_URL is required"
-}
-if ([string]::IsNullOrWhiteSpace($Model)) {
-    throw "-Model or GENESIS_PROVIDER_MODEL is required"
-}
-if ([string]::IsNullOrWhiteSpace($apiKeyValue)) {
-    throw "environment variable $ApiKeyEnv is required and must contain the provider API key"
+$apiKeyValue = ""
+if (-not $UseConfiguredProfile) {
+    $apiKeyValue = [Environment]::GetEnvironmentVariable($ApiKeyEnv)
+    if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+        throw "-BaseUrl or GENESIS_PROVIDER_BASE_URL is required"
+    }
+    if ([string]::IsNullOrWhiteSpace($Model)) {
+        throw "-Model or GENESIS_PROVIDER_MODEL is required"
+    }
+    if ([string]::IsNullOrWhiteSpace($apiKeyValue)) {
+        throw "environment variable $ApiKeyEnv is required and must contain the provider API key"
+    }
 }
 
 if ($WorkRoot.Trim() -eq "") {
@@ -332,10 +345,20 @@ if ($BinRoot.Trim() -eq "") {
     $BinRoot = Join-Path $WorkRoot "bin"
 }
 if ($ConfigRoot.Trim() -eq "") {
-    $ConfigRoot = Join-Path $WorkRoot "config"
+    if ($UseConfiguredProfile) {
+        $ConfigRoot = Join-Path $HOME ".genesis\\config"
+    }
+    else {
+        $ConfigRoot = Join-Path $WorkRoot "config"
+    }
 }
 if ($CredentialStoreRoot.Trim() -eq "") {
-    $CredentialStoreRoot = Join-Path $WorkRoot "credentials"
+    if ($UseConfiguredProfile) {
+        $CredentialStoreRoot = Join-Path $HOME ".genesis\\credentials"
+    }
+    else {
+        $CredentialStoreRoot = Join-Path $WorkRoot "credentials"
+    }
 }
 if ($LedgerPath.Trim() -eq "") {
     $LedgerPath = Join-Path $WorkRoot "events.jsonl"
@@ -345,8 +368,10 @@ if ($RuntimeToken.Trim() -eq "") {
 }
 
 New-DirectoryIfMissing -Path $BinRoot
-New-DirectoryIfMissing -Path $ConfigRoot
-New-DirectoryIfMissing -Path $CredentialStoreRoot
+if (-not $UseConfiguredProfile) {
+    New-DirectoryIfMissing -Path $ConfigRoot
+    New-DirectoryIfMissing -Path $CredentialStoreRoot
+}
 
 $genesisdExe = Join-Path $BinRoot "genesisd.exe"
 $genesisctlExe = Join-Path $BinRoot "genesisctl.exe"
@@ -361,35 +386,45 @@ try {
     Invoke-Native -FilePath $resolvedGo -Arguments @("build", "-o", $genesisdExe, ".\cmd\genesisd") -WorkingDirectory $repoRoot | Out-Null
     Invoke-Native -FilePath $resolvedGo -Arguments @("build", "-o", $genesisctlExe, ".\cmd\genesisctl") -WorkingDirectory $repoRoot | Out-Null
 
-    $setupOutput = Invoke-Native -FilePath $genesisctlExe -Arguments @(
-        "provider-setup",
-        "-config-root", $ConfigRoot,
-        "-credential-store-root", $CredentialStoreRoot,
-        "-model-role", $ModelRole,
-        "-profile-id", $ProfileId,
-        "-gateway-route", $GatewayRoute,
-        "-base-url", $BaseUrl,
-        "-model", $Model,
-        "-credential-ref", $CredentialRef,
-        "-api-key-env", $ApiKeyEnv
-    )
-    if ($setupOutput.Contains($apiKeyValue)) {
-        throw "provider setup output leaked the raw API key"
-    }
-    $setup = $setupOutput | ConvertFrom-Json
-    if (-not $setup.ok -or -not $setup.verified) {
-        throw "provider setup did not report ok+verified: $(ConvertTo-CompactJson $setup)"
+    $configPath = Join-Path $ConfigRoot "models.json"
+    $resolvedCredentialRef = ""
+    if (-not $UseConfiguredProfile) {
+        $setupOutput = Invoke-Native -FilePath $genesisctlExe -Arguments @(
+            "provider-setup",
+            "-config-root", $ConfigRoot,
+            "-credential-store-root", $CredentialStoreRoot,
+            "-model-role", $ModelRole,
+            "-profile-id", $effectiveProfileId,
+            "-gateway-route", $GatewayRoute,
+            "-base-url", $BaseUrl,
+            "-model", $Model,
+            "-credential-ref", $CredentialRef,
+            "-api-key-env", $ApiKeyEnv
+        )
+        if ($setupOutput.Contains($apiKeyValue)) {
+            throw "provider setup output leaked the raw API key"
+        }
+        $setup = $setupOutput | ConvertFrom-Json
+        if (-not $setup.ok -or -not $setup.verified) {
+            throw "provider setup did not report ok+verified: $(ConvertTo-CompactJson $setup)"
+        }
+        $configPath = $setup.config_path
+        $resolvedCredentialRef = $setup.credential_ref
     }
 
+    $providerVerifyTimeoutSec = "10"
+    if ($UseConfiguredProfile) {
+        $providerVerifyTimeoutSec = "0"
+    }
     $providerVerifyOutput = Invoke-Native -FilePath $genesisctlExe -Arguments @(
         "provider", "verify",
         "-config-root", $ConfigRoot,
         "-credential-store-root", $CredentialStoreRoot,
         "-model-role", $ModelRole,
-        "-profile-id", $ProfileId,
-        "-timeout-sec", "10"
+        "-profile-id", $effectiveProfileId,
+        "-timeout-sec", $providerVerifyTimeoutSec
     )
-    if ($providerVerifyOutput.Contains($apiKeyValue)) {
+    if (-not $UseConfiguredProfile -and $providerVerifyOutput.Contains($apiKeyValue)) {
         throw "provider verify output leaked the raw API key"
     }
     $providerVerify = $providerVerifyOutput | ConvertFrom-Json
@@ -397,7 +432,7 @@ try {
         throw "provider verify did not report ready: $(ConvertTo-CompactJson $providerVerify)"
     }
 
-    $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $ProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
+    $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $effectiveProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
     $ready = Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ready"
     if ($ready.provider.name -eq "fake" -or $ready.provider.readiness -ne "ready") {
         throw "ready provider is not a configured live provider: $(ConvertTo-CompactJson $ready.provider)"
@@ -423,7 +458,7 @@ try {
     }
 
     $timeline = Invoke-Json -Method GET -Uri "$baseUri/sessions/$sessionId/timeline" -Token $RuntimeToken
-    if ($timeline.status -ne "ok" -or $timeline.items.Count -lt 2) {
+    if ($timeline.items.Count -lt 1 -or -not (ConvertTo-CompactJson $timeline).Contains($turn.final.text)) {
         throw "timeline projection is not usable: $(ConvertTo-CompactJson $timeline)"
     }
     $events = Invoke-Json -Method GET -Uri "$baseUri/turns/$($turn.turn_id)/events" -Token $RuntimeToken
@@ -431,7 +466,7 @@ try {
         throw "turn event replay is not usable: $(ConvertTo-CompactJson $events)"
     }
     $context = Invoke-Json -Method GET -Uri "$baseUri/turns/$($turn.turn_id)/context" -Token $RuntimeToken
-    if ($context.status -ne "ok") {
+    if ($context.readiness -ne "ready") {
         throw "turn context inspection is not usable: $(ConvertTo-CompactJson $context)"
     }
     $session = Invoke-Json -Method GET -Uri "$baseUri/sessions/$sessionId" -Token $RuntimeToken
@@ -442,12 +477,12 @@ try {
     Stop-Genesisd -Process $server
     $server = $null
 
-    $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $ProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
+    $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $effectiveProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
     Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ready" | Out-Null
     $replayedTimeline = Invoke-Json -Method GET -Uri "$baseUri/sessions/$sessionId/timeline" -Token $RuntimeToken
     $replayedEvents = Invoke-Json -Method GET -Uri "$baseUri/turns/$($turn.turn_id)/events" -Token $RuntimeToken
     $replayedContext = Invoke-Json -Method GET -Uri "$baseUri/turns/$($turn.turn_id)/context" -Token $RuntimeToken
-    if ($replayedTimeline.items.Count -lt $timeline.items.Count -or $replayedEvents.items.Count -lt $events.items.Count -or $replayedContext.status -ne "ok") {
+    if ($replayedTimeline.items.Count -lt $timeline.items.Count -or $replayedEvents.items.Count -lt $events.items.Count -or $replayedContext.readiness -ne "ready") {
         throw "restart replay lost projection data"
     }
 
@@ -455,12 +490,22 @@ try {
     if (-not $SkipFailureProbe) {
         Stop-Genesisd -Process $server
         $server = $null
-        $brokenCredentialRoot = Join-Path $WorkRoot "missing-credentials"
-        New-DirectoryIfMissing -Path $brokenCredentialRoot
-        $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger (Join-Path $WorkRoot "failure-events.jsonl") -Token $RuntimeToken -Config $ConfigRoot -Credentials $brokenCredentialRoot -Role $ModelRole -Profile $ProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $failureStdout -StderrPath $failureStderr
+        $failureConfigRoot = $ConfigRoot
+        $failureCredentialRoot = $CredentialStoreRoot
+        $expectedFailureReason = "provider_credential_missing"
+        if ($UseConfiguredProfile) {
+            $failureConfigRoot = Join-Path $WorkRoot "missing-config"
+            New-DirectoryIfMissing -Path $failureConfigRoot
+            $expectedFailureReason = "provider_config_missing"
+        }
+        else {
+            $failureCredentialRoot = Join-Path $WorkRoot "missing-credentials"
+            New-DirectoryIfMissing -Path $failureCredentialRoot
+        }
+        $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger (Join-Path $WorkRoot "failure-events.jsonl") -Token $RuntimeToken -Config $failureConfigRoot -Credentials $failureCredentialRoot -Role $ModelRole -Profile $effectiveProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $failureStdout -StderrPath $failureStderr
         $blocked = Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "not_ready"
-        if ($blocked.provider.readiness -ne "not_ready" -or $blocked.provider.readiness_reason -ne "provider_credential_missing") {
-            throw "failure probe did not report provider_credential_missing: $(ConvertTo-CompactJson $blocked)"
+        if ($blocked.provider.readiness -ne "not_ready" -or $blocked.provider.readiness_reason -ne $expectedFailureReason) {
+            throw "failure probe did not report ${expectedFailureReason}: $(ConvertTo-CompactJson $blocked)"
         }
         $turnError = Invoke-JsonExpectError -Method POST -Uri "$baseUri/turn" -Token $RuntimeToken -Body @{
             session_id = "live-first-run-failure-probe"
@@ -479,7 +524,7 @@ try {
         }
         if ($KeepServer) {
             Stop-Genesisd -Process $server
-            $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $ProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
+            $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $effectiveProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
             Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ready" | Out-Null
         }
     }
@@ -493,8 +538,9 @@ try {
         ok = $true
         work_root = $WorkRoot
         base_uri = $baseUri
-        config_path = $setup.config_path
-        credential_ref = $setup.credential_ref
+        configured_profile = [bool]$UseConfiguredProfile
+        config_path = $configPath
+        credential_ref = $resolvedCredentialRef
         ledger_path = $LedgerPath
         session_id = $sessionId
         turn_id = $turn.turn_id
@@ -514,12 +560,12 @@ try {
         inspected = @{
             timeline_items = $timeline.items.Count
             event_items = $events.items.Count
-            context_status = $context.status
+            context_status = $context.readiness
         }
         restart_replay = @{
             timeline_items = $replayedTimeline.items.Count
             event_items = $replayedEvents.items.Count
-            context_status = $replayedContext.status
+            context_status = $replayedContext.readiness
         }
         failure_probe = $failureProbe
         keep_server = [bool]$KeepServer

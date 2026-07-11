@@ -1,7 +1,7 @@
 # Design: User Capability Package
 
 - **Owner:** user-space capability runtime
-- **Status:** draft
+- **Status:** approved for Stage 3 implementation.
 
 ## Purpose
 
@@ -12,10 +12,10 @@ Examples include code intelligence, paper operator helpers, local report
 generators, and future one-off utilities. These are user capabilities, not
 Genesis kernel capabilities.
 
-Shared agent skills are a separate layer. For example, video transcript
-extraction is currently a general skill under the shared agent skill root, not a
-Genesis capability package. Genesis may call that skill when an agent chooses
-to, but Genesis does not own its runtime, model files, or registration.
+Shared agent skills are a separate layer. Video transcript extraction is
+currently a general skill under the shared agent skill root, not a Genesis
+capability package. A scheduled, fixed-output version may later become a
+Workflow. Genesis does not own its runtime, model files, or registration.
 
 ## User Home Boundary
 
@@ -183,3 +183,16 @@ User request
 If a capability needs credentials, provider context, memory truth, audit truth,
 or long-running recovery, it must go through the existing Genesis owner for that
 concern instead of storing hidden authority in the capability package.
+
+## Stage 3 Delivery Boundary
+
+The existing `genesisctl capability` implementation is the prototype owner but
+must not remain a CLI-only JSON parser. Extract its manifest inspection and
+safe projection into a small shared user-space package. `genesisctl` retains
+list/doctor/run; `genesisd` receives only descriptors built at startup and
+continues to treat them as discovery hints, not tool authority.
+
+There is no installed real capability package yet. Do not fabricate a demo
+package merely to close Stage 3: the first package must be selected from a real
+user-owned capability when one exists. Video transcript extraction remains a
+Skill or future Workflow, and no report-generation capability currently exists.

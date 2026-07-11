@@ -11,34 +11,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"genesis/internal/capabilitypackage"
 )
 
-type capabilityManifest struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	RuntimeRef  string   `json:"runtime_ref,omitempty"`
-	Entrypoint  string   `json:"entrypoint"`
-	Skill       string   `json:"skill,omitempty"`
-	DataDir     string   `json:"data_dir,omitempty"`
-	Inputs      []string `json:"inputs,omitempty"`
-	Outputs     []string `json:"outputs,omitempty"`
-}
-
-type capabilityProjection struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name,omitempty"`
-	Description  string   `json:"description,omitempty"`
-	Root         string   `json:"root"`
-	ManifestPath string   `json:"manifest_path"`
-	Readiness    string   `json:"readiness"`
-	Reason       string   `json:"reason,omitempty"`
-	Entrypoint   string   `json:"entrypoint,omitempty"`
-	Skill        string   `json:"skill,omitempty"`
-	RuntimeRef   string   `json:"runtime_ref,omitempty"`
-	Inputs       []string `json:"inputs,omitempty"`
-	Outputs      []string `json:"outputs,omitempty"`
-}
+type capabilityManifest = capabilitypackage.Manifest
+type capabilityProjection = capabilitypackage.Projection
 
 func runCapability(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
@@ -122,100 +100,15 @@ func runCapabilityRun(args []string, stdout io.Writer) error {
 }
 
 func listCapabilityPackages(root string) ([]capabilityProjection, error) {
-	root = strings.TrimSpace(root)
-	if root == "" {
-		return nil, errors.New("capability root is required")
-	}
-	entries, err := os.ReadDir(root)
-	if errors.Is(err, os.ErrNotExist) {
-		return []capabilityProjection{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var items []capabilityProjection
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		items = append(items, inspectCapabilityPackage(root, entry.Name()))
-	}
-	return items, nil
+	return capabilitypackage.Discover(root)
 }
 
 func inspectCapabilityPackage(root string, id string) capabilityProjection {
-	root = strings.TrimSpace(root)
-	id = strings.TrimSpace(id)
-	packageRoot := filepath.Join(root, id)
-	manifestPath := filepath.Join(packageRoot, "genesis.capability.json")
-	item := capabilityProjection{
-		ID:           id,
-		Root:         packageRoot,
-		ManifestPath: manifestPath,
-		Readiness:    "not_ready",
-	}
-	manifest, err := readCapabilityManifest(manifestPath)
-	if err != nil {
-		item.Reason = "manifest_unavailable"
-		return item
-	}
-	item.Name = manifest.Name
-	item.Description = manifest.Description
-	item.Entrypoint = manifest.Entrypoint
-	item.Skill = manifest.Skill
-	item.RuntimeRef = manifest.RuntimeRef
-	item.Inputs = append([]string(nil), manifest.Inputs...)
-	item.Outputs = append([]string(nil), manifest.Outputs...)
-	if manifest.ID != id {
-		item.Reason = "manifest_id_mismatch"
-		return item
-	}
-	if strings.TrimSpace(manifest.Entrypoint) == "" {
-		item.Reason = "entrypoint_missing"
-		return item
-	}
-	if !safeCapabilityRelativePath(manifest.Entrypoint) {
-		item.Reason = "entrypoint_unsafe"
-		return item
-	}
-	if _, err := os.Stat(filepath.Join(packageRoot, filepath.FromSlash(manifest.Entrypoint))); err != nil {
-		item.Reason = "entrypoint_unavailable"
-		return item
-	}
-	if strings.TrimSpace(manifest.Skill) != "" {
-		if !safeCapabilityRelativePath(manifest.Skill) {
-			item.Reason = "skill_unsafe"
-			return item
-		}
-		if _, err := os.Stat(filepath.Join(packageRoot, filepath.FromSlash(manifest.Skill))); err != nil {
-			item.Reason = "skill_unavailable"
-			return item
-		}
-	}
-	item.Readiness = "ready"
-	item.Reason = ""
-	return item
+	return capabilitypackage.Inspect(root, id)
 }
 
 func readCapabilityManifest(path string) (capabilityManifest, error) {
-	var manifest capabilityManifest
-	payload, err := os.ReadFile(path)
-	if err != nil {
-		return manifest, err
-	}
-	decoder := json.NewDecoder(strings.NewReader(string(payload)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&manifest); err != nil {
-		return manifest, err
-	}
-	manifest.ID = strings.TrimSpace(manifest.ID)
-	manifest.Name = strings.TrimSpace(manifest.Name)
-	manifest.Description = strings.TrimSpace(manifest.Description)
-	manifest.RuntimeRef = strings.TrimSpace(manifest.RuntimeRef)
-	manifest.Entrypoint = strings.TrimSpace(manifest.Entrypoint)
-	manifest.Skill = strings.TrimSpace(manifest.Skill)
-	manifest.DataDir = strings.TrimSpace(manifest.DataDir)
-	return manifest, nil
+	return capabilitypackage.ReadManifest(path)
 }
 
 func capabilityCommand(packageRoot string, entrypoint string, args []string) (*exec.Cmd, error) {
@@ -242,22 +135,11 @@ func powerShellCommand() (string, error) {
 }
 
 func safeCapabilityRelativePath(path string) bool {
-	path = strings.TrimSpace(path)
-	if path == "" || filepath.IsAbs(path) {
-		return false
-	}
-	clean := filepath.Clean(filepath.FromSlash(path))
-	return clean != "." && clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
+	return capabilitypackage.SafeRelativePath(path)
 }
 
 func defaultCapabilityRoot() string {
-	if root := strings.TrimSpace(os.Getenv("GENESIS_CAPABILITY_ROOT")); root != "" {
-		return root
-	}
-	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		return filepath.Join(home, ".genesis", "capabilities")
-	}
-	return filepath.Join(".genesis", "capabilities")
+	return capabilitypackage.DefaultRoot()
 }
 
 func encodeIndented(stdout io.Writer, payload any) error {

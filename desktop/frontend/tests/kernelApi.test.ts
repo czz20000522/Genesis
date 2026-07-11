@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial } from '../src/api/kernelApi.ts'
+import { applyProviderRole, bindSessionWorkspace, compactSessionContext, decideApproval, enableSessionDebug, getSession, getSessionDebug, getTimeline, getTimelineDetail, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -10,6 +10,7 @@ import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { isBlankSessionDraft } from '../src/sessionDraft.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
 import { timelineRows } from '../src/timelineView.ts'
+import { loadSessionCatalog, recordSessionCatalogEntry } from '../src/sessionCatalog.ts'
 
 const values = new Map<string, string>()
 const storage = {
@@ -29,17 +30,50 @@ for (const file of vueFiles(join(import.meta.dirname, '..', 'src'))) {
 const appSource = readFileSync(join(import.meta.dirname, '..', 'src', 'App.vue'), 'utf8')
 const apiSource = readFileSync(join(import.meta.dirname, '..', 'src', 'api', 'kernelApi.ts'), 'utf8')
 const conversationSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'ConversationPane.vue'), 'utf8')
+const providerPanelSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'ProviderPanel.vue'), 'utf8')
 assert.equal(appSource.includes('listApprovals'), false, 'App.vue must not load global pending approvals into the current conversation')
 assert.equal(appSource.includes('localSessions'), false, 'App.vue must not keep frontend-local sessions as history truth')
 assert.equal(conversationSource.includes('approvals: ApprovalProjection[]'), true, 'ConversationPane must render a current-session approval queue')
+assert.equal(conversationSource.includes('<details v-if="row.kind === \'reasoning\'"'), true, 'ConversationPane must keep reasoning in its own collapsed disclosure')
 assert.equal(apiSource.includes('KernelRequest'), false, 'desktop production bridge must not expose a generic HTTP proxy')
 assert.equal(apiSource.includes('content_base64'), false, 'desktop upload bridge must not pass whole files as base64')
+assert.equal(providerPanelSource.includes('type="password"'), true, 'provider key input must not render as plain text')
+assert.equal(providerPanelSource.includes('localStorage'), false, 'provider key input must not persist in browser storage')
+
+globalThis.go = {
+  main: {
+    App: {
+      ProviderProfiles: async () => ({
+        profiles: [{ profile_id: 'cloud-glm', model_id: 'glm-5-2', protocol: 'openai-chat-completions', credential_present: true }],
+        role_bindings: { coordinator: 'cloud-glm' },
+      }),
+      RotateProviderCredential: async (profileID: string, secret: string) => ({ profile_id: profileID, credential_present: secret.length > 0 }),
+      ApplyProviderRole: async (modelRole: string, profileID: string) => ({ status: 'owned_kernel_restarted', binding: { model_role: modelRole, profile_id: profileID } }),
+      VerifyProvider: async (modelRole: string, profileID: string) => ({ readiness: 'ready', model_role: modelRole, profile_id: profileID, model: 'glm-5-2' }),
+    },
+  },
+}
+const configuredProviders = await providerProfiles()
+assert.equal(configuredProviders.profiles?.[0]?.model_id, 'glm-5-2')
+assert.deepEqual(await rotateProviderCredential('cloud-glm', 'one-shot-key'), { profile_id: 'cloud-glm', credential_present: true })
+assert.equal((await applyProviderRole('coordinator', 'cloud-glm')).status, 'owned_kernel_restarted')
+assert.equal((await verifyProvider('coordinator', 'cloud-glm')).model, 'glm-5-2')
+globalThis.go = undefined
 
 saveKernelConfig({ baseUrl: 'http://127.0.0.1:8765/', runtimeToken: ' token ' }, storage)
 assert.deepEqual(kernelConfig(storage), {
   baseUrl: 'http://127.0.0.1:8765',
   runtimeToken: 'token',
 })
+
+recordSessionCatalogEntry({ sessionId: 'project-session', kind: 'project', root: 'D:\\repo-a', name: 'repo-a' }, storage)
+recordSessionCatalogEntry({ sessionId: 'task-session', kind: 'task', root: 'C:\\Users\\Tomczz\\Documents\\Genesis\\task-session' }, storage)
+recordSessionCatalogEntry({ sessionId: 'chat-session', kind: 'chat' }, storage)
+assert.deepEqual(loadSessionCatalog(storage), [
+  { sessionId: 'project-session', kind: 'project', root: 'D:\\repo-a', name: 'repo-a' },
+  { sessionId: 'task-session', kind: 'task', root: 'C:\\Users\\Tomczz\\Documents\\Genesis\\task-session', name: '' },
+  { sessionId: 'chat-session', kind: 'chat', root: '', name: '' },
+])
 
 assert.equal(kernelUrl('http://127.0.0.1:8765/', '/ready'), 'http://127.0.0.1:8765/ready')
 assert.equal(kernelUrl('', 'capabilities'), 'http://127.0.0.1:8765/capabilities')
@@ -83,6 +117,33 @@ try {
   assert.equal(sessions.items?.[0]?.session_id, 'session-2')
 } finally {
   globalThis.fetch = originalFetchForSessions
+}
+
+let workspaceBindingUrl = ''
+let workspaceBindingMethod = ''
+let workspaceBindingBody: Record<string, unknown> = {}
+const originalFetchForWorkspaceBinding = globalThis.fetch
+globalThis.fetch = async (input, init) => {
+  workspaceBindingUrl = String(input)
+  workspaceBindingMethod = String(init?.method ?? '')
+  workspaceBindingBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+  return new Response(JSON.stringify({ session_id: 'project-session', workspace_mode: 'project' }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const bound = await bindSessionWorkspace({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'project/session', 'project', 'D:\\workspace')
+  assert.equal(workspaceBindingUrl, 'http://127.0.0.1:8765/sessions/project%2Fsession/workspace')
+  assert.equal(workspaceBindingMethod, 'POST')
+  assert.deepEqual(workspaceBindingBody, { kind: 'project', root: 'D:\\workspace' })
+  assert.equal(bound.workspace_mode, 'project')
+} finally {
+  globalThis.fetch = originalFetchForWorkspaceBinding
 }
 
 let searchUrl = ''
@@ -292,6 +353,7 @@ assert.deepEqual(timelineRows([
         detail_available: true,
         children: [{ item_id: 'operation-1', kind: 'operation_detail', output_preview: 'raw tool output' }],
       },
+      { item_id: 'reasoning-1', kind: 'assistant_reasoning', text: 'check the available evidence' },
       { item_id: 'assistant-1', kind: 'assistant_message', text: 'done' },
       { item_id: 'action-1', kind: 'user_action_request', text: '需要用户批准', tool: 'shell_exec' },
     ],
@@ -299,6 +361,7 @@ assert.deepEqual(timelineRows([
 ]).map((row) => [row.kind, row.text, row.meta]), [
   ['user', 'hello Genesis', ''],
   ['processing', '已处理 3s', '1 项操作'],
+  ['reasoning', 'check the available evidence', '已思考'],
   ['assistant', 'done', ''],
   ['action', '需要用户批准', '需要确认'],
 ])
@@ -319,6 +382,18 @@ assert.deepEqual(timelineRows([
     ],
   },
 ]).filter((row) => row.kind === 'action').length, 1, 'timeline actions are projection rows, not a global approval queue')
+
+const failedRows = timelineRows([{
+  item_id: 'turn-failed',
+  turn_id: 'turn-failed',
+  kind: 'turn',
+  children: [
+    { item_id: 'user-failed', turn_id: 'turn-failed', kind: 'user_message', text: 'retry this request' },
+    { item_id: 'processing-failed', turn_id: 'turn-failed', kind: 'processing_group', text: 'provider unavailable', terminal_outcome: 'failed' },
+  ],
+}])
+assert.equal(failedRows[0]?.turnId, 'turn-failed')
+assert.equal(failedRows[1]?.terminalOutcome, 'failed')
 
 const safeActionMetadata = JSON.stringify({
   approval_id: 'approval-safe',

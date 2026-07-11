@@ -118,7 +118,19 @@ export type SessionSearchResponse = {
 
 export type SessionProjection = {
   session_id?: string
+  workspace_mode?: SessionWorkspaceKind
   approvals?: ApprovalProjection[]
+}
+
+export type SessionWorkspaceKind = 'project' | 'task' | 'none'
+
+export type ProjectDirectorySelection = {
+  root: string
+  name: string
+}
+
+export type TaskWorkspaceSelection = {
+  root: string
 }
 
 export type ApprovalDecision = 'approved' | 'denied'
@@ -134,6 +146,93 @@ export type ContextCompactionResponse = {
 export type MaterialFileSelection = {
   file_path: string
   filename: string
+}
+
+export type LocalModelStatus = {
+  ownership?: string
+  readiness?: string
+  reason?: string
+  pid?: number
+}
+
+export type ProviderProfile = {
+  profile_id?: string
+  model_id?: string
+  gateway_route?: string
+  protocol?: string
+  provider_adapter_id?: string
+  roles?: string[]
+  credential_present?: boolean
+}
+
+export type ProviderProfiles = {
+  profiles?: ProviderProfile[]
+  role_bindings?: Record<string, string>
+}
+
+export type ProviderCredentialRotation = {
+  profile_id?: string
+  credential_present?: boolean
+}
+
+export type ProviderActivation = {
+  status?: string
+  binding?: {
+    model_role?: string
+    profile_id?: string
+    previous_profile_id?: string
+  }
+  sidecar?: LocalModelStatus
+}
+
+export type ProviderVerification = {
+  readiness?: string
+  readiness_reason?: string
+  model_role?: string
+  profile_id?: string
+  model?: string
+}
+
+export async function providerProfiles(): Promise<ProviderProfiles> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.ProviderProfiles) throw new Error('模型配置仅在 Genesis 桌面客户端中可用')
+  return bridge.ProviderProfiles() as Promise<ProviderProfiles>
+}
+
+export async function rotateProviderCredential(profileID: string, secret: string): Promise<ProviderCredentialRotation> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.RotateProviderCredential) throw new Error('模型凭据仅在 Genesis 桌面客户端中可用')
+  return bridge.RotateProviderCredential(String(profileID || '').trim(), String(secret || '')) as Promise<ProviderCredentialRotation>
+}
+
+export async function applyProviderRole(modelRole: string, profileID: string): Promise<ProviderActivation> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.ApplyProviderRole) throw new Error('模型切换仅在 Genesis 桌面客户端中可用')
+  return bridge.ApplyProviderRole(String(modelRole || '').trim(), String(profileID || '').trim()) as Promise<ProviderActivation>
+}
+
+export async function verifyProvider(modelRole: string, profileID: string): Promise<ProviderVerification> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.VerifyProvider) throw new Error('模型验证仅在 Genesis 桌面客户端中可用')
+  return bridge.VerifyProvider(String(modelRole || '').trim(), String(profileID || '').trim()) as Promise<ProviderVerification>
+}
+
+export async function localModelStatus(): Promise<LocalModelStatus> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.LocalModelStatus) throw new Error('本地模型控制仅在 Genesis 桌面客户端中可用')
+  return bridge.LocalModelStatus() as Promise<LocalModelStatus>
+}
+
+export async function startLocalModel(): Promise<LocalModelStatus> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.StartLocalModel) throw new Error('本地模型控制仅在 Genesis 桌面客户端中可用')
+  return bridge.StartLocalModel() as Promise<LocalModelStatus>
+}
+
+export async function stopLocalModel(): Promise<LocalModelStatus> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.StopLocalModel) throw new Error('本地模型控制仅在 Genesis 桌面客户端中可用')
+  return bridge.StopLocalModel() as Promise<LocalModelStatus>
 }
 
 export function kernelConfig(storage: Pick<Storage, 'getItem'> | null = safeLocalStorage()): KernelConfig {
@@ -187,6 +286,29 @@ export async function getSession(config: KernelConfig, sessionId: string) {
   const bridge = wailsAppBridge()
   if (bridge?.ReadSession) return bridge.ReadSession(session) as Promise<SessionProjection>
   return requestKernel<SessionProjection>(config, `/sessions/${encodeURIComponent(session)}`)
+}
+
+export async function bindSessionWorkspace(config: KernelConfig, sessionId: string, kind: SessionWorkspaceKind, root = '') {
+  const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (bridge?.BindSessionWorkspace) return bridge.BindSessionWorkspace(session, kind, String(root || '').trim()) as Promise<SessionProjection>
+  return requestKernel<SessionProjection>(config, `/sessions/${encodeURIComponent(session)}/workspace`, {
+    method: 'POST',
+    body: JSON.stringify({ kind, root: String(root || '').trim() }),
+  })
+}
+
+export async function pickProjectDirectory(): Promise<ProjectDirectorySelection | null> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.PickProjectDirectory) throw new Error('项目目录选择仅在 Genesis 桌面客户端中可用')
+  return bridge.PickProjectDirectory()
+}
+
+export async function createTaskWorkspace(sessionId: string): Promise<TaskWorkspaceSelection> {
+  const session = requiredSessionId(sessionId)
+  const bridge = wailsAppBridge()
+  if (!bridge?.CreateTaskWorkspace) throw new Error('任务工作区创建仅在 Genesis 桌面客户端中可用')
+  return bridge.CreateTaskWorkspace(session)
 }
 
 export async function getTimelineDetail(config: KernelConfig, sessionId: string, detailRef: string) {
@@ -394,12 +516,22 @@ type WailsAppBridge = {
   ReadTimeline?: (sessionId: string) => Promise<unknown>
   ReadTimelineDetail?: (sessionId: string, detailRef: string) => Promise<unknown>
   ReadSession?: (sessionId: string) => Promise<unknown>
+  BindSessionWorkspace?: (sessionId: string, kind: SessionWorkspaceKind, root: string) => Promise<unknown>
+  PickProjectDirectory?: () => Promise<ProjectDirectorySelection | null>
+  CreateTaskWorkspace?: (sessionId: string) => Promise<TaskWorkspaceSelection>
   DecideApproval?: (approvalId: string, decision: ApprovalDecision, reason: string) => Promise<unknown>
   PickMaterialFile?: () => Promise<MaterialFileSelection | null>
   UploadMaterial?: (request: MaterialBridgeRequest) => Promise<unknown>
   EnableSessionDebug?: (sessionId: string) => Promise<unknown>
   ExportSessionDebug?: (sessionId: string) => Promise<unknown>
   CompactSessionContext?: (sessionId: string) => Promise<unknown>
+  LocalModelStatus?: () => Promise<unknown>
+  StartLocalModel?: () => Promise<unknown>
+  StopLocalModel?: () => Promise<unknown>
+  ProviderProfiles?: () => Promise<unknown>
+  RotateProviderCredential?: (profileID: string, secret: string) => Promise<unknown>
+  ApplyProviderRole?: (modelRole: string, profileID: string) => Promise<unknown>
+  VerifyProvider?: (modelRole: string, profileID: string) => Promise<unknown>
 }
 
 type WailsRuntimeBridge = {

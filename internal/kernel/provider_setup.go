@@ -1,13 +1,13 @@
 package kernel
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"genesis/localconfig"
 )
 
 type OpenAICompatibleProviderSetupRequest struct {
@@ -18,7 +18,6 @@ type OpenAICompatibleProviderSetupRequest struct {
 	GatewayRoute        string
 	ProviderAdapterID   string
 	AdapterProfileID    string
-	HiddenReasoningMode string
 	BaseURL             string
 	ModelID             string
 	ContextWindowTokens int
@@ -56,13 +55,12 @@ type OpenAICompatibleProviderCredentialRotationRequest struct {
 }
 
 type OpenAICompatibleProviderProfileMetadataRepair struct {
-	ProfileID             string
-	ModelID               string
-	GatewayRoute          string
-	ProviderAdapterID     string
-	AdapterProfileID      string
-	HiddenReasoningPolicy string
-	ContextWindowTokens   int
+	ProfileID           string
+	ModelID             string
+	GatewayRoute        string
+	ProviderAdapterID   string
+	AdapterProfileID    string
+	ContextWindowTokens int
 }
 
 func SetupOpenAICompatibleProvider(req OpenAICompatibleProviderSetupRequest) (OpenAICompatibleProviderSetupResult, error) {
@@ -251,7 +249,6 @@ func applyProviderProfileMetadataRepair(config *genesisModelsConfig, repair Open
 			}
 			profile.ProviderAdapterID = strings.TrimSpace(repair.ProviderAdapterID)
 			profile.ProviderAdapterProfileID = strings.TrimSpace(repair.AdapterProfileID)
-			profile.HiddenReasoningPolicy = strings.TrimSpace(repair.HiddenReasoningPolicy)
 			if repair.ContextWindowTokens > 0 {
 				profile.ContextWindowTokens = repair.ContextWindowTokens
 			}
@@ -298,15 +295,11 @@ func normalizeProviderSetup(req OpenAICompatibleProviderSetupRequest) (OpenAICom
 }
 
 func readGenesisModelsConfig(configPath string) (genesisModelsConfig, error) {
-	payload, err := os.ReadFile(configPath)
-	if errors.Is(err, os.ErrNotExist) {
+	config, err := localconfig.ReadModels(configPath)
+	if errors.Is(err, localconfig.ErrConfigMissing) {
 		return genesisModelsConfig{}, nil
 	}
 	if err != nil {
-		return genesisModelsConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigInvalid, err)
-	}
-	var config genesisModelsConfig
-	if err := json.Unmarshal(payload, &config); err != nil {
 		return genesisModelsConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigInvalid, err)
 	}
 	return config, nil
@@ -341,19 +334,11 @@ func upsertOpenAICompatibleProviderConfig(config *genesisModelsConfig, req OpenA
 		ContextWindowTokens:      req.ContextWindowTokens,
 		ProviderAdapterID:        req.ProviderAdapterID,
 		ProviderAdapterProfileID: req.AdapterProfileID,
-		HiddenReasoningPolicy:    req.HiddenReasoningMode,
 	}
 }
 
 func writeGenesisModelsConfig(configPath string, config genesisModelsConfig) error {
-	encoded, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
-	}
-	if err := os.WriteFile(configPath, append(encoded, '\n'), 0o644); err != nil {
+	if err := localconfig.WriteModels(configPath, config); err != nil {
 		return fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
 	}
 	return nil

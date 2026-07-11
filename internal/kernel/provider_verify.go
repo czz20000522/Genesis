@@ -62,24 +62,29 @@ func VerifyProviderLive(req ProviderLiveVerifyRequest) ProviderLiveVerifyResult 
 			ProfileID:       profileID,
 		}
 	}
-	timeout := req.Timeout
-	if timeout <= 0 {
-		timeout = defaultProviderVerifyTimeout
-	}
 	var provider Provider
 	var configuredModel string
+	verifyUnbounded := false
+	timeout := req.Timeout
 	switch resolved.Kind {
 	case "openai-compatible":
 		config := resolved.OpenAICompatible
+		if timeout <= 0 {
+			timeout = defaultProviderVerifyTimeout
+		}
 		config.RequestTimeout = timeout
 		config.HTTPClient = req.HTTPClient
 		provider = NewOpenAICompatibleProvider(config)
 		configuredModel = config.Model
 	case "provider_command":
 		config := resolved.Command
+		if timeout <= 0 && !config.AllowUnboundedRequest {
+			timeout = defaultProviderVerifyTimeout
+		}
 		config.RequestTimeout = timeout
 		provider = NewCommandProvider(config)
 		configuredModel = config.Model
+		verifyUnbounded = config.AllowUnboundedRequest && timeout <= 0
 	default:
 		return ProviderLiveVerifyResult{
 			Readiness:       ReadinessNotReady,
@@ -101,7 +106,7 @@ func VerifyProviderLive(req ProviderLiveVerifyRequest) ProviderLiveVerifyResult 
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := providerVerifyContext(timeout, verifyUnbounded)
 	defer cancel()
 	resp, err := provider.Complete(ctx, ModelRequest{
 		SessionID:  "provider-verify",
@@ -132,4 +137,14 @@ func VerifyProviderLive(req ProviderLiveVerifyRequest) ProviderLiveVerifyResult 
 		Model:     model,
 		Usage:     resp.Usage,
 	}
+}
+
+func providerVerifyContext(timeout time.Duration, allowUnbounded bool) (context.Context, context.CancelFunc) {
+	if allowUnbounded && timeout <= 0 {
+		return context.WithCancel(context.Background())
+	}
+	if timeout <= 0 {
+		timeout = defaultProviderVerifyTimeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
 }

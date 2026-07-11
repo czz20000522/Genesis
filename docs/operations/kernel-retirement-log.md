@@ -14,6 +14,25 @@ This file records Genesis Kernel issues that are ready for acceptance or retired
 
 ## Ready For Acceptance
 
+### KERNEL-LEDGER-DEAD-WRITER-RESTART-20260710 - P1 - Dead writer lock blocks immediate restart
+
+- Status: ready_for_acceptance.
+- Conclusion: `SQLiteLedger` now reclaims a fresh lock when the recorded writer
+  is known dead, while live and unknown writers remain fail-closed. A
+  process-held recovery guard serializes stale-lock cleanup, and Windows checks
+  the process wait state rather than treating exit code 259 as proof of life.
+- Evidence: The Stage 1 local-provider proof started a daemon over a persisted
+  ledger, force-stopped it, immediately started a second daemon over the same
+  ledger, and read the original session timeline. Both daemons reported
+  `readiness=ready`, with provider and ledger ready.
+- Verification: `go test ./internal/kernel -run 'TestSQLiteLedger|TestKernelReadyReportsLedgerLocked' -count=1`; `go test ./... -count=1`; `go build ./...`; `go test ./... -count=1` and `go build ./...` from `desktop`; `git diff --check`.
+- Reference alignment: Codex app-server daemon PID cleanup holds a reservation
+  lock while checking and removing stale records; Reasonix shuts down its
+  server gracefully. Genesis keeps a generic file lock and fail-closed unknown
+  writer policy, and adds a short recovery guard because desktop-owned sidecars
+  can be force-stopped.
+- Fix commit: pending.
+
 ### KERNEL-PARENT-WORKER-CHILD-CONVERSATION-20260708 - P1 - Worker output child conversation projection
 
 - Status: ready_for_acceptance.

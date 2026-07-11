@@ -550,7 +550,7 @@ func TestFeishuListenRetriesRecoverableSourceCommandFailure(t *testing.T) {
 	}
 }
 
-func TestFeishuListenPassesPersistedCursorToSourceAdapter(t *testing.T) {
+func TestFeishuListenKeepsPersistedCursorOutOfUnsupportedSourceCommand(t *testing.T) {
 	var submitCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/turn" {
@@ -589,8 +589,7 @@ func TestFeishuListenPassesPersistedCursorToSourceAdapter(t *testing.T) {
 		"--profile", "genesis",
 		"--source-command-arg", "-test.run=TestFeishuListenSourceCommandHelper",
 		"--source-command-arg", "--",
-		"--source-command-arg", "require-after-event-id-then-event",
-		"--source-command-arg", "evt_previous",
+		"--source-command-arg", "forbid-after-event-id-then-event",
 		"--source-id", "source_feishu_chat",
 		"--source-state", filepath.Join(dir, "source-failures.json"),
 		"--source-lifecycle-state", sourceLifecyclePath,
@@ -599,7 +598,7 @@ func TestFeishuListenPassesPersistedCursorToSourceAdapter(t *testing.T) {
 		t.Fatalf("runWithIO returned error: %v\n%s", err, stdout.String())
 	}
 	if submitCount != 1 {
-		t.Fatalf("submit count = %d, want one kernel turn after cursor resume", submitCount)
+		t.Fatalf("submit count = %d, want one kernel turn after cursor recovery", submitCount)
 	}
 }
 
@@ -824,14 +823,9 @@ func TestFeishuListenSourceCommandHelper(t *testing.T) {
 		if err := os.WriteFile(attemptFile, []byte("started"), 0o600); err != nil {
 			t.Fatalf("write started file: %v", err)
 		}
-	case "require-after-event-id-then-event":
-		want := attemptFile
-		if want == "" {
-			t.Fatal("expected after-event-id argument is required")
-		}
-		got := sourceCommandHelperFlagValue("--after-event-id")
-		if got != want {
-			t.Fatalf("after-event-id = %q, want %q in args %#v", got, want, os.Args)
+	case "forbid-after-event-id-then-event":
+		if got := sourceCommandHelperFlagValue("--after-event-id"); got != "" {
+			t.Fatalf("unsupported after-event-id = %q in args %#v", got, os.Args)
 		}
 		encoder := json.NewEncoder(os.Stdout)
 		frames := []connectorruntime.SourceCommandFrame{

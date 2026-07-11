@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -30,9 +31,36 @@ func desktopTestTempDir(t *testing.T) string {
 	return dir
 }
 
+func TestCreateTaskWorkspaceUsesPersistentRootAndSessionID(t *testing.T) {
+	root := filepath.Join(desktopTestTempDir(t), "Genesis")
+	workspace, err := createTaskWorkspace(root, "desktop-task-1")
+	if err != nil {
+		t.Fatalf("create task workspace: %v", err)
+	}
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatalf("absolute root: %v", err)
+	}
+	want := filepath.Join(absoluteRoot, "desktop-task-1")
+	if workspace != want {
+		t.Fatalf("workspace = %q, want %q", workspace, want)
+	}
+	if info, err := os.Stat(workspace); err != nil || !info.IsDir() {
+		t.Fatalf("workspace directory = %v, %v; want existing directory", info, err)
+	}
+}
+
+func TestCreateTaskWorkspaceRejectsSessionPathTraversal(t *testing.T) {
+	_, err := createTaskWorkspace(desktopTestTempDir(t), "../outside")
+	if err == nil {
+		t.Fatal("create task workspace accepted path traversal session id")
+	}
+}
+
 type fakeSidecarProcess struct {
 	pid       int
 	stopCalls int
+	stopErr   error
 }
 
 func (p *fakeSidecarProcess) PID() int {
@@ -41,7 +69,7 @@ func (p *fakeSidecarProcess) PID() int {
 
 func (p *fakeSidecarProcess) Stop(context.Context) error {
 	p.stopCalls++
-	return nil
+	return p.stopErr
 }
 
 func TestLocalServiceSupervisorStartsOwnedKernelProcess(t *testing.T) {
@@ -108,6 +136,9 @@ func TestDesktopStartupAndShutdownRouteThroughLocalServiceSupervisor(t *testing.
 		},
 	})
 	app.supervisor = supervisor
+	app.localModel = NewLocalModelSupervisor(LocalModelSupervisorConfig{
+		Runtime: localModelRuntimeConfig{Enabled: false},
+	})
 
 	app.startup(context.Background())
 	if !supervisor.startAttempted {
@@ -117,6 +148,46 @@ func TestDesktopStartupAndShutdownRouteThroughLocalServiceSupervisor(t *testing.
 	app.shutdown(context.Background())
 	if !supervisor.stopAttempted {
 		t.Fatal("shutdown did not ask local service supervisor to stop owned services")
+	}
+}
+
+func TestDesktopShutdownStopsOnlyTheLocalModelItStarted(t *testing.T) {
+	app := NewApp()
+	app.supervisor = NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
+		KernelBaseURL: "http://127.0.0.1:9999",
+		External:      true,
+	})
+	process := &fakeLocalModelProcess{fakeSidecarProcess: fakeSidecarProcess{pid: 2468}, done: make(chan struct{})}
+	app.localModel = NewLocalModelSupervisor(LocalModelSupervisorConfig{
+		Runtime: localModelRuntimeConfig{
+			Enabled:          true,
+			WSLDistribution:  "Ubuntu",
+			ServerPath:       "/home/tomczz/tools/llama.cpp/llama-server",
+			ModelPath:        "/home/tomczz/.genesis/models/qwen.gguf",
+			HealthURL:        "http://127.0.0.1:8081/health",
+			Port:             8081,
+			ContextTokens:    262144,
+			GPUOffloadLayers: "auto",
+			CacheTypeK:       "q8_0",
+			CacheTypeV:       "q8_0",
+			Parallel:         2,
+		},
+		launcher: func(context.Context, localModelLaunchRequest) (localModelProcess, error) {
+			return process, nil
+		},
+		readinessProbe: func(context.Context, string) sidecarReadinessResult {
+			return sidecarReadinessResult{Ready: true}
+		},
+	})
+
+	app.startup(context.Background())
+	if status := app.LocalModelStatus(); status.Ownership != serviceOwnershipOwned || status.PID != process.pid {
+		t.Fatalf("local model after startup = %+v, want the owned fake process", status)
+	}
+
+	app.shutdown(context.Background())
+	if process.stopCalls != 1 {
+		t.Fatalf("local model stop calls = %d, want exactly one owned-process stop", process.stopCalls)
 	}
 }
 
@@ -183,6 +254,205 @@ func TestLocalServiceSupervisorShutdownOnlyStopsOwnedProcessOnce(t *testing.T) {
 	}
 	if first.Readiness != "not_ready" || second.Readiness != "not_ready" || second.Reason != sidecarStopped {
 		t.Fatalf("shutdown statuses = %+v %+v, want idempotent stopped state", first, second)
+	}
+}
+
+type fakeLocalModelProcess struct {
+	fakeSidecarProcess
+	done chan struct{}
+}
+
+func localModelTestRuntime() localModelRuntimeConfig {
+	return localModelRuntimeConfig{
+		Enabled:          true,
+		WSLDistribution:  "Ubuntu",
+		ServerPath:       "/home/tomczz/tools/llama.cpp/llama-server",
+		ModelPath:        "/home/tomczz/.genesis/models/qwen.gguf",
+		HealthURL:        "http://127.0.0.1:8081/health",
+		Port:             8081,
+		ContextTokens:    262144,
+		GPUOffloadLayers: "auto",
+		CacheTypeK:       "q8_0",
+		CacheTypeV:       "q8_0",
+		Parallel:         2,
+	}
+}
+
+func (p *fakeLocalModelProcess) Done() <-chan struct{} {
+	return p.done
+}
+
+func TestLocalModelSupervisorStopsOnlyItsOwnedWSLProcess(t *testing.T) {
+	proc := &fakeLocalModelProcess{fakeSidecarProcess: fakeSidecarProcess{pid: 5678}, done: make(chan struct{})}
+	launched := false
+	supervisor := NewLocalModelSupervisor(LocalModelSupervisorConfig{
+		Runtime: localModelRuntimeConfig{
+			Enabled:          true,
+			WSLDistribution:  "Ubuntu",
+			ServerPath:       "/home/tomczz/tools/llama.cpp/llama-server",
+			ModelPath:        "/home/tomczz/.genesis/models/qwen.gguf",
+			HealthURL:        "http://127.0.0.1:8081/health",
+			Port:             8081,
+			ContextTokens:    262144,
+			GPUOffloadLayers: "auto",
+			CacheTypeK:       "q8_0",
+			CacheTypeV:       "q8_0",
+			Parallel:         2,
+		},
+		launcher: func(context.Context, localModelLaunchRequest) (localModelProcess, error) {
+			launched = true
+			return proc, nil
+		},
+		readinessProbe: func(context.Context, string) sidecarReadinessResult {
+			return sidecarReadinessResult{Ready: true}
+		},
+	})
+
+	started := supervisor.Start(context.Background())
+	if !launched || started.Ownership != serviceOwnershipOwned || started.Readiness != "ready" || started.PID != 5678 {
+		t.Fatalf("started = %+v, launched = %t", started, launched)
+	}
+	stopped := supervisor.StopOwned(context.Background())
+	if proc.stopCalls != 1 || stopped.Reason != localModelStopped {
+		t.Fatalf("stopped = %+v, stop calls = %d", stopped, proc.stopCalls)
+	}
+	supervisor.StopOwned(context.Background())
+	if proc.stopCalls != 1 {
+		t.Fatalf("stop calls = %d, want exactly one owned stop", proc.stopCalls)
+	}
+}
+
+func TestLocalModelSupervisorLeavesDisabledRuntimeUnowned(t *testing.T) {
+	supervisor := NewLocalModelSupervisor(LocalModelSupervisorConfig{
+		Runtime: localModelRuntimeConfig{Enabled: false},
+		launcher: func(context.Context, localModelLaunchRequest) (localModelProcess, error) {
+			t.Fatal("disabled local runtime must not launch")
+			return nil, nil
+		},
+	})
+
+	status := supervisor.Start(context.Background())
+	if status.Ownership != serviceOwnershipUnowned || status.Reason != localModelDisabled {
+		t.Fatalf("status = %+v, want disabled unowned model", status)
+	}
+}
+
+func TestLocalModelSupervisorRetainsOwnedProcessWhenStopFails(t *testing.T) {
+	proc := &fakeLocalModelProcess{
+		fakeSidecarProcess: fakeSidecarProcess{pid: 6789, stopErr: errors.New("taskkill failed")},
+		done:               make(chan struct{}),
+	}
+	supervisor := NewLocalModelSupervisor(LocalModelSupervisorConfig{
+		Runtime: localModelTestRuntime(),
+		launcher: func(context.Context, localModelLaunchRequest) (localModelProcess, error) {
+			return proc, nil
+		},
+		readinessProbe: func(context.Context, string) sidecarReadinessResult {
+			return sidecarReadinessResult{Ready: true}
+		},
+	})
+
+	supervisor.Start(context.Background())
+	failed := supervisor.StopOwned(context.Background())
+	if failed.Ownership != serviceOwnershipOwned || failed.PID != proc.pid || failed.Reason != localModelStopFailed {
+		t.Fatalf("failed stop = %+v, want retained owned process", failed)
+	}
+	proc.stopErr = nil
+	stopped := supervisor.StopOwned(context.Background())
+	if proc.stopCalls != 2 || stopped.Reason != localModelStopped {
+		t.Fatalf("successful retry = %+v, stop calls = %d", stopped, proc.stopCalls)
+	}
+}
+
+type blockingLocalModelProcess struct {
+	pid         int
+	done        chan struct{}
+	stopStarted chan struct{}
+	releaseStop chan struct{}
+	mu          sync.Mutex
+	stopCalls   int
+}
+
+func (p *blockingLocalModelProcess) PID() int {
+	return p.pid
+}
+
+func (p *blockingLocalModelProcess) Done() <-chan struct{} {
+	return p.done
+}
+
+func (p *blockingLocalModelProcess) Stop(context.Context) error {
+	p.mu.Lock()
+	p.stopCalls++
+	p.mu.Unlock()
+	close(p.stopStarted)
+	<-p.releaseStop
+	return nil
+}
+
+func (p *blockingLocalModelProcess) StopCalls() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stopCalls
+}
+
+func TestLocalModelSupervisorSerializesConcurrentOwnedStops(t *testing.T) {
+	proc := &blockingLocalModelProcess{
+		pid:         1357,
+		done:        make(chan struct{}),
+		stopStarted: make(chan struct{}),
+		releaseStop: make(chan struct{}),
+	}
+	supervisor := NewLocalModelSupervisor(LocalModelSupervisorConfig{
+		Runtime: localModelTestRuntime(),
+		launcher: func(context.Context, localModelLaunchRequest) (localModelProcess, error) {
+			return proc, nil
+		},
+		readinessProbe: func(context.Context, string) sidecarReadinessResult {
+			return sidecarReadinessResult{Ready: true}
+		},
+	})
+	supervisor.Start(context.Background())
+
+	firstDone := make(chan SidecarStatus, 1)
+	go func() {
+		firstDone <- supervisor.StopOwned(context.Background())
+	}()
+	<-proc.stopStarted
+	second := supervisor.StopOwned(context.Background())
+	if proc.StopCalls() != 1 || second.PID != proc.pid {
+		t.Fatalf("second stop = %+v, stop calls = %d, want no second process termination", second, proc.StopCalls())
+	}
+	close(proc.releaseStop)
+	if first := <-firstDone; first.Reason != localModelStopped {
+		t.Fatalf("first stop = %+v, want stopped state", first)
+	}
+}
+
+func TestLocalModelSupervisorDoesNotClaimOwnershipWhenLaunchFails(t *testing.T) {
+	supervisor := NewLocalModelSupervisor(LocalModelSupervisorConfig{
+		Runtime: localModelRuntimeConfig{
+			Enabled:          true,
+			WSLDistribution:  "Ubuntu",
+			ServerPath:       "/home/tomczz/tools/llama.cpp/llama-server",
+			ModelPath:        "/home/tomczz/.genesis/models/qwen.gguf",
+			HealthURL:        "http://127.0.0.1:8081/health",
+			Port:             8081,
+			ContextTokens:    262144,
+			GPUOffloadLayers: "auto",
+			CacheTypeK:       "q8_0",
+			CacheTypeV:       "q8_0",
+			Parallel:         2,
+		},
+		LogDir: desktopTestTempDir(t),
+		launcher: func(context.Context, localModelLaunchRequest) (localModelProcess, error) {
+			return nil, errors.New("wsl launch failed")
+		},
+	})
+
+	status := supervisor.Start(context.Background())
+	if status.Ownership != serviceOwnershipUnowned || status.Reason != localModelStartFailed {
+		t.Fatalf("status = %+v, want unowned launch failure", status)
 	}
 }
 

@@ -85,7 +85,6 @@ func TestResolveOpenAICompatibleConfigFromGenesisCarriesProviderAdapterBinding(t
 						"model_id":                    "deepseek-v4-flash",
 						"provider_adapter_id":         "deepseek",
 						"provider_adapter_profile_id": "deepseek-v4-flash",
-						"hidden_reasoning_policy":     "discard",
 					},
 				},
 			},
@@ -110,12 +109,9 @@ func TestResolveOpenAICompatibleConfigFromGenesisCarriesProviderAdapterBinding(t
 	if config.Adapter.TransportProtocol != "openai-chat-completions" {
 		t.Fatalf("adapter transport = %q, want openai-chat-completions", config.Adapter.TransportProtocol)
 	}
-	if config.Adapter.HiddenReasoningPolicy != "discard" {
-		t.Fatalf("hidden reasoning policy = %q, want discard", config.Adapter.HiddenReasoningPolicy)
-	}
 }
 
-func TestResolveOpenAICompatibleConfigFromGenesisRejectsAdapterPolicyWithoutAdapter(t *testing.T) {
+func TestResolveOpenAICompatibleConfigFromGenesisRejectsPartialAdapterBinding(t *testing.T) {
 	root := writeModelsConfig(t, map[string]any{
 		"model_gateway": map[string]any{
 			"protocol":       "openai-chat-completions",
@@ -129,9 +125,9 @@ func TestResolveOpenAICompatibleConfigFromGenesisRejectsAdapterPolicyWithoutAdap
 			"cloud": map[string]any{
 				"gateway": map[string]any{
 					"provider-fast": map[string]any{
-						"profile_id":              "provider-fast",
-						"model_id":                "provider-model-fast",
-						"hidden_reasoning_policy": "discard",
+						"profile_id":                  "provider-fast",
+						"model_id":                    "provider-model-fast",
+						"provider_adapter_profile_id": "deepseek-v4-flash",
 					},
 				},
 			},
@@ -179,9 +175,11 @@ func TestResolveProviderConfigFromGenesisSelectsCommandProviderRoute(t *testing.
 			"local": map[string]any{
 				"gateway": map[string]any{
 					"command-profile": map[string]any{
-						"profile_id":    "command-profile",
-						"model_id":      "command-model",
-						"gateway_route": "command-primary",
+						"profile_id":                  "command-profile",
+						"model_id":                    "command-model",
+						"gateway_route":               "command-primary",
+						"provider_adapter_id":         "llama.cpp",
+						"provider_adapter_profile_id": "command-model-profile",
 					},
 				},
 			},
@@ -210,8 +208,50 @@ func TestResolveProviderConfigFromGenesisSelectsCommandProviderRoute(t *testing.
 	if resolved.Command.Model != "command-model" {
 		t.Fatalf("model = %q, want command-model", resolved.Command.Model)
 	}
+	if resolved.Command.Adapter.AdapterID != "llama.cpp" || resolved.Command.Adapter.ProfileID != "command-model-profile" || resolved.Command.Adapter.TransportProtocol != "provider_command" {
+		t.Fatalf("adapter binding = %+v, want llama.cpp command profile binding", resolved.Command.Adapter)
+	}
 	if resolved.Command.RequestTimeout != 12*time.Second {
 		t.Fatalf("timeout = %s, want 12s", resolved.Command.RequestTimeout)
+	}
+}
+
+func TestResolveProviderConfigFromGenesisAllowsExplicitUnboundedCommandRoute(t *testing.T) {
+	root := writeModelsConfig(t, map[string]any{
+		"model_gateway": map[string]any{
+			"protocol": "provider_command",
+			"routes": map[string]any{
+				"local-command": map[string]any{
+					"protocol":                "provider_command",
+					"command":                 os.Args[0],
+					"request_timeout_sec":     0,
+					"allow_unbounded_request": true,
+				},
+			},
+		},
+		"active_model_profile_bindings": map[string]any{DefaultModelRole: "local-command-profile"},
+		"model_profiles": map[string]any{
+			"local": map[string]any{
+				"gateway": map[string]any{
+					"local-command-profile": map[string]any{
+						"profile_id":    "local-command-profile",
+						"model_id":      "command-model",
+						"gateway_route": "local-command",
+					},
+				},
+			},
+		},
+	})
+
+	resolved, err := ResolveProviderConfigFromGenesis(GenesisModelConfigRequest{ConfigRoot: root})
+	if err != nil {
+		t.Fatalf("ResolveProviderConfigFromGenesis returned error: %v", err)
+	}
+	if !resolved.Command.AllowUnboundedRequest {
+		t.Fatalf("AllowUnboundedRequest = false, want true")
+	}
+	if resolved.Command.RequestTimeout != 0 {
+		t.Fatalf("RequestTimeout = %s, want no command deadline", resolved.Command.RequestTimeout)
 	}
 }
 
@@ -338,11 +378,10 @@ func TestResolveParentWorkerRuntimeFromGenesisProjectsRoleBindings(t *testing.T)
 			"local": map[string]any{
 				"gateway": map[string]any{
 					"local-worker-profile": map[string]any{
-						"profile_id":              "local-worker-profile",
-						"model_id":                "qwen-agentworld",
-						"gateway_route":           "local-qwen",
-						"context_window_tokens":   262144,
-						"hidden_reasoning_policy": "discard",
+						"profile_id":            "local-worker-profile",
+						"model_id":              "qwen-agentworld",
+						"gateway_route":         "local-qwen",
+						"context_window_tokens": 262144,
 					},
 				},
 			},

@@ -6,11 +6,16 @@ defineProps<{
   sessionId: string
   error: string
   inspectorOpen: boolean
+  localModel: string
+  localModelRunning: boolean
+  providerSummary: string
 }>()
 
 defineEmits<{
   checkReady: []
   toggleInspector: []
+  toggleLocalModel: []
+  toggleProvider: []
 }>()
 </script>
 
@@ -20,10 +25,14 @@ defineEmits<{
       <strong>Genesis</strong>
       <span>{{ readinessLabel(readiness) }}</span>
       <span>{{ sessionLabel(sessionId) }}</span>
+      <span class="local-model-status">{{ localModel }}</span>
+      <span class="provider-status">{{ providerSummary }}</span>
       <p v-if="error" class="error">{{ connectionErrorLabel(error) }}</p>
     </div>
     <div class="topbar-actions">
       <button type="button" @click="$emit('checkReady')">检查连接</button>
+      <button type="button" class="secondary-button" @click="$emit('toggleLocalModel')">{{ localModelRunning ? '停止本地模型' : '启动本地模型' }}</button>
+      <button type="button" class="secondary-button" @click="$emit('toggleProvider')">模型</button>
       <button type="button" @click="$emit('toggleInspector')">{{ inspectorOpen ? '收起设置' : '设置' }}</button>
     </div>
   </header>

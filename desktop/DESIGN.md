@@ -41,8 +41,8 @@
 
 ## Components
 - Existing components to reuse: `kernelApi.ts` as the HTTP choke point, view helpers for confirmation/material/diagnostic/context/detail projection
-- New/changed components: `KernelTopBar`, `SessionRail`, `ConversationPane`, `InspectorDrawer`
-- Variants and states: connected/disconnected, empty conversation, pending confirmations, diagnostic export available, context cleanup result
+- New/changed components: `KernelTopBar`, `ProviderPanel`, `SessionRail`, `ConversationPane`, `InspectorDrawer`
+- Variants and states: connected/disconnected, configured-profile selection, credential-present status, verification result, owned/external activation result, empty conversation, pending confirmations, diagnostic export available, context cleanup result
 - Token/component ownership: frontend-local CSS only; no design-system dependency
 
 ## Accessibility

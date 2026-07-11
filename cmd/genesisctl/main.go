@@ -265,7 +265,6 @@ func runProviderUse(args []string, stdin io.Reader, stdout io.Writer) error {
 		GatewayRoute:        preset.GatewayRoute,
 		ProviderAdapterID:   preset.AdapterID,
 		AdapterProfileID:    preset.AdapterProfileID,
-		HiddenReasoningMode: preset.HiddenReasoningMode,
 		BaseURL:             preset.BaseURL,
 		ModelID:             preset.ModelID,
 		ContextWindowTokens: preset.ContextWindowTokens,
@@ -305,13 +304,12 @@ func runProviderRotateKey(args []string, stdin io.Reader, stdout io.Writer) erro
 			return fmt.Errorf("unknown provider preset for profile metadata repair %q", *repairProfileMetadata)
 		}
 		repair = &kernel.OpenAICompatibleProviderProfileMetadataRepair{
-			ProfileID:             preset.ProfileID,
-			ModelID:               preset.ModelID,
-			GatewayRoute:          preset.GatewayRoute,
-			ProviderAdapterID:     preset.AdapterID,
-			AdapterProfileID:      preset.AdapterProfileID,
-			HiddenReasoningPolicy: preset.HiddenReasoningMode,
-			ContextWindowTokens:   preset.ContextWindowTokens,
+			ProfileID:           preset.ProfileID,
+			ModelID:             preset.ModelID,
+			GatewayRoute:        preset.GatewayRoute,
+			ProviderAdapterID:   preset.AdapterID,
+			AdapterProfileID:    preset.AdapterProfileID,
+			ContextWindowTokens: preset.ContextWindowTokens,
 		}
 	}
 	apiKey, err := readAPIKey(*apiKeyEnv, *apiKeyStdin, *dryRun, stdin)
@@ -341,12 +339,12 @@ func runProviderVerify(args []string, stdout io.Writer) error {
 	credentialStoreRoot := fs.String("credential-store-root", os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"), "Genesis credential store root")
 	modelRole := fs.String("model-role", envOrDefault("GENESIS_MODEL_ROLE", kernel.DefaultModelRole), "Genesis model role binding to verify")
 	profileID := fs.String("profile-id", os.Getenv("GENESIS_MODEL_PROFILE_ID"), "Genesis model profile id override")
-	timeoutSec := fs.Float64("timeout-sec", 10, "provider verification timeout seconds")
+	timeoutSec := fs.Float64("timeout-sec", 10, "provider verification timeout seconds; zero uses an explicitly configured unbounded local provider command")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *timeoutSec <= 0 {
-		return errors.New("timeout-sec must be greater than zero")
+	if *timeoutSec < 0 {
+		return errors.New("timeout-sec must not be negative")
 	}
 	result := kernel.VerifyProviderLive(kernel.ProviderLiveVerifyRequest{
 		ConfigRoot:          *configRoot,
