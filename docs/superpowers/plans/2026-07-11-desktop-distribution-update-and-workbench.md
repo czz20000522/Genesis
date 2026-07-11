@@ -2,57 +2,49 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `test-driven-development` before each behavior change. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a safe Windows desktop installer that starts its bundled kernel, preserves user directories on uninstall, and exposes explicit release updates in the approved workbench shell.
+**Goal:** Ship a safe Windows desktop installer whose one visible executable starts its internal kernel child, preserves user directories on uninstall, and exposes explicit release updates in the approved workbench shell.
 
-**Architecture:** `genesisd.exe` is built beside the Wails executable and installed as a known application file. A custom NSIS project owns install-location persistence and safe known-file deletion. The Go desktop bridge owns private-release HTTP, protected-token lookup, checksum validation, and installer launch; Vue only projects the resulting state through `kernelApi.ts`.
+**Architecture:** `cmd/genesisd` and the Wails child mode share an internal server bootstrap package. The desktop starts its own executable with `--genesisd-sidecar`, keeping the HTTP boundary while exposing only one application executable. A custom NSIS project owns install-location persistence and safe known-file deletion. The Go desktop bridge owns private-release HTTP, protected-token lookup, checksum validation, and installer launch; Vue only projects the resulting state through `kernelApi.ts`.
 
 **Tech Stack:** Go standard library, existing `localconfig` DPAPI secret storage, Wails v2, NSIS, Vue 3, TypeScript, scoped plain CSS.
 
 ---
 
-### Task 1: Package and resolve the bundled kernel
+### Task 1: Run the kernel as a hidden same-executable child
 
 **Files:**
+- Create: `internal/genesisdserver/server.go`
+- Modify: `cmd/genesisd/main.go`
+- Modify: `desktop/main.go`
 - Modify: `desktop/local_service_supervisor.go`
 - Modify: `desktop/app_test.go`
-- Create: `scripts/build_desktop_release.ps1`
-- Modify: `desktop/build/windows/installer/project.nsi`
 
-- [ ] **Step 1: Write the failing sibling-sidecar resolution test**
+- [ ] **Step 1: Write the failing same-executable child resolution test**
 
 ```go
-func TestGenesisdCommandUsesSiblingExecutable(t *testing.T) {
-    // Override the executable-path seam to a temporary desktop executable.
-    // Create its sibling genesisd.exe and assert genesisdCommand returns it.
+func TestGenesisdCommandUsesDesktopChildMode(t *testing.T) {
+    // Override the executable-path seam and assert the command is the desktop
+    // executable with --genesisd-sidecar, never a sibling genesisd.exe.
 }
 ```
 
 - [ ] **Step 2: Run the focused test and confirm it fails because the sibling is not considered.**
 
-Run: `cd desktop; go test . -run TestGenesisdCommandUsesSiblingExecutable -count=1`
+Run: `cd desktop; go test . -run TestGenesisdCommandUsesDesktopChildMode -count=1`
 
-- [ ] **Step 3: Resolve the sibling before repository fallbacks and build it for release.**
+- [ ] **Step 3: Move the server bootstrap behind an internal package and invoke the desktop child mode.**
 
 ```go
 if executable, err := desktopExecutablePath(); err == nil {
-    if candidate := filepath.Join(filepath.Dir(executable), "genesisd.exe"); fileExists(candidate) {
-        return candidate, nil, filepath.Dir(executable), nil
-    }
+    return executable, []string{"--genesisd-sidecar"}, filepath.Dir(executable), nil
 }
 ```
 
 ```powershell
-go build -o "$PSScriptRoot\..\desktop\build\bin\genesisd.exe" "$PSScriptRoot\..\cmd\genesisd"
-& $Wails build -nsis
+if slices.Contains(os.Args[1:], "--genesisd-sidecar") { genesisdserver.Run(); return }
 ```
 
-- [ ] **Step 4: Install the sidecar as an explicit known file.**
-
-```nsis
-File "/oname=genesisd.exe" "..\..\bin\genesisd.exe"
-```
-
-- [ ] **Step 5: Run focused desktop tests, the release script, and inspect the installer contents.**
+- [ ] **Step 4: Run focused desktop tests and inspect the installer to confirm no kernel executable is present.**
 
 Run: `cd desktop; go test . -count=1`
 
@@ -76,14 +68,13 @@ InstallDirRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNI
 WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
 
 Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
-Delete "$INSTDIR\genesisd.exe"
 Delete "$INSTDIR\uninstall.exe"
 RMDir "$INSTDIR"
 ```
 
 - [ ] **Step 4: Build NSIS and inspect the generated installer script for the exact safe statements.**
 
-Run: `powershell -ExecutionPolicy Bypass -File scripts/build_desktop_release.ps1`
+Run: `cd desktop; wails build -nsis`
 
 ### Task 3: Add explicit private-release update checking
 

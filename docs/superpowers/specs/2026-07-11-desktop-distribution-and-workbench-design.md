@@ -4,6 +4,8 @@
 
 Make the Windows desktop application self-contained, safely installable, manually updateable, and easier to operate as a local workbench. The application remains a shell over `genesisd`; it does not take ownership of kernel facts or provider context.
 
+Current implementation note: release `0.1.6` temporarily installs a separate `genesisd.exe` to close the packaged-service gap. It does not satisfy this approved distribution contract and must not be the basis of the next release.
+
 ## Visual thesis
 
 Genesis is a quiet local workbench: narrow navigation, warm-white canvas, graphite text, and teal reserved for the active action and healthy state. The working surface is the conversation and composer, not a welcome card. Plain scoped CSS remains the only styling strategy.
@@ -13,9 +15,9 @@ The radius scale is 4px for small controls, 8px for inputs and buttons, and 12px
 ## Distribution contract
 
 - The NSIS installer records `InstallLocation` in its own uninstall registry key and uses it as the next install default. The user can still select a different directory.
-- The release installer contains both `genesis-desktop.exe` and `genesisd.exe` in the selected directory. The desktop first resolves the sibling `genesisd.exe`; repository and development fallbacks remain development-only paths.
+- The selected installation directory exposes only `genesis-desktop.exe` and its uninstaller. The desktop starts the same executable with an internal `--genesisd-sidecar` argument; the child is hidden and remains lifecycle-owned by its parent.
 - Uninstall deletes only the two installed executables, its shortcuts, and its own uninstall registry key. It never recursively removes `$INSTDIR`, WebView data, `~/.genesis`, or user-created files.
-- A release build explicitly compiles `cmd/genesisd` before Wails packages the desktop executable and NSIS installer.
+- The `genesisd` command and desktop child mode share one internal server bootstrap package so provider, ledger, and kernel behavior do not drift.
 
 ## Update contract
 
@@ -33,6 +35,6 @@ The radius scale is 4px for small controls, 8px for inputs and buttons, and 12px
 ## Acceptance
 
 1. Reinstalling defaults to the prior selected directory, and a custom directory is not recursively removed by uninstall.
-2. A packaged desktop starts its sibling `genesisd` and reports ready when its local configuration is valid.
+2. A packaged desktop starts its hidden same-executable kernel child and reports ready when its local configuration is valid.
 3. Settings can check a private latest release with a configured token, reject a checksum mismatch, and launch only a verified installer after user confirmation.
 4. The first viewport puts navigation, connection/model state, and a usable composer in a compact workbench layout without a centered decorative welcome card.
