@@ -160,6 +160,30 @@ func TestNSISInstallerRemembersPathAndDoesNotRecursivelyDeleteIt(t *testing.T) {
 	}
 }
 
+func TestDesktopUpdateLauncherHidesTheHelperProcess(t *testing.T) {
+	payload, err := os.ReadFile("update_launch_windows.go")
+	if err != nil {
+		t.Fatalf("read Windows update launcher: %v", err)
+	}
+	text := string(payload)
+	if !strings.Contains(text, "HideWindow: true") {
+		t.Fatal("update installer launcher must hide its helper process")
+	}
+}
+
+func TestDesktopReleaseBuildWritesInstallerChecksum(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("..", "scripts", "build_desktop_release.ps1"))
+	if err != nil {
+		t.Fatalf("read desktop release script: %v", err)
+	}
+	text := string(payload)
+	for _, required := range []string{"Get-FileHash", "genesis-desktop-amd64-installer.exe.sha256", "Set-Content"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("desktop release script missing %q", required)
+		}
+	}
+}
+
 func TestLocalServiceSupervisorProjectsExternalKernelWithoutOwnership(t *testing.T) {
 	t.Setenv("GENESIS_KERNEL_BASE_URL", "http://127.0.0.1:9999")
 	t.Setenv("GENESIS_RUNTIME_TOKEN", "token")

@@ -30,6 +30,11 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Wails NSIS build failed with exit code $LASTEXITCODE"
     }
+
+    $installerPath = Join-Path $binRoot "genesis-desktop-amd64-installer.exe"
+    $checksumPath = Join-Path $binRoot "genesis-desktop-amd64-installer.exe.sha256"
+    $checksum = (Get-FileHash -Path $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -Path $checksumPath -Value "$checksum *genesis-desktop-amd64-installer.exe" -NoNewline -Encoding ascii
 } finally {
     Pop-Location
 }

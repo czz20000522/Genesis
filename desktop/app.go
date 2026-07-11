@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -172,8 +171,7 @@ func (a *App) InstallUpdate(update DesktopUpdateProjection) error {
 	if err != nil {
 		return err
 	}
-	command := exec.Command("cmd.exe", "/C", "timeout /T 2 /NOBREAK > NUL & start \"\" \""+installer+"\"")
-	if err := command.Start(); err != nil {
+	if err := launchDesktopInstaller(installer); err != nil {
 		return err
 	}
 	if a.ctx != nil {

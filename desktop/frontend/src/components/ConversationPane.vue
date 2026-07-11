@@ -55,9 +55,9 @@ function useStarter(text: string) {
   <section class="conversation">
     <div class="transcript" aria-live="polite">
       <article v-if="!rows.length" class="empty-chat">
-        <div class="empty-mark">G</div>
-        <h2>Genesis</h2>
-        <p>从一个问题、一个任务或一个代码包开始。</p>
+        <p class="empty-chat-kicker">新的会话</p>
+        <h2>从一个问题开始。</h2>
+        <p>也可以交给 Genesis 一个任务、一个项目目录或一份文件。</p>
         <div class="prompt-row">
           <button type="button" @click="useStarter('帮我梳理今天最重要的下一步。')">梳理下一步</button>
           <button type="button" @click="useStarter('我会上传一个代码包，请先查看顶层结构。')">查看代码包</button>
