@@ -96,7 +96,7 @@ func NewApp() *App {
 }
 
 func bundledLocalProviderAdapterPath() string {
-	executable, err := os.Executable()
+	executable, err := desktopExecutablePath()
 	if err != nil {
 		return ""
 	}

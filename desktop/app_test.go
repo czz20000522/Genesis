@@ -278,6 +278,37 @@ func TestDesktopReleaseCopiesLocalProviderAdapter(t *testing.T) {
 	}
 }
 
+func TestNewAppRepairsOnlyExistingLocalProviderAdapterPath(t *testing.T) {
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "genesis-desktop.exe")
+	adapter := filepath.Join(dir, "kernel", "scripts", "providers", "llama_cpp_provider_command.py")
+	if err := os.MkdirAll(filepath.Dir(adapter), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(adapter, []byte("adapter"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	configRoot := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, "models.json"), []byte(`{"model_gateway":{"routes":{"local":{"protocol":"provider_command","command":"python.exe","args":["C:\\old\\llama_cpp_provider_command.py","--base-url","http://127.0.0.1:8081/v1"]}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GENESIS_CONFIG_ROOT", configRoot)
+	previous := desktopExecutablePath
+	desktopExecutablePath = func() (string, error) { return executable, nil }
+	defer func() { desktopExecutablePath = previous }()
+	_ = NewApp()
+	payload, err := os.ReadFile(filepath.Join(configRoot, "models.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), strings.ReplaceAll(adapter, `\`, `\\`)) {
+		t.Fatalf("config did not use packaged adapter: %s", payload)
+	}
+}
+
 func TestDesktopUpdateLauncherHidesTheHelperProcess(t *testing.T) {
 	payload, err := os.ReadFile("update_launch_windows.go")
 	if err != nil {
