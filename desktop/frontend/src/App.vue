@@ -242,7 +242,8 @@ async function checkReady() {
   saveKernelConfig(config.value)
   try {
     const payload = await getReady(config.value)
-    readiness.value = String(payload.readiness ?? payload.status ?? 'unknown')
+    const providerReadiness = String(payload.readiness ?? payload.status ?? '').trim().toLowerCase()
+    readiness.value = providerReadiness === 'ready' ? 'ready' : 'connected'
     await loadSessions()
   } catch (err) {
     readiness.value = 'not_ready'

@@ -1,6 +1,7 @@
 export function readinessLabel(readiness: string) {
   const value = String(readiness || '').trim().toLowerCase()
   if (value === 'ready' || value === 'serving-ready' || value === 'ok') return '已连接'
+  if (value === 'connected') return 'Genesis 已连接，等待模型配置'
   if (value === 'not_ready' || value === 'failed' || value === 'error') return '连接失败'
   if (value === 'checking') return '检查中'
   return '未连接'

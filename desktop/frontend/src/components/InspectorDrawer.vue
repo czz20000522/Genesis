@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { AgentInvocationChildConversation, AgentInvocationProjection, CloseBehavior, DesktopUpdate, KernelTimelineDetail, TaskGraphProjection } from '../api/kernelApi'
-import { operationErrorLabel } from '../display'
+import { operationErrorLabel, readinessLabel } from '../display'
 
 const props = defineProps<{
   baseUrl: string
@@ -74,7 +74,7 @@ function taskSummary(graph: TaskGraphProjection) {
     <div class="inspector-head">
       <div>
         <p class="eyebrow">设置与诊断</p>
-        <strong>{{ readiness }}</strong>
+        <strong>{{ readinessLabel(readiness) }}</strong>
       </div>
       <el-button plain @click="$emit('close')">关闭</el-button>
     </div>
