@@ -58,6 +58,24 @@ func TestCreateTaskWorkspaceRejectsSessionPathTraversal(t *testing.T) {
 	}
 }
 
+func TestCreateProjectWorkspaceUsesNamedGenesisDirectory(t *testing.T) {
+	root := filepath.Join(desktopTestTempDir(t), "Genesis")
+	workspace, err := createProjectWorkspace(root, "alpha")
+	if err != nil {
+		t.Fatalf("create project workspace: %v", err)
+	}
+	want, err := filepath.Abs(filepath.Join(root, "alpha"))
+	if err != nil {
+		t.Fatalf("absolute project root: %v", err)
+	}
+	if workspace != want {
+		t.Fatalf("project workspace = %q, want %q", workspace, want)
+	}
+	if _, err := createProjectWorkspace(root, "../outside"); err == nil {
+		t.Fatal("create project workspace accepted path traversal name")
+	}
+}
+
 func TestDesktopCloseBehaviorDefaultsToExitAndPersistsTraySelection(t *testing.T) {
 	dir := desktopTestTempDir(t)
 	previous := desktopUserConfigDir

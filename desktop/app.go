@@ -243,6 +243,10 @@ type TaskWorkspaceSelection struct {
 	Root string `json:"root"`
 }
 
+type ProjectWorkspaceSelection struct {
+	Root string `json:"root"`
+}
+
 func (a *App) Ready() (map[string]any, error) {
 	ctx, cancel := a.requestContext()
 	defer cancel()
@@ -384,6 +388,18 @@ func (a *App) CreateTaskWorkspace(sessionID string) (*TaskWorkspaceSelection, er
 	return &TaskWorkspaceSelection{Root: root}, nil
 }
 
+func (a *App) CreateProjectWorkspace(name string) (*ProjectWorkspaceSelection, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	root, err := createProjectWorkspace(filepath.Join(home, "Documents", "Genesis"), name)
+	if err != nil {
+		return nil, err
+	}
+	return &ProjectWorkspaceSelection{Root: root}, nil
+}
+
 func (a *App) BindSessionWorkspace(sessionID string, kind string, root string) (map[string]any, error) {
 	ctx, cancel := a.requestContext()
 	defer cancel()
@@ -408,6 +424,23 @@ func createTaskWorkspace(root string, sessionID string) (string, error) {
 		return "", err
 	}
 	workspace := filepath.Join(root, sessionID)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		return "", err
+	}
+	return workspace, nil
+}
+
+func createProjectWorkspace(root string, name string) (string, error) {
+	root = strings.TrimSpace(root)
+	name = strings.TrimSpace(name)
+	if root == "" || name == "" || name == "." || name == ".." || strings.ContainsAny(name, `\\/`) {
+		return "", errors.New("project name is invalid")
+	}
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	workspace := filepath.Join(absoluteRoot, name)
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		return "", err
 	}

@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import type { ApprovalDecision, ApprovalProjection, TurnResponse } from '../api/kernelApi'
 import { approvalSummary } from '../approvalView'
-import { readinessLabel, sessionLabel } from '../display'
 import type { TimelineRow } from '../timelineView'
 import AssistantMessage from './AssistantMessage.vue'
 
@@ -13,6 +12,7 @@ const props = defineProps<{
   rows: TimelineRow[]
   detailEntries: Array<{ detailRef: string; label: string }>
   selectedFileName: string
+  error: string
   readiness: string
   approvals: ApprovalProjection[]
   retryText: string
@@ -91,6 +91,11 @@ function useStarter(text: string) {
     </div>
 
     <div class="composer-wrap">
+      <div v-if="error" class="send-failure" role="alert">
+        <strong>未能完成操作</strong>
+        <p>{{ error }}</p>
+        <button v-if="retryText" type="button" class="secondary-button" @click="$emit('retry')">重试</button>
+      </div>
       <div v-for="entry in approvalRows" :key="entry.approval.approval_id" class="approval-prompt" role="status" aria-live="polite">
         <div class="approval-copy">
           <p class="eyebrow">当前会话需要确认</p>
@@ -104,7 +109,6 @@ function useStarter(text: string) {
         </div>
       </div>
       <p v-if="turnStatus" class="turn-status">{{ turnStatus }}</p>
-      <button v-if="retryText" type="button" class="secondary-button" @click="$emit('retry')">重试上一条失败请求</button>
       <div class="composer-card">
         <textarea
           :value="messageText"
@@ -124,10 +128,7 @@ function useStarter(text: string) {
         </div>
       </div>
       <div class="composer-meta">
-        <span>{{ readinessLabel(readiness) }}</span>
-        <span>{{ sessionLabel(sessionId) }}</span>
         <span v-if="selectedFileName">已选择：{{ selectedFileName }}，发送时一并上传</span>
-        <span v-if="detailEntries.length">{{ detailEntries.length }} 个详情入口</span>
       </div>
     </div>
   </section>

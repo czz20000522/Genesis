@@ -178,6 +178,10 @@ export type TaskWorkspaceSelection = {
   root: string
 }
 
+export type ProjectWorkspaceSelection = {
+  root: string
+}
+
 export type ApprovalDecision = 'approved' | 'denied'
 
 export type SessionDebugExport = Record<string, unknown>
@@ -415,6 +419,14 @@ export async function createTaskWorkspace(sessionId: string): Promise<TaskWorksp
   return bridge.CreateTaskWorkspace(session)
 }
 
+export async function createProjectWorkspace(name: string): Promise<ProjectWorkspaceSelection> {
+  const normalized = String(name || '').trim()
+  if (!normalized) throw new Error('项目名称不能为空')
+  const bridge = wailsAppBridge()
+  if (!bridge?.CreateProjectWorkspace) throw new Error('项目工作区创建仅在 Genesis 桌面客户端中可用')
+  return bridge.CreateProjectWorkspace(normalized)
+}
+
 export async function getTimelineDetail(config: KernelConfig, sessionId: string, detailRef: string) {
   const session = requiredSessionId(sessionId)
   const bridge = wailsAppBridge()
@@ -631,6 +643,7 @@ type WailsAppBridge = {
   BindSessionWorkspace?: (sessionId: string, kind: SessionWorkspaceKind, root: string) => Promise<unknown>
   PickProjectDirectory?: () => Promise<ProjectDirectorySelection | null>
   CreateTaskWorkspace?: (sessionId: string) => Promise<TaskWorkspaceSelection>
+  CreateProjectWorkspace?: (name: string) => Promise<ProjectWorkspaceSelection>
   DecideApproval?: (approvalId: string, decision: ApprovalDecision, reason: string) => Promise<unknown>
   PickMaterialFile?: () => Promise<MaterialFileSelection | null>
   UploadMaterial?: (request: MaterialBridgeRequest) => Promise<unknown>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { applyProviderRole, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
+import { applyProviderRole, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -10,7 +10,7 @@ import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
 import { isBlankSessionDraft } from './sessionDraft'
-import { loadSessionCatalog, recordSessionCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
+import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
 import { timelineDetailEntries } from './timelineDetail'
 import { timelineRows, type TimelineRow } from './timelineView'
 
@@ -22,6 +22,7 @@ const sessions = ref<SessionListItem[]>([])
 const sessionSearchQuery = ref('')
 const sessionSearchResults = ref<SessionListItem[]>([])
 const sessionCatalog = ref<DesktopSessionCatalogEntry[]>(loadSessionCatalog())
+const projectCatalog = ref<DesktopProjectCatalogEntry[]>(loadProjectCatalog())
 const messageText = ref('')
 const lastTurn = ref<TurnResponse | null>(null)
 const pendingApprovals = ref<ApprovalProjection[]>([])
@@ -122,14 +123,37 @@ function currentSession() {
   return session
 }
 
-async function createProjectSession(existingRoot = '') {
+async function createProjectSession(project: DesktopProjectCatalogEntry) {
   error.value = ''
   try {
-    const project = existingRoot
-      ? { root: existingRoot, name: existingRoot.split(/[\\/]/).filter(Boolean).at(-1) || '项目' }
-      : await pickProjectDirectory()
-    if (!project) return
-    await bindAndActivateSession('project', project.root, project.name)
+    await bindAndActivateSession({ kind: 'project', projectId: project.projectId, root: project.root })
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function createEmptyProject(name: string) {
+  error.value = ''
+  try {
+    const workspace = await createProjectWorkspace(name)
+    const project = { projectId: newDesktopProjectId(), name: name.trim(), root: workspace.root }
+    recordProjectCatalogEntry(project)
+    projectCatalog.value = loadProjectCatalog()
+    await createProjectSession(project)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function useExistingProjectFolder() {
+  error.value = ''
+  try {
+    const picked = await pickProjectDirectory()
+    if (!picked) return
+    const project = { projectId: newDesktopProjectId(), name: picked.name, root: picked.root }
+    recordProjectCatalogEntry(project)
+    projectCatalog.value = loadProjectCatalog()
+    await createProjectSession(project)
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -140,7 +164,7 @@ async function createTaskSession() {
   const next = newDesktopSessionId()
   try {
     const workspace = await createTaskWorkspace(next)
-    await bindAndActivateSession('task', workspace.root, '', next)
+    await bindAndActivateSession({ kind: 'task', root: workspace.root }, next)
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
@@ -149,16 +173,16 @@ async function createTaskSession() {
 async function createChatSession() {
   error.value = ''
   try {
-    await bindAndActivateSession('chat', '')
+    await bindAndActivateSession({ kind: 'chat' })
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
 }
 
-async function bindAndActivateSession(kind: DesktopSessionCatalogEntry['kind'], root: string, name = '', nextSessionId = newDesktopSessionId()) {
-  await bindSessionWorkspace(config.value, nextSessionId, kind === 'chat' ? 'none' : kind, root)
+async function bindAndActivateSession(entry: Omit<DesktopSessionCatalogEntry, 'sessionId'>, nextSessionId = newDesktopSessionId()) {
+  await bindSessionWorkspace(config.value, nextSessionId, entry.kind === 'chat' ? 'none' : entry.kind, entry.root ?? '')
   sessionId.value = nextSessionId
-  recordSessionCatalogEntry({ sessionId: nextSessionId, kind, root, name })
+  recordSessionCatalogEntry({ ...entry, sessionId: nextSessionId })
   sessionCatalog.value = loadSessionCatalog()
   resetSessionViewState()
   await loadSessions()
@@ -432,6 +456,8 @@ async function sendMessage() {
       await loadSessions()
     } else {
       error.value = message
+      liveUserText.value = ''
+      liveAssistantText.value = ''
     }
   } finally {
     liveStreaming.value = false
@@ -590,6 +616,12 @@ function newDesktopSessionId() {
   return `desktop-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function newDesktopProjectId() {
+  const randomUUID = globalThis.crypto?.randomUUID?.()
+  if (randomUUID) return `project-${randomUUID}`
+  return `project-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 function newDesktopIdempotencyKey() {
   const randomUUID = globalThis.crypto?.randomUUID?.()
   if (randomUUID) return `desktop-turn-${randomUUID}`
@@ -618,10 +650,12 @@ async function initializeDesktop() {
     <SessionRail
       :session-id="sessionId"
       :sessions="sessions"
+      :projects="projectCatalog"
       :catalog="sessionCatalog"
       :search-query="sessionSearchQuery"
       :search-results="sessionSearchResults"
-      @new-project="createProjectSession"
+      @create-empty-project="createEmptyProject"
+      @use-existing-project-folder="useExistingProjectFolder"
       @new-project-session="createProjectSession"
       @new-task="createTaskSession"
       @new-chat="createChatSession"
@@ -671,6 +705,7 @@ async function initializeDesktop() {
         :rows="displayedRows"
         :detail-entries="detailEntries"
         :selected-file-name="selectedFileName"
+        :error="error"
         :readiness="readiness"
         :approvals="pendingApprovals"
         :retry-text="retryText"

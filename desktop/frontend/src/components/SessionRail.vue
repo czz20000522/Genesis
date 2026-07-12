@@ -1,29 +1,20 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { SessionListItem } from '../api/kernelApi'
-import type { DesktopSessionCatalogEntry } from '../sessionCatalog'
+import type { DesktopProjectCatalogEntry, DesktopSessionCatalogEntry } from '../sessionCatalog'
 import { sessionLabel, sessionStatus } from '../display'
 
 const props = defineProps<{
   sessionId: string
   sessions: SessionListItem[]
+  projects: DesktopProjectCatalogEntry[]
   catalog: DesktopSessionCatalogEntry[]
   searchQuery: string
   searchResults: SessionListItem[]
 }>()
 
-defineEmits<{
-  newProject: []
-  newProjectSession: [root: string]
-  newTask: []
-  newChat: []
-  selectSession: [sessionId: string]
-  'update:searchQuery': [value: string]
-}>()
-
 type ProjectGroup = {
-  root: string
-  name: string
+  project: DesktopProjectCatalogEntry
   sessions: SessionListItem[]
 }
 
@@ -37,23 +28,38 @@ function subtitleFor(session: SessionListItem, currentSessionId: string) {
   return updated ? `${status} · ${updated.slice(0, 16).replace('T', ' ')}` : status
 }
 
+const projectMenuOpen = ref(false)
+const projectName = ref('')
+const searchOpen = ref(false)
 const catalogBySession = computed(() => new Map(props.catalog.map((entry) => [entry.sessionId, entry])))
 const projectGroups = computed<ProjectGroup[]>(() => {
-  const groups = new Map<string, ProjectGroup>()
-  for (const session of props.sessions) {
-    const entry = catalogBySession.value.get(String(session.session_id || ''))
-    if (!entry || entry.kind !== 'project' || !entry.root) continue
-    const root = entry.root
-    const group = groups.get(root) ?? { root, name: entry.name || root.split(/[\\/]/).filter(Boolean).at(-1) || '项目', sessions: [] }
-    group.sessions.push(session)
-    groups.set(root, group)
-  }
-  return [...groups.values()]
+  return props.projects.map((project) => ({
+    project,
+    sessions: props.sessions.filter((session) => catalogBySession.value.get(String(session.session_id || ''))?.projectId === project.projectId),
+  }))
 })
 const taskSessions = computed(() => props.sessions.filter((session) => catalogBySession.value.get(String(session.session_id || ''))?.kind === 'task'))
 const chatSessions = computed(() => props.sessions.filter((session) => catalogBySession.value.get(String(session.session_id || ''))?.kind === 'chat'))
 const otherSessions = computed(() => props.sessions.filter((session) => !catalogBySession.value.has(String(session.session_id || ''))))
 const hasCurrentSessionItem = computed(() => props.sessions.some((session) => session.session_id === props.sessionId))
+
+function createEmptyProject() {
+  const name = projectName.value.trim()
+  if (!name) return
+  projectName.value = ''
+  projectMenuOpen.value = false
+  emit('createEmptyProject', name)
+}
+
+const emit = defineEmits<{
+  createEmptyProject: [name: string]
+  useExistingProjectFolder: []
+  newProjectSession: [project: DesktopProjectCatalogEntry]
+  newTask: []
+  newChat: []
+  selectSession: [sessionId: string]
+  'update:searchQuery': [value: string]
+}>()
 </script>
 
 <template>
@@ -69,11 +75,22 @@ const hasCurrentSessionItem = computed(() => props.sessions.some((session) => se
     <nav class="rail-primary" aria-label="工作台入口">
       <button type="button" class="rail-primary-action" @click="$emit('newTask')"><span aria-hidden="true">✎</span> 新建任务</button>
       <button type="button" class="rail-primary-action" @click="$emit('newChat')"><span aria-hidden="true">◌</span> 聊天</button>
-      <button type="button" class="rail-primary-action" @click="$emit('newProject')"><span aria-hidden="true">⌂</span> 打开项目</button>
+      <button type="button" class="rail-primary-action" @click="searchOpen = !searchOpen"><span aria-hidden="true">⌕</span> 搜索</button>
     </nav>
 
-    <label class="session-search">
-      搜索会话
+    <div class="rail-section-heading rail-projects-heading">
+      <strong>项目</strong>
+      <button type="button" aria-label="新建项目" @click="projectMenuOpen = !projectMenuOpen">+</button>
+    </div>
+    <div v-if="projectMenuOpen" class="project-menu">
+      <form @submit.prevent="createEmptyProject">
+        <input v-model="projectName" placeholder="项目名称" aria-label="新项目名称" />
+        <button type="submit">新建空白项目</button>
+      </form>
+      <button type="button" class="project-menu-link" @click="projectMenuOpen = false; $emit('useExistingProjectFolder')">使用现有文件夹</button>
+    </div>
+
+    <label v-if="searchOpen" class="session-search">
       <input :value="searchQuery" placeholder="搜索会话…" @input="$emit('update:searchQuery', ($event.target as HTMLInputElement).value)" />
     </label>
 
@@ -87,10 +104,10 @@ const hasCurrentSessionItem = computed(() => props.sessions.some((session) => se
         <p v-if="!searchResults.length" class="session-search-empty">没有匹配的会话</p>
       </section>
       <template v-else>
-      <section v-for="group in projectGroups" :key="group.root" class="session-group">
+      <section v-for="group in projectGroups" :key="group.project.projectId" class="session-group">
         <div class="session-group-heading">
-          <strong :title="group.root">▱ {{ group.name }}</strong>
-          <button type="button" :aria-label="`在 ${group.name} 中创建会话`" @click="$emit('newProjectSession', group.root)">+</button>
+          <strong :title="group.project.root">▱ {{ group.project.name }}</strong>
+          <button type="button" :aria-label="`在 ${group.project.name} 中创建会话`" @click="$emit('newProjectSession', group.project)">+</button>
         </div>
         <button
           v-for="session in group.sessions"

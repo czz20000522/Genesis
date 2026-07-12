@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { applyProviderRole, bindSessionWorkspace, compactSessionContext, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
+import { applyProviderRole, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -10,7 +10,7 @@ import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { isBlankSessionDraft } from '../src/sessionDraft.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
 import { timelineRows } from '../src/timelineView.ts'
-import { loadSessionCatalog, recordSessionCatalogEntry } from '../src/sessionCatalog.ts'
+import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry } from '../src/sessionCatalog.ts'
 
 const values = new Map<string, string>()
 const storage = {
@@ -62,19 +62,36 @@ assert.equal((await applyProviderRole('coordinator', 'cloud-glm')).status, 'owne
 assert.equal((await verifyProvider('coordinator', 'cloud-glm')).model, 'glm-5-2')
 globalThis.go = undefined
 
+globalThis.go = {
+  main: {
+    App: {
+      CreateProjectWorkspace: async (name: string) => {
+        assert.equal(name, 'alpha')
+        return { root: 'C:\\Users\\Tomczz\\Documents\\Genesis\\alpha' }
+      },
+    },
+  },
+}
+assert.deepEqual(await createProjectWorkspace(' alpha '), { root: 'C:\\Users\\Tomczz\\Documents\\Genesis\\alpha' })
+globalThis.go = undefined
+
 saveKernelConfig({ baseUrl: 'http://127.0.0.1:8765/', runtimeToken: ' token ' }, storage)
 assert.deepEqual(kernelConfig(storage), {
   baseUrl: 'http://127.0.0.1:8765',
   runtimeToken: 'token',
 })
 
-recordSessionCatalogEntry({ sessionId: 'project-session', kind: 'project', root: 'D:\\repo-a', name: 'repo-a' }, storage)
+recordProjectCatalogEntry({ projectId: 'project-a', name: 'repo-a', root: 'D:\\repo-a' }, storage)
+recordSessionCatalogEntry({ sessionId: 'project-session', kind: 'project', projectId: 'project-a' }, storage)
 recordSessionCatalogEntry({ sessionId: 'task-session', kind: 'task', root: 'C:\\Users\\Tomczz\\Documents\\Genesis\\task-session' }, storage)
 recordSessionCatalogEntry({ sessionId: 'chat-session', kind: 'chat' }, storage)
+assert.deepEqual(loadProjectCatalog(storage), [
+  { projectId: 'project-a', name: 'repo-a', root: 'D:\\repo-a' },
+])
 assert.deepEqual(loadSessionCatalog(storage), [
-  { sessionId: 'project-session', kind: 'project', root: 'D:\\repo-a', name: 'repo-a' },
-  { sessionId: 'task-session', kind: 'task', root: 'C:\\Users\\Tomczz\\Documents\\Genesis\\task-session', name: '' },
-  { sessionId: 'chat-session', kind: 'chat', root: '', name: '' },
+  { sessionId: 'project-session', kind: 'project', projectId: 'project-a', root: '', name: '' },
+  { sessionId: 'task-session', kind: 'task', projectId: '', root: 'C:\\Users\\Tomczz\\Documents\\Genesis\\task-session', name: '' },
+  { sessionId: 'chat-session', kind: 'chat', projectId: '', root: '', name: '' },
 ])
 
 assert.equal(kernelUrl('http://127.0.0.1:8765/', '/ready'), 'http://127.0.0.1:8765/ready')

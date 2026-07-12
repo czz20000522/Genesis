@@ -1,10 +1,18 @@
 const sessionCatalogKey = 'genesis.desktop.session_catalog'
+const projectCatalogKey = 'genesis.desktop.project_catalog'
 
 export type DesktopSessionKind = 'project' | 'task' | 'chat'
+
+export type DesktopProjectCatalogEntry = {
+  projectId: string
+  name: string
+  root: string
+}
 
 export type DesktopSessionCatalogEntry = {
   sessionId: string
   kind: DesktopSessionKind
+  projectId?: string
   root?: string
   name?: string
 }
@@ -23,6 +31,27 @@ export function loadSessionCatalog(storage: Pick<Storage, 'getItem'> | null = sa
   }
 }
 
+export function loadProjectCatalog(storage: Pick<Storage, 'getItem'> | null = safeLocalStorage()): DesktopProjectCatalogEntry[] {
+  const raw = storage?.getItem(projectCatalogKey)
+  if (!raw) return []
+  try {
+    const entries = JSON.parse(raw)
+    if (!Array.isArray(entries)) return []
+    return entries.flatMap(normalizeProjectCatalogEntry)
+  } catch {
+    return []
+  }
+}
+
+export function recordProjectCatalogEntry(entry: DesktopProjectCatalogEntry, storage: CatalogStorage | null = safeLocalStorage()) {
+  if (!storage) return
+  const normalized = normalizeProjectCatalogEntry(entry)[0]
+  if (!normalized) return
+  const existing = loadProjectCatalog(storage)
+  const next = [...existing.filter((item) => item.projectId !== normalized.projectId), normalized]
+  storage.setItem(projectCatalogKey, JSON.stringify(next))
+}
+
 export function recordSessionCatalogEntry(entry: DesktopSessionCatalogEntry, storage: CatalogStorage | null = safeLocalStorage()) {
   if (!storage) return
   const normalized = normalizeCatalogEntry(entry)[0]
@@ -38,14 +67,27 @@ function normalizeCatalogEntry(value: unknown): DesktopSessionCatalogEntry[] {
   const sessionId = String(item.sessionId || '').trim()
   const kind = String(item.kind || '').trim()
   if (!sessionId || (kind !== 'project' && kind !== 'task' && kind !== 'chat')) return []
+  const projectId = String(item.projectId || '').trim()
   const root = kind === 'chat' ? '' : String(item.root || '').trim()
-  if (kind !== 'chat' && !root) return []
+  if (kind === 'task' && !root) return []
+  if (kind === 'project' && !projectId && !root) return []
   return [{
     sessionId,
     kind,
+    projectId,
     root,
     name: String(item.name || '').trim(),
   }]
+}
+
+function normalizeProjectCatalogEntry(value: unknown): DesktopProjectCatalogEntry[] {
+  if (!value || typeof value !== 'object') return []
+  const item = value as Partial<DesktopProjectCatalogEntry>
+  const projectId = String(item.projectId || '').trim()
+  const name = String(item.name || '').trim()
+  const root = String(item.root || '').trim()
+  if (!projectId || !name || !root) return []
+  return [{ projectId, name, root }]
 }
 
 function safeLocalStorage(): Storage | null {
