@@ -17,6 +17,7 @@ defineEmits<{
   close: []
   'update:selectedProfile': [value: string]
   'update:credential': [value: string]
+  setupDeepSeekFlash: []
   rotateCredential: []
   verify: []
   apply: []
@@ -34,7 +35,17 @@ defineEmits<{
       <el-button plain @click="$emit('close')">关闭</el-button>
     </div>
 
-    <el-empty v-if="!profiles.length" class="provider-empty" description="未发现已配置的模型" :image-size="64" />
+    <div v-if="!profiles.length" class="provider-controls provider-first-run">
+      <el-alert title="配置 DeepSeek Flash 后，先验证连接，再由你决定是否应用为默认协调模型。" type="info" :closable="false" show-icon />
+      <label>
+        DeepSeek API Key（保存到本机受保护存储）
+        <el-input :model-value="credential" type="password" show-password autocomplete="off" placeholder="sk-..." @update:model-value="$emit('update:credential', String($event))" />
+      </label>
+      <div class="button-row">
+        <el-button type="primary" :loading="busy" :disabled="busy || !credential.trim()" @click="$emit('setupDeepSeekFlash')">保存并验证</el-button>
+      </div>
+      <el-alert v-if="notice" class="provider-notice" :title="notice" type="info" :closable="false" show-icon />
+    </div>
     <div v-else class="provider-controls">
       <label>
         模型

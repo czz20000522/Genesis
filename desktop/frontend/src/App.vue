@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { applyProviderRole, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, loadDesktopCatalog, localModelStatus, pickMaterialDirectory as pickMaterialDirectoryFromDesktop, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveDesktopCatalog, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
+import { applyProviderRole, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, loadDesktopCatalog, localModelStatus, pickMaterialDirectory as pickMaterialDirectoryFromDesktop, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveDesktopCatalog, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, setupDeepSeekFlash, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -363,6 +363,26 @@ async function saveProviderCredential() {
     providerCredential.value = ''
     providerBusy.value = false
   }
+}
+
+async function configureDeepSeekFlash() {
+	providerBusy.value = true
+	providerNotice.value = ''
+	try {
+		const setup = await setupDeepSeekFlash(providerCredential.value)
+		if (!setup.credential_present || !setup.profile_id) throw new Error('DeepSeek 凭据未保存')
+		await loadProviderProfiles()
+		selectedProviderProfile.value = setup.profile_id
+		const verification = await verifyProvider(coordinatorRole, setup.profile_id)
+		providerNotice.value = verification.readiness === 'ready'
+			? `验证成功：${verification.model || setup.profile_id}。现在可选择“应用并重启服务”。`
+			: '配置已保存，但模型暂未就绪。请检查 API Key 或网络后重试验证。'
+	} catch (err) {
+		providerNotice.value = operationErrorLabel(err, '配置 DeepSeek Flash')
+	} finally {
+		providerCredential.value = ''
+		providerBusy.value = false
+	}
 }
 
 async function verifySelectedProvider() {
@@ -754,6 +774,7 @@ async function persistDesktopCatalog() {
           @close="providerOpen = false"
           @update:selected-profile="selectedProviderProfile = $event"
           @update:credential="providerCredential = $event"
+          @setup-deep-seek-flash="configureDeepSeekFlash"
           @rotate-credential="saveProviderCredential"
           @verify="verifySelectedProvider"
           @apply="applySelectedProvider"

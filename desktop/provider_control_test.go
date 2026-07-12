@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +28,38 @@ func TestProviderProfilesProjectsSafeConfiguredMetadata(t *testing.T) {
 		if profile.ProfileID == "" || profile.ModelID == "" || profile.Protocol == "" {
 			t.Fatalf("profile must contain safe identity metadata: %+v", profile)
 		}
+	}
+}
+
+func TestProviderProfilesTreatsMissingConfigAsAnEmptyFirstRunState(t *testing.T) {
+	app := &App{providerControl: desktopProviderControlConfig{ConfigRoot: desktopTestTempDir(t)}}
+
+	result, err := app.ProviderProfiles()
+	if err != nil {
+		t.Fatalf("ProviderProfiles returned error: %v", err)
+	}
+	if len(result.Profiles) != 0 || len(result.RoleBindings) != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestSetupDeepSeekFlashCreatesSafeProfileWithoutReturningSecret(t *testing.T) {
+	root := desktopTestTempDir(t)
+	app := &App{providerControl: desktopProviderControlConfig{
+		ConfigRoot:          root,
+		CredentialStoreRoot: filepath.Join(root, "credentials"),
+		secretProtector:     func(data []byte) ([]byte, error) { return append([]byte("sealed:"), data...), nil },
+	}}
+
+	result, err := app.SetupDeepSeekFlash("secret-key")
+	if err != nil {
+		t.Fatalf("SetupDeepSeekFlash returned error: %v", err)
+	}
+	if result.ProfileID != "deepseek-flash" || !result.CredentialPresent {
+		t.Fatalf("result = %+v", result)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", result), "secret-key") {
+		t.Fatalf("result leaked secret: %+v", result)
 	}
 }
 

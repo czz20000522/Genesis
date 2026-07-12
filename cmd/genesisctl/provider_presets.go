@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"time"
+
+	"genesis/localconfig"
 )
 
 type providerSetupPreset struct {
@@ -30,19 +32,20 @@ func providerSetupPresetByRef(ref string) (providerSetupPreset, bool) {
 }
 
 func providerSetupPresets() []providerSetupPreset {
+	deepSeekFlash := localconfig.DeepSeekFlashPreset()
 	return []providerSetupPreset{
 		{
-			ProviderID:          "deepseek",
-			ModelID:             "deepseek-v4-flash",
-			ProfileID:           "deepseek-flash",
-			GatewayRoute:        "deepseek",
-			AdapterID:           "deepseek",
-			AdapterProfileID:    "deepseek-v4-flash",
-			BaseURL:             "https://api.deepseek.com",
-			CredentialRef:       "secret://models/deepseek/local",
-			APIKeyEnv:           "DEEPSEEK_API_KEY",
-			ContextWindowTokens: 1000000,
-			RequestTimeout:      60 * time.Second,
+			ProviderID:          deepSeekFlash.ProviderID,
+			ModelID:             deepSeekFlash.ModelID,
+			ProfileID:           deepSeekFlash.ProfileID,
+			GatewayRoute:        deepSeekFlash.GatewayRoute,
+			AdapterID:           deepSeekFlash.AdapterID,
+			AdapterProfileID:    deepSeekFlash.AdapterProfileID,
+			BaseURL:             deepSeekFlash.BaseURL,
+			CredentialRef:       deepSeekFlash.CredentialRef,
+			APIKeyEnv:           deepSeekFlash.APIKeyEnv,
+			ContextWindowTokens: deepSeekFlash.ContextWindowTokens,
+			RequestTimeout:      deepSeekFlash.RequestTimeout,
 		},
 		{
 			ProviderID:          "deepseek",

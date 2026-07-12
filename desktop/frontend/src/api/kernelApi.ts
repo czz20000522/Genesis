@@ -227,8 +227,13 @@ export type ProviderProfiles = {
 }
 
 export type ProviderCredentialRotation = {
-  profile_id?: string
-  credential_present?: boolean
+	profile_id?: string
+	credential_present?: boolean
+}
+
+export type FirstRunDeepSeek = {
+	profile_id?: string
+	credential_present?: boolean
 }
 
 export type ProviderActivation = {
@@ -278,6 +283,12 @@ export async function providerProfiles(): Promise<ProviderProfiles> {
   const bridge = wailsAppBridge()
   if (!bridge?.ProviderProfiles) throw new Error('模型配置仅在 Genesis 桌面客户端中可用')
   return bridge.ProviderProfiles() as Promise<ProviderProfiles>
+}
+
+export async function setupDeepSeekFlash(apiKey: string): Promise<FirstRunDeepSeek> {
+	const bridge = wailsAppBridge()
+	if (!bridge?.SetupDeepSeekFlash) throw new Error('DeepSeek 首次配置仅在 Genesis 桌面客户端中可用')
+	return bridge.SetupDeepSeekFlash(String(apiKey || '').trim()) as Promise<FirstRunDeepSeek>
 }
 
 export async function rotateProviderCredential(profileID: string, secret: string): Promise<ProviderCredentialRotation> {
@@ -681,8 +692,9 @@ type WailsAppBridge = {
   LocalModelStatus?: () => Promise<unknown>
   StartLocalModel?: () => Promise<unknown>
   StopLocalModel?: () => Promise<unknown>
-  ProviderProfiles?: () => Promise<unknown>
-  RotateProviderCredential?: (profileID: string, secret: string) => Promise<unknown>
+	ProviderProfiles?: () => Promise<unknown>
+	SetupDeepSeekFlash?: (apiKey: string) => Promise<unknown>
+	RotateProviderCredential?: (profileID: string, secret: string) => Promise<unknown>
   ApplyProviderRole?: (modelRole: string, profileID: string) => Promise<unknown>
   VerifyProvider?: (modelRole: string, profileID: string) => Promise<unknown>
   SaveUpdateToken?: (token: string) => Promise<boolean>

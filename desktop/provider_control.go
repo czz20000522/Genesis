@@ -55,6 +55,11 @@ type ProviderCredentialRotationProjection struct {
 	CredentialPresent bool   `json:"credential_present"`
 }
 
+type FirstRunDeepSeekProjection struct {
+	ProfileID         string `json:"profile_id"`
+	CredentialPresent bool   `json:"credential_present"`
+}
+
 type ProviderVerificationProjection struct {
 	Readiness       string `json:"readiness"`
 	ReadinessReason string `json:"readiness_reason,omitempty"`
@@ -71,6 +76,9 @@ func (a *App) ProviderProfiles() (ProviderProfilesProjection, error) {
 		ConfigRoot:          a.providerControl.ConfigRoot,
 		CredentialStoreRoot: a.providerControl.CredentialStoreRoot,
 	})
+	if errors.Is(err, localconfig.ErrConfigMissing) {
+		return ProviderProfilesProjection{Profiles: []ProviderProfileProjection{}, RoleBindings: map[string]string{}}, nil
+	}
 	if err != nil {
 		return ProviderProfilesProjection{}, err
 	}
@@ -146,6 +154,22 @@ func (a *App) RotateProviderCredential(profileID string, secret string) (Provide
 		return ProviderCredentialRotationProjection{}, err
 	}
 	return ProviderCredentialRotationProjection{ProfileID: result.ProfileID, CredentialPresent: true}, nil
+}
+
+func (a *App) SetupDeepSeekFlash(apiKey string) (FirstRunDeepSeekProjection, error) {
+	if a == nil {
+		return FirstRunDeepSeekProjection{}, errors.New("desktop app is unavailable")
+	}
+	result, err := localconfig.SetupDeepSeekFlash(localconfig.DeepSeekFlashSetupRequest{
+		ConfigRoot:          a.providerControl.ConfigRoot,
+		CredentialStoreRoot: a.providerControl.CredentialStoreRoot,
+		APIKey:              strings.TrimSpace(apiKey),
+		Protector:           a.providerControl.secretProtector,
+	})
+	if err != nil {
+		return FirstRunDeepSeekProjection{}, err
+	}
+	return FirstRunDeepSeekProjection{ProfileID: result.ProfileID, CredentialPresent: result.CredentialPresent}, nil
 }
 
 func (a *App) VerifyProvider(modelRole string, profileID string) (ProviderVerificationProjection, error) {

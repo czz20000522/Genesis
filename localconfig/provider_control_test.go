@@ -4,8 +4,39 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestSetupDeepSeekFlashWritesCanonicalProfileAndProtectedSecret(t *testing.T) {
+	root := t.TempDir()
+	result, err := SetupDeepSeekFlash(DeepSeekFlashSetupRequest{
+		ConfigRoot:          root,
+		CredentialStoreRoot: filepath.Join(root, "credentials"),
+		APIKey:              "secret-key",
+		Protector:           func(data []byte) ([]byte, error) { return append([]byte("sealed:"), data...), nil },
+	})
+	if err != nil {
+		t.Fatalf("SetupDeepSeekFlash returned error: %v", err)
+	}
+	if result.ProfileID != "deepseek-flash" || result.GatewayRoute != "deepseek" || !result.CredentialPresent {
+		t.Fatalf("result = %+v", result)
+	}
+	payload, err := os.ReadFile(filepath.Join(root, "models.json"))
+	if err != nil {
+		t.Fatalf("read models.json: %v", err)
+	}
+	if strings.Contains(string(payload), "secret-key") {
+		t.Fatalf("models.json leaked API key: %s", payload)
+	}
+	snapshot, err := Snapshot(SnapshotRequest{ConfigRoot: root, CredentialStoreRoot: filepath.Join(root, "credentials")})
+	if err != nil {
+		t.Fatalf("Snapshot returned error: %v", err)
+	}
+	if snapshot.RoleBindings[DefaultModelRole] != "" || len(snapshot.Profiles) != 1 || !snapshot.Profiles[0].CredentialPresent {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+}
 
 func TestSnapshotProjectsConfiguredProfilesWithoutSecrets(t *testing.T) {
 	root := t.TempDir()

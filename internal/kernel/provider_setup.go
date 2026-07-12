@@ -68,38 +68,38 @@ func SetupOpenAICompatibleProvider(req OpenAICompatibleProviderSetupRequest) (Op
 	if err != nil {
 		return OpenAICompatibleProviderSetupResult{}, err
 	}
-	configRoot := resolveGenesisConfigRoot(normalized.ConfigRoot)
-	configPath := filepath.Join(configRoot, "models.json")
-	secretResult, err := WriteLocalCredentialSecret(LocalCredentialSecretWriteRequest{
-		CredentialRef: normalized.CredentialRef,
-		Secret:        normalized.APIKey,
-		StoreRoot:     normalized.CredentialStoreRoot,
-		Protector:     normalized.SecretProtector,
-		DryRun:        normalized.DryRun,
+	persisted, err := localconfig.SetupOpenAICompatibleProfile(localconfig.OpenAICompatibleProfileSetupRequest{
+		ConfigRoot:          normalized.ConfigRoot,
+		CredentialStoreRoot: normalized.CredentialStoreRoot,
+		ModelRole:           normalized.ModelRole,
+		ProfileID:           normalized.ProfileID,
+		GatewayRoute:        normalized.GatewayRoute,
+		ProviderAdapterID:   normalized.ProviderAdapterID,
+		AdapterProfileID:    normalized.AdapterProfileID,
+		BaseURL:             normalized.BaseURL,
+		ModelID:             normalized.ModelID,
+		ContextWindowTokens: normalized.ContextWindowTokens,
+		CredentialRef:       normalized.CredentialRef,
+		APIKey:              normalized.APIKey,
+		RequestTimeout:      normalized.RequestTimeout,
+		BindRole:            true,
+		DryRun:              normalized.DryRun,
+		Protector:           normalized.SecretProtector,
 	})
 	if err != nil {
-		return OpenAICompatibleProviderSetupResult{}, err
+		return OpenAICompatibleProviderSetupResult{}, wrapProviderSetupPersistenceError(err)
 	}
 	result := OpenAICompatibleProviderSetupResult{
-		ConfigPath:     configPath,
-		CredentialPath: secretResult.CredentialPath,
-		CredentialRef:  secretResult.CredentialRef,
-		ModelRole:      normalized.ModelRole,
-		ProfileID:      normalized.ProfileID,
-		GatewayRoute:   normalized.GatewayRoute,
-		DryRun:         normalized.DryRun,
+		ConfigPath:     persisted.ConfigPath,
+		CredentialPath: persisted.CredentialPath,
+		CredentialRef:  persisted.CredentialRef,
+		ModelRole:      persisted.ModelRole,
+		ProfileID:      persisted.ProfileID,
+		GatewayRoute:   persisted.GatewayRoute,
+		DryRun:         persisted.DryRun,
 	}
 	if normalized.DryRun {
 		return result, nil
-	}
-
-	config, err := readGenesisModelsConfig(configPath)
-	if err != nil {
-		return OpenAICompatibleProviderSetupResult{}, err
-	}
-	upsertOpenAICompatibleProviderConfig(&config, normalized, secretResult.CredentialRef)
-	if err := writeGenesisModelsConfig(configPath, config); err != nil {
-		return OpenAICompatibleProviderSetupResult{}, err
 	}
 	if normalized.Verify {
 		resolver := normalized.SecretResolver
@@ -122,6 +122,16 @@ func SetupOpenAICompatibleProvider(req OpenAICompatibleProviderSetupRequest) (Op
 		result.Verified = true
 	}
 	return result, nil
+}
+
+func wrapProviderSetupPersistenceError(err error) error {
+	if errors.Is(err, localconfig.ErrConfigInvalid) {
+		return fmt.Errorf("%w: %v", ErrGenesisModelConfigInvalid, err)
+	}
+	if errors.Is(err, localconfig.ErrConfigMissing) {
+		return fmt.Errorf("%w: %v", ErrGenesisModelConfigMissing, err)
+	}
+	return err
 }
 
 func RotateActiveOpenAICompatibleProviderCredential(req OpenAICompatibleProviderCredentialRotationRequest) (OpenAICompatibleProviderSetupResult, error) {
@@ -303,38 +313,6 @@ func readGenesisModelsConfig(configPath string) (genesisModelsConfig, error) {
 		return genesisModelsConfig{}, fmt.Errorf("%w: %v", ErrGenesisModelConfigInvalid, err)
 	}
 	return config, nil
-}
-
-func upsertOpenAICompatibleProviderConfig(config *genesisModelsConfig, req OpenAICompatibleProviderSetupRequest, credentialRef string) {
-	if config.ActiveModelProfileBindings == nil {
-		config.ActiveModelProfileBindings = map[string]string{}
-	}
-	config.ActiveModelProfileBindings[req.ModelRole] = req.ProfileID
-
-	if config.ModelGateway.Routes == nil {
-		config.ModelGateway.Routes = map[string]genesisGatewayRoute{}
-	}
-	config.ModelGateway.Routes[req.GatewayRoute] = genesisGatewayRoute{
-		BaseURL:           req.BaseURL,
-		CredentialRef:     credentialRef,
-		Protocol:          modelGatewayProtocolChatCompletions,
-		RequestTimeoutSec: req.RequestTimeout.Seconds(),
-	}
-	if strings.TrimSpace(config.ModelGateway.Protocol) == "" {
-		config.ModelGateway.Protocol = modelGatewayProtocolChatCompletions
-	}
-
-	if config.ModelProfiles.Cloud.Gateway == nil {
-		config.ModelProfiles.Cloud.Gateway = map[string]genesisGatewayProfile{}
-	}
-	config.ModelProfiles.Cloud.Gateway[req.ProfileID] = genesisGatewayProfile{
-		ProfileID:                req.ProfileID,
-		ModelID:                  req.ModelID,
-		GatewayRoute:             req.GatewayRoute,
-		ContextWindowTokens:      req.ContextWindowTokens,
-		ProviderAdapterID:        req.ProviderAdapterID,
-		ProviderAdapterProfileID: req.AdapterProfileID,
-	}
 }
 
 func writeGenesisModelsConfig(configPath string, config genesisModelsConfig) error {

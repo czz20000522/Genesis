@@ -433,7 +433,6 @@ label {
 
 .provider-list li span,
 .provider-list li small,
-.provider-empty,
 .provider-notice {
   color: var(--muted);
   font-size: 12px;
@@ -445,8 +444,7 @@ label {
   box-shadow: inset 3px 0 0 var(--primary);
 }
 
-.provider-notice,
-.provider-empty {
+.provider-notice {
   margin: 0;
 }
 

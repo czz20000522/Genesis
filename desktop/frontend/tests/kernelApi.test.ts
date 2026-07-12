@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { applyProviderRole, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, pickMaterialDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
+import { applyProviderRole, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, pickMaterialDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, setupDeepSeekFlash, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -47,6 +47,9 @@ assert.equal(inspectorSource.includes('<el-button'), true, 'InspectorDrawer must
 assert.equal(apiSource.includes('KernelRequest'), false, 'desktop production bridge must not expose a generic HTTP proxy')
 assert.equal(apiSource.includes('content_base64'), false, 'desktop upload bridge must not pass whole files as base64')
 assert.equal(providerPanelSource.includes('type="password"'), true, 'provider key input must not render as plain text')
+assert.equal(providerPanelSource.includes('配置 DeepSeek Flash'), true, 'empty Genesis Home must offer the supported first-run provider')
+assert.equal(providerPanelSource.includes("$emit('setupDeepSeekFlash')"), true, 'first-run action must stay inside the Provider panel')
+assert.equal(appSource.includes('setupDeepSeekFlash'), true, 'App.vue must invoke the typed first-run bridge')
 assert.equal(providerPanelSource.includes('localStorage'), false, 'provider key input must not persist in browser storage')
 assert.equal(appSource.includes('const localModelStarting = ref(false)'), true, 'App.vue must track explicit local-model startup')
 assert.equal(appSource.includes('localModelStarting.value = true'), true, 'App.vue must mark local-model startup before awaiting the bridge')
@@ -58,6 +61,7 @@ globalThis.go = {
         profiles: [{ profile_id: 'cloud-glm', model_id: 'glm-5-2', protocol: 'openai-chat-completions', credential_present: true }],
         role_bindings: { coordinator: 'cloud-glm' },
       }),
+      SetupDeepSeekFlash: async (apiKey: string) => ({ profile_id: 'deepseek-flash', credential_present: apiKey.length > 0 }),
       RotateProviderCredential: async (profileID: string, secret: string) => ({ profile_id: profileID, credential_present: secret.length > 0 }),
       ApplyProviderRole: async (modelRole: string, profileID: string) => ({ status: 'owned_kernel_restarted', binding: { model_role: modelRole, profile_id: profileID } }),
       VerifyProvider: async (modelRole: string, profileID: string) => ({ readiness: 'ready', model_role: modelRole, profile_id: profileID, model: 'glm-5-2' }),
@@ -66,6 +70,7 @@ globalThis.go = {
 }
 const configuredProviders = await providerProfiles()
 assert.equal(configuredProviders.profiles?.[0]?.model_id, 'glm-5-2')
+assert.deepEqual(await setupDeepSeekFlash('one-shot-key'), { profile_id: 'deepseek-flash', credential_present: true })
 assert.deepEqual(await rotateProviderCredential('cloud-glm', 'one-shot-key'), { profile_id: 'cloud-glm', credential_present: true })
 assert.equal((await applyProviderRole('coordinator', 'cloud-glm')).status, 'owned_kernel_restarted')
 assert.equal((await verifyProvider('coordinator', 'cloud-glm')).model, 'glm-5-2')

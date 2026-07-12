@@ -176,6 +176,26 @@ func TestSetupOpenAICompatibleProviderWritesAdapterProfileBinding(t *testing.T) 
 	}
 }
 
+func TestSetupOpenAICompatibleProviderPreservesKernelConfigFailureClassification(t *testing.T) {
+	configRoot := testTempDir(t)
+	if err := os.WriteFile(filepath.Join(configRoot, "models.json"), []byte("{not-json\n"), 0o600); err != nil {
+		t.Fatalf("write corrupt models config: %v", err)
+	}
+
+	_, err := SetupOpenAICompatibleProvider(OpenAICompatibleProviderSetupRequest{
+		ConfigRoot:          configRoot,
+		CredentialStoreRoot: testTempDir(t),
+		BaseURL:             "https://provider.example.com/api",
+		ModelID:             "provider-model",
+		CredentialRef:       "secret://models/provider/default",
+		APIKey:              "sk-setup-secret",
+		SecretProtector:     func([]byte) ([]byte, error) { return []byte("protected"), nil },
+	})
+	if !errors.Is(err, ErrGenesisModelConfigInvalid) {
+		t.Fatalf("error = %v, want ErrGenesisModelConfigInvalid", err)
+	}
+}
+
 func TestRotateActiveProviderCredentialRepairsExplicitProfileMetadata(t *testing.T) {
 	configRoot := testTempDir(t)
 	credentialRoot := testTempDir(t)

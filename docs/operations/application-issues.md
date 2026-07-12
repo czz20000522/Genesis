@@ -88,9 +88,10 @@ Genesis Kernel. Kernel primitive gaps belong in
     ledger owner.
 - Closure: a shared `localconfig` owner now backs kernel/CLI and desktop
   `models.json` mutation, protected credential writes, safe profile projection,
-  and role binding. The desktop provides a compact profile panel, clears the
-  one-shot key input after submission, calls a read-only adapter verification
-  diagnostic, and restarts only its owned `genesisd` sidecar.
+  and role binding. An empty Home is a first-run state rather than an error:
+  the desktop shows one DeepSeek Flash password form, clears the one-shot key
+  after submission, reloads the safe profile, and calls the existing read-only
+  adapter verification diagnostic. It does not bind or restart automatically.
 - Remaining acceptance: use real local Qwen, DeepSeek, and OpenCode Go GLM
   profiles from the desktop; verify each profile and switch one cloud profile
   through an owned restart while confirming a prior session remains readable.
@@ -103,12 +104,12 @@ Genesis Kernel. Kernel primitive gaps belong in
 - Reference alignment: Reasonix separates settings mutation from its runtime
   controller; Codex keeps provider selection outside turns. Genesis aligns
   while intentionally limiting the first UI to preconfigured profiles.
-- Active extension: a user-approved first-run DeepSeek Flash preset is now
-  required because an empty Genesis Home otherwise leaves the Provider panel
-  with no terminal-free setup path. The next slice moves the CLI preset and
-  setup mutation behind `localconfig`, adds one safe desktop bridge and empty
-  state, then proves a real desktop-owned restart and turn. It remains one
-  preset only; arbitrary endpoints and marketplace behavior stay out of scope.
+- First-run evidence: `localconfig` and desktop bridge tests prove safe profile
+  creation without a secret projection; the configured DeepSeek Flash live
+  acceptance proves `deepseek-v4-flash`, settled turn completion, and restart
+  replay. The installed empty-Home click path remains manual_test_pending. It
+  remains one preset only; arbitrary endpoints and marketplace behavior stay
+  out of scope.
 
 ### APP-DESKTOP-LOCAL-MODEL-LIFECYCLE-20260711 - P1 - Local llama.cpp must be client-owned, not a WSL service
 
