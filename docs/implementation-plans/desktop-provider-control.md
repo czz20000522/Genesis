@@ -43,6 +43,27 @@ switch.
 3. Show only configured profiles initially: local Qwen, DeepSeek, and OpenCode
    Go models validate the generic projection path.
 
+## Phase D: First-Run DeepSeek Flash
+
+1. Add failing shared-owner tests that an empty Home receives only canonical
+   DeepSeek Flash route/profile metadata and a protected credential, with no
+   secret in models.json.
+2. Move the existing CLI preset values behind that `localconfig` owner; keep
+   kernel provider verification separate and retain CLI behavior through the
+   same owner.
+3. Add one desktop backend setup bridge and a Provider-panel empty state. The
+   frontend clears the key, reloads projections, verifies the new profile, and
+   leaves binding/restart to the existing explicit apply action.
+4. Prove a fresh configured DeepSeek Flash profile through desktop-owned
+   restart, a real turn, and restart replay. Do not add arbitrary endpoint
+   inputs, additional templates, or automatic apply.
+
+**Reference scan:** Reasonix's `internal/config/edit.go` validates and persists
+settings separately from runtime controllers; `desktop/settings_app.go` exposes
+curated access setup. Codex merges built-in and user provider configuration in
+`codex-rs/core/src/config/mod.rs` before provider resolution. Genesis reuses a
+shared local configuration writer but keeps a single approved preset.
+
 ## Acceptance
 
 Run focused shared-owner, kernel, desktop backend, and frontend tests; then

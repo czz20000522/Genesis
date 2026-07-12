@@ -6,7 +6,9 @@
   execution.
 - **Scope:** let a desktop user inspect configured provider/model profiles,
   securely update an existing credential, verify a selected profile upstream,
-  and activate a profile for a meaningful role without using a terminal.
+  and activate a profile for a meaningful role without using a terminal. When
+  Genesis Home has no profile, it also offers the one approved DeepSeek Flash
+  setup path.
 
 ## Production Target
 
@@ -42,11 +44,15 @@ binding to an owned `genesisd` without losing settled sessions.
    restart leaves the previous selected binding usable and projects a stable
    error reason. A failed upstream verification does not erase a newly stored
    key; the user can correct or rotate it.
+7. With no configured profile, the desktop may create only the fixed DeepSeek
+   Flash profile (`deepseek-flash`) from its known adapter metadata and a
+   one-shot API key. It then follows the same verify and explicit apply path as
+   any existing profile.
 
 ## Non-Goals
 
 - No provider marketplace, remote model discovery, arbitrary endpoint editor,
-  or automatic provider configuration import.
+  automatic provider configuration import, or second preset in this slice.
 - No model-to-model mapping layer; the user selects a discovered/configured
   profile directly.
 - No kernel HTTP route that writes desktop credentials or makes the kernel a
@@ -66,3 +72,5 @@ binding to an owned `genesisd` without losing settled sessions.
    adapter/protocol/readiness posture through the same safe projection.
 5. External-kernel mode never starts, stops, or restarts the kernel while still
    explaining that a restart is required to activate a saved binding.
+6. With an empty Genesis Home, a user can set up DeepSeek Flash, verify it,
+   explicitly bind `coordinator`, and complete a turn without using a terminal.

@@ -103,6 +103,12 @@ Genesis Kernel. Kernel primitive gaps belong in
 - Reference alignment: Reasonix separates settings mutation from its runtime
   controller; Codex keeps provider selection outside turns. Genesis aligns
   while intentionally limiting the first UI to preconfigured profiles.
+- Active extension: a user-approved first-run DeepSeek Flash preset is now
+  required because an empty Genesis Home otherwise leaves the Provider panel
+  with no terminal-free setup path. The next slice moves the CLI preset and
+  setup mutation behind `localconfig`, adds one safe desktop bridge and empty
+  state, then proves a real desktop-owned restart and turn. It remains one
+  preset only; arbitrary endpoints and marketplace behavior stay out of scope.
 
 ### APP-DESKTOP-LOCAL-MODEL-LIFECYCLE-20260711 - P1 - Local llama.cpp must be client-owned, not a WSL service
 

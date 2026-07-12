@@ -37,6 +37,12 @@ The panel uses background steps rather than a new page hierarchy. Its visual
 anchor is the active role/model chip: every selection makes the effective
 profile obvious before the user applies it.
 
+When there are no configured profiles, the same panel replaces the empty state
+with one compact DeepSeek Flash setup form: one password input and a
+`保存并验证` action. It is not a generic provider editor. On success the normal
+profile picker takes over with DeepSeek Flash selected; applying remains an
+explicit second action.
+
 ## Backend Service
 
 Create a desktop-local provider control service that reuses one shared
@@ -53,6 +59,12 @@ The shared owner validates a profile and binding before writing. It accepts key
 bytes only in the desktop backend call, persists them in the existing local
 credential store, then discards them. `models.json` remains the migration unit;
 the key does not enter it.
+
+The current CLI preset and kernel setup mutation must move behind one
+`localconfig` DeepSeek Flash setup owner before the desktop uses it. Kernel
+verification remains outside that owner: after setup the desktop invokes the
+existing selected-profile verification diagnostic. This keeps provider wire
+behavior and upstream authentication out of desktop configuration code.
 
 Profile verification is a read-only authenticated kernel diagnostic call. The
 desktop supplies only role and profile id; `genesisd` resolves that selection
@@ -77,6 +89,8 @@ process operation is attempted.
   are not the credential boundary.
 - A generic endpoint-form editor: rejected until a real non-preset provider
   needs it.
+- Copying the CLI preset into the desktop: rejected because profile metadata
+  would drift across two configuration writers.
 - Kernel configuration-write HTTP routes: rejected because daemon authority
   must not become credential/configuration authority.
 - Applying a new binding without a sidecar restart: rejected because the
