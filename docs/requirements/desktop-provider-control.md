@@ -6,9 +6,10 @@
   execution.
 - **Scope:** let a desktop user inspect configured provider/model profiles,
   securely update an existing credential, verify a selected profile upstream,
-  and activate a profile for a meaningful role without using a terminal. When
-  Genesis Home has no profile, it also offers the one approved DeepSeek Flash
-  setup path.
+  and manage a profile for declared non-conversation runtime roles without
+  using a terminal.
+  Desktop conversation onboarding and session-level model choice are governed
+  by `desktop-provider-onboarding.md` and `kernel-session-model-binding.md`.
 
 ## Production Target
 
@@ -44,15 +45,11 @@ binding to an owned `genesisd` without losing settled sessions.
    restart leaves the previous selected binding usable and projects a stable
    error reason. A failed upstream verification does not erase a newly stored
    key; the user can correct or rotate it.
-7. With no configured profile, the desktop may create only the fixed DeepSeek
-   Flash profile (`deepseek-flash`) from its known adapter metadata and a
-   one-shot API key. It then follows the same verify and explicit apply path as
-   any existing profile.
 
 ## Non-Goals
 
-- No provider marketplace, remote model discovery, arbitrary endpoint editor,
-  automatic provider configuration import, or second preset in this slice.
+- No provider marketplace or kernel-owned credential/configuration write in
+  this role-control slice.
 - No model-to-model mapping layer; the user selects a discovered/configured
   profile directly.
 - No kernel HTTP route that writes desktop credentials or makes the kernel a
@@ -63,14 +60,12 @@ binding to an owned `genesisd` without losing settled sessions.
 
 1. A user can see every configured profile and role binding in the desktop
    without revealing a secret or local command details.
-2. A user can update the key for an existing cloud profile, verify it, select
-   it for `coordinator`, and complete a subsequent turn through the selected
-   model without using a terminal.
+2. A user can update the key for an existing cloud profile and verify it
+   without using a terminal. Ordinary conversation selection is session-bound
+   under `kernel-session-model-binding.md`, not a global `coordinator` role.
 3. The desktop restarts only its owned kernel after applying a binding and
    settled sessions remain searchable and readable afterward.
 4. Local Qwen, DeepSeek, and OpenCode Go GLM profiles show their distinct
    adapter/protocol/readiness posture through the same safe projection.
 5. External-kernel mode never starts, stops, or restarts the kernel while still
    explaining that a restart is required to activate a saved binding.
-6. With an empty Genesis Home, a user can set up DeepSeek Flash, verify it,
-   explicitly bind `coordinator`, and complete a turn without using a terminal.

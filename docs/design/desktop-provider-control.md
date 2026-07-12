@@ -25,7 +25,7 @@ workspace in the center, and a compact Provider panel from the top bar.
 
 ```text
 Provider panel
-  configured profiles + role bindings
+  configured profiles + declared non-conversation role bindings
   -> inspect safe metadata / credential-present status
   -> optional one-shot credential write
   -> selected-profile upstream verify
@@ -33,15 +33,14 @@ Provider panel
   -> owned genesisd restart OR external restart-required projection
 ```
 
-The panel uses background steps rather than a new page hierarchy. Its visual
-anchor is the active role/model chip: every selection makes the effective
-profile obvious before the user applies it.
+The panel uses background steps rather than a new page hierarchy. It is not the
+ordinary chat model selector: a session's selected model is its own coordinator
+provider and is bound in kernel session truth.
 
-When there are no configured profiles, the same panel replaces the empty state
-with one compact DeepSeek Flash setup form: one password input and a
-`保存并验证` action. It is not a generic provider editor. On success the normal
-profile picker takes over with DeepSeek Flash selected; applying remains an
-explicit second action.
+Blank-Home provider import and ordinary session model choice are superseded by
+`desktop-provider-onboarding.md` and `kernel-session-model-binding.md`. This
+panel remains the role-runtime control surface; it does not choose models for
+ordinary desktop conversations.
 
 ## Backend Service
 
@@ -59,12 +58,6 @@ The shared owner validates a profile and binding before writing. It accepts key
 bytes only in the desktop backend call, persists them in the existing local
 credential store, then discards them. `models.json` remains the migration unit;
 the key does not enter it.
-
-The current CLI preset and kernel setup mutation must move behind one
-`localconfig` DeepSeek Flash setup owner before the desktop uses it. Kernel
-verification remains outside that owner: after setup the desktop invokes the
-existing selected-profile verification diagnostic. This keeps provider wire
-behavior and upstream authentication out of desktop configuration code.
 
 Profile verification is a read-only authenticated kernel diagnostic call. The
 desktop supplies only role and profile id; `genesisd` resolves that selection
@@ -87,8 +80,6 @@ process operation is attempted.
 
 - Frontend-local API keys: rejected because browser storage and console traces
   are not the credential boundary.
-- A generic endpoint-form editor: rejected until a real non-preset provider
-  needs it.
 - Copying the CLI preset into the desktop: rejected because profile metadata
   would drift across two configuration writers.
 - Kernel configuration-write HTTP routes: rejected because daemon authority
