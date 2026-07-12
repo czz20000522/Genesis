@@ -119,9 +119,9 @@ label {
 .rail {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
-  padding: 16px 10px;
+  padding: 15px 10px 12px;
   color: var(--rail-ink);
   border-right: 1px solid var(--border);
   background: var(--rail);
@@ -131,7 +131,7 @@ label {
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 8px 9px 12px;
+  padding: 7px 9px 9px;
 }
 
 .rail-brand strong,
@@ -162,31 +162,51 @@ label {
   font-weight: 700;
 }
 
-.new-session-button {
-  width: 100%;
-  color: #ffffff;
-  background: var(--primary);
-}
-
-.session-entry-actions {
+.rail-primary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: 2px;
+  padding: 0 3px;
 }
 
-.session-entry-actions .new-session-button {
-  min-height: 36px;
-  padding: 7px 4px;
-  font-size: 12px;
+.rail-primary-action {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  color: var(--rail-ink);
+  text-align: left;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.rail-primary-action span {
+  display: inline-grid;
+  width: 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media (hover: hover) {
+  .rail-primary-action:hover {
+    background: oklch(0.91 0.008 100);
+  }
 }
 
 .session-search {
-  padding: 0 7px;
+  padding: 2px 7px 4px;
+  color: transparent;
+  font-size: 0;
 }
 
 .session-search input {
-  min-height: 34px;
-  padding: 7px 9px;
+  min-height: 32px;
+  padding: 6px 9px;
+  border-color: transparent;
+  background: oklch(0.91 0.008 100);
+  font-size: 12px;
 }
 
 .session-search-empty {
@@ -212,10 +232,12 @@ label {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 28px;
-  padding: 0 7px;
+  min-height: 25px;
+  padding: 0 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 620;
+  letter-spacing: .015em;
 }
 
 .session-group-heading strong {
@@ -242,15 +264,16 @@ label {
 .session-link {
   display: grid;
   width: 100%;
-  gap: 3px;
-  padding: 10px 11px;
+  gap: 2px;
+  min-height: 35px;
+  padding: 7px 10px;
   color: var(--rail-ink);
   text-align: left;
   background: transparent;
 }
 
 .session-link-active {
-  background: var(--rail-soft);
+  background: oklch(0.89 0.028 166);
 }
 
 .session-link-active {

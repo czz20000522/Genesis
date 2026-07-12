@@ -66,11 +66,11 @@ const hasCurrentSessionItem = computed(() => props.sessions.some((session) => se
       </div>
     </div>
 
-    <div class="session-entry-actions" aria-label="创建入口">
-      <button type="button" class="new-session-button" @click="$emit('newProject')">项目</button>
-      <button type="button" class="new-session-button" @click="$emit('newTask')">任务</button>
-      <button type="button" class="new-session-button" @click="$emit('newChat')">聊天</button>
-    </div>
+    <nav class="rail-primary" aria-label="工作台入口">
+      <button type="button" class="rail-primary-action" @click="$emit('newTask')"><span aria-hidden="true">✎</span> 新建任务</button>
+      <button type="button" class="rail-primary-action" @click="$emit('newChat')"><span aria-hidden="true">◌</span> 聊天</button>
+      <button type="button" class="rail-primary-action" @click="$emit('newProject')"><span aria-hidden="true">⌂</span> 打开项目</button>
+    </nav>
 
     <label class="session-search">
       搜索会话
@@ -89,7 +89,7 @@ const hasCurrentSessionItem = computed(() => props.sessions.some((session) => se
       <template v-else>
       <section v-for="group in projectGroups" :key="group.root" class="session-group">
         <div class="session-group-heading">
-          <strong :title="group.root">{{ group.name }}</strong>
+          <strong :title="group.root">▱ {{ group.name }}</strong>
           <button type="button" :aria-label="`在 ${group.name} 中创建会话`" @click="$emit('newProjectSession', group.root)">+</button>
         </div>
         <button
