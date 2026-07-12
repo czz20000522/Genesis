@@ -6,7 +6,6 @@ defineProps<{
   sessionId: string
   error: string
   inspectorOpen: boolean
-  providerSummary: string
 }>()
 
 defineEmits<{
@@ -20,7 +19,6 @@ defineEmits<{
   <header class="topbar">
     <div class="topbar-status">
       <strong>Genesis</strong>
-      <el-button text class="model-summary" @click="$emit('toggleProvider')">{{ providerSummary }}</el-button>
     </div>
     <div class="topbar-actions">
       <el-tooltip :content="readinessLabel(readiness)">

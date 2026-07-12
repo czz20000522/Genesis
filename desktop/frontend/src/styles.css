@@ -698,16 +698,19 @@ label {
   box-shadow: 0 8px 26px rgb(23 116 95 / 20%);
 }
 
-.chat-row-processing .chat-bubble,
 .chat-row-notice .chat-bubble {
   color: #465465;
   background: var(--panel-soft);
 }
 
+.chat-row-processing .chat-bubble,
 .chat-row-reasoning .chat-bubble {
-  color: #405a50;
-  border-color: #c9ddd4;
-  background: #f3f8f5;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .reasoning-message {
@@ -902,6 +905,8 @@ label {
 
 .processing-line {
   gap: 9px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .pulse-dot {
@@ -945,6 +950,13 @@ label {
 
 .composer-actions {
   justify-content: flex-end;
+}
+
+.composer-model-label {
+  margin-right: 1px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .composer-model-select {

@@ -9,7 +9,7 @@ import SessionRail from './components/SessionRail.vue'
 import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
-import { isLocalProfile, profileDisplayName } from './modelSelection'
+import { isLocalProfile } from './modelSelection'
 import { operationErrorLabel, turnErrorLabel } from './display'
 import { isBlankSessionDraft } from './sessionDraft'
 import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
@@ -112,9 +112,6 @@ const localModelLabel = computed(() => {
   if (localModelRunning.value) return `本地模型运行中${localModel.value.pid ? ` · PID ${localModel.value.pid}` : ''}`
   if (localModel.value.reason === 'local_model_disabled') return '本地模型未配置'
   return '本地模型已停止'
-})
-const providerSummary = computed(() => {
-  return profileDisplayName(providerProfilesState.value.find((profile) => profile.profile_id === sessionModelProfile.value))
 })
 const selectedProviderIsLocal = computed(() => isLocalProfile(providerProfilesState.value.find((item) => item.profile_id === selectedProviderProfile.value)))
 
@@ -515,13 +512,6 @@ async function sendMessage() {
     })
     messageText.value = ''
     if (fileWasSelected) selectedFile.value = null
-    timeline.value = await getTimeline(config.value, session)
-    await loadSessionApproval(session)
-    await loadWorkerInvocations(session)
-    await loadTaskGraphs(session)
-    await loadSessions()
-    liveUserText.value = ''
-    liveAssistantText.value = ''
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (stopRequested.value && message.includes('turn_interrupted')) {
@@ -535,10 +525,22 @@ async function sendMessage() {
       liveUserText.value = ''
       liveAssistantText.value = ''
     }
+		return
   } finally {
     liveStreaming.value = false
     stopRequested.value = false
   }
+	try {
+		timeline.value = await getTimeline(config.value, session)
+		await loadSessionApproval(session)
+		await loadWorkerInvocations(session)
+		await loadTaskGraphs(session)
+		await loadSessions()
+		liveUserText.value = ''
+		liveAssistantText.value = ''
+	} catch {
+		error.value = '回复已完成，但暂时无法刷新会话状态。'
+	}
 }
 
 async function interruptCurrentTurn() {
@@ -560,7 +562,12 @@ async function interruptCurrentTurn() {
 }
 
 async function retryFailedTurn() {
-  if (!retryText.value || liveStreaming.value) return
+  if (liveStreaming.value) return
+  if (!retryText.value) {
+    await checkReady()
+    if (readiness.value !== 'not_ready') await loadTimeline()
+    return
+  }
   messageText.value = retryText.value
   await sendMessage()
 }
@@ -773,7 +780,6 @@ async function persistDesktopCatalog() {
           :readiness="readiness"
           :error="error"
           :inspector-open="inspectorOpen"
-          :provider-summary="providerSummary"
           @check-ready="checkReady"
           @toggle-provider="toggleProviderPanel"
           @toggle-inspector="inspectorOpen = !inspectorOpen"

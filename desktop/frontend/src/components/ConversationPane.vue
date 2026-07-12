@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ApprovalDecision, ApprovalProjection, ProviderProfile, TurnResponse } from '../api/kernelApi'
-import { isLocalProfile } from '../modelSelection'
+import { isLocalProfile, profileDisplayName } from '../modelSelection'
 import { approvalSummary } from '../approvalView'
 import { turnErrorLabel } from '../display'
 import type { TimelineRow } from '../timelineView'
@@ -46,9 +46,10 @@ const approvalRows = computed(() => props.approvals.map((approval) => ({
 const turnStatus = computed(() => {
   if (props.lastTurn?.error) return turnErrorLabel([props.lastTurn.error.code, props.lastTurn.error.message].filter(Boolean).join(': '))
   if (props.lastTurn?.pause) return String(props.lastTurn.pause.reason ?? props.lastTurn.pause.wait_reason ?? '回合已暂停')
-  if (props.lastTurn?.turn_id) return `回合 ${props.lastTurn.turn_id} 已提交`
   return ''
 })
+
+const selectedModelLabel = computed(() => profileDisplayName(props.profiles.find((profile) => profile.profile_id === props.selectedModelProfile)))
 
 function onKeydown(rawEvent: Event | KeyboardEvent) {
   const event = rawEvent as KeyboardEvent
@@ -81,7 +82,7 @@ function useStarter(text: string) {
         <div class="chat-bubble">
           <div v-if="row.kind === 'processing'" class="processing-line">
             <span class="pulse-dot" />
-            <span>{{ row.text }}</span>
+            <span>{{ row.terminalOutcome === 'completed' ? '已完成' : row.text }}</span>
             <span v-if="row.meta" class="row-meta">{{ row.meta }}</span>
           </div>
           <template v-else>
@@ -99,8 +100,8 @@ function useStarter(text: string) {
     </div>
 
     <div class="composer-wrap">
-      <el-alert v-if="error" class="send-failure" title="未能完成操作" :description="error" type="error" show-icon :closable="false">
-        <template v-if="retryText" #default><el-button size="small" plain @click="$emit('retry')">重试</el-button></template>
+      <el-alert v-if="error" class="send-failure" title="未能完成操作" :description="error" type="error" show-icon closable>
+        <template #default><el-button size="small" plain @click="$emit('retry')">{{ retryText ? '重试这次对话' : '重新连接' }}</el-button></template>
       </el-alert>
       <div v-for="entry in approvalRows" :key="entry.approval.approval_id" class="approval-prompt" role="status" aria-live="polite">
         <div class="approval-copy">
@@ -126,11 +127,12 @@ function useStarter(text: string) {
           @update:model-value="$emit('update:messageText', String($event))"
         />
         <div class="composer-actions">
+			<span class="composer-model-label">当前模型</span>
 			<el-select
 				class="composer-model-select"
 				:model-value="selectedModelProfile"
 				:disabled="modelSelectionDisabled || !profiles.length"
-				placeholder="为此会话选择模型"
+				:placeholder="selectedModelLabel"
 				filterable
 				@update:model-value="$emit('selectModel', String($event || ''))"
 			>

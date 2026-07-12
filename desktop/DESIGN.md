@@ -29,9 +29,9 @@ hero layouts are deliberately absent.
   their nested sessions, then standalone tasks and chats.
 - The central canvas owns the transcript and composer. Settings contain
   diagnostics; diagnostics never occupy the normal chat surface.
-- The model control is compact in the header. Its sheet shows the configured
-  profiles and their readiness; it must never claim that a merely highlighted
-  profile is the active coordinator binding.
+- The composer owns the current session's model selector. The header's
+  "模型" action opens provider configuration and readiness; it must never
+  claim that a merely highlighted profile is the current session binding.
 
 ## Palette and typography
 
