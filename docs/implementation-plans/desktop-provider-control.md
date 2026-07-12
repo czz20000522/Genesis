@@ -1,14 +1,16 @@
 # Desktop Provider Control Implementation Plan
 
-**Goal:** allow the desktop to configure, verify, and activate existing model
-profiles without terminal-only steps.
+**Goal:** historical implementation record for desktop configuration and
+verification of existing model profiles without terminal-only steps.
 
-**Status:** implementation complete; real configured-profile acceptance remains
-with the user under `APP-DESKTOP-PROVIDER-CONTROL-20260711`.
+**Status:** superseded for ordinary conversations by
+`docs/requirements/kernel-session-model-binding.md` and
+`docs/requirements/desktop-provider-onboarding.md`.
 
 **Architecture:** extract existing `genesisctl` configuration mutation into a
-small shared local owner, project safe DTOs through the desktop backend, and
-restart only a desktop-owned kernel after a validated binding change.
+small shared local owner and project safe DTOs through the desktop backend.
+Ordinary chat binds a profile to one session through the kernel; it does not
+apply a global coordinator binding or restart `genesisd`.
 
 **Red lines:** no frontend secrets, no provider-context assembly in desktop,
 no arbitrary endpoint editor, no external-kernel restart, and no active-turn
@@ -25,7 +27,7 @@ switch.
    calls the kernel's read-only selected-profile verification diagnostic, and
    reports safe reason codes.
 
-## Phase B: Owned Sidecar Activation
+## Retired Phase B: Owned Sidecar Activation
 
 1. Add failing desktop tests for active-turn refusal, owned-sidecar restart,
    settled-session preservation, and external restart-required behavior.
@@ -34,14 +36,17 @@ switch.
 3. Keep all non-secret errors visible to the UI and preserve the written
    selection for a manual retry.
 
+This activation path is not an ordinary chat model selector. Any future use
+must be restricted to an explicit non-conversation runtime role.
+
 ## Phase C: Provider Panel
 
-1. Add frontend tests for safe profile rendering, role/profile selection,
-   one-shot key input clearing, verification status, and apply-result states.
+1. Add frontend tests for safe profile rendering, session/profile selection,
+   one-shot key input clearing, and verification status.
 2. Add a compact Provider panel from the existing top bar; do not create a
    router, settings subsystem, or model mapping form.
-3. Show only configured profiles initially: local Qwen, DeepSeek, and OpenCode
-   Go models validate the generic projection path.
+3. The composer, not this panel, renders the session-local profile selector.
+   The panel imports, verifies, and rotates configured profiles.
 
 ## Phase D: First-Run DeepSeek Flash
 
@@ -53,11 +58,10 @@ switch.
    same owner.
 3. [x] Add one desktop backend setup bridge and a Provider-panel empty state. The
    frontend clears the key, reloads projections, verifies the new profile, and
-   leaves binding/restart to the existing explicit apply action.
+   leaves session binding to the composer.
 4. [ ] `manual_test_pending`: prove a fresh configured DeepSeek Flash profile
-   through the installed desktop-owned restart, a real turn, and restart replay.
-   Do not add arbitrary endpoint inputs, additional templates, or automatic
-   apply.
+   through installed session binding, a real turn, and restart replay. Curated
+   additional templates are governed by the newer onboarding requirement.
 
 **Reference scan:** Reasonix's `internal/config/edit.go` validates and persists
 settings separately from runtime controllers; `desktop/settings_app.go` exposes
@@ -69,6 +73,6 @@ shared local configuration writer but keeps a single approved preset.
 
 Run focused shared-owner, kernel, desktop backend, and frontend tests; then
 `go test ./... -count=1`, `go build ./...`, desktop tests/build, and
-`git diff --check`. Finally use the desktop to rotate or enter a cloud key,
-verify a profile, switch `coordinator`, restart the owned sidecar, submit a
-turn, and confirm an earlier settled session remains readable.
+`git diff --check`. Finally use the desktop to import or rotate a cloud key,
+verify a profile, select it for one session, submit a turn, and confirm an
+earlier settled session remains readable without changing another session.
