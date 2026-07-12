@@ -218,18 +218,27 @@ func TestDesktopUpdateLauncherHidesTheHelperProcess(t *testing.T) {
 		t.Fatalf("read Windows update launcher: %v", err)
 	}
 	text := string(payload)
-	if !strings.Contains(text, "HideWindow: true") {
-		t.Fatal("update installer launcher must hide its helper process")
+	if !strings.Contains(text, "noConsoleSysProcAttr()") {
+		t.Fatal("update installer launcher must suppress its console window")
 	}
 }
 
-func TestKernelSidecarLauncherHidesItsWindowsProcess(t *testing.T) {
+func TestDesktopProcessLaunchersDoNotCreateConsoleWindows(t *testing.T) {
+	for _, name := range []string{"local_service_supervisor.go", "local_model_supervisor.go", "update_launch_windows.go"} {
+		payload, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if !strings.Contains(string(payload), "noConsoleSysProcAttr()") {
+			t.Fatalf("%s must suppress console windows", name)
+		}
+	}
 	payload, err := os.ReadFile("local_service_supervisor.go")
 	if err != nil {
 		t.Fatalf("read local service supervisor: %v", err)
 	}
-	if !strings.Contains(string(payload), "cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}") {
-		t.Fatal("kernel sidecar launcher must hide genesisd.exe window")
+	if !strings.Contains(string(payload), "CreationFlags: windowsCreateNoWindow") {
+		t.Fatal("desktop process attributes must use CREATE_NO_WINDOW")
 	}
 }
 

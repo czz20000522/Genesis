@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -289,7 +288,7 @@ func launchWSLLocalModel(_ context.Context, req localModelLaunchRequest) (localM
 	}
 	args := wslLocalModelArgs(req)
 	cmd := exec.Command("wsl.exe", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = noConsoleSysProcAttr()
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
@@ -327,7 +326,9 @@ func (p *wslLocalModelProcess) stopOwnedLinuxServer(ctx context.Context) error {
 		return nil
 	}
 	script := `pid="$(cat "$1" 2>/dev/null)"; case "$pid" in ''|*[!0-9]*) exit 0;; esac; command="$(tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"; case "$command" in *"$2"*) kill "$pid"; rm -f "$1";; esac`
-	return exec.CommandContext(ctx, "wsl.exe", "-d", p.distribution, "--exec", "/bin/sh", "-c", script, "genesis-local-model-stop", p.pidPath, p.serverPath).Run()
+	command := exec.CommandContext(ctx, "wsl.exe", "-d", p.distribution, "--exec", "/bin/sh", "-c", script, "genesis-local-model-stop", p.pidPath, p.serverPath)
+	command.SysProcAttr = noConsoleSysProcAttr()
+	return command.Run()
 }
 
 func probeLocalModelReadiness(ctx context.Context, healthURL string) sidecarReadinessResult {

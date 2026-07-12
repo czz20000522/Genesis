@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	serviceKindKernel = "kernel"
+	serviceKindKernel     = "kernel"
+	windowsCreateNoWindow = 0x08000000
 
 	serviceOwnershipOwned    = "owned"
 	serviceOwnershipExternal = "external"
@@ -31,6 +32,10 @@ const (
 	sidecarReadinessProbeFailed     = "kernel_readiness_probe_failed"
 	sidecarKernelNotReady           = "kernel_not_ready"
 )
+
+func noConsoleSysProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{HideWindow: true, CreationFlags: windowsCreateNoWindow}
+}
 
 type sidecarProcess interface {
 	PID() int
@@ -275,7 +280,7 @@ func launchGenesisdSidecar(_ context.Context, req sidecarLaunchRequest) (sidecar
 		return nil, err
 	}
 	cmd := exec.Command(exe, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = noConsoleSysProcAttr()
 	cmd.Dir = workDir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -411,6 +416,7 @@ func killLocalProcessTree(ctx context.Context, cmd *exec.Cmd) error {
 	}
 	if runtime.GOOS == "windows" {
 		kill := exec.CommandContext(ctx, "taskkill", "/F", "/T", "/PID", strconv.Itoa(cmd.Process.Pid))
+		kill.SysProcAttr = noConsoleSysProcAttr()
 		if err := kill.Run(); err == nil {
 			return nil
 		}
