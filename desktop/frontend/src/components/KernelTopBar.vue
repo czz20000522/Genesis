@@ -6,16 +6,12 @@ defineProps<{
   sessionId: string
   error: string
   inspectorOpen: boolean
-  localModel: string
-  localModelRunning: boolean
-  localModelStarting: boolean
   providerSummary: string
 }>()
 
 defineEmits<{
   checkReady: []
   toggleInspector: []
-  toggleLocalModel: []
   toggleProvider: []
 }>()
 </script>
@@ -24,13 +20,14 @@ defineEmits<{
   <header class="topbar">
     <div class="topbar-status">
       <strong>Genesis</strong>
-      <span class="provider-status">{{ providerSummary }}</span>
+      <el-button text class="model-summary" @click="$emit('toggleProvider')">{{ providerSummary }}</el-button>
     </div>
     <div class="topbar-actions">
-      <button type="button" class="connection-indicator" :aria-label="readinessLabel(readiness)" :title="readinessLabel(readiness)" @click="$emit('checkReady')"><span :class="`connection-dot connection-dot--${readiness}`" /></button>
-      <button type="button" class="secondary-button" :disabled="localModelStarting" @click="$emit('toggleLocalModel')">{{ localModelStarting ? '正在启动…' : localModelRunning ? '停止本地模型' : '启动本地模型' }}</button>
-      <button type="button" class="secondary-button" @click="$emit('toggleProvider')">模型</button>
-      <button type="button" @click="$emit('toggleInspector')">{{ inspectorOpen ? '收起设置' : '设置' }}</button>
+      <el-tooltip :content="readinessLabel(readiness)">
+        <el-button circle text class="connection-indicator" :aria-label="readinessLabel(readiness)" @click="$emit('checkReady')"><span :class="`connection-dot connection-dot--${readiness}`" /></el-button>
+      </el-tooltip>
+      <el-button text @click="$emit('toggleProvider')">模型</el-button>
+      <el-button text @click="$emit('toggleInspector')">{{ inspectorOpen ? '收起设置' : '设置' }}</el-button>
     </div>
   </header>
 </template>

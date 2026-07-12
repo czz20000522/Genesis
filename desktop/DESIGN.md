@@ -1,83 +1,94 @@
 # Genesis Desktop Design Contract
 
-## Source of truth
+## Status and visual thesis
+
 - Status: Active
-- Last refreshed: 2026-06-29
-- Primary product surface: Wails desktop app
-- Evidence reviewed: `desktop/frontend/src/App.vue`, `desktop/frontend/src/api/kernelApi.ts`, GitHub issues #25 and #26
+- Last refreshed: 2026-07-12
+- CSS strategy: plain component-local Vue markup with one shared `src/styles.css`
+- Visual thesis: a quiet technical workbench — crisp white canvas, graphite
+  project rail, and a restrained deep-teal action color. It should feel like a
+  place to work for hours, not a dashboard or a provider-control utility.
 
-## Brand
-- Personality: local-first, technical, calm, operator-grade
-- Trust signals: visible connection state, explicit current conversation, inspectable diagnostic evidence
-- Avoid: marketing layout, decorative visuals, hidden side effects
+The first screen must orient the user, show the active model truthfully, and
+let them start a conversation. Decorative artwork, gradients, and marketing
+hero layouts are deliberately absent.
 
-## Product goals
-- Goals: make the first screen read as a local assistant chat while keeping confirmations, attachments, diagnostics, context cleanup, and details reachable
-- Non-goals: WebUI polish, multi-session database, provider context construction in the frontend
-- Success signals: user can send a message and inspect processing details without leaving the primary workbench
+## Product model and information architecture
 
-## Personas and jobs
-- Primary personas: local operator, developer/operator validating Genesis
-- User jobs: connect to the local service, send messages, confirm risky actions, inspect details, export diagnostic evidence
-- Key contexts of use: desktop local runtime, single active conversation
+- A **Project** is a durable desktop container with one workspace root and
+  several sessions that share it.
+- A workspace root belongs to at most one Project. Selecting an already-known
+  folder opens a new session in that Project instead of creating a duplicate.
+- A **Task** is a durable standalone session with its own workspace under
+  `C:\Users\Tomczz\Documents\Genesis`.
+- A **Chat** is a durable local transcript without a project workspace.
+- Project and session catalog metadata is desktop-owned state stored under
+  `~/.genesis/desktop/catalog.json`, so it survives WebView cache removal and
+  travels with Genesis Home. It is not kernel truth.
+- The rail holds entry actions, a demand-opened search field, projects and
+  their nested sessions, then standalone tasks and chats.
+- The central canvas owns the transcript and composer. Settings contain
+  diagnostics; diagnostics never occupy the normal chat surface.
+- The model control is compact in the header. Its sheet shows the configured
+  profiles and their readiness; it must never claim that a merely highlighted
+  profile is the active coordinator binding.
 
-## Information architecture
-- Primary navigation: no router; one workbench screen
-- Core surfaces: compact connection bar, conversation rail, central transcript/composer, settings and diagnostics drawer
-- Content hierarchy: chat transcript and composer first, conversation navigation second, diagnostics in settings
+## Palette and typography
 
-## Design principles
-- Principle 1: desktop is a shell over local-service HTTP primitives, not a truth owner
-- Principle 2: confirmations and diagnostics are action/detail surfaces, not chat messages
-- Tradeoffs: chat-first utility layout over decorative polish until the kernel/product flow stabilizes
+| Token | Value | Role |
+| --- | --- | --- |
+| Canvas | `#ffffff` | conversation and composer base |
+| Rail | `oklch(0.98 0.004 250)` | calm structural separation |
+| Ink | `oklch(0.24 0.016 250)` | primary text |
+| Muted | `oklch(0.50 0.018 250)` | secondary text and metadata |
+| Teal | `oklch(0.49 0.105 168)` | primary action and ready state |
+| Amber | `oklch(0.54 0.11 72)` | attention and transitional state |
+| Red | `oklch(0.50 0.18 28)` | action failure only |
 
-## Visual language
-- Color: restrained neutral surface with green primary action, green processing state, amber interruption state, and red denial action
-- Typography: system UI, monospace only for refs/commands/output
-- Spacing/layout rhythm: compact panels with 8px radius
-- Shape/radius/elevation: bordered panels, no nested decorative cards
-- Motion: none
-- Imagery/iconography: none in the walking skeleton
+Use the installed Windows system UI stack (`Bahnschrift`, `Segoe UI`, system
+UI) for direct desktop legibility; use Cascadia Mono only for commands and
+opaque refs. Headings use tight tracking; operational labels remain compact.
 
-## Components
-- Existing components to reuse: `kernelApi.ts` as the HTTP choke point, view helpers for confirmation/material/diagnostic/context/detail projection
-- New/changed components: `KernelTopBar`, `ProviderPanel`, `SessionRail`, `ConversationPane`, `InspectorDrawer`
-- Variants and states: connected/disconnected, configured-profile selection, credential-present status, verification result, owned/external activation result, empty conversation, pending confirmations, diagnostic export available, context cleanup result
-- Token/component ownership: frontend-local CSS only; no design-system dependency
+## Components and interaction
 
-## Accessibility
-- Target standard: usable keyboard/tab flow for walking skeleton
-- Keyboard/focus behavior: native form controls and buttons
-- Contrast/readability: neutral backgrounds and clear error color
-- Screen-reader semantics: labels remain explicit
-- Reduced motion and sensory considerations: no animation
+- Radius scale: 8px controls, 12px elevated panels, pill only for small
+  status metadata.
+- All interactive targets are at least 40px where space permits, have an
+  explicit focus outline, and press with `scale(.96)`.
+- The model sheet is an inline elevated surface below the header, never a
+  modal. Cloud profiles can be verified and set as the **global coordinator
+  default**. Applying it announces that the owned Genesis service restarts and
+  that future, not historical, turns use the selected model.
+  A local profile reveals its own start/stop control; selecting it never
+  starts llama.cpp automatically.
+- The attachment row has separate **Add archive** and **Add folder** actions.
+  The desktop packages a selected folder privately before it reaches the
+  existing kernel upload route. Source archives omit credentials, VCS metadata,
+  and common dependency/build trees; the user sees this policy before sending.
+- A send failure is attached to the composer and preserves a retry path. It
+  must use a concise, user-facing explanation rather than raw provider or
+  socket text.
 
-## Responsive behavior
-- Supported breakpoints/devices: desktop-first, single-column fallback below 980px
-- Layout adaptations: rail, session workspace, and inspector collapse to one column
-- Touch/hover differences: native controls only
+## Depth, motion, and responsive behavior
 
-## Interaction states
-- Loading: live response is transient feedback only; settled display returns to the conversation projection
-- Empty: first viewport still shows a chat shell with prompt chips and composer
-- Error: shared topbar error line
-- Success: local-service projections appear in conversation or diagnostics
-- Disabled: diagnostic download disabled until export exists
-- Offline/slow network, if applicable: readiness/error surface reports request failure
+Use divider lines for permanent layout boundaries and one soft shadow only for
+temporary elevated surfaces (model sheet and composer). Do not create grids of
+identical cards. Hover treatment is enabled only on pointer devices. Motion is
+limited to opacity/transform at 120–140ms and is disabled by reduced-motion
+preferences.
 
-## Content voice
-- Tone: concise operator labels
-- Terminology: local service, conversation, processing, confirmation, settings and diagnostics
-- Microcopy rules: keep kernel/session/timeline/approval/inspector/tool wording out of the primary user surface; expose internal terms only in API, tests, and diagnostics when necessary
+Below 1040px the rail, conversation, and inspector stack; controls retain
+their tap targets and no horizontal clipping is allowed.
 
-## Implementation constraints
-- Framework/styling system: Vue/Vite/Wails, plain CSS
-- Design-token constraints: no new dependency or global state library
-- Performance constraints: no raw event rendering in desktop
-- Compatibility constraints: all local-service calls stay behind `desktop/frontend/src/api/kernelApi.ts`
-- Conversation constraints: new conversations use local opaque ids; desktop adds no DB and no new service route
-- Local service constraints: when `GENESIS_KERNEL_BASE_URL` is unset, desktop owns a `genesisd` sidecar lifecycle; when it is set, desktop treats the kernel as external and must not start or stop it.
-- Test/screenshot expectations: static guard prevents component-level `fetch`
+## Guardrails
 
-## Open questions
-- [ ] Final visual language after the workbench flow survives live use / owner: product / impact: polish timing
+- Do not show provider, kernel, token, ledger, or tool vocabulary in the
+  normal conversation path.
+- Do not provide a default local model binding merely because a local profile
+  exists.
+- Do not expose local model lifecycle controls while a cloud model is selected.
+- Do not let a normal user need a CLI, URL, port, token, or manual restart to
+  select a configured cloud model and send a message.
+- Keep all kernel HTTP access behind `desktop/frontend/src/api/kernelApi.ts`.
+- Desktop projects are user-space metadata; session bindings and transcript
+  facts remain kernel projections.

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { applyProviderRole, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
+import { applyProviderRole, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, loadDesktopCatalog, localModelStatus, pickMaterialDirectory as pickMaterialDirectoryFromDesktop, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveDesktopCatalog, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -9,8 +9,10 @@ import SessionRail from './components/SessionRail.vue'
 import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
+import { activeProfileForRole, isLocalProfile, profileDisplayName } from './modelSelection'
+import { turnErrorLabel } from './display'
 import { isBlankSessionDraft } from './sessionDraft'
-import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
+import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
 import { timelineDetailEntries } from './timelineDetail'
 import { timelineRows, type TimelineRow } from './timelineView'
 
@@ -21,15 +23,15 @@ const sessionId = ref('')
 const sessions = ref<SessionListItem[]>([])
 const sessionSearchQuery = ref('')
 const sessionSearchResults = ref<SessionListItem[]>([])
-const sessionCatalog = ref<DesktopSessionCatalogEntry[]>(loadSessionCatalog())
-const projectCatalog = ref<DesktopProjectCatalogEntry[]>(loadProjectCatalog())
+const sessionCatalog = ref<DesktopSessionCatalogEntry[]>([])
+const projectCatalog = ref<DesktopProjectCatalogEntry[]>([])
 const messageText = ref('')
 const lastTurn = ref<TurnResponse | null>(null)
 const pendingApprovals = ref<ApprovalProjection[]>([])
 const selectedDetailRef = ref('')
 const timeline = ref<KernelTimeline | null>(null)
 const detail = ref<KernelTimelineDetail | null>(null)
-const selectedFile = ref<File | MaterialFileSelection | null>(null)
+const selectedFile = ref<MaterialFileSelection | null>(null)
 const material = ref<MaterialIntakeProjection | null>(null)
 const debugExport = ref<SessionDebugExport | null>(null)
 const compaction = ref<ContextCompactionResponse | null>(null)
@@ -48,7 +50,6 @@ const providerBusy = ref(false)
 const providerNotice = ref('')
 const providerProfilesState = ref<ProviderProfile[]>([])
 const providerRoleBindings = ref<Record<string, string>>({})
-const selectedProviderRole = ref('coordinator')
 const selectedProviderProfile = ref('')
 const providerCredential = ref('')
 const updateToken = ref('')
@@ -97,7 +98,8 @@ const displayedRows = computed(() => {
   return rows
 })
 const detailEntries = computed(() => timelineDetailEntries(timeline.value?.items))
-const selectedFileName = computed(() => selectedFile.value ? ('name' in selectedFile.value ? selectedFile.value.name : selectedFile.value.filename) : '')
+const selectedFileName = computed(() => selectedFile.value?.filename ?? '')
+const selectedFileIsDirectory = computed(() => selectedFile.value?.kind === 'directory')
 const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
 const debugSummaryRows = computed(() => debugExport.value ? debugSummary(debugExport.value) : [])
 const compactionSummaryRows = computed(() => compaction.value ? compactionSummary(compaction.value) : [])
@@ -109,10 +111,11 @@ const localModelLabel = computed(() => {
   return '本地模型已停止'
 })
 const providerSummary = computed(() => {
-  const profile = providerProfilesState.value.find((item) => item.profile_id === selectedProviderProfile.value)
-  if (!profile) return '模型未配置'
-  return `${profile.model_id || profile.profile_id || '模型'} · ${selectedProviderRole.value || 'coordinator'}`
+  return profileDisplayName(activeCoordinatorProfile.value)
 })
+const coordinatorRole = 'coordinator'
+const activeCoordinatorProfile = computed(() => activeProfileForRole(providerProfilesState.value, providerRoleBindings.value, coordinatorRole))
+const selectedProviderIsLocal = computed(() => isLocalProfile(providerProfilesState.value.find((item) => item.profile_id === selectedProviderProfile.value)))
 
 function currentSession() {
   const session = sessionId.value.trim()
@@ -136,9 +139,14 @@ async function createEmptyProject(name: string) {
   error.value = ''
   try {
     const workspace = await createProjectWorkspace(name)
+    if (workspace.existing) {
+      error.value = '该项目目录已存在。请用“使用现有文件夹”添加它，或换一个名称。'
+      return
+    }
     const project = { projectId: newDesktopProjectId(), name: name.trim(), root: workspace.root }
     recordProjectCatalogEntry(project)
     projectCatalog.value = loadProjectCatalog()
+    await persistDesktopCatalog()
     await createProjectSession(project)
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -150,9 +158,15 @@ async function useExistingProjectFolder() {
   try {
     const picked = await pickProjectDirectory()
     if (!picked) return
+    const existing = projectCatalog.value.find((project) => sameWorkspaceRoot(project.root, picked.root))
+    if (existing) {
+      await createProjectSession(existing)
+      return
+    }
     const project = { projectId: newDesktopProjectId(), name: picked.name, root: picked.root }
     recordProjectCatalogEntry(project)
     projectCatalog.value = loadProjectCatalog()
+    await persistDesktopCatalog()
     await createProjectSession(project)
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -184,6 +198,7 @@ async function bindAndActivateSession(entry: Omit<DesktopSessionCatalogEntry, 's
   sessionId.value = nextSessionId
   recordSessionCatalogEntry({ ...entry, sessionId: nextSessionId })
   sessionCatalog.value = loadSessionCatalog()
+  await persistDesktopCatalog()
   resetSessionViewState()
   await loadSessions()
 }
@@ -301,7 +316,7 @@ async function loadProviderProfiles() {
   const payload = await providerProfiles()
   providerProfilesState.value = payload.profiles ?? []
   providerRoleBindings.value = payload.role_bindings ?? {}
-  const bound = providerRoleBindings.value[selectedProviderRole.value]
+  const bound = providerRoleBindings.value[coordinatorRole]
   if (bound && providerProfilesState.value.some((profile) => profile.profile_id === bound)) {
     selectedProviderProfile.value = bound
   } else if (!selectedProviderProfile.value || !providerProfilesState.value.some((profile) => profile.profile_id === selectedProviderProfile.value)) {
@@ -312,6 +327,15 @@ async function loadProviderProfiles() {
 async function toggleProviderPanel() {
   providerOpen.value = !providerOpen.value
   if (!providerOpen.value) return
+  await loadProviderPanel()
+}
+
+async function openProviderPanel() {
+  providerOpen.value = true
+  await loadProviderPanel()
+}
+
+async function loadProviderPanel() {
   providerNotice.value = ''
   try {
     await loadProviderProfiles()
@@ -339,7 +363,7 @@ async function verifySelectedProvider() {
   providerBusy.value = true
   providerNotice.value = ''
   try {
-    const result = await verifyProvider(selectedProviderRole.value, selectedProviderProfile.value)
+    const result = await verifyProvider(coordinatorRole, selectedProviderProfile.value)
     providerNotice.value = result.readiness === 'ready'
       ? `验证成功：${result.model || selectedProviderProfile.value}`
       : `验证未就绪：${result.readiness_reason || 'provider_not_ready'}`
@@ -354,9 +378,11 @@ async function applySelectedProvider() {
   providerBusy.value = true
   providerNotice.value = ''
   try {
-    const result = await applyProviderRole(selectedProviderRole.value, selectedProviderProfile.value)
+    const result = await applyProviderRole(coordinatorRole, selectedProviderProfile.value)
     if (result.status === 'owned_kernel_restarted') {
-      providerNotice.value = '已应用并重启本地 Genesis 服务。'
+      providerNotice.value = selectedProviderIsLocal.value
+        ? '已更新全局默认模型。启动本地模型后，之后的新回合即可使用它。'
+        : '已更新全局默认模型；之后的新回合将使用此模型。'
       await checkReady()
     } else if (result.status === 'external_kernel_restart_required') {
       providerNotice.value = '配置已保存；外部 Genesis 服务需要由其所有者重启。'
@@ -423,6 +449,11 @@ async function sendMessage() {
   const text = messageText.value.trim()
   const session = currentSession()
   if (!session) return
+  if (!activeCoordinatorProfile.value) {
+    error.value = '请先选择一个模型，然后再发送消息。'
+    await openProviderPanel()
+    return
+  }
   if (!text && !selectedFile.value) {
     error.value = '请输入消息或选择附件'
     return
@@ -455,7 +486,8 @@ async function sendMessage() {
       await loadWorkerInvocations(session)
       await loadSessions()
     } else {
-      error.value = message
+      error.value = turnErrorLabel(message)
+      if (message.toLowerCase().includes('llama.cpp') || message.toLowerCase().includes('connection refused')) await openProviderPanel()
       liveUserText.value = ''
       liveAssistantText.value = ''
     }
@@ -552,12 +584,13 @@ async function loadDetail(detailRef = selectedDetailRef.value) {
   }
 }
 
-function selectMaterial(event: Event) {
-  selectedFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
+async function pickMaterialArchive() {
+  const picked = await pickMaterialFile()
+  if (picked) selectedFile.value = picked
 }
 
-async function pickMaterial() {
-  const picked = await pickMaterialFile()
+async function pickMaterialFolder() {
+  const picked = await pickMaterialDirectoryFromDesktop()
   if (picked) selectedFile.value = picked
 }
 
@@ -628,11 +661,16 @@ function newDesktopIdempotencyKey() {
   return `desktop-turn-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function sameWorkspaceRoot(left: string, right: string) {
+  return String(left || '').trim().replace(/[\\/]+$/, '').toLowerCase() === String(right || '').trim().replace(/[\\/]+$/, '').toLowerCase()
+}
+
 onMounted(() => {
   void initializeDesktop()
 })
 
 async function initializeDesktop() {
+  await restoreDesktopCatalog()
   await refreshLocalModelStatus()
   try { desktopCloseBehavior.value = await closeBehavior() } catch {}
   try {
@@ -642,6 +680,27 @@ async function initializeDesktop() {
   }
   await checkReady()
   if (!sessionId.value) await createChatSession()
+}
+
+async function restoreDesktopCatalog() {
+  const legacyProjects = loadProjectCatalog()
+  const legacySessions = loadSessionCatalog()
+  try {
+    const catalog = await loadDesktopCatalog()
+    if (catalog && ((catalog.projects?.length ?? 0) > 0 || (catalog.sessions?.length ?? 0) > 0)) {
+      replaceDesktopCatalog(catalog.projects ?? [], catalog.sessions ?? [])
+    } else if (legacyProjects.length || legacySessions.length) {
+      await saveDesktopCatalog({ projects: legacyProjects, sessions: legacySessions })
+    }
+  } catch (err) {
+    error.value = '项目列表暂时无法保存到 Genesis Home。'
+  }
+  projectCatalog.value = loadProjectCatalog()
+  sessionCatalog.value = loadSessionCatalog()
+}
+
+async function persistDesktopCatalog() {
+  await saveDesktopCatalog({ projects: projectCatalog.value, sessions: sessionCatalog.value })
 }
 </script>
 
@@ -670,31 +729,29 @@ async function initializeDesktop() {
           :readiness="readiness"
           :error="error"
           :inspector-open="inspectorOpen"
-          :local-model="localModelLabel"
-          :local-model-running="localModelRunning"
-		  :local-model-starting="localModelStarting"
           :provider-summary="providerSummary"
           @check-ready="checkReady"
-          @toggle-local-model="toggleLocalModel"
           @toggle-provider="toggleProviderPanel"
           @toggle-inspector="inspectorOpen = !inspectorOpen"
         />
         <ProviderPanel
           v-if="providerOpen"
           :profiles="providerProfilesState"
-          :role-bindings="providerRoleBindings"
-          :selected-role="selectedProviderRole"
           :selected-profile="selectedProviderProfile"
           :credential="providerCredential"
           :busy="providerBusy"
           :notice="providerNotice"
+          :selected-profile-is-local="selectedProviderIsLocal"
+          :local-model-label="localModelLabel"
+          :local-model-starting="localModelStarting"
+          :local-model-running="localModelRunning"
           @close="providerOpen = false"
-          @update:selected-role="selectedProviderRole = $event"
           @update:selected-profile="selectedProviderProfile = $event"
           @update:credential="providerCredential = $event"
           @rotate-credential="saveProviderCredential"
           @verify="verifySelectedProvider"
           @apply="applySelectedProvider"
+          @toggle-local-model="toggleLocalModel"
         />
       </div>
 
@@ -705,6 +762,7 @@ async function initializeDesktop() {
         :rows="displayedRows"
         :detail-entries="detailEntries"
         :selected-file-name="selectedFileName"
+		:selected-file-is-directory="selectedFileIsDirectory"
         :error="error"
         :readiness="readiness"
         :approvals="pendingApprovals"
@@ -714,9 +772,9 @@ async function initializeDesktop() {
         @update:message-text="messageText = $event"
         @send-message="sendMessage"
         @decide-approval="answerApproval"
-        @pick-material="pickMaterial"
+        @pick-material-archive="pickMaterialArchive"
+        @pick-material-directory="pickMaterialFolder"
         @load-detail="loadDetail"
-        @select-material="selectMaterial"
         @retry="retryFailedTurn"
         @interrupt="interruptCurrentTurn"
       />

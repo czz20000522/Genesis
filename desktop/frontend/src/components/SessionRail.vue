@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { ChatDotRound, EditPen, FolderAdd, Plus, Search } from '@element-plus/icons-vue'
 import type { SessionListItem } from '../api/kernelApi'
 import type { DesktopProjectCatalogEntry, DesktopSessionCatalogEntry } from '../sessionCatalog'
 import { sessionLabel, sessionStatus } from '../display'
@@ -73,25 +74,25 @@ const emit = defineEmits<{
     </div>
 
     <nav class="rail-primary" aria-label="工作台入口">
-      <button type="button" class="rail-primary-action" @click="$emit('newTask')"><span aria-hidden="true">✎</span> 新建任务</button>
-      <button type="button" class="rail-primary-action" @click="$emit('newChat')"><span aria-hidden="true">◌</span> 聊天</button>
-      <button type="button" class="rail-primary-action" @click="searchOpen = !searchOpen"><span aria-hidden="true">⌕</span> 搜索</button>
+      <el-button text class="rail-primary-action" @click="$emit('newTask')"><el-icon><EditPen /></el-icon> 新建任务</el-button>
+      <el-button text class="rail-primary-action" @click="$emit('newChat')"><el-icon><ChatDotRound /></el-icon> 聊天</el-button>
+      <el-button text class="rail-primary-action" @click="searchOpen = !searchOpen"><el-icon><Search /></el-icon> 搜索</el-button>
     </nav>
 
     <div class="rail-section-heading rail-projects-heading">
       <strong>项目</strong>
-      <button type="button" aria-label="新建项目" @click="projectMenuOpen = !projectMenuOpen">+</button>
+      <el-button text circle aria-label="新建项目" @click="projectMenuOpen = !projectMenuOpen"><el-icon><Plus /></el-icon></el-button>
     </div>
     <div v-if="projectMenuOpen" class="project-menu">
       <form @submit.prevent="createEmptyProject">
-        <input v-model="projectName" placeholder="项目名称" aria-label="新项目名称" />
-        <button type="submit">新建空白项目</button>
+        <el-input v-model="projectName" placeholder="项目名称" aria-label="新项目名称" />
+        <el-button type="primary" native-type="submit">新建</el-button>
       </form>
-      <button type="button" class="project-menu-link" @click="projectMenuOpen = false; $emit('useExistingProjectFolder')">使用现有文件夹</button>
+      <el-button plain class="project-menu-link" @click="projectMenuOpen = false; $emit('useExistingProjectFolder')"><el-icon><FolderAdd /></el-icon>使用现有文件夹</el-button>
     </div>
 
     <label v-if="searchOpen" class="session-search">
-      <input :value="searchQuery" placeholder="搜索会话…" @input="$emit('update:searchQuery', ($event.target as HTMLInputElement).value)" />
+      <el-input :model-value="searchQuery" placeholder="搜索会话…" @update:model-value="$emit('update:searchQuery', String($event))" />
     </label>
 
     <nav class="session-list" aria-label="会话">

@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { applyProviderRole, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
+import { applyProviderRole, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, pickMaterialDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
-import { connectionErrorLabel, readinessLabel, sessionLabel, sessionStatus } from '../src/display.ts'
+import { connectionErrorLabel, readinessLabel, sessionLabel, sessionStatus, turnErrorLabel } from '../src/display.ts'
 import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { isBlankSessionDraft } from '../src/sessionDraft.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
 import { timelineRows } from '../src/timelineView.ts'
-import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry } from '../src/sessionCatalog.ts'
+import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog } from '../src/sessionCatalog.ts'
 
 const values = new Map<string, string>()
 const storage = {
@@ -75,6 +75,16 @@ globalThis.go = {
 assert.deepEqual(await createProjectWorkspace(' alpha '), { root: 'C:\\Users\\Tomczz\\Documents\\Genesis\\alpha' })
 globalThis.go = undefined
 
+globalThis.go = {
+  main: {
+    App: {
+      PickMaterialDirectory: async () => ({ file_path: 'D:\\repo', filename: 'repo', kind: 'directory' }),
+    },
+  },
+}
+assert.deepEqual(await pickMaterialDirectory(), { file_path: 'D:\\repo', filename: 'repo', kind: 'directory' })
+globalThis.go = undefined
+
 saveKernelConfig({ baseUrl: 'http://127.0.0.1:8765/', runtimeToken: ' token ' }, storage)
 assert.deepEqual(kernelConfig(storage), {
   baseUrl: 'http://127.0.0.1:8765',
@@ -93,6 +103,9 @@ assert.deepEqual(loadSessionCatalog(storage), [
   { sessionId: 'task-session', kind: 'task', projectId: '', root: 'C:\\Users\\Tomczz\\Documents\\Genesis\\task-session', name: '' },
   { sessionId: 'chat-session', kind: 'chat', projectId: '', root: '', name: '' },
 ])
+replaceDesktopCatalog([{ projectId: 'project-b', name: 'repo-b', root: 'D:\\repo-b' }], [{ sessionId: 'chat-b', kind: 'chat' }], storage)
+assert.deepEqual(loadProjectCatalog(storage), [{ projectId: 'project-b', name: 'repo-b', root: 'D:\\repo-b' }])
+assert.deepEqual(loadSessionCatalog(storage), [{ sessionId: 'chat-b', kind: 'chat', projectId: '', root: '', name: '' }])
 
 assert.equal(kernelUrl('http://127.0.0.1:8765/', '/ready'), 'http://127.0.0.1:8765/ready')
 assert.equal(kernelUrl('', 'capabilities'), 'http://127.0.0.1:8765/capabilities')
@@ -106,6 +119,10 @@ assert.equal(sessionStatus('a', 'a'), '正在使用')
 assert.equal(sessionStatus('a', 'b'), '未打开')
 assert.equal(connectionErrorLabel('Failed to fetch'), '连接失败，请检查本地服务')
 assert.equal(connectionErrorLabel(''), '')
+assert.equal(turnErrorLabel('provider_profile_missing'), '请先选择一个模型，然后再发送消息。')
+assert.equal(turnErrorLabel('llama.cpp server unavailable: [WinError 10061]'), '本地模型尚未启动。请在“模型”中启动它，或改用云端模型。')
+assert.equal(turnErrorLabel('provider error: unauthorized'), '模型凭据不可用。请在“模型”中检查 API Key。')
+assert.equal(turnErrorLabel('provider command failed: exit status 1'), '模型服务暂时无法完成此请求。请稍后重试或切换模型。')
 assert.equal(isBlankSessionDraft({}), true)
 assert.equal(isBlankSessionDraft({ messageText: 'hello' }), false)
 assert.equal(isBlankSessionDraft({ selectedFileName: 'package.zip' }), false)

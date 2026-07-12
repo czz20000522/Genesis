@@ -180,6 +180,12 @@ export type TaskWorkspaceSelection = {
 
 export type ProjectWorkspaceSelection = {
   root: string
+  existing?: boolean
+}
+
+export type DesktopCatalogProjection = {
+  projects?: Array<{ projectId: string, name: string, root: string }>
+  sessions?: Array<{ sessionId: string, kind: 'project' | 'task' | 'chat', projectId?: string, root?: string, name?: string }>
 }
 
 export type ApprovalDecision = 'approved' | 'denied'
@@ -195,6 +201,7 @@ export type ContextCompactionResponse = {
 export type MaterialFileSelection = {
   file_path: string
   filename: string
+  kind?: 'archive' | 'directory'
 }
 
 export type LocalModelStatus = {
@@ -427,6 +434,18 @@ export async function createProjectWorkspace(name: string): Promise<ProjectWorks
   return bridge.CreateProjectWorkspace(normalized)
 }
 
+export async function loadDesktopCatalog(): Promise<DesktopCatalogProjection | null> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.LoadDesktopCatalog) return null
+  return bridge.LoadDesktopCatalog() as Promise<DesktopCatalogProjection>
+}
+
+export async function saveDesktopCatalog(catalog: DesktopCatalogProjection): Promise<void> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.SaveDesktopCatalog) return
+  await bridge.SaveDesktopCatalog(catalog)
+}
+
 export async function getTimelineDetail(config: KernelConfig, sessionId: string, detailRef: string) {
   const session = requiredSessionId(sessionId)
   const bridge = wailsAppBridge()
@@ -441,6 +460,12 @@ export async function pickMaterialFile(): Promise<MaterialFileSelection | null> 
   const bridge = wailsAppBridge()
   if (!bridge?.PickMaterialFile) return null
   return bridge.PickMaterialFile()
+}
+
+export async function pickMaterialDirectory(): Promise<MaterialFileSelection | null> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.PickMaterialDirectory) return null
+  return bridge.PickMaterialDirectory()
 }
 
 export async function uploadMaterial(config: KernelConfig, sessionId: string, file: File | MaterialFileSelection) {
@@ -644,8 +669,11 @@ type WailsAppBridge = {
   PickProjectDirectory?: () => Promise<ProjectDirectorySelection | null>
   CreateTaskWorkspace?: (sessionId: string) => Promise<TaskWorkspaceSelection>
   CreateProjectWorkspace?: (name: string) => Promise<ProjectWorkspaceSelection>
+  LoadDesktopCatalog?: () => Promise<DesktopCatalogProjection>
+  SaveDesktopCatalog?: (catalog: DesktopCatalogProjection) => Promise<unknown>
   DecideApproval?: (approvalId: string, decision: ApprovalDecision, reason: string) => Promise<unknown>
   PickMaterialFile?: () => Promise<MaterialFileSelection | null>
+  PickMaterialDirectory?: () => Promise<MaterialFileSelection | null>
   UploadMaterial?: (request: MaterialBridgeRequest) => Promise<unknown>
   EnableSessionDebug?: (sessionId: string) => Promise<unknown>
   ExportSessionDebug?: (sessionId: string) => Promise<unknown>

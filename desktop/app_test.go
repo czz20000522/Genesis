@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -60,7 +62,7 @@ func TestCreateTaskWorkspaceRejectsSessionPathTraversal(t *testing.T) {
 
 func TestCreateProjectWorkspaceUsesNamedGenesisDirectory(t *testing.T) {
 	root := filepath.Join(desktopTestTempDir(t), "Genesis")
-	workspace, err := createProjectWorkspace(root, "alpha")
+	workspace, existing, err := createProjectWorkspace(root, "alpha")
 	if err != nil {
 		t.Fatalf("create project workspace: %v", err)
 	}
@@ -71,7 +73,13 @@ func TestCreateProjectWorkspaceUsesNamedGenesisDirectory(t *testing.T) {
 	if workspace != want {
 		t.Fatalf("project workspace = %q, want %q", workspace, want)
 	}
-	if _, err := createProjectWorkspace(root, "../outside"); err == nil {
+	if existing {
+		t.Fatal("new project workspace reported existing")
+	}
+	if _, existing, err := createProjectWorkspace(root, "alpha"); err != nil || !existing {
+		t.Fatalf("existing project workspace = %q, %v, want existing root", workspace, err)
+	}
+	if _, _, err := createProjectWorkspace(root, "../outside"); err == nil {
 		t.Fatal("create project workspace accepted path traversal name")
 	}
 }
@@ -93,6 +101,34 @@ func TestDesktopCloseBehaviorDefaultsToExitAndPersistsTraySelection(t *testing.T
 	}
 	if _, err := normalizedCloseBehavior("unexpected"); err == nil {
 		t.Fatal("accepted unknown close behavior")
+	}
+}
+
+func TestDesktopCatalogPersistsProjectAndSessionMetadataUnderGenesisHome(t *testing.T) {
+	dir := desktopTestTempDir(t)
+	previous := desktopCatalogHomeDir
+	desktopCatalogHomeDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { desktopCatalogHomeDir = previous })
+	catalog := DesktopCatalogProjection{
+		Projects: []DesktopProjectCatalogProjection{{ProjectID: "project-a", Name: "Alpha", Root: "D:\\work\\alpha"}},
+		Sessions: []DesktopSessionCatalogProjection{{SessionID: "session-a", Kind: "project", ProjectID: "project-a", Root: "D:\\work\\alpha"}},
+	}
+	if err := saveDesktopCatalog(catalog); err != nil {
+		t.Fatalf("save desktop catalog: %v", err)
+	}
+	loaded, err := loadDesktopCatalog()
+	if err != nil {
+		t.Fatalf("load desktop catalog: %v", err)
+	}
+	if !slices.Equal(loaded.Projects, catalog.Projects) || !slices.Equal(loaded.Sessions, catalog.Sessions) {
+		t.Fatalf("catalog = %+v, want %+v", loaded, catalog)
+	}
+	path, err := desktopCatalogPath()
+	if err != nil {
+		t.Fatalf("catalog path: %v", err)
+	}
+	if !strings.Contains(filepath.ToSlash(path), "/.genesis/desktop/catalog.json") {
+		t.Fatalf("catalog path = %q, want Genesis Home desktop catalog", path)
 	}
 }
 
@@ -908,6 +944,99 @@ func TestUploadMaterialBridgePostsMultipartThroughGoChokePoint(t *testing.T) {
 	}
 	if payload["admission_result"] != "admitted" {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestUploadMaterialBridgePackagesSelectedDirectory(t *testing.T) {
+	root := filepath.Join(desktopTestTempDir(t), "repo")
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("create source directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# repo\n"), 0o600); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("create metadata directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "config"), []byte("private metadata"), 0o600); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("API_KEY=private"), 0o600); err != nil {
+		t.Fatalf("write environment secret: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "id_ed25519"), []byte("private key"), 0o600); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "credentials.json"), []byte(`{"token":"private"}`), 0o600); err != nil {
+		t.Fatalf("write credentials: %v", err)
+	}
+
+	var gotFilename string
+	var archiveBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(4 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("FormFile: %v", err)
+		}
+		defer file.Close()
+		gotFilename = header.Filename
+		archiveBody, _ = io.ReadAll(file)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"admission_result":"admitted"}`))
+	}))
+	defer server.Close()
+
+	app := NewApp()
+	app.client = NewKernelHTTPClient(server.URL, "token", server.Client())
+	if _, err := app.UploadMaterial(MaterialBridgeRequest{SessionID: "session-directory", Purpose: "source_analysis", FilePath: root}); err != nil {
+		t.Fatalf("UploadMaterial directory returned error: %v", err)
+	}
+	if gotFilename != "repo.zip" {
+		t.Fatalf("uploaded filename = %q, want repo.zip", gotFilename)
+	}
+	archive, err := zip.NewReader(strings.NewReader(string(archiveBody)), int64(len(archiveBody)))
+	if err != nil {
+		t.Fatalf("uploaded directory is not a zip archive: %v", err)
+	}
+	entries := make([]string, 0, len(archive.File))
+	for _, file := range archive.File {
+		entries = append(entries, file.Name)
+	}
+	if !slices.Contains(entries, "README.md") || !slices.Contains(entries, "src/main.go") {
+		t.Fatalf("archive entries = %v, want project source files", entries)
+	}
+	for _, excluded := range []string{".env", ".git/config", "id_ed25519", "credentials.json"} {
+		if slices.Contains(entries, excluded) {
+			t.Fatalf("archive entries = %v, must exclude %s", entries, excluded)
+		}
+	}
+}
+
+func TestArchiveMaterialDirectoryRejectsOversizedSourceFile(t *testing.T) {
+	root := filepath.Join(desktopTestTempDir(t), "repo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("create source directory: %v", err)
+	}
+	oversized := filepath.Join(root, "large.bin")
+	file, err := os.Create(oversized)
+	if err != nil {
+		t.Fatalf("create oversized source: %v", err)
+	}
+	if err := file.Truncate(desktopMaterialMaxFileBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatalf("size oversized source: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close oversized source: %v", err)
+	}
+	if _, err := archiveMaterialDirectory(root); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("archiveMaterialDirectory error = %v, want oversized file refusal", err)
 	}
 }
 

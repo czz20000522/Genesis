@@ -61,6 +61,14 @@ export function recordSessionCatalogEntry(entry: DesktopSessionCatalogEntry, sto
   storage.setItem(sessionCatalogKey, JSON.stringify(next))
 }
 
+export function replaceDesktopCatalog(projects: DesktopProjectCatalogEntry[], sessions: DesktopSessionCatalogEntry[], storage: CatalogStorage | null = safeLocalStorage()) {
+  if (!storage) return
+  const normalizedProjects = projects.flatMap(normalizeProjectCatalogEntry)
+  const normalizedSessions = sessions.flatMap(normalizeCatalogEntry)
+  storage.setItem(projectCatalogKey, JSON.stringify(normalizedProjects))
+  storage.setItem(sessionCatalogKey, JSON.stringify(normalizedSessions))
+}
+
 function normalizeCatalogEntry(value: unknown): DesktopSessionCatalogEntry[] {
   if (!value || typeof value !== 'object') return []
   const item = value as Partial<DesktopSessionCatalogEntry>

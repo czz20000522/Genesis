@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --experimental-strip-types ./tests/kernelApi.test.ts && node --experimental-strip-types ./tests/assistantMarkdown.test.ts",
+    "test": "node --experimental-strip-types ./tests/kernelApi.test.ts && node --experimental-strip-types ./tests/assistantMarkdown.test.ts && node --experimental-strip-types ./tests/modelSelection.test.ts",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
     "@types/markdown-it": "^14.1.2",
+    "element-plus": "^2.14.3",
     "markdown-it": "^14.3.0",
     "mermaid": "^11.16.0",
     "vue": "^3.5.13"

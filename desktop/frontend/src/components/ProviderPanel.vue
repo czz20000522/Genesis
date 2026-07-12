@@ -3,22 +3,24 @@ import type { ProviderProfile } from '../api/kernelApi'
 
 defineProps<{
   profiles: ProviderProfile[]
-  roleBindings: Record<string, string>
-  selectedRole: string
   selectedProfile: string
   credential: string
   busy: boolean
   notice: string
+  selectedProfileIsLocal: boolean
+  localModelLabel: string
+  localModelStarting: boolean
+  localModelRunning: boolean
 }>()
 
 defineEmits<{
   close: []
-  'update:selectedRole': [value: string]
   'update:selectedProfile': [value: string]
   'update:credential': [value: string]
   rotateCredential: []
   verify: []
   apply: []
+  toggleLocalModel: []
 }>()
 </script>
 
@@ -26,36 +28,45 @@ defineEmits<{
   <section class="provider-panel" aria-label="模型提供商配置">
     <div class="provider-panel-head">
       <div>
-        <p class="eyebrow">模型与提供商</p>
-        <strong>已配置的模型</strong>
+        <p class="eyebrow">全局默认协调模型</p>
+        <strong>选择后续对话的默认模型</strong>
       </div>
-      <button type="button" class="secondary-button" @click="$emit('close')">关闭</button>
+      <el-button plain @click="$emit('close')">关闭</el-button>
     </div>
 
-    <p v-if="!profiles.length" class="provider-empty">未发现已配置的模型。</p>
+    <el-empty v-if="!profiles.length" class="provider-empty" description="未发现已配置的模型" :image-size="64" />
     <div v-else class="provider-controls">
       <label>
-        角色
-        <input :value="selectedRole" spellcheck="false" @input="$emit('update:selectedRole', ($event.target as HTMLInputElement).value)" />
+        模型
+        <el-select :model-value="selectedProfile" filterable placeholder="选择模型" @update:model-value="$emit('update:selectedProfile', String($event))">
+          <el-option v-for="profile in profiles" :key="profile.profile_id" :value="String(profile.profile_id || '')" :label="`${profile.model_id} · ${profile.profile_id}`">
+            <span>{{ profile.model_id }}</span>
+            <small>{{ profile.gateway_route }}</small>
+          </el-option>
+        </el-select>
       </label>
-      <label>
-        Profile
-        <select :value="selectedProfile" @change="$emit('update:selectedProfile', ($event.target as HTMLSelectElement).value)">
-          <option v-for="profile in profiles" :key="profile.profile_id" :value="profile.profile_id">
-            {{ profile.model_id }} · {{ profile.profile_id }}
-          </option>
-        </select>
-      </label>
-      <label>
-        API Key（仅本次提交）
-        <input :value="credential" type="password" autocomplete="off" spellcheck="false" @input="$emit('update:credential', ($event.target as HTMLInputElement).value)" />
-      </label>
-      <div class="button-row">
-        <button type="button" class="secondary-button" :disabled="busy || !credential.trim()" @click="$emit('rotateCredential')">保存密钥</button>
-        <button type="button" class="secondary-button" :disabled="busy || !selectedProfile" @click="$emit('verify')">验证模型</button>
-        <button type="button" :disabled="busy || !selectedProfile" @click="$emit('apply')">应用并重启</button>
+      <el-alert title="应用后会重启本机 Genesis 服务；已持久化的会话记录不会改变，之后的新回合会使用此模型。" type="warning" :closable="false" show-icon />
+      <div v-if="selectedProfileIsLocal" class="local-model-control">
+        <div>
+          <strong>本地模型</strong>
+          <p>{{ localModelLabel }}</p>
+        </div>
+        <el-button plain :loading="localModelStarting" :disabled="busy || localModelStarting" @click="$emit('toggleLocalModel')">{{ localModelStarting ? '正在启动…' : localModelRunning ? '停止本地模型' : '启动本地模型' }}</el-button>
       </div>
-      <p v-if="notice" class="provider-notice">{{ notice }}</p>
+      <div class="button-row">
+        <el-button plain :loading="busy" :disabled="busy || !selectedProfile" @click="$emit('verify')">验证模型</el-button>
+        <el-button type="primary" :loading="busy" :disabled="busy || !selectedProfile" @click="$emit('apply')">应用并重启服务</el-button>
+      </div>
+      <el-alert v-if="notice" class="provider-notice" :title="notice" type="info" :closable="false" show-icon />
+      <el-collapse class="provider-credential">
+        <el-collapse-item title="更改此模型的 API Key" name="credential">
+        <label>
+          API Key（保存到本机受保护存储）
+          <el-input :model-value="credential" type="password" show-password autocomplete="off" @update:model-value="$emit('update:credential', String($event))" />
+        </label>
+        <el-button plain :loading="busy" :disabled="busy || !credential.trim()" @click="$emit('rotateCredential')">保存密钥</el-button>
+        </el-collapse-item>
+      </el-collapse>
     </div>
 
     <ul v-if="profiles.length" class="provider-list">

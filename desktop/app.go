@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
 	"context"
 	"crypto/rand"
@@ -9,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -25,7 +27,10 @@ import (
 )
 
 const (
-	defaultKernelBaseURL = "http://127.0.0.1:8765"
+	defaultKernelBaseURL               = "http://127.0.0.1:8765"
+	desktopMaterialMaxFiles            = 4096
+	desktopMaterialMaxFileBytes  int64 = 8 << 20
+	desktopMaterialMaxTotalBytes int64 = 64 << 20
 )
 
 type App struct {
@@ -232,6 +237,7 @@ type MaterialBridgeRequest struct {
 type MaterialFileSelection struct {
 	FilePath string `json:"file_path"`
 	Filename string `json:"filename"`
+	Kind     string `json:"kind"`
 }
 
 type ProjectDirectorySelection struct {
@@ -244,7 +250,8 @@ type TaskWorkspaceSelection struct {
 }
 
 type ProjectWorkspaceSelection struct {
-	Root string `json:"root"`
+	Root     string `json:"root"`
+	Existing bool   `json:"existing"`
 }
 
 func (a *App) Ready() (map[string]any, error) {
@@ -358,7 +365,22 @@ func (a *App) PickMaterialFile() (*MaterialFileSelection, error) {
 	if err != nil || strings.TrimSpace(path) == "" {
 		return nil, err
 	}
-	return &MaterialFileSelection{FilePath: path, Filename: filepath.Base(path)}, nil
+	return &MaterialFileSelection{FilePath: path, Filename: filepath.Base(path), Kind: "archive"}, nil
+}
+
+func (a *App) PickMaterialDirectory() (*MaterialFileSelection, error) {
+	if a.ctx == nil {
+		return nil, errors.New("desktop window is not ready")
+	}
+	path, err := wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{Title: "选择代码或资料目录"})
+	if err != nil || strings.TrimSpace(path) == "" {
+		return nil, err
+	}
+	root, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	return &MaterialFileSelection{FilePath: root, Filename: filepath.Base(root), Kind: "directory"}, nil
 }
 
 func (a *App) PickProjectDirectory() (*ProjectDirectorySelection, error) {
@@ -393,11 +415,11 @@ func (a *App) CreateProjectWorkspace(name string) (*ProjectWorkspaceSelection, e
 	if err != nil {
 		return nil, err
 	}
-	root, err := createProjectWorkspace(filepath.Join(home, "Documents", "Genesis"), name)
+	root, existing, err := createProjectWorkspace(filepath.Join(home, "Documents", "Genesis"), name)
 	if err != nil {
 		return nil, err
 	}
-	return &ProjectWorkspaceSelection{Root: root}, nil
+	return &ProjectWorkspaceSelection{Root: root, Existing: existing}, nil
 }
 
 func (a *App) BindSessionWorkspace(sessionID string, kind string, root string) (map[string]any, error) {
@@ -430,21 +452,26 @@ func createTaskWorkspace(root string, sessionID string) (string, error) {
 	return workspace, nil
 }
 
-func createProjectWorkspace(root string, name string) (string, error) {
+func createProjectWorkspace(root string, name string) (string, bool, error) {
 	root = strings.TrimSpace(root)
 	name = strings.TrimSpace(name)
 	if root == "" || name == "" || name == "." || name == ".." || strings.ContainsAny(name, `\\/`) {
-		return "", errors.New("project name is invalid")
+		return "", false, errors.New("project name is invalid")
 	}
 	absoluteRoot, err := filepath.Abs(root)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	workspace := filepath.Join(absoluteRoot, name)
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		return "", err
+	if _, err := os.Stat(workspace); err == nil {
+		return workspace, true, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", false, err
 	}
-	return workspace, nil
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		return "", false, err
+	}
+	return workspace, false, nil
 }
 
 func (a *App) UploadMaterial(req MaterialBridgeRequest) (map[string]any, error) {
@@ -458,12 +485,163 @@ func (a *App) UploadMaterial(req MaterialBridgeRequest) (map[string]any, error) 
 	if filePath == "" {
 		return nil, errors.New("file_path is required")
 	}
-	file, err := os.Open(filePath)
+	file, filename, cleanup, err := openMaterialUpload(filePath)
 	if err != nil {
 		return nil, err
 	}
+	defer cleanup()
 	defer file.Close()
-	return a.client.PostMultipartFile(ctx, "/materials/upload", true, sessionID, strings.TrimSpace(req.Purpose), filepath.Base(filePath), file)
+	return a.client.PostMultipartFile(ctx, "/materials/upload", true, sessionID, strings.TrimSpace(req.Purpose), filename, file)
+}
+
+func openMaterialUpload(path string) (*os.File, string, func(), error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	if !info.IsDir() {
+		if !info.Mode().IsRegular() {
+			return nil, "", nil, errors.New("material must be a regular file or directory")
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, "", nil, err
+		}
+		return file, filepath.Base(path), func() {}, nil
+	}
+	archivePath, err := archiveMaterialDirectory(path)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	file, err := os.Open(archivePath)
+	if err != nil {
+		_ = os.Remove(archivePath)
+		return nil, "", nil, err
+	}
+	return file, filepath.Base(path) + ".zip", func() { _ = os.Remove(archivePath) }, nil
+}
+
+func archiveMaterialDirectory(root string) (string, error) {
+	root, err := filepath.Abs(strings.TrimSpace(root))
+	if err != nil {
+		return "", err
+	}
+	archive, err := os.CreateTemp("", "genesis-material-*.zip")
+	if err != nil {
+		return "", err
+	}
+	archivePath := archive.Name()
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			_ = archive.Close()
+			_ = os.Remove(archivePath)
+		}
+	}()
+
+	writer := zip.NewWriter(archive)
+	fileCount := 0
+	var totalBytes int64
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+		if entry.IsDir() && excludedMaterialDirectory(entry.Name()) {
+			return filepath.SkipDir
+		}
+		if entry.Type()&os.ModeSymlink != 0 || entry.IsDir() || excludedMaterialFile(entry.Name()) || !entry.Type().IsRegular() {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		if relative == "." || strings.HasPrefix(relative, "../") {
+			return errors.New("material directory entry is outside the selected root")
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Size() > desktopMaterialMaxFileBytes {
+			return fmt.Errorf("selected directory contains a file larger than %d MiB", desktopMaterialMaxFileBytes>>20)
+		}
+		if fileCount >= desktopMaterialMaxFiles {
+			return fmt.Errorf("selected directory contains more than %d files", desktopMaterialMaxFiles)
+		}
+		if totalBytes+info.Size() > desktopMaterialMaxTotalBytes {
+			return fmt.Errorf("selected directory exceeds the %d MiB source upload limit", desktopMaterialMaxTotalBytes>>20)
+		}
+		fileCount++
+		totalBytes += info.Size()
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = relative
+		header.Method = zip.Deflate
+		entryWriter, err := writer.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+		input, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(entryWriter, input)
+		closeErr := input.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+	if err := archive.Close(); err != nil {
+		return "", err
+	}
+	succeeded = true
+	return archivePath, nil
+}
+
+func excludedMaterialDirectory(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case ".aws", ".docker", ".git", ".gnupg", ".hg", ".idea", ".kube", ".ssh", ".svn", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", "dist", "build", "target":
+		return true
+	default:
+		return false
+	}
+}
+
+func excludedMaterialFile(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return false
+	}
+	if strings.HasPrefix(name, ".env") {
+		return true
+	}
+	switch name {
+	case ".netrc", ".npmrc", ".pypirc", "credential.json", "credential.yaml", "credential.yml", "credentials.json", "credentials.yaml", "credentials.yml", "id_dsa", "id_ecdsa", "id_ed25519", "id_rsa", "secrets.json", "secrets.yaml", "secrets.yml":
+		return true
+	}
+	if strings.Contains(name, "service-account") || strings.Contains(name, "serviceaccount") || strings.HasPrefix(name, "firebase-adminsdk") {
+		return true
+	}
+	switch filepath.Ext(name) {
+	case ".key", ".pem", ".p12", ".pfx", ".jks", ".keystore":
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *App) EnableSessionDebug(sessionID string) (map[string]any, error) {
