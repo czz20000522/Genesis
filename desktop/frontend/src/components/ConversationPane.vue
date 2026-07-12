@@ -82,7 +82,7 @@ function useStarter(text: string) {
         <div class="chat-bubble">
           <div v-if="row.kind === 'processing'" class="processing-line">
             <span class="pulse-dot" />
-            <span>{{ row.terminalOutcome === 'completed' ? '已完成' : row.text }}</span>
+            <span>{{ row.terminalOutcome === 'succeeded' ? '已完成' : row.text }}</span>
             <span v-if="row.meta" class="row-meta">{{ row.meta }}</span>
           </div>
           <template v-else>
@@ -100,8 +100,11 @@ function useStarter(text: string) {
     </div>
 
     <div class="composer-wrap">
-      <el-alert v-if="error" class="send-failure" title="未能完成操作" :description="error" type="error" show-icon closable>
-        <template #default><el-button size="small" plain @click="$emit('retry')">{{ retryText ? '重试这次对话' : '重新连接' }}</el-button></template>
+      <el-alert v-if="error" class="send-failure" title="未能完成操作" type="error" show-icon closable>
+        <template #default>
+          <p class="send-failure-description">{{ error }}</p>
+          <el-button size="small" plain @click="$emit('retry')">{{ retryText ? '重试这次对话' : '重新连接' }}</el-button>
+        </template>
       </el-alert>
       <div v-for="entry in approvalRows" :key="entry.approval.approval_id" class="approval-prompt" role="status" aria-live="polite">
         <div class="approval-copy">

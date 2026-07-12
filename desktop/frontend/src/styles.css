@@ -1203,6 +1203,10 @@ pre {
   font-size: 13px;
 }
 
+.send-failure-description {
+  color: oklch(0.4 0.12 28);
+}
+
 @media (hover: hover) {
   button:hover {
     background: var(--primary-dark);

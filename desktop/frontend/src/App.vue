@@ -236,8 +236,8 @@ function isCurrentSessionBlank() {
   })
 }
 
-async function checkReady() {
-  error.value = ''
+async function checkReady(quiet = false): Promise<boolean> {
+  if (!quiet) error.value = ''
   saveKernelConfig(config.value)
   try {
     const payload = await getReady(config.value)
@@ -245,14 +245,26 @@ async function checkReady() {
     readiness.value = providerReadiness === 'ready' ? 'ready' : 'connected'
   } catch (err) {
     readiness.value = 'not_ready'
-    error.value = operationErrorLabel(err, '连接 Genesis 本地服务')
-    return
+    if (!quiet) error.value = operationErrorLabel(err, '连接 Genesis 本地服务')
+    return false
   }
   try {
     await loadSessions()
   } catch (err) {
-    error.value = operationErrorLabel(err, '加载会话列表')
+    if (!quiet) error.value = operationErrorLabel(err, '加载会话列表')
   }
+  return true
+}
+
+async function waitForKernelReady() {
+  readiness.value = 'checking'
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (await checkReady(true)) return true
+    if (attempt < 11) await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  readiness.value = 'not_ready'
+  error.value = 'Genesis 本地服务启动超时，请检查设置后重试。'
+  return false
 }
 
 async function refreshLocalModelStatus() {
@@ -532,15 +544,18 @@ async function sendMessage() {
   }
 	try {
 		timeline.value = await getTimeline(config.value, session)
-		await loadSessionApproval(session)
-		await loadWorkerInvocations(session)
-		await loadTaskGraphs(session)
-		await loadSessions()
 		liveUserText.value = ''
 		liveAssistantText.value = ''
 	} catch {
 		error.value = '回复已完成，但暂时无法刷新会话状态。'
+		return
 	}
+	await Promise.allSettled([
+		loadSessionApproval(session),
+		loadWorkerInvocations(session),
+		loadTaskGraphs(session),
+		loadSessions(),
+	])
 }
 
 async function interruptCurrentTurn() {
@@ -729,8 +744,8 @@ async function initializeDesktop() {
   } catch {
     // Provider configuration is a desktop-only local surface; readiness still loads independently.
   }
-  await checkReady()
-  if (!sessionId.value) await createChatSession()
+  const connected = await waitForKernelReady()
+  if (connected && !sessionId.value) await createChatSession()
 }
 
 async function restoreDesktopCatalog() {
