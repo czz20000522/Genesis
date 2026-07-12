@@ -249,6 +249,20 @@ export type DesktopUpdate = {
   reason?: string
 }
 
+export type CloseBehavior = 'exit' | 'minimize_to_tray'
+
+export async function closeBehavior(): Promise<CloseBehavior> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.CloseBehavior) throw new Error('关闭行为仅在 Genesis 桌面客户端中可用')
+  return bridge.CloseBehavior() as Promise<CloseBehavior>
+}
+
+export async function setCloseBehavior(value: CloseBehavior): Promise<CloseBehavior> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.SetCloseBehavior) throw new Error('关闭行为仅在 Genesis 桌面客户端中可用')
+  return bridge.SetCloseBehavior(value) as Promise<CloseBehavior>
+}
+
 export async function providerProfiles(): Promise<ProviderProfiles> {
   const bridge = wailsAppBridge()
   if (!bridge?.ProviderProfiles) throw new Error('模型配置仅在 Genesis 桌面客户端中可用')
@@ -633,6 +647,8 @@ type WailsAppBridge = {
   SaveUpdateToken?: (token: string) => Promise<boolean>
   CheckForUpdate?: () => Promise<unknown>
   InstallUpdate?: (update: DesktopUpdate) => Promise<unknown>
+  CloseBehavior?: () => Promise<unknown>
+  SetCloseBehavior?: (value: CloseBehavior) => Promise<unknown>
 }
 
 type WailsRuntimeBridge = {

@@ -39,6 +39,9 @@ type App struct {
 	desktopTurnMu                sync.Mutex
 	activeDesktopTurns           int
 	providerActivationInProgress bool
+	closeMu                      sync.Mutex
+	closeBehavior                string
+	forceQuit                    bool
 }
 
 type DesktopConfig struct {
@@ -78,6 +81,7 @@ func NewApp() *App {
 			ConfigRoot:          strings.TrimSpace(os.Getenv("GENESIS_CONFIG_ROOT")),
 			CredentialStoreRoot: strings.TrimSpace(os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT")),
 		},
+		closeBehavior: loadDesktopCloseBehavior(),
 	}
 }
 
@@ -136,6 +140,25 @@ func (a *App) StopLocalModel() SidecarStatus {
 	return a.config.LocalModel
 }
 
+func (a *App) CloseBehavior() string {
+	a.closeMu.Lock()
+	defer a.closeMu.Unlock()
+	return a.closeBehavior
+}
+func (a *App) SetCloseBehavior(value string) (string, error) {
+	value, err := normalizedCloseBehavior(value)
+	if err != nil {
+		return "", err
+	}
+	if err := saveDesktopCloseBehavior(value); err != nil {
+		return "", err
+	}
+	a.closeMu.Lock()
+	a.closeBehavior = value
+	a.closeMu.Unlock()
+	return value, nil
+}
+
 func (a *App) SaveUpdateToken(token string) (bool, error) {
 	if a == nil {
 		return false, errors.New("desktop app is unavailable")
@@ -176,9 +199,7 @@ func (a *App) InstallUpdate(update DesktopUpdateProjection) error {
 	if err := launchDesktopInstaller(installer); err != nil {
 		return err
 	}
-	if a.ctx != nil {
-		wailsruntime.Quit(a.ctx)
-	}
+	a.requestExit()
 	return nil
 }
 

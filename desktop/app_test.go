@@ -58,6 +58,41 @@ func TestCreateTaskWorkspaceRejectsSessionPathTraversal(t *testing.T) {
 	}
 }
 
+func TestDesktopCloseBehaviorDefaultsToExitAndPersistsTraySelection(t *testing.T) {
+	dir := desktopTestTempDir(t)
+	previous := desktopUserConfigDir
+	desktopUserConfigDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { desktopUserConfigDir = previous })
+
+	if got := loadDesktopCloseBehavior(); got != closeBehaviorExit {
+		t.Fatalf("default close behavior = %q, want %q", got, closeBehaviorExit)
+	}
+	if err := saveDesktopCloseBehavior(closeBehaviorTray); err != nil {
+		t.Fatalf("save tray close behavior: %v", err)
+	}
+	if got := loadDesktopCloseBehavior(); got != closeBehaviorTray {
+		t.Fatalf("persisted close behavior = %q, want %q", got, closeBehaviorTray)
+	}
+	if _, err := normalizedCloseBehavior("unexpected"); err == nil {
+		t.Fatal("accepted unknown close behavior")
+	}
+}
+
+func TestBeforeCloseHidesOnlyForTrayBehavior(t *testing.T) {
+	app := &App{closeBehavior: closeBehaviorExit}
+	if app.beforeClose(context.Background()) {
+		t.Fatal("exit behavior blocked window close")
+	}
+	app.closeBehavior = closeBehaviorTray
+	if !app.beforeClose(context.Background()) {
+		t.Fatal("tray behavior did not block window close")
+	}
+	app.requestExit()
+	if app.beforeClose(context.Background()) {
+		t.Fatal("requested exit was blocked by tray behavior")
+	}
+}
+
 type fakeSidecarProcess struct {
 	pid       int
 	stopCalls int

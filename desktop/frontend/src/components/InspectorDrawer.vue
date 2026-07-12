@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { AgentInvocationChildConversation, AgentInvocationProjection, DesktopUpdate, KernelTimelineDetail, TaskGraphProjection } from '../api/kernelApi'
+import type { AgentInvocationChildConversation, AgentInvocationProjection, CloseBehavior, DesktopUpdate, KernelTimelineDetail, TaskGraphProjection } from '../api/kernelApi'
 
 const props = defineProps<{
   baseUrl: string
@@ -17,6 +17,7 @@ const props = defineProps<{
   debugExportReady: boolean
   updateToken: string
   update: DesktopUpdate | null
+  closeBehavior: CloseBehavior
 }>()
 
 defineEmits<{
@@ -36,6 +37,7 @@ defineEmits<{
   saveUpdateToken: []
   checkUpdate: []
   installUpdate: []
+  'update:closeBehavior': [value: CloseBehavior]
   close: []
 }>()
 
@@ -70,6 +72,16 @@ function taskSummary(graph: TaskGraphProjection) {
       </div>
       <button type="button" class="secondary-button" @click="$emit('close')">关闭</button>
     </div>
+
+    <section class="panel">
+	  <p class="eyebrow">应用行为</p>
+	  <label>关闭窗口时
+		<select :value="closeBehavior" @change="$emit('update:closeBehavior', ($event.target as HTMLSelectElement).value as CloseBehavior)">
+		  <option value="exit">直接关闭 Genesis</option>
+		  <option value="minimize_to_tray">最小化到托盘</option>
+		</select>
+	  </label>
+	</section>
 
     <section class="panel">
       <p class="eyebrow">连接设置</p>

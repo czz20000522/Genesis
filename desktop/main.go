@@ -15,6 +15,8 @@ var assets embed.FS
 
 func main() {
 	app := NewApp()
+	tray := &desktopTray{app: app}
+	tray.register()
 	if err := wails.Run(&options.App{
 		Title:              "Genesis",
 		Width:              1100,
@@ -23,14 +25,16 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		OnStartup:  app.startup,
-		OnShutdown: app.shutdown,
+		OnStartup:     app.startup,
+		OnShutdown:    app.shutdown,
+		OnBeforeClose: app.beforeClose,
 		Bind: []any{
 			app,
 		},
 	}); err != nil {
 		log.Fatal(err)
 	}
+	tray.quit()
 }
 
 func singleInstanceLock(app *App) *options.SingleInstanceLock {

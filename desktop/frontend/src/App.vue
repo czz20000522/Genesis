@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { applyProviderRole, bindSessionWorkspace, checkForUpdate, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
+import { applyProviderRole, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, localModelStatus, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -52,6 +52,7 @@ const selectedProviderProfile = ref('')
 const providerCredential = ref('')
 const updateToken = ref('')
 const update = ref<DesktopUpdate | null>(null)
+const desktopCloseBehavior = ref<CloseBehavior>('exit')
 
 const conversationRows = computed(() => timelineRows(timeline.value?.items))
 const retryText = computed(() => {
@@ -247,6 +248,10 @@ async function saveDesktopUpdateToken() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   }
+}
+
+async function saveCloseBehavior(value: CloseBehavior) {
+  try { desktopCloseBehavior.value = await setCloseBehavior(value) } catch (err) { error.value = err instanceof Error ? err.message : String(err) }
 }
 
 async function refreshDesktopUpdate() {
@@ -597,6 +602,7 @@ onMounted(() => {
 
 async function initializeDesktop() {
   await refreshLocalModelStatus()
+  try { desktopCloseBehavior.value = await closeBehavior() } catch {}
   try {
     await loadProviderProfiles()
   } catch {
@@ -697,6 +703,7 @@ async function initializeDesktop() {
       :debug-export-ready="Boolean(debugExport)"
 	  :update-token="updateToken"
 	  :update="update"
+	  :close-behavior="desktopCloseBehavior"
       @update:base-url="config.baseUrl = $event"
       @update:runtime-token="config.runtimeToken = $event"
       @update:selected-detail-ref="selectedDetailRef = $event"
@@ -713,6 +720,7 @@ async function initializeDesktop() {
 	  @save-update-token="saveDesktopUpdateToken"
 	  @check-update="refreshDesktopUpdate"
 	  @install-update="installDesktopUpdate"
+	  @update:close-behavior="saveCloseBehavior"
       @close="inspectorOpen = false"
     />
   </main>
