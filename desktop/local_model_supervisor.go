@@ -51,6 +51,7 @@ type localModelProcess interface {
 type localModelLaunchRequest struct {
 	Runtime localModelRuntimeConfig
 	LogPath string
+	PIDPath string
 }
 
 type localModelLauncher func(context.Context, localModelLaunchRequest) (localModelProcess, error)
@@ -121,7 +122,7 @@ func (s *LocalModelSupervisor) Start(ctx context.Context) SidecarStatus {
 		return s.status
 	}
 	startedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	process, err := s.cfg.launcher(ctx, localModelLaunchRequest{Runtime: s.cfg.Runtime, LogPath: logPath})
+	process, err := s.cfg.launcher(ctx, localModelLaunchRequest{Runtime: s.cfg.Runtime, LogPath: logPath, PIDPath: fmt.Sprintf("/tmp/genesis-local-model-%d.pid", time.Now().UnixNano())})
 	if err != nil {
 		s.status = s.unownedStatus("not_ready", localModelStartFailed)
 		return s.status
@@ -231,9 +232,12 @@ func validateLocalModelRuntime(cfg localModelRuntimeConfig) error {
 }
 
 type wslLocalModelProcess struct {
-	cmd      *exec.Cmd
-	waitDone chan struct{}
-	stopMu   sync.Mutex
+	cmd          *exec.Cmd
+	waitDone     chan struct{}
+	stopMu       sync.Mutex
+	distribution string
+	pidPath      string
+	serverPath   string
 }
 
 func (p *wslLocalModelProcess) PID() int {
@@ -261,6 +265,7 @@ func (p *wslLocalModelProcess) Stop(ctx context.Context) error {
 		return nil
 	default:
 	}
+	_ = p.stopOwnedLinuxServer(ctx)
 	if err := killLocalProcessTree(ctx, p.cmd); err != nil {
 		return err
 	}
@@ -282,11 +287,30 @@ func launchWSLLocalModel(_ context.Context, req localModelLaunchRequest) (localM
 	if err != nil {
 		return nil, err
 	}
+	args := wslLocalModelArgs(req)
+	cmd := exec.Command("wsl.exe", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
+		return nil, err
+	}
+	process := &wslLocalModelProcess{cmd: cmd, waitDone: make(chan struct{}), distribution: req.Runtime.WSLDistribution, pidPath: req.PIDPath, serverPath: req.Runtime.ServerPath}
+	go func() {
+		_ = cmd.Wait()
+		_ = logFile.Close()
+		close(process.waitDone)
+	}()
+	return process, nil
+}
+
+func wslLocalModelArgs(req localModelLaunchRequest) []string {
 	host := strings.TrimSpace(req.Runtime.Host)
 	if host == "" {
 		host = "0.0.0.0"
 	}
-	args := []string{"-d", req.Runtime.WSLDistribution, "--exec", req.Runtime.ServerPath,
+	return []string{"-d", req.Runtime.WSLDistribution, "--exec", "/bin/sh", "-c", `pid_path="$1"; shift; printf '%s\n' "$$" > "$pid_path"; exec "$@"`, "genesis-local-model", req.PIDPath, req.Runtime.ServerPath,
 		"-m", req.Runtime.ModelPath,
 		"-c", strconv.Itoa(req.Runtime.ContextTokens),
 		"-ngl", req.Runtime.GPUOffloadLayers,
@@ -296,21 +320,14 @@ func launchWSLLocalModel(_ context.Context, req localModelLaunchRequest) (localM
 		"--cache-type-v", req.Runtime.CacheTypeV,
 		"--parallel", strconv.Itoa(req.Runtime.Parallel),
 	}
-	cmd := exec.Command("wsl.exe", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	if err := cmd.Start(); err != nil {
-		_ = logFile.Close()
-		return nil, err
+}
+
+func (p *wslLocalModelProcess) stopOwnedLinuxServer(ctx context.Context) error {
+	if p == nil || strings.TrimSpace(p.distribution) == "" || strings.TrimSpace(p.pidPath) == "" || strings.TrimSpace(p.serverPath) == "" {
+		return nil
 	}
-	process := &wslLocalModelProcess{cmd: cmd, waitDone: make(chan struct{})}
-	go func() {
-		_ = cmd.Wait()
-		_ = logFile.Close()
-		close(process.waitDone)
-	}()
-	return process, nil
+	script := `pid="$(cat "$1" 2>/dev/null)"; case "$pid" in ''|*[!0-9]*) exit 0;; esac; command="$(tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"; case "$command" in *"$2"*) kill "$pid"; rm -f "$1";; esac`
+	return exec.CommandContext(ctx, "wsl.exe", "-d", p.distribution, "--exec", "/bin/sh", "-c", script, "genesis-local-model-stop", p.pidPath, p.serverPath).Run()
 }
 
 func probeLocalModelReadiness(ctx context.Context, healthURL string) sidecarReadinessResult {

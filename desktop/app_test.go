@@ -198,6 +198,30 @@ func TestKernelSidecarLauncherHidesItsWindowsProcess(t *testing.T) {
 	}
 }
 
+func TestWSLLocalModelLaunchUsesOwnedPIDFile(t *testing.T) {
+	args := wslLocalModelArgs(localModelLaunchRequest{
+		Runtime: localModelRuntimeConfig{
+			WSLDistribution:  "Ubuntu",
+			ServerPath:       "/home/tomczz/tools/llama-server",
+			ModelPath:        "/home/tomczz/.genesis/models/qwen.gguf",
+			Host:             "0.0.0.0",
+			Port:             8081,
+			ContextTokens:    262144,
+			GPUOffloadLayers: "auto",
+			CacheTypeK:       "q8_0",
+			CacheTypeV:       "q8_0",
+			Parallel:         2,
+		},
+		PIDPath: "/tmp/genesis-local-model-test.pid",
+	})
+	joined := strings.Join(args, " ")
+	for _, required := range []string{"--exec /bin/sh -c", "/tmp/genesis-local-model-test.pid", "/home/tomczz/tools/llama-server", "--port 8081"} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("WSL launch args missing %q: %q", required, joined)
+		}
+	}
+}
+
 func TestDesktopReleaseBuildWritesInstallerChecksum(t *testing.T) {
 	payload, err := os.ReadFile(filepath.Join("..", "scripts", "build_desktop_release.ps1"))
 	if err != nil {
