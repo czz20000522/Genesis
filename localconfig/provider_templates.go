@@ -58,6 +58,15 @@ type ProviderTemplateModelsResult struct {
 	ProfileIDs []string `json:"profile_ids"`
 }
 
+type LocalLlamaProfileImportRequest struct {
+	ConfigRoot  string
+	ModelID     string
+	BaseURL     string
+	Command     string
+	AdapterPath string
+	WorkingDir  string
+}
+
 func ProviderTemplates() []ProviderTemplate {
 	return []ProviderTemplate{
 		{ID: ProviderTemplateDeepSeek, Name: "DeepSeek", Protocol: openAIChatCompletionsProtocol, BaseURL: "https://api.deepseek.com", CredentialRef: "secret://models/deepseek/local", AdapterID: "deepseek", RequiresCredential: true, SupportsDiscovery: true, DefaultModelID: "deepseek-v4-flash"},
@@ -227,4 +236,34 @@ func RepointLocalProviderAdapter(configRoot string, adapterPath string) error {
 		return nil
 	}
 	return WriteModels(path, config)
+}
+
+func ImportLocalLlamaProfile(req LocalLlamaProfileImportRequest) (ProviderTemplateModelsResult, error) {
+	modelID := strings.TrimSpace(req.ModelID)
+	baseURL := strings.TrimSpace(req.BaseURL)
+	command := strings.TrimSpace(req.Command)
+	adapterPath := strings.TrimSpace(req.AdapterPath)
+	if modelID == "" || baseURL == "" || command == "" || adapterPath == "" {
+		return ProviderTemplateModelsResult{}, errors.New("local_model_configuration_required")
+	}
+	path := ConfigPath(req.ConfigRoot)
+	config, err := ReadModels(path)
+	if errors.Is(err, ErrConfigMissing) {
+		config = ModelsConfig{}
+	} else if err != nil {
+		return ProviderTemplateModelsResult{}, err
+	}
+	if config.ModelGateway.Routes == nil {
+		config.ModelGateway.Routes = map[string]GatewayRoute{}
+	}
+	config.ModelGateway.Routes[ProviderTemplateLocalLlama] = GatewayRoute{Protocol: "provider_command", Command: command, Args: []string{"-3", adapterPath, "--base-url", baseURL, "--timeout-sec", "0"}, WorkingDir: strings.TrimSpace(req.WorkingDir), AllowUnboundedRequest: true}
+	if config.ModelProfiles.Local.Gateway == nil {
+		config.ModelProfiles.Local.Gateway = map[string]GatewayProfile{}
+	}
+	profileID := ProviderTemplateLocalLlama + "-" + refToken(modelID)
+	config.ModelProfiles.Local.Gateway[profileID] = GatewayProfile{ProfileID: profileID, ModelID: modelID, GatewayRoute: ProviderTemplateLocalLlama, ProviderAdapterID: "llama.cpp", ProviderAdapterProfileID: refToken(modelID)}
+	if err := WriteModels(path, config); err != nil {
+		return ProviderTemplateModelsResult{}, err
+	}
+	return ProviderTemplateModelsResult{RouteID: ProviderTemplateLocalLlama, ProfileIDs: []string{profileID}}, nil
 }

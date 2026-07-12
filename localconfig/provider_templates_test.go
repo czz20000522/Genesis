@@ -57,3 +57,19 @@ func TestRepointLocalProviderAdapterChangesOnlyAdapterArgument(t *testing.T) {
 		t.Fatalf("args = %#v", args)
 	}
 }
+
+func TestImportLocalLlamaProfileUsesExplicitRuntimeValues(t *testing.T) {
+	root := t.TempDir()
+	result, err := ImportLocalLlamaProfile(LocalLlamaProfileImportRequest{ConfigRoot: root, ModelID: "qwen.gguf", BaseURL: "http://127.0.0.1:8081/v1", Command: "py.exe", AdapterPath: `D:\Genesis\kernel\scripts\providers\llama_cpp_provider_command.py`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := ReadModels(filepath.Join(root, "models.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := config.ModelGateway.Routes[ProviderTemplateLocalLlama]
+	if result.RouteID != ProviderTemplateLocalLlama || route.Command != "py.exe" || !route.AllowUnboundedRequest || len(result.ProfileIDs) != 1 {
+		t.Fatalf("result=%+v route=%+v", result, route)
+	}
+}

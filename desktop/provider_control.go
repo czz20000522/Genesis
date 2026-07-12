@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"genesis/localconfig"
@@ -71,6 +73,23 @@ type ProviderImportProjection struct {
 func (a *App) ImportProviderTemplate(templateID string, apiKey string, baseURL string, modelID string) (ProviderImportProjection, error) {
 	if a == nil || a.client == nil {
 		return ProviderImportProjection{}, errors.New("desktop app is unavailable")
+	}
+	if strings.TrimSpace(templateID) == localconfig.ProviderTemplateLocalLlama {
+		if a.localModel == nil || validateLocalModelRuntime(a.localModel.cfg.Runtime) != nil {
+			return ProviderImportProjection{}, errors.New("local_model_configuration_required")
+		}
+		adapter := bundledLocalProviderAdapterPath()
+		if adapter == "" {
+			return ProviderImportProjection{}, errors.New("local_provider_adapter_missing")
+		}
+		runtime := a.localModel.cfg.Runtime
+		materialized, err := localconfig.ImportLocalLlamaProfile(localconfig.LocalLlamaProfileImportRequest{
+			ConfigRoot: a.providerControl.ConfigRoot, ModelID: filepath.Base(runtime.ModelPath), BaseURL: "http://127.0.0.1:" + strconv.Itoa(runtime.Port) + "/v1", Command: "py.exe", AdapterPath: adapter, WorkingDir: filepath.Dir(adapter),
+		})
+		if err != nil {
+			return ProviderImportProjection{}, err
+		}
+		return ProviderImportProjection{RouteID: materialized.RouteID, ProfileIDs: materialized.ProfileIDs}, nil
 	}
 	route, err := localconfig.ImportProviderTemplateRoute(localconfig.ProviderTemplateRouteImportRequest{
 		ConfigRoot: a.providerControl.ConfigRoot, CredentialStoreRoot: a.providerControl.CredentialStoreRoot,
