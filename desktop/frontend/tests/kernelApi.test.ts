@@ -39,6 +39,7 @@ assert.equal(conversationSource.includes('<details v-if="row.kind === \'reasonin
 assert.equal(conversationSource.includes('turnErrorLabel'), true, 'ConversationPane must not expose raw provider errors in turn status')
 assert.equal(appSource.includes("message.toLowerCase().includes('llama.cpp') || message.toLowerCase().includes('connection refused')"), false, 'App.vue must not treat a kernel connection failure as a local-model failure')
 assert.equal(appSource.includes("readiness.value = providerReadiness === 'ready' ? 'ready' : 'connected'"), true, 'App.vue must distinguish a reachable Genesis service from an unready model provider')
+assert.equal(appSource.includes("operationErrorLabel(err, '加载会话列表')"), true, 'App.vue must preserve a confirmed connection when only session listing fails')
 assert.equal(inspectorSource.includes('readinessLabel(readiness)'), true, 'InspectorDrawer must not show transport state identifiers directly')
 assert.equal(inspectorSource.includes('<el-input'), true, 'InspectorDrawer must use the shared input component')
 assert.equal(inspectorSource.includes('<el-select'), true, 'InspectorDrawer must use the shared select component')

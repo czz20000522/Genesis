@@ -244,10 +244,15 @@ async function checkReady() {
     const payload = await getReady(config.value)
     const providerReadiness = String(payload.readiness ?? payload.status ?? '').trim().toLowerCase()
     readiness.value = providerReadiness === 'ready' ? 'ready' : 'connected'
-    await loadSessions()
   } catch (err) {
     readiness.value = 'not_ready'
     error.value = operationErrorLabel(err, '连接 Genesis 本地服务')
+    return
+  }
+  try {
+    await loadSessions()
+  } catch (err) {
+    error.value = operationErrorLabel(err, '加载会话列表')
   }
 }
 
