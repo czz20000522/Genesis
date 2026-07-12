@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,9 @@ type sourceSnapshot struct {
 	sessionID    string
 	displayLabel string
 	policy       SourceSnapshotPolicy
+	durable      bool
+	archiveHash  string
+	restoreError string
 }
 
 type sourceFileHandle struct {
@@ -58,6 +62,14 @@ func SourceErrorReason(err error) string {
 }
 
 func (r *Registry) RegisterLocalZipSnapshot(localPath string, options SourceSnapshotOptions) (SourceSnapshotDescriptor, error) {
+	return r.registerZipSnapshot(localPath, options, false)
+}
+
+func (r *Registry) RegisterOwnedUploadZipSnapshot(localPath string, options SourceSnapshotOptions) (SourceSnapshotDescriptor, error) {
+	return r.registerZipSnapshot(localPath, options, true)
+}
+
+func (r *Registry) registerZipSnapshot(localPath string, options SourceSnapshotOptions, durable bool) (SourceSnapshotDescriptor, error) {
 	if r == nil {
 		return SourceSnapshotDescriptor{}, sourceError("resource_unavailable", "resource registry is unavailable")
 	}
@@ -85,6 +97,15 @@ func (r *Registry) RegisterLocalZipSnapshot(localPath string, options SourceSnap
 	if err != nil {
 		return SourceSnapshotDescriptor{}, err
 	}
+	archiveHash, err := sourceArchiveHash(localPath)
+	if err != nil {
+		return SourceSnapshotDescriptor{}, sourceError("resource_unavailable", "source archive is unavailable")
+	}
+	if durable {
+		if _, err := r.ownedSourceObjectName(localPath); err != nil {
+			return SourceSnapshotDescriptor{}, sourceError("object_store_unavailable", "uploaded source archive is outside the material store")
+		}
+	}
 	displayLabel := strings.TrimSpace(options.DisplayLabel)
 	if displayLabel == "" {
 		displayLabel = filepath.Base(localPath)
@@ -96,6 +117,8 @@ func (r *Registry) RegisterLocalZipSnapshot(localPath string, options SourceSnap
 		sessionID:    strings.TrimSpace(options.SessionID),
 		displayLabel: displayLabel,
 		policy:       policy,
+		durable:      durable,
+		archiveHash:  archiveHash,
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -115,7 +138,274 @@ func (r *Registry) RegisterLocalZipSnapshot(localPath string, options SourceSnap
 			path:        entry.descriptor.Path,
 		}
 	}
+	if snapshot.durable {
+		if err := r.persistDurableSourceSnapshotsLocked(); err != nil {
+			r.removeSourceSnapshotLocked(ref)
+			return SourceSnapshotDescriptor{}, sourceError("object_store_unavailable", "source snapshot owner index is unavailable")
+		}
+	}
 	return sourceSnapshotDescriptor(snapshot, entries, totalBytes, diagnostics), nil
+}
+
+type durableSourceSnapshotIndex struct {
+	Snapshots []durableSourceSnapshotRecord `json:"snapshots"`
+}
+
+type durableSourceSnapshotRecord struct {
+	Ref          string               `json:"ref"`
+	ObjectName   string               `json:"object_name"`
+	Purpose      string               `json:"purpose"`
+	SessionID    string               `json:"session_id"`
+	DisplayLabel string               `json:"display_label"`
+	ArchiveHash  string               `json:"archive_hash"`
+	Policy       SourceSnapshotPolicy `json:"policy"`
+	FilePaths    []string             `json:"file_paths"`
+}
+
+type DurableSourceSnapshotAdmission struct {
+	SessionID  string
+	Descriptor SourceSnapshotDescriptor
+}
+
+func (r *Registry) RestoreDurableSourceSnapshots(admissions map[string]DurableSourceSnapshotAdmission) error {
+	if r == nil || strings.TrimSpace(r.sourceIndex) == "" {
+		return nil
+	}
+	body, err := os.ReadFile(r.sourceIndex)
+	if errors.Is(err, os.ErrNotExist) {
+		if len(admissions) > 0 {
+			return errors.New("source snapshot owner index is missing admitted uploads")
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var index durableSourceSnapshotIndex
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&index); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return errors.New("source snapshot index contains multiple JSON values")
+		}
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	matched := map[string]bool{}
+	for _, record := range index.Snapshots {
+		ref := strings.TrimSpace(record.Ref)
+		admission, admitted := admissions[ref]
+		if !admitted {
+			continue
+		}
+		if matched[ref] {
+			return errors.New("source snapshot index has duplicate admitted records")
+		}
+		objectPath, err := r.validateDurableSourceSnapshotRecord(record, admission)
+		if err != nil {
+			return err
+		}
+		restoreError := durableSourceArchiveRestoreError(objectPath, record.ArchiveHash)
+		snapshot := sourceSnapshot{
+			ref:          strings.TrimSpace(record.Ref),
+			localPath:    objectPath,
+			purpose:      strings.TrimSpace(record.Purpose),
+			sessionID:    strings.TrimSpace(record.SessionID),
+			displayLabel: strings.TrimSpace(record.DisplayLabel),
+			policy:       NormalizeSourceSnapshotPolicy(record.Policy),
+			durable:      true,
+			archiveHash:  strings.TrimSpace(record.ArchiveHash),
+			restoreError: restoreError,
+		}
+		r.sources[snapshot.ref] = snapshot
+		for _, sourcePath := range record.FilePaths {
+			r.sourceFiles[sourceFileRefFor(snapshot.ref, sourcePath)] = sourceFileHandle{snapshotRef: snapshot.ref, path: sourcePath}
+		}
+		matched[ref] = true
+	}
+	for ref := range admissions {
+		if !matched[ref] {
+			return errors.New("source snapshot owner index is missing an admitted upload")
+		}
+	}
+	return nil
+}
+
+func (r *Registry) validateDurableSourceSnapshotRecord(record durableSourceSnapshotRecord, admission DurableSourceSnapshotAdmission) (string, error) {
+	ref, err := NormalizeRef(record.Ref)
+	if err != nil || !strings.HasPrefix(ref, "source_snapshot_") {
+		return "", errors.New("source snapshot index has an invalid reference")
+	}
+	if strings.TrimSpace(record.SessionID) != strings.TrimSpace(admission.SessionID) || strings.TrimSpace(record.ArchiveHash) == "" || strings.TrimSpace(record.ArchiveHash) != strings.TrimSpace(admission.Descriptor.ArchiveHash) {
+		return "", errors.New("source snapshot index does not match its ledger admission")
+	}
+	seenPaths := map[string]bool{}
+	for _, sourcePath := range record.FilePaths {
+		normalized, err := normalizeZipEntryName(sourcePath)
+		if err != nil || normalized != sourcePath || seenPaths[normalized] {
+			return "", errors.New("source snapshot index has invalid admitted file paths")
+		}
+		seenPaths[normalized] = true
+	}
+	return r.ownedSourceObjectPath(record.ObjectName)
+}
+
+func (r *Registry) ownedSourceObjectName(localPath string) (string, error) {
+	objectPath, err := filepath.Abs(strings.TrimSpace(localPath))
+	if err != nil {
+		return "", err
+	}
+	root, err := r.ownedSourceObjectRoot()
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(root, objectPath)
+	if err != nil || relative == "." || filepath.Dir(relative) != "." || filepath.Base(relative) != relative {
+		return "", errors.New("source object is outside the material store")
+	}
+	info, err := os.Lstat(objectPath)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "", errors.New("source object is not a regular material-store file")
+	}
+	return relative, nil
+}
+
+func (r *Registry) ownedSourceObjectPath(objectName string) (string, error) {
+	objectName = strings.TrimSpace(objectName)
+	if objectName == "" || filepath.Base(objectName) != objectName || strings.ContainsAny(objectName, `/\\`) {
+		return "", errors.New("source snapshot index has an invalid object name")
+	}
+	root, err := r.ownedSourceObjectRoot()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, objectName), nil
+}
+
+func (r *Registry) ownedSourceObjectRoot() (string, error) {
+	if strings.TrimSpace(r.sourceIndex) == "" {
+		return "", errors.New("source snapshot owner index is unavailable")
+	}
+	root, err := filepath.Abs(filepath.Dir(r.sourceIndex))
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(root)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", errors.New("material store is unavailable")
+	}
+	return root, nil
+}
+
+func durableSourceArchiveRestoreError(objectPath string, archiveHash string) string {
+	info, err := os.Lstat(objectPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "resource_unavailable"
+	}
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "invalid_source_archive"
+	}
+	actualHash, err := sourceArchiveHash(objectPath)
+	if err != nil || actualHash != strings.TrimSpace(archiveHash) {
+		return "invalid_source_archive"
+	}
+	return ""
+}
+
+func validateDurableSourceSnapshot(snapshot sourceSnapshot) error {
+	if !snapshot.durable {
+		return nil
+	}
+	reason := snapshot.restoreError
+	if reason == "" {
+		reason = durableSourceArchiveRestoreError(snapshot.localPath, snapshot.archiveHash)
+	}
+	if reason == "" {
+		return nil
+	}
+	return sourceError(reason, "uploaded source archive is unavailable or changed")
+}
+
+func (r *Registry) RemoveDurableSourceSnapshot(ref string) error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.removeSourceSnapshotLocked(strings.TrimSpace(ref))
+	return r.persistDurableSourceSnapshotsLocked()
+}
+
+func (r *Registry) removeSourceSnapshotLocked(ref string) {
+	delete(r.sources, ref)
+	for fileRef, handle := range r.sourceFiles {
+		if handle.snapshotRef == ref {
+			delete(r.sourceFiles, fileRef)
+		}
+	}
+}
+
+func (r *Registry) persistDurableSourceSnapshotsLocked() error {
+	if strings.TrimSpace(r.sourceIndex) == "" {
+		return nil
+	}
+	refs := make([]string, 0, len(r.sources))
+	for ref, snapshot := range r.sources {
+		if snapshot.durable {
+			refs = append(refs, ref)
+		}
+	}
+	sort.Strings(refs)
+	index := durableSourceSnapshotIndex{Snapshots: make([]durableSourceSnapshotRecord, 0, len(refs))}
+	for _, ref := range refs {
+		snapshot := r.sources[ref]
+		paths := make([]string, 0)
+		for _, handle := range r.sourceFiles {
+			if handle.snapshotRef == ref {
+				paths = append(paths, handle.path)
+			}
+		}
+		sort.Strings(paths)
+		objectName, err := r.ownedSourceObjectName(snapshot.localPath)
+		if err != nil {
+			return err
+		}
+		index.Snapshots = append(index.Snapshots, durableSourceSnapshotRecord{
+			Ref:          snapshot.ref,
+			ObjectName:   objectName,
+			Purpose:      snapshot.purpose,
+			SessionID:    snapshot.sessionID,
+			DisplayLabel: snapshot.displayLabel,
+			ArchiveHash:  snapshot.archiveHash,
+			Policy:       snapshot.policy,
+			FilePaths:    paths,
+		})
+	}
+	body, err := json.Marshal(index)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(r.sourceIndex), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(r.sourceIndex), "source-snapshots-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(body); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, r.sourceIndex)
 }
 
 func (r *Registry) ListSourceSnapshotDescriptors(sessionID string) []SourceSnapshotDescriptor {
@@ -139,6 +429,10 @@ func (r *Registry) ListSourceSnapshotDescriptors(sessionID string) []SourceSnaps
 	r.mu.RUnlock()
 	descriptors := make([]SourceSnapshotDescriptor, 0, len(refs))
 	for _, snapshot := range snapshots {
+		if err := validateDurableSourceSnapshot(snapshot); err != nil {
+			descriptors = append(descriptors, unavailableSourceSnapshotDescriptor(snapshot, firstNonEmpty(SourceErrorReason(err), "source_unavailable")))
+			continue
+		}
 		entries, totalBytes, diagnostics, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref, snapshot.policy)
 		if err != nil {
 			descriptors = append(descriptors, SourceSnapshotDescriptor{
@@ -177,6 +471,9 @@ func (r *Registry) AdmitSourceTree(ref string, maxEntries *int) (SourceTreeReque
 	if !ok {
 		return SourceTreeRequest{}, SourceSnapshotDescriptor{}, "unknown_source_snapshot_ref", fmt.Errorf("unknown source snapshot ref %q", normalized)
 	}
+	if err := validateDurableSourceSnapshot(snapshot); err != nil {
+		return SourceTreeRequest{}, SourceSnapshotDescriptor{}, SourceErrorReason(err), err
+	}
 	policy := NormalizeSourceSnapshotPolicy(snapshot.policy)
 	limit := policy.DefaultTreeEntries
 	if maxEntries != nil {
@@ -204,6 +501,9 @@ func (r *Registry) SourceTree(req SourceTreeRequest) (SourceTreeResult, error) {
 	r.mu.RUnlock()
 	if !ok {
 		return SourceTreeResult{}, sourceError("unknown_source_snapshot_ref", "unknown source snapshot ref")
+	}
+	if err := validateDurableSourceSnapshot(snapshot); err != nil {
+		return SourceTreeResult{}, err
 	}
 	policy := NormalizeSourceSnapshotPolicy(snapshot.policy)
 	entries, _, diagnostics, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref, policy)
@@ -321,6 +621,9 @@ func (r *Registry) AdmitSourceRead(ref string, offsetBytes *int, limitBytes *int
 	if !ok {
 		return SourceReadRequest{}, SourceFileDescriptor{}, "unknown_source_snapshot_ref", fmt.Errorf("unknown source snapshot ref %q", handle.snapshotRef)
 	}
+	if err := validateDurableSourceSnapshot(snapshot); err != nil {
+		return SourceReadRequest{}, SourceFileDescriptor{}, SourceErrorReason(err), err
+	}
 	policy := NormalizeSourceSnapshotPolicy(snapshot.policy)
 	entries, _, _, err := parseZipSourceEntries(snapshot.localPath, snapshot.ref, policy)
 	if err != nil {
@@ -370,6 +673,9 @@ func (r *Registry) SourceRead(req SourceReadRequest) (ModelSourceReadResult, err
 	r.mu.RUnlock()
 	if !ok {
 		return ModelSourceReadResult{}, sourceError("unknown_source_snapshot_ref", "unknown source snapshot ref")
+	}
+	if err := validateDurableSourceSnapshot(snapshot); err != nil {
+		return ModelSourceReadResult{}, err
 	}
 	text, descriptor, err := readZipSourceText(snapshot.localPath, snapshot.ref, handle.path, snapshot.policy)
 	if err != nil {
@@ -606,11 +912,40 @@ func sourceSnapshotDescriptor(snapshot sourceSnapshot, entries []sourceEntry, to
 		DisplayLabel:           snapshot.displayLabel,
 		SourceKind:             SourceKindZip,
 		Purpose:                snapshot.purpose,
+		ArchiveHash:            snapshot.archiveHash,
 		EntryCount:             len(entries),
 		TotalUncompressedBytes: totalBytes,
 		AvailableOperations:    []string{ReferenceOperationSourceTree},
 		Diagnostics:            append([]SourceDiagnostic(nil), diagnostics...),
 	}
+}
+
+func unavailableSourceSnapshotDescriptor(snapshot sourceSnapshot, reason string) SourceSnapshotDescriptor {
+	return SourceSnapshotDescriptor{
+		SourceSnapshotRef:   snapshot.ref,
+		DisplayLabel:        snapshot.displayLabel,
+		SourceKind:          SourceKindZip,
+		Purpose:             snapshot.purpose,
+		ArchiveHash:         snapshot.archiveHash,
+		AvailableOperations: []string{ReferenceOperationSourceTree},
+		Diagnostics: []SourceDiagnostic{{
+			Code:    reason,
+			Message: "uploaded source archive is unavailable after restart",
+		}},
+	}
+}
+
+func sourceArchiveHash(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func sourceSnapshotRefFor(localPath string, size int64, modNano int64, purpose string) string {

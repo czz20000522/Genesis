@@ -26,6 +26,7 @@ type Registry struct {
 	sources      map[string]sourceSnapshot
 	sourceFiles  map[string]sourceFileHandle
 	sourcePolicy SourceSnapshotPolicy
+	sourceIndex  string
 	mu           sync.RWMutex
 }
 
@@ -46,11 +47,16 @@ func NewRegistry(items []Descriptor) (*Registry, error) {
 }
 
 func NewRegistryWithSourceSnapshotPolicy(items []Descriptor, policy SourceSnapshotPolicy) (*Registry, error) {
+	return NewRegistryWithSourceSnapshotPolicyAndIndex(items, policy, "")
+}
+
+func NewRegistryWithSourceSnapshotPolicyAndIndex(items []Descriptor, policy SourceSnapshotPolicy, sourceIndex string) (*Registry, error) {
 	registry := &Registry{
 		items:        map[string]registeredResource{},
 		sources:      map[string]sourceSnapshot{},
 		sourceFiles:  map[string]sourceFileHandle{},
 		sourcePolicy: NormalizeSourceSnapshotPolicy(policy),
+		sourceIndex:  strings.TrimSpace(sourceIndex),
 	}
 	for _, item := range items {
 		ref, err := NormalizeRef(item.Ref)

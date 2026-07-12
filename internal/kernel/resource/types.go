@@ -96,6 +96,7 @@ type SourceSnapshotDescriptor struct {
 	DisplayLabel           string             `json:"display_label,omitempty"`
 	SourceKind             string             `json:"source_kind"`
 	Purpose                string             `json:"purpose"`
+	ArchiveHash            string             `json:"archive_hash,omitempty"`
 	EntryCount             int                `json:"entry_count"`
 	TotalUncompressedBytes int64              `json:"total_uncompressed_bytes"`
 	AvailableOperations    []string           `json:"available_operations"`

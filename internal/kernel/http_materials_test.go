@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -113,7 +114,7 @@ func TestHTTPMaterialUploadStoresByGeneratedPathAndParsesZip(t *testing.T) {
 	}
 }
 
-func TestMaterialSourceSnapshotPersistenceIsDeclaredProcessLifetimeOnly(t *testing.T) {
+func TestMaterialUploadRestoresSourceSnapshotAfterRestart(t *testing.T) {
 	dir := testsupport.ProjectTempDir(t, "http-material-process-lifetime")
 	storePath := filepath.Join(dir, "material-store")
 	k, err := New(Config{
@@ -151,13 +152,366 @@ func TestMaterialSourceSnapshotPersistenceIsDeclaredProcessLifetimeOnly(t *testi
 	if err != nil {
 		t.Fatalf("New restarted kernel returned error: %v", err)
 	}
-	if _, _, code, err := restarted.resourceRegistry.AdmitSourceTree(projection.SourceSnapshotRef, nil); err == nil || code != "unknown_source_snapshot_ref" {
-		t.Fatalf("restarted AdmitSourceTree code=%q err=%v, want unknown source ref", code, err)
+	treeReq, _, code, err := restarted.resourceRegistry.AdmitSourceTree(projection.SourceSnapshotRef, nil)
+	if err != nil {
+		t.Fatalf("restarted AdmitSourceTree code=%q err=%v, want restored source ref", code, err)
+	}
+	tree, err := restarted.resourceRegistry.SourceTree(treeReq)
+	if err != nil {
+		t.Fatalf("restarted SourceTree returned error: %v", err)
+	}
+	fileRef := sourceFileRefByPathForKernel(tree.Entries, "src/main.go")
+	if fileRef == "" {
+		t.Fatalf("restarted entries = %+v, want src/main.go", tree.Entries)
+	}
+	readReq, _, code, err := restarted.resourceRegistry.AdmitSourceRead(fileRef, nil, nil)
+	if err != nil {
+		t.Fatalf("restarted AdmitSourceRead code=%q err=%v, want restored source file", code, err)
+	}
+	read, err := restarted.resourceRegistry.SourceRead(readReq)
+	if err != nil || read.Text != "package main\n" {
+		t.Fatalf("restarted SourceRead result=%+v err=%v, want uploaded body", read, err)
 	}
 	capabilities := restarted.Capabilities()
+	if capabilities.SourceSnapshotPersistence.Readiness != ReadinessReady ||
+		capabilities.SourceSnapshotPersistence.ReadinessReason != "uploaded_snapshot_recovery" {
+		t.Fatalf("source snapshot persistence = %+v, want ready/uploaded_snapshot_recovery", capabilities.SourceSnapshotPersistence)
+	}
+}
+
+func TestMaterialSourceSnapshotRecoveryRejectsTrailingIndexData(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "http-material-index-corrupt")
+	storePath := filepath.Join(dir, "material-store")
+	if err := os.MkdirAll(storePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll material store: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(storePath, "source-snapshots.json"), []byte(`{"snapshots":[]} trailing`), 0o600); err != nil {
+		t.Fatalf("WriteFile source index: %v", err)
+	}
+	k, err := New(Config{
+		LedgerPath:        filepath.Join(dir, "events.sqlite"),
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	capabilities := k.Capabilities()
 	if capabilities.SourceSnapshotPersistence.Readiness != ReadinessNotReady ||
-		capabilities.SourceSnapshotPersistence.ReadinessReason != "process_lifetime_only" {
-		t.Fatalf("source snapshot persistence = %+v, want not_ready/process_lifetime_only", capabilities.SourceSnapshotPersistence)
+		capabilities.SourceSnapshotPersistence.ReadinessReason != "source_snapshot_index_unavailable" {
+		t.Fatalf("source snapshot persistence = %+v, want not_ready/source_snapshot_index_unavailable", capabilities.SourceSnapshotPersistence)
+	}
+}
+
+func TestMaterialLocalPathSnapshotDoesNotRestoreAfterRestart(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "http-material-local-restart")
+	zipPath := filepath.Join(dir, "package.zip")
+	writeKernelZipFixture(t, zipPath, map[string]string{"README.md": "local body\n"})
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	storePath := filepath.Join(dir, "material-store")
+	k, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	intake, err := k.IntakeMaterial(MaterialIntakeRequest{
+		SessionID: "local-restart-session",
+		Purpose:   SourcePurposeAnalysis,
+		Locator:   MaterialLocator{Kind: MaterialLocatorKindLocalPath, Path: zipPath},
+	})
+	if err != nil {
+		t.Fatalf("IntakeMaterial returned error: %v", err)
+	}
+	restarted, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New restarted kernel returned error: %v", err)
+	}
+	if _, _, code, err := restarted.resourceRegistry.AdmitSourceTree(intake.SourceSnapshotRef, nil); err == nil || code != "unknown_source_snapshot_ref" {
+		t.Fatalf("restarted AdmitSourceTree code=%q err=%v, want local snapshot absent", code, err)
+	}
+}
+
+func TestMaterialUploadRecoveryRejectsIndexPathOutsideMaterialStore(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "http-material-index-escape")
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	storePath := filepath.Join(dir, "material-store")
+	k, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+	resp := postMultipartMaterialUpload(t, server.URL+"/materials/upload", map[string]string{
+		"session_id": "upload-index-escape",
+		"purpose":    SourcePurposeAnalysis,
+	}, "package.zip", zipBytesFixture(t, map[string]string{"README.md": "trusted body\n"}))
+	defer resp.Body.Close()
+	var intake MaterialIntakeProjection
+	if err := json.Unmarshal(readAll(t, resp.Body), &intake); err != nil {
+		t.Fatalf("unmarshal upload projection: %v", err)
+	}
+	outsidePath := filepath.Join(dir, "outside.zip")
+	writeKernelZipFixture(t, outsidePath, map[string]string{"README.md": "outside body\n"})
+	indexPath := filepath.Join(storePath, "source-snapshots.json")
+	var index map[string]interface{}
+	indexBody, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("ReadFile source index: %v", err)
+	}
+	if err := json.Unmarshal(indexBody, &index); err != nil {
+		t.Fatalf("unmarshal source index: %v", err)
+	}
+	snapshots, ok := index["snapshots"].([]interface{})
+	if !ok || len(snapshots) != 1 {
+		t.Fatalf("source index snapshots = %#v, want one", index["snapshots"])
+	}
+	record, ok := snapshots[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("source index record = %#v, want object", snapshots[0])
+	}
+	record["object_name"] = "..\\" + filepath.Base(outsidePath)
+	tampered, err := json.Marshal(index)
+	if err != nil {
+		t.Fatalf("marshal tampered source index: %v", err)
+	}
+	if err := os.WriteFile(indexPath, tampered, 0o600); err != nil {
+		t.Fatalf("WriteFile tampered source index: %v", err)
+	}
+	restarted, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New restarted kernel returned error: %v", err)
+	}
+	capabilities := restarted.Capabilities()
+	if capabilities.SourceSnapshotPersistence.Readiness != ReadinessNotReady || capabilities.SourceSnapshotPersistence.ReadinessReason != "source_snapshot_index_unavailable" {
+		t.Fatalf("source snapshot persistence = %+v, want not_ready/source_snapshot_index_unavailable", capabilities.SourceSnapshotPersistence)
+	}
+	if _, _, code, err := restarted.resourceRegistry.AdmitSourceTree(intake.SourceSnapshotRef, nil); err == nil || code != "unknown_source_snapshot_ref" {
+		t.Fatalf("restarted AdmitSourceTree code=%q err=%v, want no escaped source authority", code, err)
+	}
+}
+
+func TestMaterialUploadRecoveryRejectsChangedOwnedArchive(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "http-material-index-integrity")
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	storePath := filepath.Join(dir, "material-store")
+	k, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+	resp := postMultipartMaterialUpload(t, server.URL+"/materials/upload", map[string]string{
+		"session_id": "upload-integrity",
+		"purpose":    SourcePurposeAnalysis,
+	}, "package.zip", zipBytesFixture(t, map[string]string{"README.md": "original body\n"}))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("upload status=%d body=%s", resp.StatusCode, readAll(t, resp.Body))
+	}
+	indexBody, err := os.ReadFile(filepath.Join(storePath, "source-snapshots.json"))
+	if err != nil {
+		t.Fatalf("ReadFile source index: %v", err)
+	}
+	var index map[string]interface{}
+	if err := json.Unmarshal(indexBody, &index); err != nil {
+		t.Fatalf("unmarshal source index: %v", err)
+	}
+	snapshots := index["snapshots"].([]interface{})
+	record := snapshots[0].(map[string]interface{})
+	objectPath := filepath.Join(storePath, record["object_name"].(string))
+	if err := os.WriteFile(objectPath, zipBytesFixture(t, map[string]string{"README.md": "changed body\n"}), 0o600); err != nil {
+		t.Fatalf("overwrite owned archive: %v", err)
+	}
+	restarted, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New restarted kernel returned error: %v", err)
+	}
+	var intakeIndex map[string]interface{}
+	if err := json.Unmarshal(indexBody, &intakeIndex); err != nil {
+		t.Fatalf("unmarshal source index again: %v", err)
+	}
+	ref := intakeIndex["snapshots"].([]interface{})[0].(map[string]interface{})["ref"].(string)
+	if _, _, code, err := restarted.resourceRegistry.AdmitSourceTree(ref, nil); err == nil || code != "invalid_source_archive" {
+		t.Fatalf("restarted AdmitSourceTree code=%q err=%v, want invalid_source_archive for changed archive", code, err)
+	}
+}
+
+func TestMaterialUploadRecoveryRejectsMissingIndexRecord(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "http-material-index-missing")
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	storePath := filepath.Join(dir, "material-store")
+	k, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+	resp := postMultipartMaterialUpload(t, server.URL+"/materials/upload", map[string]string{
+		"session_id": "upload-index-missing",
+		"purpose":    SourcePurposeAnalysis,
+	}, "package.zip", zipBytesFixture(t, map[string]string{"README.md": "indexed body\n"}))
+	defer resp.Body.Close()
+	var intake MaterialIntakeProjection
+	if err := json.Unmarshal(readAll(t, resp.Body), &intake); err != nil {
+		t.Fatalf("unmarshal upload projection: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(storePath, "source-snapshots.json"), []byte(`{"snapshots":[]}`), 0o600); err != nil {
+		t.Fatalf("WriteFile empty source index: %v", err)
+	}
+	restarted, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New restarted kernel returned error: %v", err)
+	}
+	capabilities := restarted.Capabilities()
+	if capabilities.SourceSnapshotPersistence.Readiness != ReadinessNotReady || capabilities.SourceSnapshotPersistence.ReadinessReason != "source_snapshot_index_unavailable" {
+		t.Fatalf("source snapshot persistence = %+v, want not_ready/source_snapshot_index_unavailable", capabilities.SourceSnapshotPersistence)
+	}
+	if _, _, code, err := restarted.resourceRegistry.AdmitSourceTree(intake.SourceSnapshotRef, nil); err == nil || code != "unknown_source_snapshot_ref" {
+		t.Fatalf("restarted AdmitSourceTree code=%q err=%v, want missing source record refusal", code, err)
+	}
+}
+
+func TestMaterialUploadRecoveryRetainsOpaqueRefWhenStoredObjectIsMissing(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "http-material-object-missing")
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	storePath := filepath.Join(dir, "material-store")
+	k, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+	resp := postMultipartMaterialUpload(t, server.URL+"/materials/upload", map[string]string{
+		"session_id": "upload-object-missing",
+		"purpose":    SourcePurposeAnalysis,
+	}, "package.zip", zipBytesFixture(t, map[string]string{"README.md": "stored body\n"}))
+	defer resp.Body.Close()
+	var intake MaterialIntakeProjection
+	if err := json.Unmarshal(readAll(t, resp.Body), &intake); err != nil {
+		t.Fatalf("unmarshal upload projection: %v", err)
+	}
+	indexBody, err := os.ReadFile(filepath.Join(storePath, "source-snapshots.json"))
+	if err != nil {
+		t.Fatalf("ReadFile source index: %v", err)
+	}
+	var index map[string]interface{}
+	if err := json.Unmarshal(indexBody, &index); err != nil {
+		t.Fatalf("unmarshal source index: %v", err)
+	}
+	objectName := index["snapshots"].([]interface{})[0].(map[string]interface{})["object_name"].(string)
+	if err := os.Remove(filepath.Join(storePath, objectName)); err != nil {
+		t.Fatalf("remove stored object: %v", err)
+	}
+	restarted, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New restarted kernel returned error: %v", err)
+	}
+	if _, _, code, err := restarted.resourceRegistry.AdmitSourceTree(intake.SourceSnapshotRef, nil); err == nil || code != "resource_unavailable" {
+		t.Fatalf("restarted AdmitSourceTree code=%q err=%v, want resource_unavailable", code, err)
+	}
+}
+
+func TestMaterialUploadRecoveryRejectsArchiveChangedAfterRestart(t *testing.T) {
+	dir := testsupport.ProjectTempDir(t, "http-material-post-restart-integrity")
+	ledgerPath := filepath.Join(dir, "events.sqlite")
+	storePath := filepath.Join(dir, "material-store")
+	k, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	server := httptest.NewServer(Handler(k))
+	defer server.Close()
+	resp := postMultipartMaterialUpload(t, server.URL+"/materials/upload", map[string]string{
+		"session_id": "upload-post-restart-integrity",
+		"purpose":    SourcePurposeAnalysis,
+	}, "package.zip", zipBytesFixture(t, map[string]string{"README.md": "original body\n"}))
+	defer resp.Body.Close()
+	var intake MaterialIntakeProjection
+	if err := json.Unmarshal(readAll(t, resp.Body), &intake); err != nil {
+		t.Fatalf("unmarshal upload projection: %v", err)
+	}
+	restarted, err := New(Config{
+		LedgerPath:        ledgerPath,
+		Provider:          FakeProvider{},
+		RuntimeToken:      testRuntimeToken,
+		MaterialStorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("New restarted kernel returned error: %v", err)
+	}
+	indexBody, err := os.ReadFile(filepath.Join(storePath, "source-snapshots.json"))
+	if err != nil {
+		t.Fatalf("ReadFile source index: %v", err)
+	}
+	var index map[string]interface{}
+	if err := json.Unmarshal(indexBody, &index); err != nil {
+		t.Fatalf("unmarshal source index: %v", err)
+	}
+	objectName := index["snapshots"].([]interface{})[0].(map[string]interface{})["object_name"].(string)
+	if err := os.WriteFile(filepath.Join(storePath, objectName), zipBytesFixture(t, map[string]string{"README.md": "changed after restart\n"}), 0o600); err != nil {
+		t.Fatalf("overwrite stored object: %v", err)
+	}
+	descriptors := restarted.resourceRegistry.ListSourceSnapshotDescriptors("upload-post-restart-integrity")
+	if len(descriptors) != 1 || len(descriptors[0].Diagnostics) != 1 || descriptors[0].Diagnostics[0].Code != "invalid_source_archive" {
+		t.Fatalf("source descriptors = %+v, want one invalid_source_archive descriptor", descriptors)
+	}
+	if _, _, code, err := restarted.resourceRegistry.AdmitSourceTree(intake.SourceSnapshotRef, nil); err == nil || code != "invalid_source_archive" {
+		t.Fatalf("restarted AdmitSourceTree code=%q err=%v, want invalid_source_archive", code, err)
 	}
 }
 

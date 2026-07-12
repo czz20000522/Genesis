@@ -17,9 +17,15 @@ Feature: Material source snapshots
     And source_tree does not expose newly added archive entries without a new intake
     And source_read continues to require an admitted source file reference
 
-  Scenario: Source snapshot persistence is truthfully reported
+  Scenario: An uploaded source snapshot survives a kernel restart
     Given an uploaded zip has been admitted as a source snapshot
     When the kernel restarts with the same ledger and material store
-    Then the old source snapshot reference is not silently recovered
-    And capabilities report source snapshot persistence as process-lifetime only
+    Then the original opaque source snapshot and source file references remain usable
+    And capabilities report uploaded snapshot recovery as ready
     And provider context does not receive host paths or storage paths as a fallback
+
+  Scenario: A live local path is not promoted into durable filesystem authority
+    Given a local zip path has been admitted as a source snapshot
+    When the kernel restarts with the same ledger and material store
+    Then the local snapshot reference is not restored
+    And the model is not granted a host path fallback

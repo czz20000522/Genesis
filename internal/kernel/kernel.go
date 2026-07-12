@@ -28,6 +28,7 @@ type Kernel struct {
 	toolRegistry           *ToolRegistry
 	resourceRegistry       *resource.Registry
 	materialStorePath      string
+	sourceSnapshotRecovery ReadyCheck
 	parentWorkerConfigRoot string
 	parentWorkerParentID   string
 	workerProviderResolver WorkerProviderResolver
@@ -45,6 +46,7 @@ type Kernel struct {
 	memoryReviewMu         sync.Mutex
 	workMu                 sync.Mutex
 	taskGraphMu            sync.Mutex
+	sourceSnapshotMu       sync.Mutex
 	activeInvocationRuns   map[string]struct{}
 }
 
@@ -77,13 +79,13 @@ func New(config Config) (*Kernel, error) {
 	if err != nil {
 		return nil, err
 	}
-	resourceRegistry, err := resource.NewRegistryWithSourceSnapshotPolicy(config.Resources, config.SourceSnapshotPolicy)
-	if err != nil {
-		return nil, err
-	}
 	materialStorePath := strings.TrimSpace(config.MaterialStorePath)
 	if materialStorePath == "" {
 		materialStorePath = filepath.Join(filepath.Dir(config.LedgerPath), "material-store")
+	}
+	resourceRegistry, err := resource.NewRegistryWithSourceSnapshotPolicyAndIndex(config.Resources, config.SourceSnapshotPolicy, filepath.Join(materialStorePath, "source-snapshots.json"))
+	if err != nil {
+		return nil, err
 	}
 	skillCatalog := loadSkillCatalogWithDiagnostics(config.SkillRoots)
 	capabilityDescriptors, err := normalizeCapabilityDescriptors(config.CapabilityDescriptors)
@@ -103,6 +105,7 @@ func New(config Config) (*Kernel, error) {
 		toolRegistry:           toolRegistry,
 		resourceRegistry:       resourceRegistry,
 		materialStorePath:      materialStorePath,
+		sourceSnapshotRecovery: ReadyCheck{Readiness: ReadinessReady, ReadinessReason: "uploaded_snapshot_recovery"},
 		parentWorkerConfigRoot: strings.TrimSpace(config.ParentWorkerConfigRoot),
 		parentWorkerParentID:   strings.TrimSpace(config.ParentWorkerParentID),
 		workerProviderResolver: config.WorkerProviderResolver,
@@ -114,6 +117,7 @@ func New(config Config) (*Kernel, error) {
 		activeTurns:            map[string]*activeTurn{},
 		activeInvocationRuns:   map[string]struct{}{},
 	}
+	k.restoreDurableSourceSnapshots()
 	_ = k.recoverLostLocalManagedJobs()
 	_ = k.recoverQueuedDelegatedWorkers()
 	return k, nil
@@ -176,7 +180,38 @@ func (k *Kernel) Capabilities() CapabilitiesResponse {
 }
 
 func (k *Kernel) sourceSnapshotPersistence() ReadyCheck {
-	return ReadyCheck{Readiness: ReadinessNotReady, ReadinessReason: "process_lifetime_only"}
+	k.sourceSnapshotMu.Lock()
+	defer k.sourceSnapshotMu.Unlock()
+	return k.sourceSnapshotRecovery
+}
+
+func (k *Kernel) setSourceSnapshotRecovery(check ReadyCheck) {
+	k.sourceSnapshotMu.Lock()
+	defer k.sourceSnapshotMu.Unlock()
+	k.sourceSnapshotRecovery = check
+}
+
+func (k *Kernel) restoreDurableSourceSnapshots() {
+	events, err := k.loadEvents()
+	if err != nil {
+		k.setSourceSnapshotRecovery(ReadyCheck{Readiness: ReadinessNotReady, ReadinessReason: "ledger_unavailable"})
+		return
+	}
+	admissions := map[string]resource.DurableSourceSnapshotAdmission{}
+	for _, event := range events {
+		if event.Type != "material.intake.admitted" {
+			continue
+		}
+		for _, descriptor := range event.Data.SourceSnapshots {
+			admissions[descriptor.SourceSnapshotRef] = resource.DurableSourceSnapshotAdmission{
+				SessionID:  event.SessionID,
+				Descriptor: descriptor,
+			}
+		}
+	}
+	if err := k.resourceRegistry.RestoreDurableSourceSnapshots(admissions); err != nil {
+		k.setSourceSnapshotRecovery(ReadyCheck{Readiness: ReadinessNotReady, ReadinessReason: "source_snapshot_index_unavailable"})
+	}
 }
 
 func (k *Kernel) SubmitTurn(ctx context.Context, req TurnRequest) (TurnResponse, error) {

@@ -84,8 +84,9 @@ Validation:
 
 Local path snapshots are not durable body storage. If the original file is
 deleted or changed later, source tools report the current process-lifetime
-outcome without pretending that the original body was durably stored. Current
-resolver state is not recovered after kernel restart.
+outcome without pretending that the original body was durably stored. Local
+resolver state is not recovered after kernel restart, even if the same host
+path happens to remain available.
 
 ## Zip Snapshot Parser
 
@@ -162,6 +163,31 @@ multipart or an equivalent application command, but the contract is the same:
 Only refs, metadata, hashes, and bounded diagnostics are stored in facts. Full
 upload bodies remain in object/file storage, not ledger or transcript.
 
+## Durable Uploaded Snapshot Recovery
+
+The resource/source owner keeps a private, atomically written index beside the
+material object store. A record contains the opaque snapshot ref, session id,
+purpose, display label, admitted file paths, policy snapshot, and owned object
+location. It is never a model-visible or ledger payload.
+
+After admitting an uploaded archive, the kernel appends one
+`material.intake.admitted` event whose `source_snapshots` value contains only
+the public descriptor. Startup reads the ledger facts and lets the source owner
+restore only index records whose opaque ref is present in an admitted event.
+This makes a crash between private-index and ledger writes an orphaned object,
+not a new model-visible authority. A ledger append failure removes the newly
+registered resolver state and attempts to remove its private index record
+before returning a failure to the caller. If that second owner-store write also
+fails, the capability reports the owner index unavailable; the unmatched record
+is not restored because it lacks a ledger admission fact.
+
+The restored owner state recreates exactly the file handles admitted at upload.
+It must not discover newly added archive entries, and it re-runs archive and
+read admission at each tool call. If the object disappeared or became invalid,
+the ref remains opaque but `source_tree` and `source_read` return structured
+unavailable evidence. Startup remains available for cloud-only chat and other
+sessions.
+
 ## Provider And Projection Boundary
 
 When a session has an admitted source snapshot, provider context may include a
@@ -190,9 +216,9 @@ The current owner split is:
 - The source snapshot registry lives under `internal/kernel/resource` because it
   owns refs, descriptors, zip validation, bounded tree projection, and source
   file reads.
-- Source snapshot resolver state is process-lifetime only in the current
-  implementation. Capabilities expose `source_snapshot_persistence` as
-  `not_ready/process_lifetime_only` until a durable source owner index exists.
+- Source snapshot resolver state persists only for uploaded objects. Capabilities
+  expose `ready/uploaded_snapshot_recovery` when the durable owner index is
+  available; local-path locators remain intentionally process-lifetime.
 - HTTP material routes are control surfaces. They authorize runtime requests,
   decode JSON or multipart input, then delegate to kernel owner methods.
 - ToolGateway exposes only `source_tree` and `source_read`; no route or tool
@@ -217,6 +243,8 @@ The current owner split is:
 - Letting the model pass `D:\...zip` to `resource_read` or `source_read`.
 - Treating `source_tree` and `source_read` as aliases of one generic `ref_read`.
 - Persisting whole archive contents in the event ledger.
+- Recovering every historical local path just because it still exists.
+- Making the private object-store index a provider, transcript, or public API.
 - Returning raw zip entry bytes for binary files.
 - Encoding host paths or storage keys inside model-visible source refs.
 - Implementing code search, OCR, vector indexing, or CodeGraph as part of this

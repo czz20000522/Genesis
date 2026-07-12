@@ -78,7 +78,7 @@ func (k *Kernel) IntakeUploadedMaterial(sessionID string, purpose string, filena
 	if purpose == "" {
 		purpose = SourcePurposeAnalysis
 	}
-	descriptor, err := k.resourceRegistry.RegisterLocalZipSnapshot(tmpPath, resource.SourceSnapshotOptions{
+	descriptor, err := k.resourceRegistry.RegisterOwnedUploadZipSnapshot(tmpPath, resource.SourceSnapshotOptions{
 		Purpose:      purpose,
 		SessionID:    strings.TrimSpace(sessionID),
 		DisplayLabel: safeDisplayFilename(filename),
@@ -90,6 +90,12 @@ func (k *Kernel) IntakeUploadedMaterial(sessionID string, purpose string, filena
 		}
 		return refusedMaterialIntake(reason, err.Error()), err
 	}
+	if err := k.appendMaterialIntakeEvent(strings.TrimSpace(sessionID), descriptor); err != nil {
+		if rollbackErr := k.resourceRegistry.RemoveDurableSourceSnapshot(descriptor.SourceSnapshotRef); rollbackErr != nil {
+			k.setSourceSnapshotRecovery(ReadyCheck{Readiness: ReadinessNotReady, ReadinessReason: "source_snapshot_index_unavailable"})
+		}
+		return refusedMaterialIntake("ledger_unavailable", "material intake could not be recorded"), err
+	}
 	keep = true
 	return MaterialIntakeProjection{
 		AdmissionResult:     "admitted",
@@ -98,6 +104,19 @@ func (k *Kernel) IntakeUploadedMaterial(sessionID string, purpose string, filena
 		AvailableOperations: append([]string(nil), descriptor.AvailableOperations...),
 		Diagnostics:         append([]SourceDiagnostic(nil), descriptor.Diagnostics...),
 	}, nil
+}
+
+func (k *Kernel) appendMaterialIntakeEvent(sessionID string, descriptor SourceSnapshotDescriptor) error {
+	now := k.clock()
+	return k.appendEvent(StoredEvent{
+		EventID:   newID("evt", now),
+		SessionID: strings.TrimSpace(sessionID),
+		Type:      "material.intake.admitted",
+		CreatedAt: now,
+		Data: EventData{
+			SourceSnapshots: []SourceSnapshotDescriptor{descriptor},
+		},
+	})
 }
 
 func (k *Kernel) materialUploadByteLimit() int64 {

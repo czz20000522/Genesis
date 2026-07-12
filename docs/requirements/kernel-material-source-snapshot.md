@@ -64,10 +64,22 @@ object keys, upload paths, or raw external payload ids.
   and only after the owner can serve tree/read operations without mutating
   shared resolver state during tool execution. The scheduler must not infer
   shell reads from command text.
-- Source snapshot resolver state is currently process-lifetime only. A restarted
-  kernel with the same ledger/material store does not recover snapshot handles
-  until a durable source owner index is implemented; capabilities must report
-  this truthfully as `process_lifetime_only`.
+- Uploaded source snapshots are durable owner state: after the upload body is
+  committed to the material store and the admission fact is appended, a restart
+  with the same ledger and material store restores the same snapshot and file
+  refs. The admission descriptor records the archive SHA-256; the source owner
+  verifies it before every source projection or operation. The private owner
+  index may contain an object name and storage metadata; those details must never
+  enter the ledger payload, provider context, tool result, transcript, or public
+  descriptor.
+- A local-path snapshot remains a live locator in this phase. It is deliberately
+  not reconstructed after restart, even when its path still exists: persistence
+  is a property of a copied upload body, not a new grant of host filesystem
+  authority.
+- A missing or corrupted durable archive does not prevent kernel startup. The
+  recovered opaque ref remains scoped to its session, and each attempted source
+  operation fails closed with structured `resource_unavailable` or
+  `invalid_source_archive` evidence.
 
 ## Non-Goals
 
@@ -91,17 +103,21 @@ object keys, upload paths, or raw external payload ids.
   object/file-store backed bodies.
 - Phase E: use a real model only for manual smoke after fake-provider behavior
   tests prove the tool loop.
+- Phase F: persist uploaded-source owner records, append a material-admission
+  ledger fact, and restore only records backed by both the private owner index
+  and that ledger fact.
 
 ## Current Implementation
 
-The current slice implements Phase A through Phase D for zip source packages:
+The current slice implements Phase A through Phase F for zip source packages:
 
 - `POST /materials/intake` admits an absolute local zip path as a source
   snapshot for an optional session. The target zip must remain available while
   the current process uses the snapshot.
 - `POST /materials/upload` stores multipart upload bytes in the kernel material
   file store using a generated path, treats the uploaded filename as display
-  metadata only, and reuses zip snapshot parsing.
+  metadata only, reuses zip snapshot parsing, records an opaque
+  `material.intake.admitted` fact, and persists the private resolver record.
 - `source_tree` and `source_read` are typed model-visible tools backed by
   source owner admission. They accept only source refs, not host paths, and run
   against handles generated at intake.
@@ -111,8 +127,7 @@ The current slice implements Phase A through Phase D for zip source packages:
   refs and operation names. It omits host paths, storage refs, upload paths, and
   archive bodies.
 
-Remaining future work is durable source owner indexing/recovery, production
-object-store policy, retention/quarantine, richer source selection, source
+Remaining future work is retention/quarantine, richer source selection, source
 search/span tools, code intelligence indexing, and live LLM/user-interface
 smoke. Those gaps do not change the current source-ref contract.
 
@@ -140,18 +155,24 @@ smoke. Those gaps do not change the current source-ref contract.
   `source_tree`, call `source_read`, and produce a final answer based on file
   content.
 - Runtime capabilities expose effective source snapshot intake/read limits.
-- Restart/resume projections either recover source owner state or truthfully
-  declare source snapshot persistence as `process_lifetime_only`.
+- A restarted kernel with the same ledger and material store can use an uploaded
+  source snapshot's original opaque snapshot and file refs without revealing a
+  host or storage path.
+- A restarted kernel does not recover local-path snapshots and does not turn a
+  missing uploaded archive into an invented source result.
+- The ledger records the admitted snapshot descriptor, while the source owner
+  keeps the private object location only in its durable index.
 
 ## Reference Alignment
 
-- Reasonix resolves pasted or dropped files through the TUI/controller before
-  model submission; large files and binary content are bounded or summarized.
-  Genesis keeps the same "application resolves external locators" idea but uses
-  source refs instead of injecting raw file blocks into the prompt.
-- Reasonix MCP resources are explicit resource references, not universal local
-  filesystem authority.
-- Codex local file operations pass through environment and sandbox surfaces; if
-  local filesystem support is unavailable, requests fail closed.
-- Codex image/file handlers validate local paths through a runtime filesystem
-  boundary rather than letting the model invent hidden host access.
+- Reasonix `desktop.App.AttachDropped` distinguishes in-workspace references
+  from out-of-workspace files, copying the latter into `.reasonix/attachments`;
+  `internal/control/attachments.go` generates the stored name, validates its
+  containment, and its tests prove both branches. Genesis aligns on copying an
+  application upload into an owned store, but intentionally projects opaque
+  source refs rather than Reasonix's relative paths.
+- Codex `FileSystemSandboxPolicy` tests explicitly model read, write, and deny
+  roots; its `view_image` turn test obtains a file only through the runtime
+  helper. Genesis aligns on a checked owner boundary and rejects direct model
+  paths, but differs by restoring only uploaded objects rather than granting a
+  post-restart filesystem read capability.

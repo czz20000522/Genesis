@@ -26,6 +26,36 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 
 ## Active Issues
 
+### KERNEL-MATERIAL-UPLOAD-RECOVERY-20260712 - P1 - Desktop-uploaded source snapshots disappear after restart
+
+- Status: in_progress.
+- Requirement: `docs/requirements/kernel-material-source-snapshot.md`.
+  - Design: `docs/design/kernel-material-source-snapshot.md`.
+- Gap: Phase A now restores an uploaded ZIP's original opaque snapshot and file
+  refs only when a private owner-index record matches a
+  `material.intake.admitted` ledger fact and archive hash. Local paths remain
+  unrecoverable; malformed, missing, outside-store, or hash-mismatched records
+  fail closed both for model context projection and source operations. The
+  remaining gap is desktop-level restart acceptance for file and folder
+  selection, not kernel persistence.
+- Next slice: Phase B of
+  `docs/implementation-plans/kernel-material-source-snapshot-recovery.md`:
+  exercise the Wails file/folder flow, restart the owned kernel, and confirm the
+  persisted conversation can continue using its attachment with DeepSeek Flash.
+  Do not add desktop-owned attachment truth or a broad filesystem reader.
+- Evidence: restart, corrupt/missing index, outside-store index, missing object,
+  and before/after-restart archive-mutation tests fail closed or preserve the
+  original body as required. A live DeepSeek Flash daemon upload/restart/read
+  smoke returned the fixture body before and after restart without a host-path
+  ref.
+- Verification: focused upload recovery tests, full Go tests/build, frontend
+  tests/build, and Wails production build; remaining manual Wails acceptance is
+  explicitly pending.
+- Reference alignment: Reasonix copies external drops into owned attachments;
+  Codex gates local reads by explicit filesystem policy. Genesis uses the same
+  containment principle while preserving opaque kernel refs and the event-ledger
+  authority boundary.
+
 ### KERNEL-TASK-GRAPH-RUNTIME-20260712 - P1 - Long-running objectives lack a ledger-owned dependency graph
 
 - Status: in_progress.
