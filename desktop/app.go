@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -475,6 +477,9 @@ func loadDesktopConfig() DesktopConfig {
 		baseURL = defaultKernelBaseURL
 	}
 	token := strings.TrimSpace(os.Getenv("GENESIS_RUNTIME_TOKEN"))
+	if !external && token == "" {
+		token = newOwnedRuntimeToken()
+	}
 	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
 		KernelBaseURL: baseURL,
 		RuntimeToken:  token,
@@ -488,6 +493,14 @@ func loadDesktopConfig() DesktopConfig {
 		Sidecar:       supervisor.KernelStatus(),
 		LocalModel:    localModel.Status(),
 	}
+}
+
+func newOwnedRuntimeToken() string {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(bytes)
 }
 
 type KernelHTTPClient struct {

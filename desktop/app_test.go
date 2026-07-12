@@ -110,6 +110,23 @@ func TestLocalServiceSupervisorStartsOwnedKernelProcess(t *testing.T) {
 	}
 }
 
+func TestOwnedDesktopConfigGeneratesRuntimeToken(t *testing.T) {
+	t.Setenv("GENESIS_KERNEL_BASE_URL", "")
+	t.Setenv("GENESIS_RUNTIME_TOKEN", "")
+	config := loadDesktopConfig()
+	if len(config.RuntimeToken) != 64 {
+		t.Fatalf("owned runtime token length = %d, want 64", len(config.RuntimeToken))
+	}
+}
+
+func TestExternalDesktopConfigDoesNotInventRuntimeToken(t *testing.T) {
+	t.Setenv("GENESIS_KERNEL_BASE_URL", "http://127.0.0.1:9999")
+	t.Setenv("GENESIS_RUNTIME_TOKEN", "")
+	if token := loadDesktopConfig().RuntimeToken; token != "" {
+		t.Fatalf("external runtime token = %q, want empty", token)
+	}
+}
+
 func TestGenesisdCommandUsesPrivateRuntime(t *testing.T) {
 	dir := desktopTestTempDir(t)
 	runtimeDir := filepath.Join(dir, "kernel")
@@ -168,6 +185,16 @@ func TestDesktopUpdateLauncherHidesTheHelperProcess(t *testing.T) {
 	text := string(payload)
 	if !strings.Contains(text, "HideWindow: true") {
 		t.Fatal("update installer launcher must hide its helper process")
+	}
+}
+
+func TestKernelSidecarLauncherHidesItsWindowsProcess(t *testing.T) {
+	payload, err := os.ReadFile("local_service_supervisor.go")
+	if err != nil {
+		t.Fatalf("read local service supervisor: %v", err)
+	}
+	if !strings.Contains(string(payload), "cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}") {
+		t.Fatal("kernel sidecar launcher must hide genesisd.exe window")
 	}
 }
 

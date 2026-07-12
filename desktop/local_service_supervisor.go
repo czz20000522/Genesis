@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -274,6 +275,7 @@ func launchGenesisdSidecar(_ context.Context, req sidecarLaunchRequest) (sidecar
 		return nil, err
 	}
 	cmd := exec.Command(exe, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	cmd.Dir = workDir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
