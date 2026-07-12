@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -194,4 +195,36 @@ func normalizedTemplateModels(models []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func RepointLocalProviderAdapter(configRoot string, adapterPath string) error {
+	adapterPath = strings.TrimSpace(adapterPath)
+	if adapterPath == "" {
+		return nil
+	}
+	path := ConfigPath(configRoot)
+	config, err := ReadModels(path)
+	if errors.Is(err, ErrConfigMissing) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	changed := false
+	for routeID, route := range config.ModelGateway.Routes {
+		if route.Protocol != "provider_command" {
+			continue
+		}
+		for index, arg := range route.Args {
+			if strings.EqualFold(filepath.Base(strings.TrimSpace(arg)), "llama_cpp_provider_command.py") && strings.TrimSpace(arg) != adapterPath {
+				route.Args[index] = adapterPath
+				config.ModelGateway.Routes[routeID] = route
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return WriteModels(path, config)
 }

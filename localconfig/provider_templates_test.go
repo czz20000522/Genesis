@@ -38,3 +38,22 @@ func TestImportAdvancedProviderRefusesInsecureRemoteURL(t *testing.T) {
 		t.Fatalf("error = %v, want provider_base_url_insecure", err)
 	}
 }
+
+func TestRepointLocalProviderAdapterChangesOnlyAdapterArgument(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "models.json")
+	if err := os.WriteFile(path, []byte(`{"model_gateway":{"routes":{"local":{"protocol":"provider_command","command":"python.exe","args":["C:\\old\\llama_cpp_provider_command.py","--base-url","http://127.0.0.1:8081/v1"]}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RepointLocalProviderAdapter(root, `D:\software\Genesis\kernel\scripts\providers\llama_cpp_provider_command.py`); err != nil {
+		t.Fatal(err)
+	}
+	config, err := ReadModels(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := config.ModelGateway.Routes["local"].Args
+	if args[0] != `D:\software\Genesis\kernel\scripts\providers\llama_cpp_provider_command.py` || args[1] != "--base-url" {
+		t.Fatalf("args = %#v", args)
+	}
+}

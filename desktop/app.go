@@ -69,6 +69,11 @@ type SidecarStatus struct {
 
 func NewApp() *App {
 	cfg := loadDesktopConfig()
+	configRoot := strings.TrimSpace(os.Getenv("GENESIS_CONFIG_ROOT"))
+	credentialStoreRoot := strings.TrimSpace(os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT"))
+	if adapter := bundledLocalProviderAdapterPath(); adapter != "" {
+		_ = localconfig.RepointLocalProviderAdapter(configRoot, adapter)
+	}
 	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
 		KernelBaseURL: cfg.KernelBaseURL,
 		RuntimeToken:  cfg.RuntimeToken,
@@ -83,11 +88,23 @@ func NewApp() *App {
 		supervisor: supervisor,
 		localModel: localModel,
 		providerControl: desktopProviderControlConfig{
-			ConfigRoot:          strings.TrimSpace(os.Getenv("GENESIS_CONFIG_ROOT")),
-			CredentialStoreRoot: strings.TrimSpace(os.Getenv("GENESIS_CREDENTIAL_STORE_ROOT")),
+			ConfigRoot:          configRoot,
+			CredentialStoreRoot: credentialStoreRoot,
 		},
 		closeBehavior: loadDesktopCloseBehavior(),
 	}
+}
+
+func bundledLocalProviderAdapterPath() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Join(filepath.Dir(executable), "kernel", "scripts", "providers", "llama_cpp_provider_command.py")
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		return ""
+	}
+	return path
 }
 
 func (a *App) startup(ctx context.Context) {

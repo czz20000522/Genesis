@@ -17,6 +17,9 @@ if ([string]::IsNullOrWhiteSpace($WailsPath)) {
 }
 
 New-Item -ItemType Directory -Force -Path $binRoot | Out-Null
+$adapterTarget = Join-Path $binRoot "scripts\providers"
+New-Item -ItemType Directory -Force -Path $adapterTarget | Out-Null
+Copy-Item -LiteralPath (Join-Path $repoRoot "scripts\providers\llama_cpp_provider_command.py") -Destination (Join-Path $adapterTarget "llama_cpp_provider_command.py") -Force
 Push-Location $repoRoot
 try {
     go build -o (Join-Path $binRoot "genesisd.exe") ./cmd/genesisd

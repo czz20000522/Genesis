@@ -251,6 +251,8 @@ func TestNSISInstallerRemembersPathAndDoesNotRecursivelyDeleteIt(t *testing.T) {
 		"InstallDir \"D:\\software\\Genesis\"",
 		"SetOutPath \"$INSTDIR\\kernel\"",
 		"Delete \"$INSTDIR\\kernel\\genesisd.exe\"",
+		"SetOutPath \"$INSTDIR\\kernel\\scripts\\providers\"",
+		"File \"/oname=llama_cpp_provider_command.py\" \"..\\..\\bin\\scripts\\providers\\llama_cpp_provider_command.py\"",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("installer project missing %q", required)
@@ -263,6 +265,16 @@ func TestNSISInstallerRemembersPathAndDoesNotRecursivelyDeleteIt(t *testing.T) {
 	kernelFile := strings.Index(text, "File \"/oname=genesisd.exe\" \"..\\..\\bin\\genesisd.exe\"")
 	if runtimeSetOutPath < 0 || kernelFile < runtimeSetOutPath {
 		t.Fatal("installer does not place genesisd.exe in the private runtime directory")
+	}
+}
+
+func TestDesktopReleaseCopiesLocalProviderAdapter(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("..", "scripts", "build_desktop_release.ps1"))
+	if err != nil {
+		t.Fatalf("read release script: %v", err)
+	}
+	if !strings.Contains(string(payload), "llama_cpp_provider_command.py") {
+		t.Fatal("desktop release must package the local provider adapter")
 	}
 }
 

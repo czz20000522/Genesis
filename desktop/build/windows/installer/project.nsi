@@ -45,6 +45,8 @@ Section
 
     SetOutPath "$INSTDIR\kernel"
     File "/oname=genesisd.exe" "..\..\bin\genesisd.exe"
+    SetOutPath "$INSTDIR\kernel\scripts\providers"
+    File "/oname=llama_cpp_provider_command.py" "..\..\bin\scripts\providers\llama_cpp_provider_command.py"
 
     SetOutPath $INSTDIR
 
@@ -72,5 +74,8 @@ Section "uninstall"
     RMDir "$INSTDIR"
 
     Delete "$INSTDIR\kernel\genesisd.exe"
+    Delete "$INSTDIR\kernel\scripts\providers\llama_cpp_provider_command.py"
+    RMDir "$INSTDIR\kernel\scripts\providers"
+    RMDir "$INSTDIR\kernel\scripts"
     RMDir "$INSTDIR\kernel"
 SectionEnd
