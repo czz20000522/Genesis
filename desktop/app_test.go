@@ -369,7 +369,7 @@ func TestDesktopReleaseBuildWritesInstallerChecksum(t *testing.T) {
 		t.Fatalf("read desktop release script: %v", err)
 	}
 	text := string(payload)
-	for _, required := range []string{"Get-FileHash", "genesis-desktop-amd64-installer.exe.sha256", "Set-Content"} {
+	for _, required := range []string{"Get-FileHash", "genesis-desktop-amd64-installer.exe.sha256", "Set-Content", "Program Files (x86)\\NSIS", "makensis.exe"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("desktop release script missing %q", required)
 		}

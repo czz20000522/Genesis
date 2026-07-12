@@ -16,6 +16,15 @@ if ([string]::IsNullOrWhiteSpace($WailsPath)) {
     $WailsPath = $wails.Source
 }
 
+if ($null -eq (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
+    foreach ($candidate in @('C:\Program Files (x86)\NSIS\makensis.exe', 'C:\Program Files\NSIS\makensis.exe')) {
+        if (Test-Path -LiteralPath $candidate) {
+            $env:Path = "$(Split-Path -Parent $candidate);$env:Path"
+            break
+        }
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $binRoot | Out-Null
 $adapterTarget = Join-Path $binRoot "scripts\providers"
 New-Item -ItemType Directory -Force -Path $adapterTarget | Out-Null
