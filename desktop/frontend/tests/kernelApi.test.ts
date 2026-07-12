@@ -5,7 +5,7 @@ import { applyProviderRole, bindSessionWorkspace, compactSessionContext, createP
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
-import { connectionErrorLabel, readinessLabel, sessionLabel, sessionStatus, turnErrorLabel } from '../src/display.ts'
+import { connectionErrorLabel, operationErrorLabel, readinessLabel, sessionLabel, sessionStatus, turnErrorLabel } from '../src/display.ts'
 import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { isBlankSessionDraft } from '../src/sessionDraft.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
@@ -30,11 +30,17 @@ for (const file of vueFiles(join(import.meta.dirname, '..', 'src'))) {
 const appSource = readFileSync(join(import.meta.dirname, '..', 'src', 'App.vue'), 'utf8')
 const apiSource = readFileSync(join(import.meta.dirname, '..', 'src', 'api', 'kernelApi.ts'), 'utf8')
 const conversationSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'ConversationPane.vue'), 'utf8')
+const inspectorSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'InspectorDrawer.vue'), 'utf8')
 const providerPanelSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'ProviderPanel.vue'), 'utf8')
 assert.equal(appSource.includes('listApprovals'), false, 'App.vue must not load global pending approvals into the current conversation')
 assert.equal(appSource.includes('localSessions'), false, 'App.vue must not keep frontend-local sessions as history truth')
 assert.equal(conversationSource.includes('approvals: ApprovalProjection[]'), true, 'ConversationPane must render a current-session approval queue')
 assert.equal(conversationSource.includes('<details v-if="row.kind === \'reasoning\'"'), true, 'ConversationPane must keep reasoning in its own collapsed disclosure')
+assert.equal(conversationSource.includes('turnErrorLabel'), true, 'ConversationPane must not expose raw provider errors in turn status')
+assert.equal(appSource.includes("message.toLowerCase().includes('llama.cpp') || message.toLowerCase().includes('connection refused')"), false, 'App.vue must not treat a kernel connection failure as a local-model failure')
+assert.equal(inspectorSource.includes('<el-input'), true, 'InspectorDrawer must use the shared input component')
+assert.equal(inspectorSource.includes('<el-select'), true, 'InspectorDrawer must use the shared select component')
+assert.equal(inspectorSource.includes('<el-button'), true, 'InspectorDrawer must use the shared button component')
 assert.equal(apiSource.includes('KernelRequest'), false, 'desktop production bridge must not expose a generic HTTP proxy')
 assert.equal(apiSource.includes('content_base64'), false, 'desktop upload bridge must not pass whole files as base64')
 assert.equal(providerPanelSource.includes('type="password"'), true, 'provider key input must not render as plain text')
@@ -123,6 +129,10 @@ assert.equal(turnErrorLabel('provider_profile_missing'), '请先选择一个模�
 assert.equal(turnErrorLabel('llama.cpp server unavailable: [WinError 10061]'), '本地模型尚未启动。请在“模型”中启动它，或改用云端模型。')
 assert.equal(turnErrorLabel('provider error: unauthorized'), '模型凭据不可用。请在“模型”中检查 API Key。')
 assert.equal(turnErrorLabel('provider command failed: exit status 1'), '模型服务暂时无法完成此请求。请稍后重试或切换模型。')
+assert.equal(operationErrorLabel('llama.cpp server unavailable: [WinError 10061]', '启动本地模型'), '本地模型尚未启动。请在“模型”中启动它，或改用云端模型。')
+assert.equal(operationErrorLabel('fetch failed: connection refused', '连接 Genesis 本地服务'), '无法连接 Genesis 本地服务，请稍后重试。')
+assert.equal(operationErrorLabel('checksum mismatch', '安装更新'), '更新文件校验失败，请重新检查更新后再试。')
+assert.equal(operationErrorLabel('opaque internal exception', '保存设置'), '无法保存设置，请稍后重试。')
 assert.equal(isBlankSessionDraft({}), true)
 assert.equal(isBlankSessionDraft({ messageText: 'hello' }), false)
 assert.equal(isBlankSessionDraft({ selectedFileName: 'package.zip' }), false)

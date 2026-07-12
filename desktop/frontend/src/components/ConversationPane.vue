@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { ApprovalDecision, ApprovalProjection, TurnResponse } from '../api/kernelApi'
 import { approvalSummary } from '../approvalView'
+import { turnErrorLabel } from '../display'
 import type { TimelineRow } from '../timelineView'
 import AssistantMessage from './AssistantMessage.vue'
 
@@ -38,7 +39,7 @@ const approvalRows = computed(() => props.approvals.map((approval) => ({
 })))
 
 const turnStatus = computed(() => {
-  if (props.lastTurn?.error) return [props.lastTurn.error.code, props.lastTurn.error.message].filter(Boolean).join(': ')
+  if (props.lastTurn?.error) return turnErrorLabel([props.lastTurn.error.code, props.lastTurn.error.message].filter(Boolean).join(': '))
   if (props.lastTurn?.pause) return String(props.lastTurn.pause.reason ?? props.lastTurn.pause.wait_reason ?? '回合已暂停')
   if (props.lastTurn?.turn_id) return `回合 ${props.lastTurn.turn_id} 已提交`
   return ''

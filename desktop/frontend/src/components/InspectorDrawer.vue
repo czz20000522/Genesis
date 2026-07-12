@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { AgentInvocationChildConversation, AgentInvocationProjection, CloseBehavior, DesktopUpdate, KernelTimelineDetail, TaskGraphProjection } from '../api/kernelApi'
+import { operationErrorLabel } from '../display'
 
 const props = defineProps<{
   baseUrl: string
@@ -42,6 +43,11 @@ defineEmits<{
 }>()
 
 const detailItem = computed(() => props.detail?.item ?? {})
+const workerFailure = computed(() => {
+  const error = props.workerConversation?.error
+  if (!error?.code && !error?.message) return ''
+  return operationErrorLabel([error.code, error.message].filter(Boolean).join(': '), '完成工作代理任务')
+})
 
 function detailField(name: string) {
   return String(detailItem.value[name] ?? '').trim()
@@ -70,16 +76,16 @@ function taskSummary(graph: TaskGraphProjection) {
         <p class="eyebrow">设置与诊断</p>
         <strong>{{ readiness }}</strong>
       </div>
-      <button type="button" class="secondary-button" @click="$emit('close')">关闭</button>
+      <el-button plain @click="$emit('close')">关闭</el-button>
     </div>
 
     <section class="panel">
 	  <p class="eyebrow">应用行为</p>
 	  <label>关闭窗口时
-		<select :value="closeBehavior" @change="$emit('update:closeBehavior', ($event.target as HTMLSelectElement).value as CloseBehavior)">
-		  <option value="exit">直接关闭 Genesis</option>
-		  <option value="minimize_to_tray">最小化到托盘</option>
-		</select>
+		<el-select :model-value="closeBehavior" @update:model-value="$emit('update:closeBehavior', String($event) as CloseBehavior)">
+		  <el-option label="直接关闭 Genesis" value="exit" />
+		  <el-option label="最小化到托盘" value="minimize_to_tray" />
+		</el-select>
 	  </label>
 	</section>
 
@@ -87,19 +93,19 @@ function taskSummary(graph: TaskGraphProjection) {
       <p class="eyebrow">连接设置</p>
       <label>
         本地服务地址
-        <input :value="baseUrl" spellcheck="false" @input="$emit('update:baseUrl', ($event.target as HTMLInputElement).value)" />
+        <el-input :model-value="baseUrl" spellcheck="false" @update:model-value="$emit('update:baseUrl', String($event))" />
       </label>
       <label>
         访问令牌
-        <input :value="runtimeToken" type="password" spellcheck="false" @input="$emit('update:runtimeToken', ($event.target as HTMLInputElement).value)" />
+        <el-input :model-value="runtimeToken" type="password" show-password spellcheck="false" @update:model-value="$emit('update:runtimeToken', String($event))" />
       </label>
-      <button type="button" class="secondary-button" @click="$emit('checkReady')">检查连接</button>
+      <el-button plain @click="$emit('checkReady')">检查连接</el-button>
     </section>
 
     <section class="panel">
       <div class="panel-head">
         <p class="eyebrow">项目任务图</p>
-        <button type="button" class="secondary-button" @click="$emit('refreshTaskGraphs')">刷新</button>
+        <el-button plain size="small" @click="$emit('refreshTaskGraphs')">刷新</el-button>
       </div>
       <p v-if="!taskGraphs.length" class="status">当前会话尚未记录项目任务图。</p>
       <div v-for="graph in taskGraphs" :key="graph.graph_id" class="worker-row">
@@ -111,13 +117,13 @@ function taskSummary(graph: TaskGraphProjection) {
     <section class="panel">
       <div class="panel-head">
         <p class="eyebrow">工作代理</p>
-        <button type="button" class="secondary-button" @click="$emit('refreshWorkers')">刷新</button>
+        <el-button plain size="small" @click="$emit('refreshWorkers')">刷新</el-button>
       </div>
       <p v-if="!workerInvocations.length" class="status">当前会话尚未创建工作代理。</p>
-      <button v-for="worker in workerInvocations" :key="worker.invocation_id" type="button" class="worker-row" @click="$emit('selectWorker', String(worker.invocation_id || ''))">
+      <el-button v-for="worker in workerInvocations" :key="worker.invocation_id" plain class="worker-row" @click="$emit('selectWorker', String(worker.invocation_id || ''))">
         <span>{{ workerRole(worker) }}</span>
         <small>{{ workerStatus(worker) }}</small>
-      </button>
+      </el-button>
     </section>
 
     <section v-if="workerConversation" class="detail-panel">
@@ -132,9 +138,9 @@ function taskSummary(graph: TaskGraphProjection) {
           <dt>终态</dt>
           <dd><pre>{{ workerConversation.final.text }}</pre></dd>
         </template>
-        <template v-if="workerConversation.error?.code || workerConversation.error?.message">
+        <template v-if="workerFailure">
           <dt>失败</dt>
-          <dd>{{ workerConversation.error?.code || 'worker_failed' }}{{ workerConversation.error?.message ? `: ${workerConversation.error.message}` : '' }}</dd>
+          <dd>{{ workerFailure }}</dd>
         </template>
       </dl>
     </section>
@@ -143,14 +149,14 @@ function taskSummary(graph: TaskGraphProjection) {
       <p class="eyebrow">会话诊断</p>
       <label>
         详情编号
-        <input :value="selectedDetailRef" spellcheck="false" @input="$emit('update:selectedDetailRef', ($event.target as HTMLInputElement).value)" />
+        <el-input :model-value="selectedDetailRef" spellcheck="false" @update:model-value="$emit('update:selectedDetailRef', String($event))" />
       </label>
       <div class="button-row">
-        <button type="button" class="secondary-button" @click="$emit('loadDetail')">加载详情</button>
-        <button type="button" class="secondary-button" @click="$emit('enableDebug')">记录诊断</button>
-        <button type="button" class="secondary-button" @click="$emit('exportDebug')">导出诊断</button>
-        <button type="button" class="secondary-button" :disabled="!debugExportReady" @click="$emit('downloadDebug')">下载</button>
-        <button type="button" class="secondary-button" @click="$emit('compactContext')">整理上下文</button>
+        <el-button plain @click="$emit('loadDetail')">加载详情</el-button>
+        <el-button plain @click="$emit('enableDebug')">记录诊断</el-button>
+        <el-button plain @click="$emit('exportDebug')">导出诊断</el-button>
+        <el-button plain :disabled="!debugExportReady" @click="$emit('downloadDebug')">下载</el-button>
+        <el-button plain @click="$emit('compactContext')">整理上下文</el-button>
       </div>
     </section>
 
@@ -158,14 +164,14 @@ function taskSummary(graph: TaskGraphProjection) {
       <p class="eyebrow">应用更新</p>
       <label>
         GitHub 只读令牌
-        <input :value="updateToken" type="password" autocomplete="off" spellcheck="false" @input="$emit('update:updateToken', ($event.target as HTMLInputElement).value)" />
+        <el-input :model-value="updateToken" type="password" show-password autocomplete="off" spellcheck="false" @update:model-value="$emit('update:updateToken', String($event))" />
       </label>
       <div class="button-row">
-        <button type="button" class="secondary-button" :disabled="!updateToken.trim()" @click="$emit('saveUpdateToken')">保存令牌</button>
-        <button type="button" class="secondary-button" @click="$emit('checkUpdate')">检查更新</button>
+        <el-button plain :disabled="!updateToken.trim()" @click="$emit('saveUpdateToken')">保存令牌</el-button>
+        <el-button plain @click="$emit('checkUpdate')">检查更新</el-button>
       </div>
       <p v-if="update" class="status">{{ update.available ? `发现 ${update.latest_version}` : `已是最新版本 ${update.current_version}` }}</p>
-      <button v-if="update?.available" type="button" @click="$emit('installUpdate')">下载并安装 {{ update.latest_version }}</button>
+      <el-button v-if="update?.available" type="primary" @click="$emit('installUpdate')">下载并安装 {{ update.latest_version }}</el-button>
       <a v-if="update?.release_url" :href="update.release_url" target="_blank" rel="noreferrer">查看发行说明</a>
     </section>
 

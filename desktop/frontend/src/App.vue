@@ -10,7 +10,7 @@ import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
 import { activeProfileForRole, isLocalProfile, profileDisplayName } from './modelSelection'
-import { turnErrorLabel } from './display'
+import { operationErrorLabel, turnErrorLabel } from './display'
 import { isBlankSessionDraft } from './sessionDraft'
 import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
 import { timelineDetailEntries } from './timelineDetail'
@@ -131,7 +131,7 @@ async function createProjectSession(project: DesktopProjectCatalogEntry) {
   try {
     await bindAndActivateSession({ kind: 'project', projectId: project.projectId, root: project.root })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '创建项目会话')
   }
 }
 
@@ -149,7 +149,7 @@ async function createEmptyProject(name: string) {
     await persistDesktopCatalog()
     await createProjectSession(project)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '创建项目')
   }
 }
 
@@ -169,7 +169,7 @@ async function useExistingProjectFolder() {
     await persistDesktopCatalog()
     await createProjectSession(project)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '添加项目文件夹')
   }
 }
 
@@ -180,7 +180,7 @@ async function createTaskSession() {
     const workspace = await createTaskWorkspace(next)
     await bindAndActivateSession({ kind: 'task', root: workspace.root }, next)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '创建任务')
   }
 }
 
@@ -189,7 +189,7 @@ async function createChatSession() {
   try {
     await bindAndActivateSession({ kind: 'chat' })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '创建聊天')
   }
 }
 
@@ -246,7 +246,7 @@ async function checkReady() {
     await loadSessions()
   } catch (err) {
     readiness.value = 'not_ready'
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '连接 Genesis 本地服务')
   }
 }
 
@@ -265,7 +265,7 @@ async function toggleLocalModel() {
 		try {
 			localModel.value = await stopLocalModel()
 		} catch (err) {
-			error.value = err instanceof Error ? err.message : String(err)
+      error.value = operationErrorLabel(err, '停止本地模型')
 		}
 		return
 	}
@@ -273,7 +273,7 @@ async function toggleLocalModel() {
   try {
 		localModel.value = await startLocalModel()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '启动本地模型')
 	} finally {
 		localModelStarting.value = false
   }
@@ -285,12 +285,12 @@ async function saveDesktopUpdateToken() {
     await saveUpdateToken(updateToken.value)
     updateToken.value = ''
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '保存更新设置')
   }
 }
 
 async function saveCloseBehavior(value: CloseBehavior) {
-  try { desktopCloseBehavior.value = await setCloseBehavior(value) } catch (err) { error.value = err instanceof Error ? err.message : String(err) }
+  try { desktopCloseBehavior.value = await setCloseBehavior(value) } catch (err) { error.value = operationErrorLabel(err, '保存关闭行为') }
 }
 
 async function refreshDesktopUpdate() {
@@ -298,7 +298,7 @@ async function refreshDesktopUpdate() {
   try {
     update.value = await checkForUpdate()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '检查更新')
   }
 }
 
@@ -308,7 +308,7 @@ async function installDesktopUpdate() {
   try {
     await installUpdate(update.value)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '安装更新')
   }
 }
 
@@ -340,7 +340,7 @@ async function loadProviderPanel() {
   try {
     await loadProviderProfiles()
   } catch (err) {
-    providerNotice.value = err instanceof Error ? err.message : String(err)
+    providerNotice.value = operationErrorLabel(err, '读取模型配置')
   }
 }
 
@@ -352,7 +352,7 @@ async function saveProviderCredential() {
     providerNotice.value = result.credential_present ? '凭据已保存到本地受保护存储。' : '凭据未保存。'
     await loadProviderProfiles()
   } catch (err) {
-    providerNotice.value = err instanceof Error ? err.message : String(err)
+    providerNotice.value = operationErrorLabel(err, '保存 API Key')
   } finally {
     providerCredential.value = ''
     providerBusy.value = false
@@ -366,9 +366,9 @@ async function verifySelectedProvider() {
     const result = await verifyProvider(coordinatorRole, selectedProviderProfile.value)
     providerNotice.value = result.readiness === 'ready'
       ? `验证成功：${result.model || selectedProviderProfile.value}`
-      : `验证未就绪：${result.readiness_reason || 'provider_not_ready'}`
+      : '模型暂未就绪。请检查 API Key、网络或本地模型状态。'
   } catch (err) {
-    providerNotice.value = err instanceof Error ? err.message : String(err)
+    providerNotice.value = operationErrorLabel(err, '验证模型')
   } finally {
     providerBusy.value = false
   }
@@ -387,11 +387,11 @@ async function applySelectedProvider() {
     } else if (result.status === 'external_kernel_restart_required') {
       providerNotice.value = '配置已保存；外部 Genesis 服务需要由其所有者重启。'
     } else {
-      providerNotice.value = `配置已保存，但重启未就绪：${result.sidecar?.reason ?? result.status ?? 'unknown'}`
+      providerNotice.value = '模型配置已保存，但本机服务尚未准备好。请稍后重新检查连接。'
     }
     await loadProviderProfiles()
   } catch (err) {
-    providerNotice.value = err instanceof Error ? err.message : String(err)
+    providerNotice.value = operationErrorLabel(err, '应用模型')
   } finally {
     providerBusy.value = false
   }
@@ -414,7 +414,7 @@ async function updateSessionSearch(query: string) {
     const payload = await searchSessions(config.value, normalized, 30)
     if (sessionSearchQuery.value.trim() === normalized) sessionSearchResults.value = payload.items ?? []
   } catch (err) {
-    if (sessionSearchQuery.value.trim() === normalized) error.value = err instanceof Error ? err.message : String(err)
+    if (sessionSearchQuery.value.trim() === normalized) error.value = operationErrorLabel(err, '搜索会话')
   }
 }
 
@@ -439,7 +439,7 @@ async function loadTimeline() {
     await loadTaskGraphs(session)
     lastTurn.value = null
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '加载会话')
   }
 }
 
@@ -487,7 +487,7 @@ async function sendMessage() {
       await loadSessions()
     } else {
       error.value = turnErrorLabel(message)
-      if (message.toLowerCase().includes('llama.cpp') || message.toLowerCase().includes('connection refused')) await openProviderPanel()
+      if (message.toLowerCase().includes('llama.cpp')) await openProviderPanel()
       liveUserText.value = ''
       liveAssistantText.value = ''
     }
@@ -508,7 +508,7 @@ async function interruptCurrentTurn() {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (!message.includes('no active turn')) {
-      error.value = message
+      error.value = operationErrorLabel(message, '停止生成')
       return
     }
     await loadTimeline()
@@ -549,7 +549,7 @@ async function loadWorkerConversation(invocationID: string) {
     workerConversation.value = await getAgentInvocationChildConversation(config.value, normalized)
     inspectorOpen.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '加载工作代理')
   }
 }
 
@@ -566,7 +566,7 @@ async function answerApproval(approvalID: string, decision: ApprovalDecision) {
     timeline.value = await getTimeline(config.value, session)
     await loadSessionApproval(session)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '提交确认')
   }
 }
 
@@ -580,7 +580,7 @@ async function loadDetail(detailRef = selectedDetailRef.value) {
     detail.value = await getTimelineDetail(config.value, session, detailRef)
     inspectorOpen.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '加载详情')
   }
 }
 
@@ -603,7 +603,7 @@ async function enableDebug() {
     debugExport.value = await enableSessionDebug(config.value, session)
     inspectorOpen.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '记录诊断')
   }
 }
 
@@ -616,7 +616,7 @@ async function exportDebug() {
     debugExport.value = await getSessionDebug(config.value, session)
     inspectorOpen.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '导出诊断')
   }
 }
 
@@ -639,7 +639,7 @@ async function compactContext() {
     compaction.value = await compactSessionContext(config.value, session)
     inspectorOpen.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    error.value = operationErrorLabel(err, '整理上下文')
   }
 }
 
