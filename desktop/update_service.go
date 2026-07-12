@@ -38,10 +38,7 @@ type desktopUpdateService struct {
 }
 
 func (s desktopUpdateService) DownloadAndVerify(ctx context.Context, update DesktopUpdateProjection) (string, error) {
-	token, err := s.updateToken()
-	if err != nil {
-		return "", err
-	}
+	token := s.updateToken()
 	checksum, err := s.download(ctx, update.ChecksumURL, token)
 	if err != nil {
 		return "", err
@@ -72,15 +69,15 @@ func (s desktopUpdateService) DownloadAndVerify(ctx context.Context, update Desk
 	return path, nil
 }
 
-func (s desktopUpdateService) updateToken() (string, error) {
+func (s desktopUpdateService) updateToken() string {
 	if s.tokenResolver == nil {
-		return "", errors.New("update token is unavailable")
+		return ""
 	}
 	token, err := s.tokenResolver()
-	if err != nil || strings.TrimSpace(token) == "" {
-		return "", errors.New("update token is unavailable")
+	if err != nil {
+		return ""
 	}
-	return strings.TrimSpace(token), nil
+	return strings.TrimSpace(token)
 }
 
 func (s desktopUpdateService) download(ctx context.Context, location, token string) ([]byte, error) {
@@ -88,7 +85,9 @@ func (s desktopUpdateService) download(ctx context.Context, location, token stri
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
 	client := s.client
 	if client == nil {
 		client = http.DefaultClient
@@ -109,18 +108,14 @@ func (s desktopUpdateService) Check(ctx context.Context) (DesktopUpdateProjectio
 	if result.CurrentVersion == "" {
 		result.CurrentVersion = "dev"
 	}
-	if s.tokenResolver == nil {
-		return result, errors.New("update token is unavailable")
-	}
-	token, err := s.tokenResolver()
-	if err != nil || strings.TrimSpace(token) == "" {
-		return result, errors.New("update token is unavailable")
-	}
+	token := s.updateToken()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(s.latestReleaseURL), nil)
 	if err != nil {
 		return result, err
 	}
-	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	client := s.client
 	if client == nil {

@@ -65,3 +65,34 @@ func TestDesktopUpdateServiceChecksNewerRelease(t *testing.T) {
 		t.Fatalf("update = %+v", update)
 	}
 }
+
+func TestDesktopUpdateServiceChecksAndDownloadsPublicReleaseWithoutToken(t *testing.T) {
+	payload := []byte("public installer")
+	digest := fmt.Sprintf("%x", sha256.Sum256(payload))
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("public update sent authorization = %q", got)
+		}
+		switch r.URL.Path {
+		case "/latest":
+			_, _ = w.Write([]byte(`{"tag_name":"v0.1.9","assets":[{"name":"genesis-desktop-amd64-installer.exe","browser_download_url":"` + server.URL + `/installer.exe"},{"name":"genesis-desktop-amd64-installer.exe.sha256","browser_download_url":"` + server.URL + `/installer.sha256"}]}`))
+		case "/installer.exe":
+			_, _ = w.Write(payload)
+		case "/installer.sha256":
+			_, _ = w.Write([]byte(digest))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	service := desktopUpdateService{currentVersion: "0.1.8", latestReleaseURL: server.URL + "/latest", client: server.Client(), downloadDir: t.TempDir()}
+	update, err := service.Check(context.Background())
+	if err != nil || !update.Available {
+		t.Fatalf("public update = %+v, err = %v", update, err)
+	}
+	if _, err := service.DownloadAndVerify(context.Background(), update); err != nil {
+		t.Fatalf("download public update: %v", err)
+	}
+}
