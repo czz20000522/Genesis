@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/url"
 	"strings"
 
 	"genesis/localconfig"
@@ -58,6 +60,43 @@ type ProviderCredentialRotationProjection struct {
 type FirstRunDeepSeekProjection struct {
 	ProfileID         string `json:"profile_id"`
 	CredentialPresent bool   `json:"credential_present"`
+}
+
+type ProviderImportProjection struct {
+	RouteID         string   `json:"route_id"`
+	ProfileIDs      []string `json:"profile_ids"`
+	DiscoveryReason string   `json:"discovery_reason,omitempty"`
+}
+
+func (a *App) ImportProviderTemplate(templateID string, apiKey string, baseURL string, modelID string) (ProviderImportProjection, error) {
+	if a == nil || a.client == nil {
+		return ProviderImportProjection{}, errors.New("desktop app is unavailable")
+	}
+	route, err := localconfig.ImportProviderTemplateRoute(localconfig.ProviderTemplateRouteImportRequest{
+		ConfigRoot: a.providerControl.ConfigRoot, CredentialStoreRoot: a.providerControl.CredentialStoreRoot,
+		TemplateID: strings.TrimSpace(templateID), APIKey: strings.TrimSpace(apiKey), BaseURL: strings.TrimSpace(baseURL), ExplicitModelID: strings.TrimSpace(modelID), Protector: a.providerControl.secretProtector,
+	})
+	if err != nil {
+		return ProviderImportProjection{}, err
+	}
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	payload, err := a.client.RequestJSON(ctx, http.MethodPost, "/providers/"+url.PathEscape(route.RouteID)+"/models/discover", true, []byte("{}"))
+	if err != nil {
+		return ProviderImportProjection{RouteID: route.RouteID, DiscoveryReason: "provider_models_request_failed"}, nil
+	}
+	if strings.TrimSpace(stringFromMap(payload, "readiness")) != "ready" {
+		return ProviderImportProjection{RouteID: route.RouteID, DiscoveryReason: strings.TrimSpace(stringFromMap(payload, "readiness_reason"))}, nil
+	}
+	models := stringSliceFromMap(payload, "models")
+	if strings.TrimSpace(modelID) != "" {
+		models = []string{strings.TrimSpace(modelID)}
+	}
+	materialized, err := localconfig.MaterializeProviderTemplateModels(localconfig.ProviderTemplateModelsRequest{ConfigRoot: a.providerControl.ConfigRoot, RouteID: route.RouteID, Models: models})
+	if err != nil {
+		return ProviderImportProjection{}, err
+	}
+	return ProviderImportProjection{RouteID: materialized.RouteID, ProfileIDs: materialized.ProfileIDs}, nil
 }
 
 type ProviderVerificationProjection struct {
@@ -198,6 +237,17 @@ func (a *App) VerifyProvider(modelRole string, profileID string) (ProviderVerifi
 func stringFromMap(payload map[string]any, key string) string {
 	value, _ := payload[key].(string)
 	return value
+}
+
+func stringSliceFromMap(payload map[string]any, key string) []string {
+	items, _ := payload[key].([]any)
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if value, ok := item.(string); ok && strings.TrimSpace(value) != "" {
+			result = append(result, strings.TrimSpace(value))
+		}
+	}
+	return result
 }
 
 func (a *App) beginProviderActivation() error {

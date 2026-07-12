@@ -3,26 +3,30 @@ package kernel
 import "time"
 
 type WorkerProviderResolver func(profileID string) (Provider, error)
+type SessionProviderResolver func(profileID string) (Provider, error)
+type ProviderRouteDiscoverer func(routeID string) ProviderRouteModelDiscoveryResult
 
 type Config struct {
-	LedgerPath             string
-	Provider               Provider
-	ProviderVerifier       ProviderVerifier
-	JobExecutor            ManagedJobExecutor
-	RuntimeToken           string
-	ToolPolicy             ToolPolicy
-	ContextPolicy          ContextPolicy
-	BudgetPolicy           BudgetPolicy
-	ShellTimeoutPolicy     ShellTimeoutPolicy
-	SourceSnapshotPolicy   SourceSnapshotPolicy
-	SkillRoots             []string
-	CapabilityDescriptors  []CapabilityDescriptor
-	Resources              []ResourceDescriptor
-	MaterialStorePath      string
-	ParentWorkerConfigRoot string
-	ParentWorkerParentID   string
-	WorkerProviderResolver WorkerProviderResolver
-	Clock                  func() time.Time
+	LedgerPath              string
+	Provider                Provider
+	ProviderVerifier        ProviderVerifier
+	JobExecutor             ManagedJobExecutor
+	RuntimeToken            string
+	ToolPolicy              ToolPolicy
+	ContextPolicy           ContextPolicy
+	BudgetPolicy            BudgetPolicy
+	ShellTimeoutPolicy      ShellTimeoutPolicy
+	SourceSnapshotPolicy    SourceSnapshotPolicy
+	SkillRoots              []string
+	CapabilityDescriptors   []CapabilityDescriptor
+	Resources               []ResourceDescriptor
+	MaterialStorePath       string
+	ParentWorkerConfigRoot  string
+	ParentWorkerParentID    string
+	WorkerProviderResolver  WorkerProviderResolver
+	SessionProviderResolver SessionProviderResolver
+	ProviderRouteDiscoverer ProviderRouteDiscoverer
+	Clock                   func() time.Time
 }
 
 type ProviderVerificationRequest struct {

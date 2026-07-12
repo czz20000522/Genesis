@@ -119,6 +119,7 @@ export type SessionSearchResponse = {
 export type SessionProjection = {
   session_id?: string
   workspace_mode?: SessionWorkspaceKind
+	model_profile_id?: string
   approvals?: ApprovalProjection[]
 }
 
@@ -226,6 +227,12 @@ export type ProviderProfiles = {
   role_bindings?: Record<string, string>
 }
 
+export type ProviderImport = {
+	route_id?: string
+	profile_ids?: string[]
+	discovery_reason?: string
+}
+
 export type ProviderCredentialRotation = {
 	profile_id?: string
 	credential_present?: boolean
@@ -283,6 +290,12 @@ export async function providerProfiles(): Promise<ProviderProfiles> {
   const bridge = wailsAppBridge()
   if (!bridge?.ProviderProfiles) throw new Error('模型配置仅在 Genesis 桌面客户端中可用')
   return bridge.ProviderProfiles() as Promise<ProviderProfiles>
+}
+
+export async function importProviderTemplate(templateID: string, apiKey: string, baseURL = '', modelID = ''): Promise<ProviderImport> {
+	const bridge = wailsAppBridge()
+	if (!bridge?.ImportProviderTemplate) throw new Error('模型导入仅在 Genesis 桌面客户端中可用')
+	return bridge.ImportProviderTemplate(String(templateID || '').trim(), String(apiKey || '').trim(), String(baseURL || '').trim(), String(modelID || '').trim()) as Promise<ProviderImport>
 }
 
 export async function setupDeepSeekFlash(apiKey: string): Promise<FirstRunDeepSeek> {
@@ -421,6 +434,18 @@ export async function bindSessionWorkspace(config: KernelConfig, sessionId: stri
   return requestKernel<SessionProjection>(config, `/sessions/${encodeURIComponent(session)}/workspace`, {
     method: 'POST',
     body: JSON.stringify({ kind, root: String(root || '').trim() }),
+  })
+}
+
+export async function bindSessionModel(config: KernelConfig, sessionId: string, profileId: string) {
+  const session = requiredSessionId(sessionId)
+  const profile = String(profileId || '').trim()
+  if (!profile) throw new Error('请选择模型')
+  const bridge = wailsAppBridge()
+  if (bridge?.BindSessionModel) return bridge.BindSessionModel(session, profile) as Promise<SessionProjection>
+  return requestKernel<SessionProjection>(config, `/sessions/${encodeURIComponent(session)}/model`, {
+    method: 'POST',
+    body: JSON.stringify({ profile_id: profile }),
   })
 }
 
@@ -677,6 +702,7 @@ type WailsAppBridge = {
   ReadTimelineDetail?: (sessionId: string, detailRef: string) => Promise<unknown>
   ReadSession?: (sessionId: string) => Promise<unknown>
   BindSessionWorkspace?: (sessionId: string, kind: SessionWorkspaceKind, root: string) => Promise<unknown>
+	BindSessionModel?: (sessionId: string, profileId: string) => Promise<unknown>
   PickProjectDirectory?: () => Promise<ProjectDirectorySelection | null>
   CreateTaskWorkspace?: (sessionId: string) => Promise<TaskWorkspaceSelection>
   CreateProjectWorkspace?: (name: string) => Promise<ProjectWorkspaceSelection>
@@ -692,7 +718,8 @@ type WailsAppBridge = {
   LocalModelStatus?: () => Promise<unknown>
   StartLocalModel?: () => Promise<unknown>
   StopLocalModel?: () => Promise<unknown>
-	ProviderProfiles?: () => Promise<unknown>
+  ProviderProfiles?: () => Promise<unknown>
+	ImportProviderTemplate?: (templateID: string, apiKey: string, baseURL: string, modelID: string) => Promise<unknown>
 	SetupDeepSeekFlash?: (apiKey: string) => Promise<unknown>
 	RotateProviderCredential?: (profileID: string, secret: string) => Promise<unknown>
   ApplyProviderRole?: (modelRole: string, profileID: string) => Promise<unknown>

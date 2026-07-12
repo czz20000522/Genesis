@@ -91,6 +91,10 @@ func (b *sessionProjectionBuilder) applyOwnerEvent(event StoredEvent) error {
 		if event.Data.SessionWorkspace != nil {
 			b.projection.WorkspaceMode = event.Data.SessionWorkspace.Kind
 		}
+	case "session.model_bound":
+		if event.Data.SessionModel != nil {
+			b.projection.ModelProfileID = event.Data.SessionModel.ProfileID
+		}
 	}
 	return nil
 }

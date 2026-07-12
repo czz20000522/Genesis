@@ -36,8 +36,12 @@ func (k *Kernel) ContextInspection(turnID string) (ContextInspectionResponse, er
 		}
 		prefixFingerprint, prefixChangeReasons := modelContextPrefixInspection(events, turnID)
 		if prefixFingerprint == "" {
-			if providerContext, ok := k.providerContextProjectionFromStoredEvents(events, turnID, k.contextPolicy); ok {
-				prefixFingerprint = providerContext.PrefixFingerprint
+			provider, providerErr := k.sessionProviderForTurnEvents(events, turnID)
+			if providerErr == nil {
+				providerContext, ok := k.providerContextProjectionFromStoredEvents(events, turnID, k.contextPolicy, provider)
+				if ok {
+					prefixFingerprint = providerContext.PrefixFingerprint
+				}
 			}
 		}
 		if len(event.Data.ToolManifest) == 0 && event.Data.RuntimeContext == nil {

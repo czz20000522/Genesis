@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { ApprovalDecision, ApprovalProjection, TurnResponse } from '../api/kernelApi'
+import type { ApprovalDecision, ApprovalProjection, ProviderProfile, TurnResponse } from '../api/kernelApi'
+import { isLocalProfile } from '../modelSelection'
 import { approvalSummary } from '../approvalView'
 import { turnErrorLabel } from '../display'
 import type { TimelineRow } from '../timelineView'
@@ -20,6 +21,9 @@ const props = defineProps<{
   retryText: string
   interruptAvailable: boolean
   interrupting: boolean
+	profiles: ProviderProfile[]
+	selectedModelProfile: string
+	modelSelectionDisabled: boolean
 }>()
 
 const emit = defineEmits<{
@@ -31,6 +35,7 @@ const emit = defineEmits<{
   loadDetail: [detailRef: string]
   retry: []
   interrupt: []
+	selectModel: [profileID: string]
 }>()
 
 const approvalRows = computed(() => props.approvals.map((approval) => ({
@@ -121,10 +126,26 @@ function useStarter(text: string) {
           @update:model-value="$emit('update:messageText', String($event))"
         />
         <div class="composer-actions">
+			<el-select
+				class="composer-model-select"
+				:model-value="selectedModelProfile"
+				:disabled="modelSelectionDisabled || !profiles.length"
+				placeholder="为此会话选择模型"
+				filterable
+				@update:model-value="$emit('selectModel', String($event || ''))"
+			>
+				<el-option
+					v-for="profile in profiles"
+					:key="profile.profile_id"
+					:value="String(profile.profile_id || '')"
+					:label="String(profile.model_id || profile.profile_id || '')"
+					:disabled="!profile.credential_present && !isLocalProfile(profile)"
+				/>
+			</el-select>
           <el-button class="file-action" plain @click="$emit('pickMaterialArchive')">添加压缩包</el-button>
           <el-button class="file-action" plain @click="$emit('pickMaterialDirectory')">添加文件夹</el-button>
           <el-button v-if="interruptAvailable" plain :loading="interrupting" :disabled="interrupting" @click="$emit('interrupt')">{{ interrupting ? '正在停止…' : '停止生成' }}</el-button>
-          <el-button v-else class="send-button" type="primary" @click="$emit('sendMessage')">发送</el-button>
+			<el-button v-else class="send-button" type="primary" :disabled="!selectedModelProfile || modelSelectionDisabled" @click="$emit('sendMessage')">发送</el-button>
         </div>
       </div>
       <div class="composer-meta">

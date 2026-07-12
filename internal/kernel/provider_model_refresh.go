@@ -37,6 +37,64 @@ type ProviderModelRefreshResult struct {
 	Provider        ProviderStatus `json:"provider"`
 }
 
+type ProviderRouteModelDiscoveryRequest struct {
+	ConfigRoot          string
+	CredentialStoreRoot string
+	RouteID             string
+	Timeout             time.Duration
+	SecretResolver      func(ref string, storeRoot string) (string, error)
+	HTTPClient          *http.Client
+}
+
+type ProviderRouteModelDiscoveryResult struct {
+	RouteID         string   `json:"route_id"`
+	Readiness       string   `json:"readiness"`
+	ReadinessReason string   `json:"readiness_reason,omitempty"`
+	Models          []string `json:"models,omitempty"`
+}
+
+func DiscoverProviderRouteModels(req ProviderRouteModelDiscoveryRequest) ProviderRouteModelDiscoveryResult {
+	routeID := strings.TrimSpace(req.RouteID)
+	if routeID == "" {
+		return ProviderRouteModelDiscoveryResult{Readiness: ReadinessNotReady, ReadinessReason: "provider_route_required"}
+	}
+	config, err := readGenesisModelsConfig(filepath.Join(resolveGenesisConfigRoot(req.ConfigRoot), "models.json"))
+	if err != nil {
+		return ProviderRouteModelDiscoveryResult{RouteID: routeID, Readiness: ReadinessNotReady, ReadinessReason: ProviderConfigReason(err)}
+	}
+	route, ok := config.ModelGateway.Routes[routeID]
+	if !ok || strings.TrimSpace(route.Protocol) != modelGatewayProtocolChatCompletions {
+		return ProviderRouteModelDiscoveryResult{RouteID: routeID, Readiness: ReadinessNotReady, ReadinessReason: "provider_model_refresh_unsupported"}
+	}
+	resolver := req.SecretResolver
+	if resolver == nil {
+		resolver = ResolveLocalCredentialSecret
+	}
+	apiKey, err := resolver(route.CredentialRef, req.CredentialStoreRoot)
+	if err != nil || strings.TrimSpace(apiKey) == "" {
+		return ProviderRouteModelDiscoveryResult{RouteID: routeID, Readiness: ReadinessNotReady, ReadinessReason: "provider_credential_missing"}
+	}
+	timeout := req.Timeout
+	if timeout <= 0 {
+		timeout = defaultProviderModelRefreshTimeout
+	}
+	client := req.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: timeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	models, err := fetchProviderModelIDs(ctx, client, route.BaseURL, apiKey)
+	if err != nil || len(models) == 0 {
+		reason := "provider_models_empty"
+		if err != nil {
+			reason = providerModelRefreshReason(err)
+		}
+		return ProviderRouteModelDiscoveryResult{RouteID: routeID, Readiness: ReadinessNotReady, ReadinessReason: reason}
+	}
+	return ProviderRouteModelDiscoveryResult{RouteID: routeID, Readiness: ReadinessReady, Models: models}
+}
+
 type ProviderModelBindRequest struct {
 	ConfigRoot     string
 	ModelRole      string

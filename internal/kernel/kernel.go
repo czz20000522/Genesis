@@ -16,38 +16,40 @@ import (
 )
 
 type Kernel struct {
-	ledger                 Ledger
-	provider               Provider
-	providerVerifier       ProviderVerifier
-	jobExecutor            ManagedJobExecutor
-	runtimeToken           string
-	toolPolicy             ToolPolicy
-	contextPolicy          ContextPolicy
-	budgetPolicy           BudgetPolicy
-	shellTimeoutPolicy     ShellTimeoutPolicy
-	toolRegistry           *ToolRegistry
-	resourceRegistry       *resource.Registry
-	materialStorePath      string
-	sourceSnapshotRecovery ReadyCheck
-	parentWorkerConfigRoot string
-	parentWorkerParentID   string
-	workerProviderResolver WorkerProviderResolver
-	skillCatalog           []SkillDescriptor
-	skillRoots             []SkillCatalogRootProjection
-	skillExclusions        []SkillCatalogExclusionProjection
-	capabilityDescriptors  []CapabilityDescriptor
-	clock                  func() time.Time
-	turnMu                 sync.Mutex
-	activeTurnMu           sync.Mutex
-	activeTurns            map[string]*activeTurn
-	operationMu            sync.Mutex
-	jobMu                  sync.Mutex
-	approvalMu             sync.Mutex
-	memoryReviewMu         sync.Mutex
-	workMu                 sync.Mutex
-	taskGraphMu            sync.Mutex
-	sourceSnapshotMu       sync.Mutex
-	activeInvocationRuns   map[string]struct{}
+	ledger                  Ledger
+	provider                Provider
+	providerVerifier        ProviderVerifier
+	jobExecutor             ManagedJobExecutor
+	runtimeToken            string
+	toolPolicy              ToolPolicy
+	contextPolicy           ContextPolicy
+	budgetPolicy            BudgetPolicy
+	shellTimeoutPolicy      ShellTimeoutPolicy
+	toolRegistry            *ToolRegistry
+	resourceRegistry        *resource.Registry
+	materialStorePath       string
+	sourceSnapshotRecovery  ReadyCheck
+	parentWorkerConfigRoot  string
+	parentWorkerParentID    string
+	workerProviderResolver  WorkerProviderResolver
+	sessionProviderResolver SessionProviderResolver
+	providerRouteDiscoverer ProviderRouteDiscoverer
+	skillCatalog            []SkillDescriptor
+	skillRoots              []SkillCatalogRootProjection
+	skillExclusions         []SkillCatalogExclusionProjection
+	capabilityDescriptors   []CapabilityDescriptor
+	clock                   func() time.Time
+	turnMu                  sync.Mutex
+	activeTurnMu            sync.Mutex
+	activeTurns             map[string]*activeTurn
+	operationMu             sync.Mutex
+	jobMu                   sync.Mutex
+	approvalMu              sync.Mutex
+	memoryReviewMu          sync.Mutex
+	workMu                  sync.Mutex
+	taskGraphMu             sync.Mutex
+	sourceSnapshotMu        sync.Mutex
+	activeInvocationRuns    map[string]struct{}
 }
 
 type activeTurn struct {
@@ -93,29 +95,31 @@ func New(config Config) (*Kernel, error) {
 		return nil, err
 	}
 	k := &Kernel{
-		ledger:                 NewSQLiteLedger(config.LedgerPath),
-		provider:               provider,
-		providerVerifier:       config.ProviderVerifier,
-		jobExecutor:            jobExecutor,
-		runtimeToken:           strings.TrimSpace(config.RuntimeToken),
-		toolPolicy:             normalizedToolPolicy(config.ToolPolicy),
-		contextPolicy:          normalizedContextPolicy(config.ContextPolicy),
-		budgetPolicy:           normalizedBudgetPolicy(config.BudgetPolicy),
-		shellTimeoutPolicy:     shellTimeoutPolicy,
-		toolRegistry:           toolRegistry,
-		resourceRegistry:       resourceRegistry,
-		materialStorePath:      materialStorePath,
-		sourceSnapshotRecovery: ReadyCheck{Readiness: ReadinessReady, ReadinessReason: "uploaded_snapshot_recovery"},
-		parentWorkerConfigRoot: strings.TrimSpace(config.ParentWorkerConfigRoot),
-		parentWorkerParentID:   strings.TrimSpace(config.ParentWorkerParentID),
-		workerProviderResolver: config.WorkerProviderResolver,
-		skillCatalog:           skillCatalog.Items,
-		skillRoots:             skillCatalog.Roots,
-		skillExclusions:        skillCatalog.Exclusions,
-		capabilityDescriptors:  capabilityDescriptors,
-		clock:                  clock,
-		activeTurns:            map[string]*activeTurn{},
-		activeInvocationRuns:   map[string]struct{}{},
+		ledger:                  NewSQLiteLedger(config.LedgerPath),
+		provider:                provider,
+		providerVerifier:        config.ProviderVerifier,
+		jobExecutor:             jobExecutor,
+		runtimeToken:            strings.TrimSpace(config.RuntimeToken),
+		toolPolicy:              normalizedToolPolicy(config.ToolPolicy),
+		contextPolicy:           normalizedContextPolicy(config.ContextPolicy),
+		budgetPolicy:            normalizedBudgetPolicy(config.BudgetPolicy),
+		shellTimeoutPolicy:      shellTimeoutPolicy,
+		toolRegistry:            toolRegistry,
+		resourceRegistry:        resourceRegistry,
+		materialStorePath:       materialStorePath,
+		sourceSnapshotRecovery:  ReadyCheck{Readiness: ReadinessReady, ReadinessReason: "uploaded_snapshot_recovery"},
+		parentWorkerConfigRoot:  strings.TrimSpace(config.ParentWorkerConfigRoot),
+		parentWorkerParentID:    strings.TrimSpace(config.ParentWorkerParentID),
+		workerProviderResolver:  config.WorkerProviderResolver,
+		sessionProviderResolver: config.SessionProviderResolver,
+		providerRouteDiscoverer: config.ProviderRouteDiscoverer,
+		skillCatalog:            skillCatalog.Items,
+		skillRoots:              skillCatalog.Roots,
+		skillExclusions:         skillCatalog.Exclusions,
+		capabilityDescriptors:   capabilityDescriptors,
+		clock:                   clock,
+		activeTurns:             map[string]*activeTurn{},
+		activeInvocationRuns:    map[string]struct{}{},
 	}
 	k.restoreDurableSourceSnapshots()
 	_ = k.recoverLostLocalManagedJobs()
@@ -141,7 +145,7 @@ func (k *Kernel) Ready() ReadyResponse {
 	ledgerStatus := k.ledger.Ready()
 	readiness := ReadinessReady
 	readinessReason := ""
-	if providerStatus.Readiness != ReadinessReady {
+	if k.sessionProviderResolver == nil && providerStatus.Readiness != ReadinessReady {
 		readiness = ReadinessNotReady
 		readinessReason = safeInspectionReadinessReason(firstNonEmpty(providerStatus.ReadinessReason, "provider_not_ready"))
 	}
@@ -246,6 +250,7 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 	var turnID string
 	var runCtx context.Context
 	var finishActiveTurn func()
+	var provider Provider
 	if idempotencyKey != "" {
 		var existing TurnResponse
 		var ok bool
@@ -258,7 +263,10 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 			if !admitted {
 				err = ErrSessionActive
 			} else {
-				_, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now, toolGateway)
+				provider, err = k.sessionProviderForSession(sessionID)
+				if err == nil {
+					_, err = k.submitNewTurn(req, sessionID, turnID, idempotencyKey, ingressRisks, now, toolGateway, provider)
+				}
 				if err != nil {
 					finishActiveTurn()
 				}
@@ -275,17 +283,20 @@ func (k *Kernel) submitTurn(ctx context.Context, req TurnRequest, emit func(Turn
 		if !admitted {
 			return TurnResponse{}, ErrSessionActive
 		}
-		_, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now, toolGateway)
+		provider, err = k.sessionProviderForSession(sessionID)
+		if err == nil {
+			_, err = k.submitNewTurn(req, sessionID, turnID, "", ingressRisks, now, toolGateway, provider)
+		}
 		if err != nil {
 			finishActiveTurn()
 			return TurnResponse{}, err
 		}
 	}
 	defer finishActiveTurn()
-	return k.runTurnModelLoop(runCtx, sessionID, turnID, emit)
+	return k.runTurnModelLoop(runCtx, sessionID, turnID, provider, emit)
 }
 
-func (k *Kernel) runTurnModelLoop(runCtx context.Context, sessionID string, turnID string, emit func(TurnStreamEvent) error) (TurnResponse, error) {
+func (k *Kernel) runTurnModelLoop(runCtx context.Context, sessionID string, turnID string, provider Provider, emit func(TurnStreamEvent) error) (TurnResponse, error) {
 	toolGateway, err := k.toolGatewayForSession(sessionID)
 	if err != nil {
 		return TurnResponse{}, err
@@ -293,11 +304,11 @@ func (k *Kernel) runTurnModelLoop(runCtx context.Context, sessionID string, turn
 	loopGuard := newToolLoopGuard()
 	budgetLease := k.newTurnBudgetLease()
 	for roundIndex := 0; ; roundIndex++ {
-		providerContext, err := k.ProviderContextProjection(turnID)
+		providerContext, err := k.providerContextProjectionForProvider(turnID, provider)
 		if err != nil {
 			return TurnResponse{}, err
 		}
-		modelResp, err := k.completeProviderStep(runCtx, sessionID, turnID, roundIndex, providerContext, emit)
+		modelResp, err := k.completeProviderStep(runCtx, sessionID, turnID, roundIndex, providerContext, provider, emit)
 		if err != nil {
 			if isTurnContextInterrupted(runCtx, err) {
 				return k.completeInterruptedTurn(sessionID, turnID)
@@ -333,7 +344,7 @@ func (k *Kernel) runTurnModelLoop(runCtx context.Context, sessionID string, turn
 			if err := k.appendEvent(completed); err != nil {
 				return TurnResponse{}, err
 			}
-			k.maybeSubmitAutoContextCompaction(runCtx, sessionID, turnID, final)
+			k.maybeSubmitAutoContextCompaction(runCtx, sessionID, turnID, final, provider)
 			events, err := k.TurnEvents(turnID)
 			if err != nil {
 				return TurnResponse{}, err
@@ -425,7 +436,7 @@ func (k *Kernel) appendModelReasoning(sessionID string, turnID string, reasoning
 	})
 }
 
-func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string, idempotencyKey string, ingressRisks []IngressRisk, now time.Time, toolGateway ToolGateway) ([]ModelInputItem, error) {
+func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string, idempotencyKey string, ingressRisks []IngressRisk, now time.Time, toolGateway ToolGateway, provider Provider) ([]ModelInputItem, error) {
 	events, err := k.loadEvents()
 	if err != nil {
 		return nil, err
@@ -450,7 +461,7 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 			ToolManifest:     toolGateway.ToolManifest(),
 			SkillCatalog:     skillIndex,
 			SourceSnapshots:  sourceSnapshots,
-			RuntimeContext:   k.contextRuntimeSnapshot(),
+			RuntimeContext:   k.contextRuntimeSnapshotForProvider(provider),
 			HydratedContexts: hydratedContexts,
 		},
 	}
@@ -460,7 +471,7 @@ func (k *Kernel) submitNewTurn(req TurnRequest, sessionID string, turnID string,
 	return modelInputs, nil
 }
 
-func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, turnID string, roundIndex int, providerContext ProviderContextProjection, emit func(TurnStreamEvent) error) (ModelResponse, error) {
+func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, turnID string, roundIndex int, providerContext ProviderContextProjection, provider Provider, emit func(TurnStreamEvent) error) (ModelResponse, error) {
 	baseRequest := providerContext.ModelRequest()
 	transientAttempt := 1
 	visibleRepairCount := 0
@@ -472,7 +483,7 @@ func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, tur
 				Text: providerVisibleFinalRepairPrompt,
 			})
 		}
-		modelResp, streamedDelta, err := k.completeModel(ctx, request, emit)
+		modelResp, streamedDelta, err := completeModelWithProvider(ctx, provider, request, emit)
 		if err == nil && modelResponseNeedsVisibleFinalRepair(modelResp) {
 			err = newProviderVisibleFinalRequiredError()
 		}
@@ -547,10 +558,6 @@ func (k *Kernel) completeProviderStep(ctx context.Context, sessionID string, tur
 	}
 }
 
-func (k *Kernel) completeModel(ctx context.Context, request ModelRequest, emit func(TurnStreamEvent) error) (ModelResponse, bool, error) {
-	return completeModelWithProvider(ctx, k.provider, request, emit)
-}
-
 func completeModelWithProvider(ctx context.Context, provider Provider, request ModelRequest, emit func(TurnStreamEvent) error) (ModelResponse, bool, error) {
 	streamer, ok := provider.(StreamingProvider)
 	if emit == nil || !ok {
@@ -581,9 +588,13 @@ func cloneModelRequest(req ModelRequest) ModelRequest {
 }
 
 func (k *Kernel) contextRuntimeSnapshot() *ContextRuntimeSnapshot {
+	return k.contextRuntimeSnapshotForProvider(k.provider)
+}
+
+func (k *Kernel) contextRuntimeSnapshotForProvider(provider Provider) *ContextRuntimeSnapshot {
 	policy := resolveToolPolicy(k.toolPolicy)
 	return &ContextRuntimeSnapshot{
-		Provider:           safeProviderStatusForInspection(k.provider.Ready()),
+		Provider:           safeProviderStatusForInspection(provider.Ready()),
 		BudgetLease:        k.budgetLeaseProjection(),
 		ShellTimeoutPolicy: k.shellTimeoutPolicy,
 		Limits:             k.runtimeLimitProjections(),
@@ -976,7 +987,27 @@ func (k *Kernel) ProviderContextProjection(turnID string) (ProviderContextProjec
 	if err != nil {
 		return ProviderContextProjection{}, err
 	}
-	projection, ok := k.providerContextProjectionFromStoredEvents(events, turnID, k.contextPolicy)
+	provider, err := k.sessionProviderForTurnEvents(events, turnID)
+	if err != nil {
+		return ProviderContextProjection{}, err
+	}
+	projection, ok := k.providerContextProjectionFromStoredEvents(events, turnID, k.contextPolicy, provider)
+	if !ok {
+		return ProviderContextProjection{}, ErrTurnNotFound
+	}
+	return projection, nil
+}
+
+func (k *Kernel) providerContextProjectionForProvider(turnID string, provider Provider) (ProviderContextProjection, error) {
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return ProviderContextProjection{}, errors.New("turn id is required")
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		return ProviderContextProjection{}, err
+	}
+	projection, ok := k.providerContextProjectionFromStoredEvents(events, turnID, k.contextPolicy, provider)
 	if !ok {
 		return ProviderContextProjection{}, ErrTurnNotFound
 	}
@@ -1039,7 +1070,7 @@ func cloneTokenUsage(usage *TokenUsage) *TokenUsage {
 	return modelgateway.CloneTokenUsage(usage)
 }
 
-func (k *Kernel) providerContextProjectionFromStoredEvents(events []StoredEvent, turnID string, policy ContextPolicy) (ProviderContextProjection, bool) {
+func (k *Kernel) providerContextProjectionFromStoredEvents(events []StoredEvent, turnID string, policy ContextPolicy, provider Provider) (ProviderContextProjection, bool) {
 	projection := ProviderContextProjection{TurnID: turnID}
 	found := false
 	var submitted EventData
@@ -1064,7 +1095,7 @@ func (k *Kernel) providerContextProjectionFromStoredEvents(events []StoredEvent,
 	projection.KernelObservationEventIDs = deliveredObservationIDs
 	projection.ToolRounds = modelToolRoundsFromStoredEvents(events, turnID)
 	systemInstruction, skillIndex := stableSystemPrefixParts(projection.InputItems)
-	projection.PrefixComponents = providerPrefixFingerprintComponents(providerPrefixIdentity(k.provider), systemInstruction, skillIndex, projection.ToolManifest)
+	projection.PrefixComponents = providerPrefixFingerprintComponents(providerPrefixIdentity(provider), systemInstruction, skillIndex, projection.ToolManifest)
 	projection.PrefixFingerprint = projection.PrefixComponents.Fingerprint
 	projection.HistoryTurnIDs = history.TurnIDs()
 	projection.CompactedThroughTurnID = history.CompactedThroughTurnID

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { applyProviderRole, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, installUpdate, interruptSession, kernelConfig, listSessions, loadDesktopCatalog, localModelStatus, pickMaterialDirectory as pickMaterialDirectoryFromDesktop, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveDesktopCatalog, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, setupDeepSeekFlash, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
+import { bindSessionModel, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, importProviderTemplate, installUpdate, interruptSession, kernelConfig, listSessions, loadDesktopCatalog, localModelStatus, pickMaterialDirectory as pickMaterialDirectoryFromDesktop, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveDesktopCatalog, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, setupDeepSeekFlash, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
 import ConversationPane from './components/ConversationPane.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -9,7 +9,7 @@ import SessionRail from './components/SessionRail.vue'
 import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
-import { activeProfileForRole, isLocalProfile, profileDisplayName } from './modelSelection'
+import { isLocalProfile, profileDisplayName } from './modelSelection'
 import { operationErrorLabel, turnErrorLabel } from './display'
 import { isBlankSessionDraft } from './sessionDraft'
 import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
@@ -49,9 +49,12 @@ const providerOpen = ref(false)
 const providerBusy = ref(false)
 const providerNotice = ref('')
 const providerProfilesState = ref<ProviderProfile[]>([])
-const providerRoleBindings = ref<Record<string, string>>({})
 const selectedProviderProfile = ref('')
+const sessionModelProfile = ref('')
 const providerCredential = ref('')
+const providerTemplate = ref('deepseek')
+const providerBaseURL = ref('')
+const providerModelID = ref('')
 const updateToken = ref('')
 const update = ref<DesktopUpdate | null>(null)
 const desktopCloseBehavior = ref<CloseBehavior>('exit')
@@ -111,10 +114,8 @@ const localModelLabel = computed(() => {
   return '本地模型已停止'
 })
 const providerSummary = computed(() => {
-  return profileDisplayName(activeCoordinatorProfile.value)
+  return profileDisplayName(providerProfilesState.value.find((profile) => profile.profile_id === sessionModelProfile.value))
 })
-const coordinatorRole = 'coordinator'
-const activeCoordinatorProfile = computed(() => activeProfileForRole(providerProfilesState.value, providerRoleBindings.value, coordinatorRole))
 const selectedProviderIsLocal = computed(() => isLocalProfile(providerProfilesState.value.find((item) => item.profile_id === selectedProviderProfile.value)))
 
 function currentSession() {
@@ -196,6 +197,7 @@ async function createChatSession() {
 async function bindAndActivateSession(entry: Omit<DesktopSessionCatalogEntry, 'sessionId'>, nextSessionId = newDesktopSessionId()) {
   await bindSessionWorkspace(config.value, nextSessionId, entry.kind === 'chat' ? 'none' : entry.kind, entry.root ?? '')
   sessionId.value = nextSessionId
+	 sessionModelProfile.value = ''
   recordSessionCatalogEntry({ ...entry, sessionId: nextSessionId })
   sessionCatalog.value = loadSessionCatalog()
   await persistDesktopCatalog()
@@ -321,11 +323,7 @@ async function installDesktopUpdate() {
 async function loadProviderProfiles() {
   const payload = await providerProfiles()
   providerProfilesState.value = payload.profiles ?? []
-  providerRoleBindings.value = payload.role_bindings ?? {}
-  const bound = providerRoleBindings.value[coordinatorRole]
-  if (bound && providerProfilesState.value.some((profile) => profile.profile_id === bound)) {
-    selectedProviderProfile.value = bound
-  } else if (!selectedProviderProfile.value || !providerProfilesState.value.some((profile) => profile.profile_id === selectedProviderProfile.value)) {
+  if (!selectedProviderProfile.value || !providerProfilesState.value.some((profile) => profile.profile_id === selectedProviderProfile.value)) {
     selectedProviderProfile.value = String(providerProfilesState.value[0]?.profile_id ?? '')
   }
 }
@@ -373,12 +371,32 @@ async function configureDeepSeekFlash() {
 		if (!setup.credential_present || !setup.profile_id) throw new Error('DeepSeek 凭据未保存')
 		await loadProviderProfiles()
 		selectedProviderProfile.value = setup.profile_id
-		const verification = await verifyProvider(coordinatorRole, setup.profile_id)
+		const verification = await verifyProvider('', setup.profile_id)
 		providerNotice.value = verification.readiness === 'ready'
-			? `验证成功：${verification.model || setup.profile_id}。现在可选择“应用并重启服务”。`
+			? `验证成功：${verification.model || setup.profile_id}。现在可以在任一会话输入框旁选择它。`
 			: '配置已保存，但模型暂未就绪。请检查 API Key 或网络后重试验证。'
 	} catch (err) {
 		providerNotice.value = operationErrorLabel(err, '配置 DeepSeek Flash')
+	} finally {
+		providerCredential.value = ''
+		providerBusy.value = false
+	}
+}
+
+async function importSelectedProvider() {
+	providerBusy.value = true
+	providerNotice.value = ''
+	try {
+		const result = await importProviderTemplate(providerTemplate.value, providerCredential.value, providerBaseURL.value, providerModelID.value)
+		if (result.discovery_reason) {
+			providerNotice.value = `配置已保存；暂时无法获取模型列表（${result.discovery_reason}），可稍后重试导入。`
+			return
+		}
+		await loadProviderProfiles()
+		selectedProviderProfile.value = String(result.profile_ids?.[0] || selectedProviderProfile.value)
+		providerNotice.value = '模型已导入。请在当前会话输入框旁选择它。'
+	} catch (err) {
+		providerNotice.value = operationErrorLabel(err, '导入模型')
 	} finally {
 		providerCredential.value = ''
 		providerBusy.value = false
@@ -389,35 +407,12 @@ async function verifySelectedProvider() {
   providerBusy.value = true
   providerNotice.value = ''
   try {
-    const result = await verifyProvider(coordinatorRole, selectedProviderProfile.value)
+    const result = await verifyProvider('', selectedProviderProfile.value)
     providerNotice.value = result.readiness === 'ready'
       ? `验证成功：${result.model || selectedProviderProfile.value}`
       : '模型暂未就绪。请检查 API Key、网络或本地模型状态。'
   } catch (err) {
     providerNotice.value = operationErrorLabel(err, '验证模型')
-  } finally {
-    providerBusy.value = false
-  }
-}
-
-async function applySelectedProvider() {
-  providerBusy.value = true
-  providerNotice.value = ''
-  try {
-    const result = await applyProviderRole(coordinatorRole, selectedProviderProfile.value)
-    if (result.status === 'owned_kernel_restarted') {
-      providerNotice.value = selectedProviderIsLocal.value
-        ? '已更新全局默认模型。启动本地模型后，之后的新回合即可使用它。'
-        : '已更新全局默认模型；之后的新回合将使用此模型。'
-      await checkReady()
-    } else if (result.status === 'external_kernel_restart_required') {
-      providerNotice.value = '配置已保存；外部 Genesis 服务需要由其所有者重启。'
-    } else {
-      providerNotice.value = '模型配置已保存，但本机服务尚未准备好。请稍后重新检查连接。'
-    }
-    await loadProviderProfiles()
-  } catch (err) {
-    providerNotice.value = operationErrorLabel(err, '应用模型')
   } finally {
     providerBusy.value = false
   }
@@ -449,7 +444,30 @@ async function selectSession(nextSessionId: string) {
   if (!next || next === sessionId.value) return
   sessionId.value = next
   resetSessionViewState()
+	await refreshSessionModel(next)
   await loadTimeline()
+}
+
+async function refreshSessionModel(session = sessionId.value) {
+	const selectedSession = String(session || '').trim()
+	if (!selectedSession) {
+		sessionModelProfile.value = ''
+		return
+	}
+	const projection = await getSession(config.value, selectedSession)
+	sessionModelProfile.value = String(projection.model_profile_id || '').trim()
+}
+
+async function selectSessionModel(profileID: string) {
+	const session = currentSession()
+	if (!session || liveStreaming.value) return
+	error.value = ''
+	try {
+		const projection = await bindSessionModel(config.value, session, profileID)
+		sessionModelProfile.value = String(projection.model_profile_id || profileID).trim()
+	} catch (err) {
+		error.value = operationErrorLabel(err, '切换当前会话模型')
+	}
 }
 
 async function loadTimeline() {
@@ -459,6 +477,7 @@ async function loadTimeline() {
   const session = currentSession()
   if (!session) return
   try {
+		await refreshSessionModel(session)
     timeline.value = await getTimeline(config.value, session)
     await loadSessionApproval(session)
     await loadWorkerInvocations(session)
@@ -475,9 +494,8 @@ async function sendMessage() {
   const text = messageText.value.trim()
   const session = currentSession()
   if (!session) return
-  if (!activeCoordinatorProfile.value) {
-    error.value = '请先选择一个模型，然后再发送消息。'
-    await openProviderPanel()
+	if (!sessionModelProfile.value) {
+		error.value = '请先在输入框旁为当前会话选择模型。'
     return
   }
   if (!text && !selectedFile.value) {
@@ -771,13 +789,19 @@ async function persistDesktopCatalog() {
           :local-model-label="localModelLabel"
           :local-model-starting="localModelStarting"
           :local-model-running="localModelRunning"
+		:template-id="providerTemplate"
+		:base-url="providerBaseURL"
+		:model-id="providerModelID"
           @close="providerOpen = false"
           @update:selected-profile="selectedProviderProfile = $event"
           @update:credential="providerCredential = $event"
+		@update:template-id="providerTemplate = $event"
+		@update:base-url="providerBaseURL = $event"
+		@update:model-id="providerModelID = $event"
+		@import-provider="importSelectedProvider"
           @setup-deep-seek-flash="configureDeepSeekFlash"
           @rotate-credential="saveProviderCredential"
           @verify="verifySelectedProvider"
-          @apply="applySelectedProvider"
           @toggle-local-model="toggleLocalModel"
         />
       </div>
@@ -796,7 +820,11 @@ async function persistDesktopCatalog() {
         :retry-text="retryText"
         :interrupt-available="liveStreaming"
         :interrupting="stopRequested"
+		:profiles="providerProfilesState"
+		:selected-model-profile="sessionModelProfile"
+		:model-selection-disabled="liveStreaming"
         @update:message-text="messageText = $event"
+		@select-model="selectSessionModel"
         @send-message="sendMessage"
         @decide-approval="answerApproval"
         @pick-material-archive="pickMaterialArchive"

@@ -45,10 +45,14 @@ func (k *Kernel) CompactSessionContext(ctx context.Context, sessionID string) (C
 			ReasonClass:     contextCompactionRefusalActiveTurn,
 		}, nil
 	}
+	provider, err := k.sessionProviderForSession(sessionID)
+	if err != nil {
+		return ContextCompactionControlResponse{}, err
+	}
 	k.runContextCompaction(ctx, ContextCompactionCommand{
 		SessionID: sessionID,
 		Trigger:   contextCompactionTriggerManual,
-	})
+	}, provider)
 	return ContextCompactionControlResponse{
 		SessionID:       sessionID,
 		AdmissionResult: contextCompactionAdmissionAdmitted,

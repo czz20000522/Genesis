@@ -24,6 +24,10 @@ func handleSubmitTurn(w http.ResponseWriter, r *http.Request, k *Kernel) {
 		writeError(w, http.StatusServiceUnavailable, "provider_unavailable", err.Error())
 		return
 	}
+	if errors.Is(err, ErrSessionModelUnselected) {
+		writeError(w, http.StatusConflict, "session_model_unselected", "select a model for this session before sending a message")
+		return
+	}
 	if writeProviderClassifiedError(w, err) {
 		return
 	}
@@ -98,6 +102,8 @@ func turnStreamError(resp TurnResponse, err error) TurnError {
 	switch {
 	case errors.Is(err, ErrProviderUnavailable):
 		return TurnError{Code: "provider_unavailable", Message: message}
+	case errors.Is(err, ErrSessionModelUnselected):
+		return TurnError{Code: "session_model_unselected", Message: "select a model for this session before sending a message"}
 	case errors.Is(err, ErrIngressSecurityBlocked):
 		return TurnError{Code: "turn_blocked_by_ingress_security", Message: message}
 	case errors.Is(err, ErrToolInfrastructureFailed):
@@ -126,6 +132,8 @@ func turnErrorHTTPStatus(err TurnError) int {
 	case "tool_infrastructure_failed":
 		return http.StatusServiceUnavailable
 	case "session_active":
+		return http.StatusConflict
+	case "session_model_unselected":
 		return http.StatusConflict
 	case "turn_interrupted":
 		return http.StatusConflict

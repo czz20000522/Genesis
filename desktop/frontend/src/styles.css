@@ -947,6 +947,17 @@ label {
   justify-content: flex-end;
 }
 
+.composer-model-select {
+  min-width: 188px;
+  margin-right: auto;
+}
+
+.provider-template-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .file-action {
   position: relative;
   display: grid;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { applyProviderRole, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, pickMaterialDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, setupDeepSeekFlash, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
+import { applyProviderRole, bindSessionModel, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, pickMaterialDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, setupDeepSeekFlash, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -47,9 +47,11 @@ assert.equal(inspectorSource.includes('<el-button'), true, 'InspectorDrawer must
 assert.equal(apiSource.includes('KernelRequest'), false, 'desktop production bridge must not expose a generic HTTP proxy')
 assert.equal(apiSource.includes('content_base64'), false, 'desktop upload bridge must not pass whole files as base64')
 assert.equal(providerPanelSource.includes('type="password"'), true, 'provider key input must not render as plain text')
-assert.equal(providerPanelSource.includes('配置 DeepSeek Flash'), true, 'empty Genesis Home must offer the supported first-run provider')
-assert.equal(providerPanelSource.includes("$emit('setupDeepSeekFlash')"), true, 'first-run action must stay inside the Provider panel')
-assert.equal(appSource.includes('setupDeepSeekFlash'), true, 'App.vue must invoke the typed first-run bridge')
+assert.equal(providerPanelSource.includes('OpenCode Go'), true, 'empty Genesis Home must offer the curated provider templates')
+assert.equal(providerPanelSource.includes("$emit('importProvider')"), true, 'provider import action must stay inside the Provider panel')
+assert.equal(appSource.includes('importProviderTemplate'), true, 'App.vue must invoke the typed provider-import bridge')
+assert.equal(appSource.includes('sessionModelProfile'), true, 'App.vue must keep the selected model on the current session projection')
+assert.equal(conversationSource.includes('selectModel'), true, 'ConversationPane must expose a session-scoped model selector')
 assert.equal(providerPanelSource.includes('localStorage'), false, 'provider key input must not persist in browser storage')
 assert.equal(appSource.includes('const localModelStarting = ref(false)'), true, 'App.vue must track explicit local-model startup')
 assert.equal(appSource.includes('localModelStarting.value = true'), true, 'App.vue must mark local-model startup before awaiting the bridge')
@@ -186,6 +188,33 @@ globalThis.fetch = async (input, init) => {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+let modelBindingUrl = ''
+let modelBindingMethod = ''
+let modelBindingBody: Record<string, unknown> = {}
+const originalFetchForModelBinding = globalThis.fetch
+globalThis.fetch = async (input, init) => {
+  modelBindingUrl = String(input)
+  modelBindingMethod = String(init?.method ?? '')
+  modelBindingBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+  return new Response(JSON.stringify({ session_id: 'project-session', model_profile_id: 'deepseek-flash' }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+try {
+  const bound = await bindSessionModel({
+    baseUrl: 'http://127.0.0.1:8765/',
+    runtimeToken: 'secret',
+  }, 'project/session', 'deepseek-flash')
+  assert.equal(modelBindingUrl, 'http://127.0.0.1:8765/sessions/project%2Fsession/model')
+  assert.equal(modelBindingMethod, 'POST')
+  assert.deepEqual(modelBindingBody, { profile_id: 'deepseek-flash' })
+  assert.equal(bound.model_profile_id, 'deepseek-flash')
+} finally {
+  globalThis.fetch = originalFetchForModelBinding
 }
 
 try {

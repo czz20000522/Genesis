@@ -104,6 +104,17 @@ func main() {
 				modelProfileID:      profileID,
 			})
 		},
+		SessionProviderResolver: func(profileID string) (kernel.Provider, error) {
+			return buildProvider(providerBuildRequest{
+				name:                "genesis-config",
+				configRoot:          *configRoot,
+				credentialStoreRoot: *credentialStoreRoot,
+				modelProfileID:      profileID,
+			})
+		},
+		ProviderRouteDiscoverer: func(routeID string) kernel.ProviderRouteModelDiscoveryResult {
+			return kernel.DiscoverProviderRouteModels(kernel.ProviderRouteModelDiscoveryRequest{ConfigRoot: *configRoot, CredentialStoreRoot: *credentialStoreRoot, RouteID: routeID})
+		},
 		ToolPolicy: toolPolicy,
 		ContextPolicy: kernel.ContextPolicy{
 			ContextWindowTokens: *contextWindowTokens,

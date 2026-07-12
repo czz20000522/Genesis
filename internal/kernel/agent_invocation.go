@@ -674,7 +674,16 @@ func (k *Kernel) continueDelegatedParent(sessionID string, turnID string) {
 		return
 	}
 	defer finish()
-	_, _ = k.runTurnModelLoop(runCtx, sessionID, turnID, nil)
+	events, err := k.loadEvents()
+	if err != nil {
+		return
+	}
+	provider, err := k.sessionProviderForTurnEvents(events, turnID)
+	if err != nil {
+		_ = k.appendTurnFailure(sessionID, turnID, turnFailureFromProviderError(err))
+		return
+	}
+	_, _ = k.runTurnModelLoop(runCtx, sessionID, turnID, provider, nil)
 }
 
 func (k *Kernel) runAgentInvocationLoop(ctx context.Context, run AgentInvocationRunProjection, inputs []ModelInputItem, toolGateway ToolGateway, provider Provider) (FinalMessage, error) {

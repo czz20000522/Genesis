@@ -11,16 +11,22 @@ defineProps<{
   localModelLabel: string
   localModelStarting: boolean
   localModelRunning: boolean
+	templateId: string
+	baseUrl: string
+	modelId: string
 }>()
 
 defineEmits<{
   close: []
   'update:selectedProfile': [value: string]
   'update:credential': [value: string]
+	'update:templateId': [value: string]
+	'update:baseUrl': [value: string]
+	'update:modelId': [value: string]
+	importProvider: []
   setupDeepSeekFlash: []
   rotateCredential: []
   verify: []
-  apply: []
   toggleLocalModel: []
 }>()
 </script>
@@ -29,24 +35,34 @@ defineEmits<{
   <section class="provider-panel" aria-label="模型提供商配置">
     <div class="provider-panel-head">
       <div>
-        <p class="eyebrow">全局默认协调模型</p>
-        <strong>选择后续对话的默认模型</strong>
+		<p class="eyebrow">模型与凭据</p>
+		<strong>导入后，在各会话输入框旁选择要使用的模型</strong>
       </div>
       <el-button plain @click="$emit('close')">关闭</el-button>
     </div>
 
-    <div v-if="!profiles.length" class="provider-controls provider-first-run">
-      <el-alert title="配置 DeepSeek Flash 后，先验证连接，再由你决定是否应用为默认协调模型。" type="info" :closable="false" show-icon />
+    <div class="provider-controls provider-first-run">
+		<p class="eyebrow">导入模型提供商</p>
+		<div class="provider-template-grid">
+			<el-button v-for="item in [['deepseek', 'DeepSeek'], ['openai', 'OpenAI'], ['opencode-go', 'OpenCode Go'], ['local-llama-cpp', '本地 llama.cpp'], ['openai-compatible', 'OpenAI 兼容']]" :key="item[0]" plain :type="templateId === item[0] ? 'primary' : 'default'" @click="$emit('update:templateId', item[0])">{{ item[1] }}</el-button>
+		</div>
       <label>
-        DeepSeek API Key（保存到本机受保护存储）
+        API Key（保存到本机受保护存储）
         <el-input :model-value="credential" type="password" show-password autocomplete="off" placeholder="sk-..." @update:model-value="$emit('update:credential', String($event))" />
       </label>
+		<el-collapse v-if="templateId === 'openai-compatible'">
+			<el-collapse-item title="高级选项" name="advanced">
+				<label>服务地址<el-input :model-value="baseUrl" placeholder="https://your-api.example/v1" @update:model-value="$emit('update:baseUrl', String($event))" /></label>
+				<label>模型 ID<el-input :model-value="modelId" placeholder="provider-model" @update:model-value="$emit('update:modelId', String($event))" /></label>
+			</el-collapse-item>
+		</el-collapse>
       <div class="button-row">
-        <el-button type="primary" :loading="busy" :disabled="busy || !credential.trim()" @click="$emit('setupDeepSeekFlash')">保存并验证</el-button>
+			<el-button type="primary" :loading="busy" :disabled="busy || !credential.trim() || templateId === 'local-llama-cpp'" @click="$emit('importProvider')">导入并获取模型</el-button>
       </div>
+		<el-alert v-if="templateId === 'local-llama-cpp'" title="本地 llama.cpp 由“本地模型”设置管理。配置完成后会作为可选模型显示；不会自动启动。" type="info" :closable="false" show-icon />
       <el-alert v-if="notice" class="provider-notice" :title="notice" type="info" :closable="false" show-icon />
     </div>
-    <div v-else class="provider-controls">
+    <div v-if="profiles.length" class="provider-controls">
       <label>
         模型
         <el-select :model-value="selectedProfile" filterable placeholder="选择模型" @update:model-value="$emit('update:selectedProfile', String($event))">
@@ -56,7 +72,7 @@ defineEmits<{
           </el-option>
         </el-select>
       </label>
-      <el-alert title="应用后会重启本机 Genesis 服务；已持久化的会话记录不会改变，之后的新回合会使用此模型。" type="warning" :closable="false" show-icon />
+		<el-alert title="模型选择属于会话：切换只影响当前会话后续回合，不会重启 Genesis 服务。" type="info" :closable="false" show-icon />
       <div v-if="selectedProfileIsLocal" class="local-model-control">
         <div>
           <strong>本地模型</strong>
@@ -66,7 +82,6 @@ defineEmits<{
       </div>
       <div class="button-row">
         <el-button plain :loading="busy" :disabled="busy || !selectedProfile" @click="$emit('verify')">验证模型</el-button>
-        <el-button type="primary" :loading="busy" :disabled="busy || !selectedProfile" @click="$emit('apply')">应用并重启服务</el-button>
       </div>
       <el-alert v-if="notice" class="provider-notice" :title="notice" type="info" :closable="false" show-icon />
       <el-collapse class="provider-credential">

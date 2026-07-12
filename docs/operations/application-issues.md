@@ -111,6 +111,29 @@ Genesis Kernel. Kernel primitive gaps belong in
   remains one preset only; arbitrary endpoints and marketplace behavior stay
   out of scope.
 
+### APP-DESKTOP-SESSION-MODEL-AND-IMPORT-20260713 - P1 - Session selection and curated cloud import need installed-desktop acceptance
+
+- Status: manual_test_pending.
+- Requirement: `docs/requirements/kernel-session-model-binding.md` and
+  `docs/requirements/desktop-provider-onboarding.md`.
+  - Design: `docs/design/kernel-session-model-binding.md`.
+  - Closure: the kernel persists an append-only session profile binding and
+    resolves one provider per turn; the desktop selector changes only the
+    current session. Curated cloud routes are saved before route-level model
+    discovery and profiles are materialized only after discovery succeeds.
+    No ordinary chat writes a global coordinator binding or restarts the
+    kernel. A sidecar with a session resolver is runtime-ready even while no
+    session has selected a profile.
+  - Evidence: a live DeepSeek Flash turn returned
+    `GENESIS_SESSION_MODEL_PROOF_OK`; after a daemon restart, sessions bound
+    to `deepseek-flash` and `opencode-go-deepseek-v4-flash` retained their
+    distinct profile ids and the settled DeepSeek timeline remained readable.
+  - Remaining acceptance: use the installed desktop UI to import a new cloud
+    route, select it independently in two Project/Task/Chat sessions, and
+    prove the visible selector and failure recovery. Local llama.cpp remains
+    separate: the installer currently omits its provider-command adapter, so
+    no blank-home local template may materialize a broken profile.
+
 ### APP-DESKTOP-LOCAL-MODEL-LIFECYCLE-20260711 - P1 - Local llama.cpp must be client-owned, not a WSL service
 
 - Status: manual_test_pending.

@@ -125,6 +125,7 @@ type PermissionInspection struct {
 type SessionProjection struct {
 	SessionID        string                       `json:"session_id"`
 	WorkspaceMode    string                       `json:"workspace_mode,omitempty"`
+	ModelProfileID   string                       `json:"model_profile_id,omitempty"`
 	Turns            []TurnProjection             `json:"turns"`
 	Operations       []OperationProjection        `json:"operations"`
 	Jobs             []JobProjection              `json:"jobs"`

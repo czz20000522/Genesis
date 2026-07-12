@@ -339,6 +339,13 @@ func (a *App) ReadSession(sessionID string) (map[string]any, error) {
 	return a.client.Get(ctx, "/sessions/"+url.PathEscape(strings.TrimSpace(sessionID)), true)
 }
 
+func (a *App) BindSessionModel(sessionID string, profileID string) (map[string]any, error) {
+	ctx, cancel := a.requestContext()
+	defer cancel()
+	body, _ := json.Marshal(map[string]string{"profile_id": strings.TrimSpace(profileID)})
+	return a.client.RequestJSON(ctx, http.MethodPost, "/sessions/"+url.PathEscape(strings.TrimSpace(sessionID))+"/model", true, body)
+}
+
 func (a *App) DecideApproval(approvalID string, decision string, reason string) (map[string]any, error) {
 	ctx, cancel := a.requestContext()
 	defer cancel()

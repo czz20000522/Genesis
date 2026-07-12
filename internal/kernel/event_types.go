@@ -73,6 +73,7 @@ type EventData struct {
 	SandboxReadiness           *SandboxReadinessProjection          `json:"sandbox_readiness,omitempty"`
 	SessionDebug               *SessionDebugProjection              `json:"session_debug,omitempty"`
 	SessionWorkspace           *SessionWorkspaceBinding             `json:"session_workspace,omitempty"`
+	SessionModel               *SessionModelBinding                 `json:"session_model,omitempty"`
 	KernelObservationDelivery  *KernelObservationDeliveryProjection `json:"kernel_observation_delivery,omitempty"`
 	Work                       *WorkProjection                      `json:"work,omitempty"`
 	AgentInvocation            *AgentInvocationProjection           `json:"agent_invocation,omitempty"`

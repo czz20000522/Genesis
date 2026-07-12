@@ -74,7 +74,7 @@ type ContextCompactionCommand struct {
 	SourceUsage       *TokenUsage
 }
 
-func (k *Kernel) maybeSubmitAutoContextCompaction(ctx context.Context, sessionID string, triggeringTurnID string, final FinalMessage) {
+func (k *Kernel) maybeSubmitAutoContextCompaction(ctx context.Context, sessionID string, triggeringTurnID string, final FinalMessage, provider Provider) {
 	limit := k.contextPolicy.autoCompactLimit()
 	if limit <= 0 || final.Usage == nil || final.Usage.InputTokens < limit {
 		return
@@ -85,10 +85,10 @@ func (k *Kernel) maybeSubmitAutoContextCompaction(ctx context.Context, sessionID
 		Trigger:           contextCompactionTriggerAuto,
 		SourceInputTokens: final.Usage.InputTokens,
 		SourceUsage:       cloneTokenUsage(final.Usage),
-	})
+	}, provider)
 }
 
-func (k *Kernel) runContextCompaction(ctx context.Context, command ContextCompactionCommand) {
+func (k *Kernel) runContextCompaction(ctx context.Context, command ContextCompactionCommand, provider Provider) {
 	sessionID := strings.TrimSpace(command.SessionID)
 	triggeringTurnID := strings.TrimSpace(command.TriggeringTurnID)
 	trigger := strings.TrimSpace(command.Trigger)
@@ -144,7 +144,7 @@ func (k *Kernel) runContextCompaction(ctx context.Context, command ContextCompac
 		return
 	}
 	source := compactionSourceTranscript(latest.Summary, region)
-	response, err := k.summarizeContext(ctx, source)
+	response, err := summarizeContextWithProvider(ctx, provider, source)
 	if err != nil {
 		k.appendContextCompactionFailed(sessionID, triggeringTurnID, started, err.Error())
 		return
@@ -499,8 +499,8 @@ func cacheTrend(firstPermille int, latestPermille int, samples int) string {
 	}
 }
 
-func (k *Kernel) summarizeContext(ctx context.Context, transcript string) (ModelResponse, error) {
-	return k.provider.Complete(ctx, ModelRequest{
+func summarizeContextWithProvider(ctx context.Context, provider Provider, transcript string) (ModelResponse, error) {
+	return provider.Complete(ctx, ModelRequest{
 		InputItems: []ModelInputItem{
 			{Kind: "context_compaction_source", Text: contextCompactionPrompt + "\n\nTranscript:\n" + strings.TrimSpace(transcript)},
 		},
