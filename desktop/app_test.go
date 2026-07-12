@@ -270,6 +270,24 @@ func TestDesktopReleaseBuildWritesInstallerChecksum(t *testing.T) {
 	}
 }
 
+func TestDesktopVersionMatchesInstallerProductVersion(t *testing.T) {
+	payload, err := os.ReadFile("wails.json")
+	if err != nil {
+		t.Fatalf("read wails config: %v", err)
+	}
+	var config struct {
+		Info struct {
+			ProductVersion string `json:"productVersion"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(payload, &config); err != nil {
+		t.Fatalf("decode wails config: %v", err)
+	}
+	if desktopVersion != config.Info.ProductVersion {
+		t.Fatalf("desktop version = %q, installer product version = %q", desktopVersion, config.Info.ProductVersion)
+	}
+}
+
 func TestLocalServiceSupervisorProjectsExternalKernelWithoutOwnership(t *testing.T) {
 	t.Setenv("GENESIS_KERNEL_BASE_URL", "http://127.0.0.1:9999")
 	t.Setenv("GENESIS_RUNTIME_TOKEN", "token")
