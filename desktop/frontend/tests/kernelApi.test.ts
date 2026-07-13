@@ -30,8 +30,18 @@ for (const file of vueFiles(join(import.meta.dirname, '..', 'src'))) {
 const appSource = readFileSync(join(import.meta.dirname, '..', 'src', 'App.vue'), 'utf8')
 const apiSource = readFileSync(join(import.meta.dirname, '..', 'src', 'api', 'kernelApi.ts'), 'utf8')
 const conversationSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'ConversationPane.vue'), 'utf8')
+const workspaceSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'AgentWorkspace.vue'), 'utf8')
+const workspaceTimelineSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'WorkspaceTimeline.vue'), 'utf8')
+const taskComposerSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'TaskComposer.vue'), 'utf8')
 const inspectorSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'InspectorDrawer.vue'), 'utf8')
 const providerPanelSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'ProviderPanel.vue'), 'utf8')
+const stylesSource = readFileSync(join(import.meta.dirname, '..', 'src', 'styles.css'), 'utf8')
+assert.equal(workspaceSource.includes('<WorkspaceHeader'), true, 'AgentWorkspace must compose a truthful workspace header')
+assert.equal(workspaceSource.includes('<WorkspaceTimeline'), true, 'AgentWorkspace must compose activity separately from its shell')
+assert.equal(workspaceSource.includes('<TaskComposer'), true, 'AgentWorkspace must keep task input as a dedicated surface')
+assert.equal(workspaceTimelineSource.includes('workspaceActivity'), true, 'WorkspaceTimeline must render the shared activity projection')
+assert.equal(taskComposerSource.includes('selectedModelProfile'), true, 'TaskComposer must expose the current session model')
+assert.equal(/\bfetch\s*\(/.test(workspaceSource + workspaceTimelineSource + taskComposerSource), false, 'workspace components must not bypass the kernel API choke point')
 assert.equal(appSource.includes('listApprovals'), false, 'App.vue must not load global pending approvals into the current conversation')
 assert.equal(appSource.includes('localSessions'), false, 'App.vue must not keep frontend-local sessions as history truth')
 assert.equal(conversationSource.includes('approvals: ApprovalProjection[]'), true, 'ConversationPane must render a current-session approval queue')
@@ -65,6 +75,8 @@ assert.equal(conversationSource.includes('selectModel'), true, 'ConversationPane
 assert.equal(providerPanelSource.includes('localStorage'), false, 'provider key input must not persist in browser storage')
 assert.equal(appSource.includes('const localModelStarting = ref(false)'), true, 'App.vue must track explicit local-model startup')
 assert.equal(appSource.includes('localModelStarting.value = true'), true, 'App.vue must mark local-model startup before awaiting the bridge')
+assert.equal(stylesSource.includes('.rail .session-link {\n  color: #1f2d3d;\n  background: #ffffff;'), true, 'session rows must explicitly override the global primary button surface')
+assert.equal(stylesSource.includes('.rail .session-link-active {\n  color: #006b57;\n  background: #e5f4ee;'), true, 'only the selected session may use the pale teal navigation state')
 
 globalThis.go = {
   main: {
