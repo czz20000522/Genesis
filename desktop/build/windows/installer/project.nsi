@@ -71,7 +71,6 @@ Section "uninstall"
 
     Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
     Delete "$INSTDIR\uninstall.exe"
-    RMDir "$INSTDIR"
 
     Delete "$INSTDIR\kernel\genesisd.exe"
     Delete "$INSTDIR\kernel\scripts\providers\llama_cpp_provider_command.py"

@@ -261,6 +261,9 @@ func TestNSISInstallerRemembersPathAndDoesNotRecursivelyDeleteIt(t *testing.T) {
 	if strings.Contains(text, "RMDir /r $INSTDIR") {
 		t.Fatal("installer recursively deletes the selected installation directory")
 	}
+	if strings.Contains(text, "RMDir \"$INSTDIR\"") {
+		t.Fatal("installer must preserve the selected installation directory on uninstall")
+	}
 	runtimeSetOutPath := strings.Index(text, "SetOutPath \"$INSTDIR\\kernel\"")
 	kernelFile := strings.Index(text, "File \"/oname=genesisd.exe\" \"..\\..\\bin\\genesisd.exe\"")
 	if runtimeSetOutPath < 0 || kernelFile < runtimeSetOutPath {
