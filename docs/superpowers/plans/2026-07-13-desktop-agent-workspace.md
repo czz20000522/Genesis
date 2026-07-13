@@ -323,4 +323,3 @@ user-visible gap.
 - Task 4 covers Project/Task/Chat navigation and global state disclosure.
 - Task 5 covers the visual system and deletes legacy styling rather than layering it.
 - Task 6 supplies package, repository, and honest visual-proof closure.
-
