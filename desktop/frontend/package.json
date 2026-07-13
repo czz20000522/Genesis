@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --experimental-strip-types ./tests/kernelApi.test.ts && node --experimental-strip-types ./tests/assistantMarkdown.test.ts && node --experimental-strip-types ./tests/modelSelection.test.ts",
+    "test": "node --experimental-strip-types ./tests/workspaceActivity.test.ts && node --experimental-strip-types ./tests/kernelApi.test.ts && node --experimental-strip-types ./tests/assistantMarkdown.test.ts && node --experimental-strip-types ./tests/modelSelection.test.ts",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview"
   },
