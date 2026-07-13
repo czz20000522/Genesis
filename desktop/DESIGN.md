@@ -3,11 +3,12 @@
 ## Status and visual thesis
 
 - Status: Active
-- Last refreshed: 2026-07-12
+- Last refreshed: 2026-07-13
 - CSS strategy: plain component-local Vue markup with one shared `src/styles.css`
-- Visual thesis: a quiet technical workbench — crisp white canvas, graphite
-  project rail, and a restrained deep-teal action color. It should feel like a
-  place to work for hours, not a dashboard or a provider-control utility.
+- Visual thesis: a quiet agent workspace — crisp white task canvas, soft
+  navigation rail, a contextual third-column inspector, and a restrained
+  deep-teal action color. It should feel like a place to work for hours, not a
+  dashboard, provider-control utility, or chat clone.
 
 The first screen must orient the user, show the active model truthfully, and
 let them start a conversation. Decorative artwork, gradients, and marketing
@@ -26,9 +27,12 @@ hero layouts are deliberately absent.
   `~/.genesis/desktop/catalog.json`, so it survives WebView cache removal and
   travels with Genesis Home. It is not kernel truth.
 - The rail holds entry actions, a demand-opened search field, projects and
-  their nested sessions, then standalone tasks and chats.
-- The central canvas owns the transcript and composer. Settings contain
-  diagnostics; diagnostics never occupy the normal chat surface.
+  their nested sessions, then standalone tasks and chats. It uses quiet rows,
+  not colored session cards.
+- The central canvas owns a task workspace: truthful session identity, an
+  activity timeline, output, and a persistent composer. Settings and deep
+  detail live in a demand-opened inspector; diagnostics never occupy the normal
+  task surface.
 - The composer owns the current session's model selector. The header's
   "模型" action opens provider configuration and readiness; it must never
   claim that a merely highlighted profile is the current session binding.
@@ -37,13 +41,13 @@ hero layouts are deliberately absent.
 
 | Token | Value | Role |
 | --- | --- | --- |
-| Canvas | `#ffffff` | conversation and composer base |
-| Rail | `oklch(0.98 0.004 250)` | calm structural separation |
-| Ink | `oklch(0.24 0.016 250)` | primary text |
-| Muted | `oklch(0.50 0.018 250)` | secondary text and metadata |
-| Teal | `oklch(0.49 0.105 168)` | primary action and ready state |
-| Amber | `oklch(0.54 0.11 72)` | attention and transitional state |
-| Red | `oklch(0.50 0.18 28)` | action failure only |
+| Canvas | `#ffffff` | workspace and composer base |
+| App | `#fafafa` | soft structural background |
+| Ink | `#111111` | primary text |
+| Muted | `#6b7280` | secondary text and metadata |
+| Teal | `#007a62` | primary action and ready state |
+| Amber | `#a85b00` | attention and transitional state |
+| Red | `#b42318` | action failure only |
 
 Use the installed Windows system UI stack (`Bahnschrift`, `Segoe UI`, system
 UI) for direct desktop legibility; use Cascadia Mono only for commands and
@@ -51,7 +55,7 @@ opaque refs. Headings use tight tracking; operational labels remain compact.
 
 ## Components and interaction
 
-- Radius scale: 8px controls, 12px elevated panels, pill only for small
+- Radius scale: 8px controls, 12–16px elevated panels, pill only for small
   status metadata.
 - All interactive targets are at least 40px where space permits, have an
   explicit focus outline, and press with `scale(.96)`.
