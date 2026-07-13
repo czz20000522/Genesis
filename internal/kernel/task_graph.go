@@ -29,18 +29,11 @@ func (k *Kernel) AddTaskGraphNode(req TaskGraphNodeRequest) (TaskGraphNodeProjec
 	if err != nil {
 		return TaskGraphNodeProjection{}, err
 	}
-	invocationID := strings.TrimSpace(req.InvocationID)
-	if invocationID != "" {
-		invocation, err := k.AgentInvocation(invocationID)
-		if err != nil {
-			return TaskGraphNodeProjection{}, err
-		}
-		if invocation.SessionID != graph.SessionID {
-			return TaskGraphNodeProjection{}, errors.New("task graph invocation session mismatch")
-		}
+	if strings.TrimSpace(req.InvocationID) != "" {
+		return TaskGraphNodeProjection{}, errors.New("task graph invocation binding requires explicit ready node")
 	}
 	now := k.clock()
-	node := TaskGraphNodeProjection{NodeID: newID("task_node", now), InvocationID: invocationID, Title: strings.TrimSpace(req.Title), Description: strings.TrimSpace(req.Description), Status: TaskGraphNodeStatusProposed, UpdatedAt: now}
+	node := TaskGraphNodeProjection{NodeID: newID("task_node", now), Title: strings.TrimSpace(req.Title), Description: strings.TrimSpace(req.Description), Status: TaskGraphNodeStatusProposed, UpdatedAt: now}
 	if err := k.appendTaskGraphEvent("task_graph.node_added", TaskGraphEventProjection{GraphID: graph.GraphID, SessionID: graph.SessionID, Node: &node, CreatedAt: now}); err != nil {
 		return TaskGraphNodeProjection{}, err
 	}
@@ -109,6 +102,96 @@ func (k *Kernel) UpdateTaskGraphNode(req TaskGraphNodeUpdateRequest) error {
 	return k.appendTaskGraphEvent("task_graph.node_updated", TaskGraphEventProjection{GraphID: graph.GraphID, SessionID: graph.SessionID, Node: &node, CreatedAt: now})
 }
 
+func (k *Kernel) BindTaskGraphNodeInvocation(req TaskGraphNodeBindingRequest) (TaskGraphNodeProjection, error) {
+	k.taskGraphMu.Lock()
+	graph, err := k.taskGraph(req.GraphID)
+	if err != nil {
+		k.taskGraphMu.Unlock()
+		return TaskGraphNodeProjection{}, err
+	}
+	graph.Nodes = taskGraphProjectedNodes(graph)
+	node, found := taskGraphNode(graph, strings.TrimSpace(req.NodeID))
+	if !found || node.Status != TaskGraphNodeStatusReady || node.InvocationID != "" {
+		k.taskGraphMu.Unlock()
+		return TaskGraphNodeProjection{}, errors.New("task graph invocation binding invalid")
+	}
+	invocation, err := k.AgentInvocation(strings.TrimSpace(req.InvocationID))
+	if err != nil || invocation.SessionID != graph.SessionID {
+		k.taskGraphMu.Unlock()
+		return TaskGraphNodeProjection{}, errors.New("task graph invocation binding invalid")
+	}
+	graphs, err := k.taskGraphs()
+	if err != nil {
+		k.taskGraphMu.Unlock()
+		return TaskGraphNodeProjection{}, err
+	}
+	for _, candidate := range graphs {
+		for _, candidateNode := range candidate.Nodes {
+			if candidateNode.InvocationID == invocation.InvocationID {
+				k.taskGraphMu.Unlock()
+				return TaskGraphNodeProjection{}, errors.New("task graph invocation binding invalid")
+			}
+		}
+	}
+	node.InvocationID, node.UpdatedAt = invocation.InvocationID, k.clock()
+	if err := k.appendTaskGraphEvent("task_graph.node_updated", TaskGraphEventProjection{GraphID: graph.GraphID, SessionID: graph.SessionID, Node: &node, CreatedAt: node.UpdatedAt}); err != nil {
+		k.taskGraphMu.Unlock()
+		return TaskGraphNodeProjection{}, err
+	}
+	k.taskGraphMu.Unlock()
+	if run, eventID, found, err := k.latestAgentInvocationRunEvent(invocation.InvocationID); err != nil {
+		return TaskGraphNodeProjection{}, err
+	} else if found {
+		if err := k.reduceTaskGraphInvocationRun(eventID, run); err != nil {
+			return TaskGraphNodeProjection{}, err
+		}
+	}
+	return node, nil
+}
+
+func (k *Kernel) reduceTaskGraphInvocationRun(eventID string, run AgentInvocationRunProjection) error {
+	if run.Status != AgentInvocationRunStatusRunning && !isTerminalAgentInvocationRun(run) {
+		return nil
+	}
+	k.taskGraphMu.Lock()
+	defer k.taskGraphMu.Unlock()
+	graphs, err := k.taskGraphs()
+	if err != nil {
+		return err
+	}
+	for _, graph := range graphs {
+		if graph.SessionID != run.SessionID {
+			continue
+		}
+		graph.Nodes = taskGraphProjectedNodes(graph)
+		for _, node := range graph.Nodes {
+			if node.InvocationID != run.InvocationID || taskGraphNodeTerminal(node) {
+				continue
+			}
+			switch run.Status {
+			case AgentInvocationRunStatusRunning:
+				if node.Status == TaskGraphNodeStatusRunning {
+					continue
+				}
+				node.Status, node.Reason, node.EvidenceRefs = TaskGraphNodeStatusRunning, "", nil
+			case AgentInvocationRunStatusCompleted:
+				node.Status, node.Reason = TaskGraphNodeStatusCompleted, ""
+				node.EvidenceRefs = []string{"event:" + strings.TrimSpace(eventID)}
+			case AgentInvocationRunStatusFailed:
+				node.Status, node.Reason = TaskGraphNodeStatusFailed, "invocation_failed"
+				node.EvidenceRefs = []string{"event:" + strings.TrimSpace(eventID)}
+			default:
+				continue
+			}
+			node.UpdatedAt = k.clock()
+			if err := k.appendTaskGraphEvent("task_graph.node_transitioned", TaskGraphEventProjection{GraphID: graph.GraphID, SessionID: graph.SessionID, Node: &node, CreatedAt: node.UpdatedAt}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (k *Kernel) TransitionTaskGraphNode(req TaskGraphNodeTransitionRequest) error {
 	k.taskGraphMu.Lock()
 	defer k.taskGraphMu.Unlock()
@@ -130,6 +213,11 @@ func (k *Kernel) TransitionTaskGraphNode(req TaskGraphNodeTransitionRequest) err
 }
 
 func (k *Kernel) TaskGraph(graphID string) (TaskGraphProjection, error) { return k.taskGraph(graphID) }
+
+func (k *Kernel) taskGraphBelongsToSession(graphID string, sessionID string) bool {
+	graph, err := k.taskGraph(graphID)
+	return err == nil && graph.SessionID == strings.TrimSpace(sessionID)
+}
 
 func (k *Kernel) TaskGraphs(sessionID string) ([]TaskGraphProjection, error) {
 	graphs, err := k.taskGraphs()
@@ -312,7 +400,11 @@ func taskGraphProjectedNodes(graph TaskGraphProjection) []TaskGraphNodeProjectio
 	return nodes
 }
 func taskGraphNodeMutable(node TaskGraphNodeProjection) bool {
-	return node.Status != TaskGraphNodeStatusRunning && node.Status != TaskGraphNodeStatusCompleted && node.Status != TaskGraphNodeStatusFailed && node.Status != TaskGraphNodeStatusCancelled
+	return node.Status != TaskGraphNodeStatusRunning && !taskGraphNodeTerminal(node)
+}
+
+func taskGraphNodeTerminal(node TaskGraphNodeProjection) bool {
+	return node.Status == TaskGraphNodeStatusCompleted || node.Status == TaskGraphNodeStatusFailed || node.Status == TaskGraphNodeStatusCancelled
 }
 func taskGraphTransitionAllowed(current string, next string) bool {
 	if current == TaskGraphNodeStatusReady {

@@ -28,6 +28,11 @@ type TaskGraphNodeUpdateRequest struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 }
+type TaskGraphNodeBindingRequest struct {
+	GraphID      string `json:"graph_id"`
+	NodeID       string `json:"node_id"`
+	InvocationID string `json:"invocation_id"`
+}
 type TaskGraphEdgeRequest struct {
 	GraphID    string `json:"graph_id"`
 	FromNodeID string `json:"from_node_id"`

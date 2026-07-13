@@ -34,9 +34,15 @@ workspace, credential, or permission data.
   invocation. A parent may use the graph to decide what to delegate, but only
   AgentInvocation accepts and runs that separately requested worker; TaskGraph
   may then bind and reduce the resulting stable reference.
+- An AgentInvocation binding is one ready node in the same parent session to
+  one admitted invocation. The owner's `running` and terminal lifecycle facts
+  reduce that node without dispatching it; a running or terminal node is not
+  editable. A parent tool call cannot inspect or change another session's graph
+  by presenting opaque identifiers.
 - A parent session may submit one `task_graph_edit` proposal at a time. Its operation is
   limited to graph creation, task addition, task metadata replacement, or
-  dependency addition/removal; the receipt returns only admitted graph/node
+  dependency addition/removal, or binding a ready node to an already-admitted
+  invocation by opaque id; the receipt returns only admitted graph/node
   identifiers and projection metadata. Child invocations never receive this tool.
 - TaskGraph, Workflow, and AgentInvocation cooperate by stable references only.
   Workflow owns fixed procedure; AgentInvocation owns bounded agent work;

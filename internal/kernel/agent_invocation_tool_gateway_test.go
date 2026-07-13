@@ -158,6 +158,86 @@ func TestTaskGraphEditIsParentOnlyAndReturnsGraphReceipt(t *testing.T) {
 	}
 }
 
+func TestTaskGraphEditBindsExistingInvocationWithoutStartingIt(t *testing.T) {
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{PermissionMode: PermissionModeYolo})
+	graph, err := k.CreateTaskGraph(TaskGraphCreateRequest{SessionID: "task-graph-bind-parent"})
+	if err != nil {
+		t.Fatalf("create graph: %v", err)
+	}
+	node, err := k.AddTaskGraphNode(TaskGraphNodeRequest{GraphID: graph.GraphID, Title: "inspect"})
+	if err != nil {
+		t.Fatalf("add node: %v", err)
+	}
+	invocation, err := k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{SessionID: graph.SessionID, Principal: "application:test", CapabilityGrant: CapabilityGrant{ToolNames: []string{"resource_read"}}})
+	if err != nil {
+		t.Fatalf("admit invocation: %v", err)
+	}
+	parentGateway := k.toolGateway()
+	prepared, err := parentGateway.PrepareBatch([]ModelToolCall{{
+		ToolCallID: "call_bind", ToolCallEventID: "evt_bind", Name: "task_graph_edit", Arguments: mustMarshalToolArgs(t, map[string]interface{}{"operation": "bind_invocation", "graph_id": graph.GraphID, "node_id": node.NodeID, "invocation_id": invocation.InvocationID}),
+	}})
+	if err != nil {
+		t.Fatalf("prepare binding: %v", err)
+	}
+	if _, err := parentGateway.Execute(context.Background(), graph.SessionID, "turn-parent", prepared[0]); err != nil {
+		t.Fatalf("execute binding: %v", err)
+	}
+	projection, err := k.TaskGraph(graph.GraphID)
+	if err != nil {
+		t.Fatalf("read graph: %v", err)
+	}
+	if bound := taskGraphNodeByID(t, projection, node.NodeID); bound.InvocationID != invocation.InvocationID || bound.Status != TaskGraphNodeStatusReady {
+		t.Fatalf("bound node = %+v, want ready node linked to invocation", bound)
+	}
+	events, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("load events: %v", err)
+	}
+	if countEvents(events, "agent_invocation.run_started") != 0 {
+		t.Fatalf("task graph binding started invocation: %+v", events)
+	}
+}
+
+func TestTaskGraphEditRejectsCrossSessionMutationWithoutLeakingGraph(t *testing.T) {
+	k := newTestKernelWithPolicy(t, filepath.Join(testTempDir(t), "events.sqlite"), ToolPolicy{PermissionMode: PermissionModeYolo})
+	graph, err := k.CreateTaskGraph(TaskGraphCreateRequest{SessionID: "task-graph-owner"})
+	if err != nil {
+		t.Fatalf("create graph: %v", err)
+	}
+	node, err := k.AddTaskGraphNode(TaskGraphNodeRequest{GraphID: graph.GraphID, Title: "private task", Description: "private description"})
+	if err != nil {
+		t.Fatalf("add node: %v", err)
+	}
+	invocation, err := k.AdmitAgentInvocation(AgentInvocationAdmissionRequest{SessionID: graph.SessionID, Principal: "application:test", CapabilityGrant: CapabilityGrant{}})
+	if err != nil {
+		t.Fatalf("admit invocation: %v", err)
+	}
+	gateway := k.toolGateway()
+	prepared, err := gateway.PrepareBatch([]ModelToolCall{{ToolCallID: "call_cross_session", ToolCallEventID: "evt_cross_session", Name: "task_graph_edit", Arguments: mustMarshalToolArgs(t, map[string]interface{}{"operation": "bind_invocation", "graph_id": graph.GraphID, "node_id": node.NodeID, "invocation_id": invocation.InvocationID})}})
+	if err != nil {
+		t.Fatalf("prepare cross-session binding: %v", err)
+	}
+	before, err := k.loadEvents()
+	if err != nil {
+		t.Fatalf("load before: %v", err)
+	}
+	result, err := gateway.Execute(context.Background(), "task-graph-other-session", "turn-other", prepared[0])
+	if err != nil {
+		t.Fatalf("execute cross-session binding: %v", err)
+	}
+	if !strings.Contains(result.Content, "task_graph_edit_failed") || strings.Contains(result.Content, "private task") || strings.Contains(result.Content, graph.SessionID) {
+		t.Fatalf("cross-session receipt leaked graph state: %s", result.Content)
+	}
+	after, err := k.loadEvents()
+	if err != nil || len(after) != len(before) {
+		t.Fatalf("cross-session binding appended event %d -> %d error %v", len(before), len(after), err)
+	}
+	projection, err := k.TaskGraph(graph.GraphID)
+	if err != nil || taskGraphNodeByID(t, projection, node.NodeID).InvocationID != "" {
+		t.Fatalf("cross-session binding changed graph %+v error %v", projection, err)
+	}
+}
+
 func TestInvocationToolGatewayRejectsUnknownInvocation(t *testing.T) {
 	k := newTestKernel(t, filepath.Join(testTempDir(t), "events.sqlite"))
 	_, err := k.ToolGatewayForInvocation("invocation_missing")

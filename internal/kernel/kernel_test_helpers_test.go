@@ -253,6 +253,30 @@ type failOnOperationLedger struct {
 	events []StoredEvent
 }
 
+type failOnceTaskGraphTerminalReductionLedger struct {
+	Ledger
+	mu     sync.Mutex
+	failed bool
+}
+
+func (l *failOnceTaskGraphTerminalReductionLedger) Append(event StoredEvent) error {
+	l.mu.Lock()
+	if !l.failed && event.Type == "task_graph.node_transitioned" && event.Data.TaskGraph != nil && event.Data.TaskGraph.Node != nil && taskGraphNodeTerminal(*event.Data.TaskGraph.Node) {
+		l.failed = true
+		l.mu.Unlock()
+		return ErrLedgerUnwritable
+	}
+	l.mu.Unlock()
+	return l.Ledger.Append(event)
+}
+
+func (l *failOnceTaskGraphTerminalReductionLedger) Close() error {
+	if closer, ok := l.Ledger.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
 func (l *failOnOperationLedger) Append(event StoredEvent) error {
 	if strings.HasPrefix(event.Type, "operation.") {
 		return ErrLedgerUnwritable

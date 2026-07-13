@@ -555,7 +555,7 @@ func (k *Kernel) finishDelegatedWorker(run AgentInvocationRunProjection) {
 	go k.continueDelegatedParent(invocation.SessionID, invocation.ParentTurnID)
 }
 
-func (k *Kernel) recoverQueuedDelegatedWorkers() error {
+func (k *Kernel) recoverAgentInvocationRuns() error {
 	invocations, err := k.agentInvocations()
 	if err != nil {
 		return err
@@ -564,35 +564,40 @@ func (k *Kernel) recoverQueuedDelegatedWorkers() error {
 	if err != nil {
 		return err
 	}
-	runs, err := k.agentInvocationRuns()
-	if err != nil {
-		return err
-	}
 	for _, invocation := range invocations {
-		if strings.TrimSpace(invocation.ParentTurnID) == "" || strings.TrimSpace(invocation.IdempotencyKey) == "" {
-			continue
-		}
-		if terminalRun, terminal, err := k.terminalAgentInvocationRun(invocation.InvocationID); err != nil {
+		delegated := strings.TrimSpace(invocation.ParentTurnID) != "" && strings.TrimSpace(invocation.IdempotencyKey) != ""
+		latestRun, _, found, err := k.latestAgentInvocationRunEvent(invocation.InvocationID)
+		if err != nil {
 			return err
-		} else if terminal {
+		}
+		if found && isTerminalAgentInvocationRun(latestRun) {
+			if !delegated {
+				continue
+			}
 			if !delegationTerminalResultRecorded(events, invocation) {
-				k.finishDelegatedWorker(terminalRun)
+				k.finishDelegatedWorker(latestRun)
 			} else if !turnHasFinal(events, invocation.ParentTurnID) {
 				go k.continueDelegatedParent(invocation.SessionID, invocation.ParentTurnID)
 			}
 			continue
 		}
-		if agentInvocationHasStartedRun(events, invocation.InvocationID) {
-			if run, ok := runsForInvocation(runs, invocation.InvocationID); ok && !isTerminalAgentInvocationRun(run) {
-				failed := run
-				failed.Status = AgentInvocationRunStatusFailed
-				failed.CompletedAt = k.clock()
+		if found && latestRun.Status == AgentInvocationRunStatusRunning {
+			failed := latestRun
+			failed.Status = AgentInvocationRunStatusFailed
+			failed.CompletedAt = k.clock()
+			failed.Error = &TurnError{Code: "agent_invocation_recovery_ambiguous", Message: "agent invocation was running when the daemon stopped; Genesis did not replay it"}
+			if delegated {
 				failed.Error = &TurnError{Code: "worker_delegation_recovery_ambiguous", Message: "worker was running when the daemon stopped; Genesis did not replay it"}
-				if err := k.appendAgentInvocationRunEvent("agent_invocation.run_failed", failed); err != nil {
-					return err
-				}
+			}
+			if err := k.appendAgentInvocationRunEvent("agent_invocation.run_failed", failed); err != nil {
+				return err
+			}
+			if delegated {
 				k.finishDelegatedWorker(failed)
 			}
+			continue
+		}
+		if !delegated {
 			continue
 		}
 		task, ok := queuedDelegatedWorkerTask(events, invocation)
@@ -640,15 +645,6 @@ func runsForInvocation(runs map[string]AgentInvocationRunProjection, invocationI
 		}
 	}
 	return selected, found
-}
-
-func agentInvocationHasStartedRun(events []StoredEvent, invocationID string) bool {
-	for _, event := range events {
-		if event.Type == "agent_invocation.run_started" && event.Data.AgentInvocationRun != nil && event.Data.AgentInvocationRun.InvocationID == invocationID {
-			return true
-		}
-	}
-	return false
 }
 
 func queuedDelegatedWorkerTask(events []StoredEvent, invocation AgentInvocationProjection) (string, bool) {
@@ -784,7 +780,7 @@ func (k *Kernel) failedAgentInvocationRun(run AgentInvocationRunProjection, err 
 
 func (k *Kernel) appendAgentInvocationRunEvent(eventType string, run AgentInvocationRunProjection) error {
 	now := k.clock()
-	return k.appendEvent(StoredEvent{
+	event := StoredEvent{
 		EventID:   newID("evt", now),
 		SessionID: run.SessionID,
 		TurnID:    run.RunID,
@@ -793,7 +789,14 @@ func (k *Kernel) appendAgentInvocationRunEvent(eventType string, run AgentInvoca
 		Data: EventData{
 			AgentInvocationRun: &run,
 		},
-	})
+	}
+	if err := k.appendEvent(event); err != nil {
+		return err
+	}
+	if run.Status == AgentInvocationRunStatusRunning || isTerminalAgentInvocationRun(run) {
+		return k.reduceTaskGraphInvocationRun(event.EventID, run)
+	}
+	return nil
 }
 
 func (k *Kernel) beginActiveInvocationRun(invocationID string) error {
@@ -977,6 +980,45 @@ func (k *Kernel) terminalAgentInvocationRun(invocationID string) (AgentInvocatio
 		}
 	}
 	return AgentInvocationRunProjection{}, false, nil
+}
+
+func (k *Kernel) latestAgentInvocationRunEvent(invocationID string) (AgentInvocationRunProjection, string, bool, error) {
+	events, err := k.loadEvents()
+	if err != nil {
+		return AgentInvocationRunProjection{}, "", false, err
+	}
+	for index := len(events) - 1; index >= 0; index-- {
+		event := events[index]
+		run := event.Data.AgentInvocationRun
+		if run != nil && run.InvocationID == invocationID {
+			return *run, event.EventID, true, nil
+		}
+	}
+	return AgentInvocationRunProjection{}, "", false, nil
+}
+
+func (k *Kernel) reconcileTaskGraphInvocationBindings() error {
+	graphs, err := k.taskGraphs()
+	if err != nil {
+		return err
+	}
+	for _, graph := range graphs {
+		for _, node := range graph.Nodes {
+			if strings.TrimSpace(node.InvocationID) == "" {
+				continue
+			}
+			run, eventID, found, err := k.latestAgentInvocationRunEvent(node.InvocationID)
+			if err != nil {
+				return err
+			}
+			if found {
+				if err := k.reduceTaskGraphInvocationRun(eventID, run); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (k *Kernel) agentInvocationRuns() (map[string]AgentInvocationRunProjection, error) {

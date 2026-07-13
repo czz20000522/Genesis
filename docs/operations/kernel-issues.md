@@ -61,23 +61,30 @@ Retired issues must not remain here. Move accepted retirements to `docs/operatio
 - Status: in_progress.
 - Requirement: `docs/requirements/kernel-task-graph-runtime.md`.
   - Design: `docs/design/kernel-task-graph-runtime.md`.
-- Gap: Phase A now persists and reconstructs a dynamic DAG with dependency-ready
-  and blocked explanations. It can append unstarted task metadata and edge
-  changes without rewriting terminal evidence, but it deliberately never
-  executes or reconciles a task's optional execution owner. The remaining
-  production gap is a safe, owner-controlled execution binding.
-- Next slice: Phase B only from
-  `docs/implementation-plans/kernel-task-graph-runtime.md`: persist the
-  optional execution binding, terminal reduction, and fail closed on an
-  ambiguous restart; do not introduce a generic scheduler.
-- Evidence: role-bound workers now have bounded lifecycle facts, parent result
-  delivery, recovery semantics, and route/profile/role/parent admission limits.
-- Verification: DAG refusal/no-append, missing-reference refusal, unstarted
-  topology mutation/restart, readiness, blocked failure reason, terminal
-  immutability, restart projection, then full Go tests and build.
-- Reference alignment: Codex records explicit spawned-agent lifecycle; Reasonix
-  runs bounded isolated tasks. Neither local reference supplies a durable DAG,
-  so Genesis rejects an in-memory queue and keeps graph authority in the ledger.
+- Gap: Phase B now binds only a ready graph node to an already-admitted
+  same-session `AgentInvocation`; parent `task_graph_edit` uses an opaque
+  `bind_invocation` command, and terminal worker facts reduce the linked node
+  with event evidence. A graph never admits, starts, or replays work. The
+  remaining production gap is equivalent binding/reduction for Workflow, job,
+  approval, and external-wait owners when those real owners are in use.
+- Next slice: defer additional execution-owner bindings until their real
+  runtime contracts are selected; do not introduce a generic scheduler or
+  graph-derived dispatch path.
+- Evidence: an explicit binding leaves the invocation unstarted; completed and
+  failed invocation facts reduce graph state and evidence; `running` makes the
+  linked node immutable; binding is one invocation to one node and tool edits
+  are session-scoped; restart repairs a failed graph reduction from the durable
+  terminal worker fact and marks an ambiguously started generic or delegated
+  invocation failed without replay, even if that invocation has an older
+  terminal run; unrecoverable append failure prevents the kernel from
+  presenting stale graph state as live.
+- Verification: topology and binding refusal/no-append, parent-only and
+  cross-session refusal/no leakage, running/terminal reduction/restart,
+  ambiguous recovery/no-replay, then full Go tests and build.
+- Reference alignment: Codex's explicit spawn handler calls AgentControl
+  dispatch and Reasonix's `task` tool explicitly runs a focused sub-agent.
+  Neither local reference supplies a durable DAG, so Genesis keeps dispatch in
+  AgentInvocation and graph authority in the ledger.
 
 ### KERNEL-PARENT-WORKER-DELEGATE-20260712 - P1 - Parent-worker runtime lacks provider/profile admission and desktop acceptance
 

@@ -38,11 +38,19 @@ path.
 
 - Deliverable: optional owner-controlled execution binding, persisted linkage,
   terminal state/evidence reduction, and fail-closed restart reconciliation.
+- Parent command: reuse `task_graph_edit` with `bind_invocation`; it may bind
+  only a ready node to one existing same-session invocation and never accepts
+  role, task, model, provider, tool, or start data. Its caller session must own
+  the graph; a lifecycle `running` fact makes the linked node immutable.
 - Red lines: no provider/tool fields in a task proposal, no direct provider
   call, no replay of a started invocation, no call to `delegate_worker`, and
   no generic scheduler.
-- Red tests: binding validation, dependency-gated eligibility, terminal owner
-  reduction, and ambiguous restart block.
+- Red tests: binding validation, one-node/one-invocation refusal, caller
+  session refusal/no leakage, dependency-gated eligibility, running and
+  terminal owner reduction, failed-transition restart reconciliation, generic
+  and delegated ambiguous-restart failure without replay (including a later
+  run after an earlier terminal one), and fail-closed initialization when
+  required recovery cannot be written.
 
 ## Phase C
 

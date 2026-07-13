@@ -123,7 +123,14 @@ func New(config Config) (*Kernel, error) {
 	}
 	k.restoreDurableSourceSnapshots()
 	_ = k.recoverLostLocalManagedJobs()
-	_ = k.recoverQueuedDelegatedWorkers()
+	if err := k.recoverAgentInvocationRuns(); err != nil {
+		k.Close()
+		return nil, fmt.Errorf("agent invocation recovery: %w", err)
+	}
+	if err := k.reconcileTaskGraphInvocationBindings(); err != nil {
+		k.Close()
+		return nil, fmt.Errorf("task graph recovery: %w", err)
+	}
 	return k, nil
 }
 

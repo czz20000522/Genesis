@@ -29,6 +29,11 @@ provider or grant a tool. A node is ready when all predecessors completed.
 The parent independently invokes `delegate_worker` when it elects to run an
 agent task. TaskGraph neither admits nor starts that invocation; it only
 validates the later stable-reference binding and reduces owner evidence.
+For the current AgentInvocation slice, one ready node may bind one invocation
+in that same session. A `running` lifecycle fact makes the node immutable; a
+terminal fact adds its event reference and completes or fails the node. The
+parent tool gateway rejects any graph id outside its executing session before
+it reaches an owner method, and returns no graph projection on that refusal.
 
 Task and edge mutations append new facts rather than rewriting history. The
 owner permits them only for nonterminal, unstarted tasks; it rejects a mutation
@@ -39,7 +44,16 @@ dependency meaning ambiguous.
 
 Restart rebuilds graph state from the ledger. Phase B reconciles only a
 persisted execution binding with its existing owner; ambiguous external work is
-blocked with a sanitized recovery reason and never replayed by TaskGraph.
+blocked with a sanitized recovery reason and never replayed by TaskGraph. The
+AgentInvocation owner first converts every persisted nonterminal run to a
+durable ambiguous-recovery failure, including a non-delegated invocation; it
+never restarts one. Recovery selects the latest durable run for an invocation,
+so an older terminal run cannot hide a later ambiguous run. TaskGraph then
+re-reduces each binding from that latest owner fact, so a successful worker
+terminal fact is repaired after a separate graph-transition append failure
+without replaying the worker. If either owner
+recovery or graph reconciliation cannot append its required fact, kernel
+initialization fails closed instead of presenting an unresolved graph as live.
 
 ## Phase C projection
 
@@ -52,19 +66,22 @@ blocked reason, and evidence reference, but it remains a reader in this slice.
 
 `task_graph_edit` is a model-visible kernel-control tool for the ordinary parent
 session gateway and is never exposed through an invocation capability grant. Each call carries one named
-topology operation and no execution, authority, or provider field. The tool
-dispatches to the existing TaskGraph owner methods under their validation lock,
-then returns the resulting opaque identifiers or projection. A rejected
-proposal writes no graph fact; a leaf worker is denied by its grant before any
-owner call.
+topology operation, or `bind_invocation` with only opaque graph, node, and
+already-admitted invocation ids; it carries no execution, authority, provider,
+role, task, or tool field. The tool dispatches to the existing TaskGraph owner
+methods under their validation lock, then returns the resulting opaque
+identifiers or projection. A rejected proposal writes no graph fact; a leaf
+worker is denied by its grant before any owner call.
 
 ## Reference alignment
 
-Codex's `core/src/tools/handlers/plan.rs` accepts a model plan update only
-through its tool runtime and emits an explicit event; its
-`tui/src/history_cell/plans.rs` renders the resulting state as a projection.
-Reasonix's `internal/agent/coordinator.go` keeps a planner's text as a separate
-conversation handoff rather than a project owner. Neither local reference owns
-a durable dependency graph. Genesis aligns on explicit proposal-to-fact and
-reader projection separation, and rejects in-memory task queues, free model
-overrides, and graph-derived authority.
+Codex's `codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs` accepts an
+explicit parent `spawn_agent` call, then delegates capacity reservation and
+thread creation to `codex-rs/core/src/agent/control/spawn.rs`; this is a
+dispatcher path, not a dependency-graph owner. Reasonix's
+`internal/agent/task.go` likewise creates a focused sub-agent only from the
+parent's explicit `task` tool call. Neither local reference owns a durable DAG.
+Genesis aligns by keeping `delegate_worker` as the explicit dispatcher and
+TaskGraph as a separate ledger/project owner that only binds and reduces its
+stable references. It rejects in-memory task queues, free model overrides, and
+graph-derived authority.

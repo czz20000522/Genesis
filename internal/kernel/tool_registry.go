@@ -71,7 +71,7 @@ func defaultKernelTools(policies ...ShellTimeoutPolicy) []registeredTool {
 		shellPolicy = normalizedShellTimeoutPolicy(policies[0])
 	}
 	return []registeredTool{
-		{Spec: ToolSpec{Name: "task_graph_edit", Description: "Propose one validated project task-graph topology edit without starting or authorizing work.", InputSchema: toolInputSchema(taskGraphEditToolArguments{}, map[string]string{"operation": "One of create_graph, add_task, update_task, add_dependency, or remove_dependency."}), SideEffectLevel: ToolSideEffectWrite, ExecutionKind: ToolExecutionKindKernelControl, Scheduling: delegateWorkerToolSchedulingSpec()}, Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
+		{Spec: ToolSpec{Name: "task_graph_edit", Description: "Propose one validated project task-graph edit or bind an existing invocation without starting or authorizing work.", InputSchema: toolInputSchema(taskGraphEditToolArguments{}, map[string]string{"operation": "One of create_graph, add_task, update_task, add_dependency, remove_dependency, or bind_invocation.", "invocation_id": "Existing invocation id for bind_invocation; this tool never starts it."}), SideEffectLevel: ToolSideEffectWrite, ExecutionKind: ToolExecutionKindKernelControl, Scheduling: delegateWorkerToolSchedulingSpec()}, Prepare: func(ctx toolInvocationContext, eventID string, providerCallID string, name string, arguments json.RawMessage) (preparedModelToolCall, error) {
 			return ctx.prepareTaskGraphEditToolCall(eventID, providerCallID, name, arguments)
 		}},
 		{

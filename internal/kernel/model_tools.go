@@ -77,13 +77,14 @@ type delegateWorkerToolArguments struct {
 }
 
 type taskGraphEditToolArguments struct {
-	Operation   string `json:"operation"`
-	GraphID     string `json:"graph_id,omitempty"`
-	NodeID      string `json:"node_id,omitempty"`
-	FromNodeID  string `json:"from_node_id,omitempty"`
-	ToNodeID    string `json:"to_node_id,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
+	Operation    string `json:"operation"`
+	GraphID      string `json:"graph_id,omitempty"`
+	NodeID       string `json:"node_id,omitempty"`
+	InvocationID string `json:"invocation_id,omitempty"`
+	FromNodeID   string `json:"from_node_id,omitempty"`
+	ToNodeID     string `json:"to_node_id,omitempty"`
+	Title        string `json:"title,omitempty"`
+	Description  string `json:"description,omitempty"`
 }
 
 type preparedModelToolCall struct {
@@ -628,8 +629,11 @@ func (k *Kernel) prepareTaskGraphEditToolCall(eventID string, providerCallID str
 	if err := decodeStrictModelToolArguments("task_graph_edit", arguments, &args); err != nil {
 		return invalidPreparedModelToolCall(eventID, providerCallID, name, "invalid_tool_arguments", toolRequestInvalidMessage(err)), nil
 	}
-	args.Operation, args.GraphID, args.NodeID = strings.TrimSpace(args.Operation), strings.TrimSpace(args.GraphID), strings.TrimSpace(args.NodeID)
+	args.Operation, args.GraphID, args.NodeID, args.InvocationID = strings.TrimSpace(args.Operation), strings.TrimSpace(args.GraphID), strings.TrimSpace(args.NodeID), strings.TrimSpace(args.InvocationID)
 	return preparedModelToolCall{eventID: eventID, providerCallID: providerCallID, name: name, accessPlan: delegateWorkerToolAccessPlan(name), execute: func(_ context.Context, sessionID string, _ string) (ModelToolResult, error) {
+		if args.Operation != "create_graph" && !k.taskGraphBelongsToSession(args.GraphID, sessionID) {
+			return invalidModelToolResult(eventID, providerCallID, name, "task_graph_edit_failed", "task graph edit unavailable")
+		}
 		var result interface{}
 		var err error
 		switch args.Operation {
@@ -646,6 +650,8 @@ func (k *Kernel) prepareTaskGraphEditToolCall(eventID string, providerCallID str
 		case "update_task":
 			err = k.UpdateTaskGraphNode(TaskGraphNodeUpdateRequest{GraphID: args.GraphID, NodeID: args.NodeID, Title: args.Title, Description: args.Description})
 			result = map[string]string{"status": "accepted"}
+		case "bind_invocation":
+			result, err = k.BindTaskGraphNodeInvocation(TaskGraphNodeBindingRequest{GraphID: args.GraphID, NodeID: args.NodeID, InvocationID: args.InvocationID})
 		default:
 			return invalidModelToolResult(eventID, providerCallID, name, "invalid_task_graph_operation", "invalid task_graph_edit operation")
 		}
