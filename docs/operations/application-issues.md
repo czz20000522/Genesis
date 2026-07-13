@@ -131,8 +131,9 @@ Genesis Kernel. Kernel primitive gaps belong in
   - Remaining acceptance: use the installed desktop UI to import a new cloud
     route, select it independently in two Project/Task/Chat sessions, and
     prove the visible selector and failure recovery. Local llama.cpp remains
-    separate: the installer currently omits its provider-command adapter, so
-    no blank-home local template may materialize a broken profile.
+    separate: the installer packages its provider-command adapter under the
+    private kernel runtime, while its desktop-owned lifecycle is accepted by
+    the dedicated local-model issue below.
 
 ### APP-DESKTOP-LOCAL-MODEL-LIFECYCLE-20260711 - P1 - Local llama.cpp must be client-owned, not a WSL service
 
