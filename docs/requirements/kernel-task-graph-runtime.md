@@ -30,6 +30,10 @@ workspace, credential, or permission data.
   rejects malformed nodes, cycles, duplicate edges, and illegal state
   transitions before appending a fact. Execution binding is optional and is a
   separate owner-controlled decision, not a graph-side permission grant.
+- TaskGraph never calls `delegate_worker`, admits an invocation, or starts an
+  invocation. A parent may use the graph to decide what to delegate, but only
+  AgentInvocation accepts and runs that separately requested worker; TaskGraph
+  may then bind and reduce the resulting stable reference.
 - A parent session may submit one `task_graph_edit` proposal at a time. Its operation is
   limited to graph creation, task addition, task metadata replacement, or
   dependency addition/removal; the receipt returns only admitted graph/node

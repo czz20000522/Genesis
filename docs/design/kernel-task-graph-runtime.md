@@ -26,6 +26,9 @@ any transition outside the explicit state table. Graph topology does not imply
 execution. A later owner-controlled binding may reference an admitted
 invocation, workflow, job, approval, or external wait; it cannot name a
 provider or grant a tool. A node is ready when all predecessors completed.
+The parent independently invokes `delegate_worker` when it elects to run an
+agent task. TaskGraph neither admits nor starts that invocation; it only
+validates the later stable-reference binding and reduces owner evidence.
 
 Task and edge mutations append new facts rather than rewriting history. The
 owner permits them only for nonterminal, unstarted tasks; it rejects a mutation

@@ -39,7 +39,8 @@ path.
 - Deliverable: optional owner-controlled execution binding, persisted linkage,
   terminal state/evidence reduction, and fail-closed restart reconciliation.
 - Red lines: no provider/tool fields in a task proposal, no direct provider
-  call, no replay of a started invocation, and no generic scheduler.
+  call, no replay of a started invocation, no call to `delegate_worker`, and
+  no generic scheduler.
 - Red tests: binding validation, dependency-gated eligibility, terminal owner
   reduction, and ambiguous restart block.
 
