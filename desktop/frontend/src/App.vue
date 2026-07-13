@@ -13,7 +13,6 @@ import { isLocalProfile, profileDisplayName } from './modelSelection'
 import { operationErrorLabel, readinessLabel, turnErrorLabel } from './display'
 import { isBlankSessionDraft } from './sessionDraft'
 import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
-import { timelineDetailEntries } from './timelineDetail'
 import { timelineRows, type TimelineRow } from './timelineView'
 
 const config = ref(kernelConfig())
@@ -59,20 +58,20 @@ const updateToken = ref('')
 const update = ref<DesktopUpdate | null>(null)
 const desktopCloseBehavior = ref<CloseBehavior>('exit')
 
-const conversationRows = computed(() => timelineRows(timeline.value?.items))
+const timelineProjectionRows = computed(() => timelineRows(timeline.value?.items))
 const retryText = computed(() => {
-  for (let index = conversationRows.value.length - 1; index >= 0; index--) {
-    const row = conversationRows.value[index]
+  for (let index = timelineProjectionRows.value.length - 1; index >= 0; index--) {
+    const row = timelineProjectionRows.value[index]
     if (row.kind !== 'processing' || row.terminalOutcome !== 'failed' || !row.turnId) continue
     for (let prior = index - 1; prior >= 0; prior--) {
-      const user = conversationRows.value[prior]
+      const user = timelineProjectionRows.value[prior]
       if (user.turnId === row.turnId && user.kind === 'user' && user.text) return user.text
     }
   }
   return ''
 })
 const displayedRows = computed(() => {
-  const rows: TimelineRow[] = [...conversationRows.value]
+  const rows: TimelineRow[] = [...timelineProjectionRows.value]
   if (liveUserText.value) {
     rows.push({
       id: 'live-user',
@@ -100,7 +99,6 @@ const displayedRows = computed(() => {
   }
   return rows
 })
-const detailEntries = computed(() => timelineDetailEntries(timeline.value?.items))
 const selectedFileName = computed(() => selectedFile.value?.filename ?? '')
 const selectedFileIsDirectory = computed(() => selectedFile.value?.kind === 'directory')
 const materialSummary = computed(() => material.value ? materialIntakeSummary(material.value) : [])
@@ -252,7 +250,7 @@ function resetSessionViewState() {
 function isCurrentSessionBlank() {
   return isBlankSessionDraft({
     messageText: messageText.value,
-    timelineRowCount: conversationRows.value.length,
+    timelineRowCount: timelineProjectionRows.value.length,
     selectedFileName: selectedFileName.value,
     hasMaterial: Boolean(material.value),
     hasDebugExport: Boolean(debugExport.value),

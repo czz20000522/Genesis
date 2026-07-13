@@ -40,7 +40,7 @@ const approvalRows = computed(() => props.approvals.map((approval) => ({ approva
       </template>
       <template v-else>
         <div class="activity-line">
-          <span class="activity-marker" :class="{ 'activity-marker--done': row.terminalOutcome === 'succeeded' }" />
+          <span class="activity-marker" :class="{ 'activity-marker--done': row.terminalOutcome === 'succeeded', 'activity-marker--failed': row.terminalOutcome === 'failed' }" />
           <strong>{{ row.label }}</strong>
           <span v-if="row.meta" class="activity-meta">{{ row.meta }}</span>
           <el-button v-if="row.detailAvailable" text circle size="small" :aria-label="`${row.label}详情`" @click="$emit('loadDetail', row.detailRef)"><el-icon><MoreFilled /></el-icon></el-button>

@@ -24,7 +24,11 @@ function presentationFor(row: TimelineRow): WorkspaceActivityRow['presentation']
 function labelFor(row: TimelineRow): string {
   if (row.kind === 'reasoning') return 'Thinking'
   if (row.kind === 'action') return 'Needs your decision'
-  if (row.kind === 'processing') return row.terminalOutcome === 'succeeded' ? '已完成' : (row.text || '正在处理')
+  if (row.kind === 'processing') {
+    if (row.terminalOutcome === 'succeeded') return '已完成'
+    if (row.terminalOutcome === 'failed') return '未完成'
+    return row.text || '正在处理'
+  }
   if (row.kind === 'assistant') return 'Result'
   return 'Task'
 }

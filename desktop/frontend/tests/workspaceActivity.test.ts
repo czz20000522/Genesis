@@ -11,3 +11,4 @@ const rows = workspaceActivity([
 assert.deepEqual(rows.map((row) => row.presentation), ['brief', 'thinking', 'work', 'output'])
 assert.equal(rows[2]?.label, '已完成')
 assert.equal(rows.some((row) => row.label === 'Planning' || row.label === 'Reviewing'), false)
+assert.equal(workspaceActivity([{ id: 'failed', kind: 'processing', text: '', meta: '', detailRef: '', detailAvailable: false, turnId: 't', terminalOutcome: 'failed' }])[0]?.label, '未完成')
