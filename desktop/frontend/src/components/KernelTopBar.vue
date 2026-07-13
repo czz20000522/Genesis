@@ -4,7 +4,6 @@ import { readinessLabel } from '../display'
 defineProps<{
   readiness: string
   sessionId: string
-  error: string
   inspectorOpen: boolean
 }>()
 

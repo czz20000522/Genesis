@@ -796,7 +796,7 @@ async function persistDesktopCatalog() {
 </script>
 
 <template>
-  <main :class="['chat-shell', { 'chat-shell--inspector-open': inspectorOpen }]">
+  <main :class="['app-shell', { 'app-shell--inspector-open': inspectorOpen }]">
     <SessionRail
       :session-id="sessionId"
       :sessions="sessions"
@@ -818,7 +818,6 @@ async function persistDesktopCatalog() {
         <KernelTopBar
           :session-id="sessionId"
           :readiness="readiness"
-          :error="error"
           :inspector-open="inspectorOpen"
           @check-ready="checkReady"
           @toggle-provider="toggleProviderPanel"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ChatDotRound, EditPen, FolderAdd, Plus, Search } from '@element-plus/icons-vue'
+import { ChatDotRound, EditPen, Folder, FolderAdd, Plus, Search } from '@element-plus/icons-vue'
 import type { SessionListItem } from '../api/kernelApi'
 import type { DesktopProjectCatalogEntry, DesktopSessionCatalogEntry } from '../sessionCatalog'
 import { sessionLabel, sessionStatus } from '../display'
@@ -107,7 +107,7 @@ const emit = defineEmits<{
       <template v-else>
       <section v-for="group in projectGroups" :key="group.project.projectId" class="session-group">
         <div class="session-group-heading">
-          <strong :title="group.project.root">▱ {{ group.project.name }}</strong>
+          <strong :title="group.project.root"><el-icon><Folder /></el-icon>{{ group.project.name }}</strong>
           <button type="button" :aria-label="`在 ${group.project.name} 中创建会话`" @click="$emit('newProjectSession', group.project)">+</button>
         </div>
         <button
