@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { bindSessionModel, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, importProviderTemplate, installUpdate, interruptSession, kernelConfig, listSessions, loadDesktopCatalog, localModelStatus, pickMaterialDirectory as pickMaterialDirectoryFromDesktop, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveDesktopCatalog, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, setupDeepSeekFlash, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
-import ConversationPane from './components/ConversationPane.vue'
+import AgentWorkspace from './components/AgentWorkspace.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
 import ProviderPanel from './components/ProviderPanel.vue'
@@ -9,8 +9,8 @@ import SessionRail from './components/SessionRail.vue'
 import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
-import { isLocalProfile } from './modelSelection'
-import { operationErrorLabel, turnErrorLabel } from './display'
+import { isLocalProfile, profileDisplayName } from './modelSelection'
+import { operationErrorLabel, readinessLabel, turnErrorLabel } from './display'
 import { isBlankSessionDraft } from './sessionDraft'
 import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
 import { timelineDetailEntries } from './timelineDetail'
@@ -114,6 +114,31 @@ const localModelLabel = computed(() => {
   return '本地模型已停止'
 })
 const selectedProviderIsLocal = computed(() => isLocalProfile(providerProfilesState.value.find((item) => item.profile_id === selectedProviderProfile.value)))
+const activeCatalogEntry = computed(() => sessionCatalog.value.find((entry) => entry.sessionId === sessionId.value))
+const activeSession = computed(() => sessions.value.find((item) => item.session_id === sessionId.value))
+const workspaceKindLabel = computed(() => {
+  const kind = activeCatalogEntry.value?.kind
+  if (kind === 'project') return '项目会话'
+  if (kind === 'task') return '任务'
+  return '聊天'
+})
+const workspaceRoot = computed(() => {
+  const entry = activeCatalogEntry.value
+  if (!entry) return ''
+  if (entry.root) return entry.root
+  if (entry.kind !== 'project') return ''
+  return projectCatalog.value.find((project) => project.projectId === entry.projectId)?.root ?? ''
+})
+const workspaceTitle = computed(() => {
+  const title = String(activeSession.value?.title || '').trim()
+  if (title) return title
+  const entry = activeCatalogEntry.value
+  if (entry?.name) return entry.name
+  if (entry?.kind === 'project') return projectCatalog.value.find((project) => project.projectId === entry.projectId)?.name ?? '项目会话'
+  if (entry?.kind === 'task') return '新任务'
+  return '新聊天'
+})
+const workspaceModelLabel = computed(() => profileDisplayName(providerProfilesState.value.find((profile) => profile.profile_id === sessionModelProfile.value)))
 
 function currentSession() {
   const session = sessionId.value.trim()
@@ -827,25 +852,28 @@ async function persistDesktopCatalog() {
         />
       </div>
 
-      <ConversationPane
-        :session-id="sessionId"
+      <AgentWorkspace
+        :title="workspaceTitle"
+        :kind-label="workspaceKindLabel"
+        :workspace-root="workspaceRoot"
+        :model-label="workspaceModelLabel"
+        :readiness-label="readinessLabel(readiness)"
+        :inspector-open="inspectorOpen"
         :message-text="messageText"
         :last-turn="lastTurn"
         :rows="displayedRows"
-        :detail-entries="detailEntries"
         :selected-file-name="selectedFileName"
-		:selected-file-is-directory="selectedFileIsDirectory"
+        :selected-file-is-directory="selectedFileIsDirectory"
         :error="error"
-        :readiness="readiness"
         :approvals="pendingApprovals"
         :retry-text="retryText"
         :interrupt-available="liveStreaming"
         :interrupting="stopRequested"
-		:profiles="providerProfilesState"
-		:selected-model-profile="sessionModelProfile"
-		:model-selection-disabled="liveStreaming"
+        :profiles="providerProfilesState"
+        :selected-model-profile="sessionModelProfile"
+        :model-selection-disabled="liveStreaming"
         @update:message-text="messageText = $event"
-		@select-model="selectSessionModel"
+        @select-model="selectSessionModel"
         @send-message="sendMessage"
         @decide-approval="answerApproval"
         @pick-material-archive="pickMaterialArchive"
@@ -853,6 +881,7 @@ async function persistDesktopCatalog() {
         @load-detail="loadDetail"
         @retry="retryFailedTurn"
         @interrupt="interruptCurrentTurn"
+        @toggle-inspector="inspectorOpen = !inspectorOpen"
       />
     </section>
 
