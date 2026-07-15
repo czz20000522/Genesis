@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ElMessage } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 import { bindSessionModel, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, desktopRuntimeConfig, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, importProviderTemplate, installUpdate, interruptSession, kernelConfig, listSessions, loadDesktopCatalog, localModelStatus, pickMaterialDirectory as pickMaterialDirectoryFromDesktop, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveDesktopCatalog, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, setupDeepSeekFlash, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
 import AgentWorkspace from './components/AgentWorkspace.vue'
@@ -328,8 +329,9 @@ async function toggleLocalModel() {
 async function saveDesktopUpdateToken() {
   error.value = ''
   try {
-    await saveUpdateToken(updateToken.value)
+    if (!await saveUpdateToken(updateToken.value)) throw new Error('update credential was not saved')
     updateToken.value = ''
+    ElMessage.success('GitHub 更新令牌已保存。')
   } catch (err) {
     error.value = operationErrorLabel(err, '保存更新设置')
   }
