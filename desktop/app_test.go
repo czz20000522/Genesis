@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -502,6 +503,49 @@ func TestLocalServiceSupervisorDoesNotOwnExternalKernel(t *testing.T) {
 	}
 	if proc.stopCalls != 0 {
 		t.Fatalf("external shutdown stopped process %d times", proc.stopCalls)
+	}
+}
+
+func TestLocalServiceSupervisorRefusesReadyUnownedKernel(t *testing.T) {
+	launched := false
+	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
+		KernelBaseURL: defaultKernelBaseURL,
+		LogDir:        desktopTestTempDir(t),
+		launcher: func(context.Context, sidecarLaunchRequest) (sidecarProcess, error) {
+			launched = true
+			return &fakeSidecarProcess{pid: 9876}, nil
+		},
+		endpointOccupiedProbe: func(context.Context, string) bool {
+			return true
+		},
+	})
+
+	status := supervisor.StartKernel(context.Background())
+
+	if launched {
+		t.Fatal("occupied kernel endpoint launched a sidecar")
+	}
+	if status.Ownership != serviceOwnershipUnowned || status.Readiness != "not_ready" || status.Reason != sidecarKernelAlreadyServing {
+		t.Fatalf("status = %+v, want unowned occupied-kernel status", status)
+	}
+}
+
+func TestProbeKernelEndpointOccupiedDetectsListeningPort(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	endpoint := "http://" + listener.Addr().String()
+	if !probeKernelEndpointOccupied(context.Background(), endpoint) {
+		t.Fatal("listening endpoint was not detected as occupied")
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if probeKernelEndpointOccupied(ctx, endpoint) {
+		t.Fatal("closed endpoint was detected as occupied")
 	}
 }
 

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +33,7 @@ const (
 	sidecarStopFailed               = "sidecar_stop_failed"
 	sidecarReadinessProbeFailed     = "kernel_readiness_probe_failed"
 	sidecarKernelNotReady           = "kernel_not_ready"
+	sidecarKernelAlreadyServing     = "kernel_already_serving"
 )
 
 func noConsoleSysProcAttr() *syscall.SysProcAttr {
@@ -54,6 +57,8 @@ type sidecarLaunchRequest struct {
 
 type sidecarReadinessProbe func(context.Context, string, string) sidecarReadinessResult
 
+type sidecarEndpointOccupiedProbe func(context.Context, string) bool
+
 type sidecarReadinessResult struct {
 	Ready  bool
 	Reason string
@@ -68,8 +73,9 @@ type LocalServiceSupervisorConfig struct {
 	LogDir           string
 	ReadinessTimeout time.Duration
 
-	launcher       sidecarLauncher
-	readinessProbe sidecarReadinessProbe
+	launcher              sidecarLauncher
+	readinessProbe        sidecarReadinessProbe
+	endpointOccupiedProbe sidecarEndpointOccupiedProbe
 }
 
 type LocalServiceSupervisor struct {
@@ -97,6 +103,9 @@ func NewLocalServiceSupervisor(cfg LocalServiceSupervisorConfig) *LocalServiceSu
 	if cfg.readinessProbe == nil {
 		cfg.readinessProbe = probeKernelReadiness
 	}
+	if cfg.endpointOccupiedProbe == nil {
+		cfg.endpointOccupiedProbe = probeKernelEndpointOccupied
+	}
 	supervisor := &LocalServiceSupervisor{cfg: cfg}
 	supervisor.status = supervisor.initialKernelStatus()
 	return supervisor
@@ -119,6 +128,12 @@ func (s *LocalServiceSupervisor) StartKernel(ctx context.Context) SidecarStatus 
 	}
 	s.startAttempted = true
 	if s.process != nil {
+		return s.status
+	}
+	preflightCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if s.cfg.endpointOccupiedProbe(preflightCtx, s.cfg.KernelBaseURL) {
+		s.status = s.unownedStatus("not_ready", sidecarKernelAlreadyServing)
 		return s.status
 	}
 
@@ -220,6 +235,16 @@ func (s *LocalServiceSupervisor) ownedStatus(readiness, reason string, pid int, 
 		PID:       pid,
 		StartedAt: startedAt,
 		LogPath:   logPath,
+	}
+}
+
+func (s *LocalServiceSupervisor) unownedStatus(readiness, reason string) SidecarStatus {
+	return SidecarStatus{
+		ServiceID: serviceKindKernel,
+		Kind:      serviceKindKernel,
+		Ownership: serviceOwnershipUnowned,
+		Readiness: readiness,
+		Reason:    reason,
 	}
 }
 
@@ -403,6 +428,27 @@ func probeKernelReadinessOnce(ctx context.Context, baseURL, token string) sideca
 		reason = sidecarKernelNotReady
 	}
 	return sidecarReadinessResult{Reason: reason}
+}
+
+func probeKernelEndpointOccupied(ctx context.Context, baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	host := parsed.Host
+	if _, _, err := net.SplitHostPort(host); err != nil {
+		port := "80"
+		if parsed.Scheme == "https" {
+			port = "443"
+		}
+		host = net.JoinHostPort(parsed.Hostname(), port)
+	}
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", host)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 func asString(value any) string {
