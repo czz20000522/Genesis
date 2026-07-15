@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"genesis/localconfig"
 )
 
 func TestProviderProfilesProjectsSafeConfiguredMetadata(t *testing.T) {
@@ -40,6 +43,23 @@ func TestProviderProfilesTreatsMissingConfigAsAnEmptyFirstRunState(t *testing.T)
 	}
 	if len(result.Profiles) != 0 || len(result.RoleBindings) != 0 {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestSaveUpdateTokenPersistsTheSameUserSecret(t *testing.T) {
+	root := desktopTestTempDir(t)
+	app := &App{providerControl: desktopProviderControlConfig{CredentialStoreRoot: filepath.Join(root, "credentials")}}
+
+	saved, err := app.SaveUpdateToken("test-update-token")
+	if errors.Is(err, localconfig.ErrCredentialUnsupported) {
+		t.Skip("this platform does not support the local credential protector")
+	}
+	if err != nil || !saved {
+		t.Fatalf("SaveUpdateToken = %t, %v", saved, err)
+	}
+	stored, err := localconfig.ResolveCredentialSecret(desktopUpdateCredentialRef, app.providerControl.CredentialStoreRoot)
+	if err != nil || stored != "test-update-token" {
+		t.Fatalf("stored update token = %q, %v", stored, err)
 	}
 }
 
