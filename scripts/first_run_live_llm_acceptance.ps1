@@ -431,6 +431,10 @@ try {
     if ($providerVerify.readiness -ne "ready") {
         throw "provider verify did not report ready: $(ConvertTo-CompactJson $providerVerify)"
     }
+    $sessionProfileId = [string]$providerVerify.profile_id
+    if ([string]::IsNullOrWhiteSpace($sessionProfileId)) {
+        throw "provider verify did not return a profile id"
+    }
 
     $server = Start-Genesisd -ExePath $genesisdExe -ListenAddr $Addr -Ledger $LedgerPath -Token $RuntimeToken -Config $ConfigRoot -Credentials $CredentialStoreRoot -Role $ModelRole -Profile $effectiveProfileId -HiddenApiKeyEnv $ApiKeyEnv -StdoutPath $healthyStdout -StderrPath $healthyStderr
     $ready = Wait-GenesisReady -BaseUri $baseUri -ExpectedStatus "ready"
@@ -439,6 +443,12 @@ try {
     }
 
     $sessionId = "live-first-run-" + [guid]::NewGuid().ToString("N").Substring(0, 12)
+    $session = Invoke-Json -Method POST -Uri "$baseUri/sessions/$sessionId/model" -Token $RuntimeToken -Body @{
+        profile_id = $sessionProfileId
+    }
+    if ($session.model_profile_id -ne $sessionProfileId) {
+        throw "session model binding did not persist the verified profile"
+    }
     $turn = Invoke-Json -Method POST -Uri "$baseUri/turn" -Token $RuntimeToken -Body @{
         session_id = $sessionId
         idempotency_key = "first-live-turn"

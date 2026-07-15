@@ -25,6 +25,7 @@ The script creates an isolated temporary work root, builds `genesisctl.exe` and 
 - `genesisctl provider verify` reports `readiness=ready` before the daemon starts.
 - `GET /ready` reports `readiness=ready`.
 - `GET /ready` reports a configured live provider rather than the fake provider.
+- The acceptance session binds the verified profile before its first turn.
 - `POST /turn` returns a non-empty assistant final from the configured provider, not the fake provider.
 - `GET /sessions/{id}/timeline` returns a usable user-facing timeline projection.
 - `GET /turns/{id}/events` returns the raw turn event replay.
