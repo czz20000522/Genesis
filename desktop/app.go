@@ -40,13 +40,10 @@ type App struct {
 	supervisor *LocalServiceSupervisor
 	localModel *LocalModelSupervisor
 
-	providerControl              desktopProviderControlConfig
-	desktopTurnMu                sync.Mutex
-	activeDesktopTurns           int
-	providerActivationInProgress bool
-	closeMu                      sync.Mutex
-	closeBehavior                string
-	forceQuit                    bool
+	providerControl desktopProviderControlConfig
+	closeMu         sync.Mutex
+	closeBehavior   string
+	forceQuit       bool
 }
 
 type DesktopConfig struct {
@@ -295,10 +292,6 @@ func (a *App) SearchSessions(query string, limit int) (map[string]any, error) {
 }
 
 func (a *App) SubmitTurn(sessionID string, text string, idempotencyKey string) (map[string]any, error) {
-	if err := a.beginDesktopTurn(); err != nil {
-		return nil, err
-	}
-	defer a.endDesktopTurn()
 	ctx, cancel := a.turnRequestContext()
 	defer cancel()
 	body, _ := json.Marshal(map[string]any{
@@ -310,10 +303,6 @@ func (a *App) SubmitTurn(sessionID string, text string, idempotencyKey string) (
 }
 
 func (a *App) SubmitTurnStream(sessionID string, text string, idempotencyKey string) (map[string]any, error) {
-	if err := a.beginDesktopTurn(); err != nil {
-		return nil, err
-	}
-	defer a.endDesktopTurn()
 	ctx, cancel := a.turnRequestContext()
 	defer cancel()
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
@@ -700,30 +689,6 @@ func (a *App) turnRequestContext() (context.Context, context.CancelFunc) {
 		ctx = context.Background()
 	}
 	return context.WithCancel(ctx)
-}
-
-func (a *App) beginDesktopTurn() error {
-	if a == nil {
-		return errors.New("desktop app is unavailable")
-	}
-	a.desktopTurnMu.Lock()
-	defer a.desktopTurnMu.Unlock()
-	if a.providerActivationInProgress {
-		return errors.New(providerActivationInProgressReason)
-	}
-	a.activeDesktopTurns++
-	return nil
-}
-
-func (a *App) endDesktopTurn() {
-	if a == nil {
-		return
-	}
-	a.desktopTurnMu.Lock()
-	defer a.desktopTurnMu.Unlock()
-	if a.activeDesktopTurns > 0 {
-		a.activeDesktopTurns--
-	}
 }
 
 func loadDesktopConfig() DesktopConfig {

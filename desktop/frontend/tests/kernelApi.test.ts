@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { applyProviderRole, bindSessionModel, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, desktopRuntimeConfig, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, pickMaterialDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, setupDeepSeekFlash, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
+import { bindSessionModel, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, desktopRuntimeConfig, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, pickMaterialDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, setupDeepSeekFlash, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -37,6 +37,7 @@ const topbarSource = readFileSync(join(import.meta.dirname, '..', 'src', 'compon
 const inspectorSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'InspectorDrawer.vue'), 'utf8')
 const providerPanelSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'ProviderPanel.vue'), 'utf8')
 const stylesSource = readFileSync(join(import.meta.dirname, '..', 'src', 'styles.css'), 'utf8')
+const providerControlSource = readFileSync(join(import.meta.dirname, '..', '..', 'provider_control.go'), 'utf8')
 assert.equal(workspaceSource.includes('<WorkspaceHeader'), true, 'AgentWorkspace must compose a truthful workspace header')
 assert.equal(workspaceSource.includes('<WorkspaceTimeline'), true, 'AgentWorkspace must compose activity separately from its shell')
 assert.equal(workspaceSource.includes('<TaskComposer'), true, 'AgentWorkspace must keep task input as a dedicated surface')
@@ -76,6 +77,8 @@ assert.equal(inspectorSource.includes('<el-input'), true, 'InspectorDrawer must 
 assert.equal(inspectorSource.includes('<el-select'), true, 'InspectorDrawer must use the shared select component')
 assert.equal(inspectorSource.includes('<el-button'), true, 'InspectorDrawer must use the shared button component')
 assert.equal(apiSource.includes('KernelRequest'), false, 'desktop production bridge must not expose a generic HTTP proxy')
+assert.equal(apiSource.includes('applyProviderRole'), false, 'ordinary session model selection must not expose a global coordinator switch')
+assert.equal(providerControlSource.includes('ApplyProviderRole'), false, 'desktop must not retain a sidecar-restarting global coordinator mutation')
 assert.equal(apiSource.includes('content_base64'), false, 'desktop upload bridge must not pass whole files as base64')
 assert.equal(providerPanelSource.includes('type="password"'), true, 'provider key input must not render as plain text')
 assert.equal(providerPanelSource.includes('OpenCode Go'), true, 'empty Genesis Home must offer the curated provider templates')
@@ -108,7 +111,6 @@ globalThis.go = {
       }),
       SetupDeepSeekFlash: async (apiKey: string) => ({ profile_id: 'deepseek-flash', credential_present: apiKey.length > 0 }),
       RotateProviderCredential: async (profileID: string, secret: string) => ({ profile_id: profileID, credential_present: secret.length > 0 }),
-      ApplyProviderRole: async (modelRole: string, profileID: string) => ({ status: 'owned_kernel_restarted', binding: { model_role: modelRole, profile_id: profileID } }),
       VerifyProvider: async (modelRole: string, profileID: string) => ({ readiness: 'ready', model_role: modelRole, profile_id: profileID, model: 'glm-5-2' }),
 		DesktopConfig: async () => ({ sidecar: { ownership: 'unowned', readiness: 'not_ready', reason: 'kernel_already_serving' } }),
     },
@@ -118,7 +120,6 @@ const configuredProviders = await providerProfiles()
 assert.equal(configuredProviders.profiles?.[0]?.model_id, 'glm-5-2')
 assert.deepEqual(await setupDeepSeekFlash('one-shot-key'), { profile_id: 'deepseek-flash', credential_present: true })
 assert.deepEqual(await rotateProviderCredential('cloud-glm', 'one-shot-key'), { profile_id: 'cloud-glm', credential_present: true })
-assert.equal((await applyProviderRole('coordinator', 'cloud-glm')).status, 'owned_kernel_restarted')
 assert.equal((await verifyProvider('coordinator', 'cloud-glm')).model, 'glm-5-2')
 assert.equal((await desktopRuntimeConfig()).sidecar?.reason, 'kernel_already_serving')
 globalThis.go = undefined

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,14 +10,6 @@ import (
 	"strings"
 
 	"genesis/localconfig"
-)
-
-const (
-	providerActivationOwnedKernelRestarted          = "owned_kernel_restarted"
-	providerActivationExternalKernelRestartRequired = "external_kernel_restart_required"
-	providerActivationRestartFailed                 = "owned_kernel_restart_failed"
-	providerActivationBlockedActiveTurn             = "kernel_restart_blocked_active_turn"
-	providerActivationInProgressReason              = "provider_activation_in_progress"
 )
 
 type desktopProviderControlConfig struct {
@@ -40,18 +31,6 @@ type ProviderProfileProjection struct {
 type ProviderProfilesProjection struct {
 	Profiles     []ProviderProfileProjection `json:"profiles"`
 	RoleBindings map[string]string           `json:"role_bindings"`
-}
-
-type ProviderRoleBindingProjection struct {
-	ModelRole         string `json:"model_role"`
-	ProfileID         string `json:"profile_id"`
-	PreviousProfileID string `json:"previous_profile_id,omitempty"`
-}
-
-type ProviderActivationProjection struct {
-	Status  string                        `json:"status"`
-	Binding ProviderRoleBindingProjection `json:"binding"`
-	Sidecar SidecarStatus                 `json:"sidecar"`
 }
 
 type ProviderCredentialRotationProjection struct {
@@ -155,48 +134,6 @@ func (a *App) ProviderProfiles() (ProviderProfilesProjection, error) {
 	return result, nil
 }
 
-func (a *App) ApplyProviderRole(modelRole string, profileID string) (ProviderActivationProjection, error) {
-	if a == nil {
-		return ProviderActivationProjection{}, errors.New("desktop app is unavailable")
-	}
-	if err := a.beginProviderActivation(); err != nil {
-		return ProviderActivationProjection{}, err
-	}
-	defer a.endProviderActivation()
-	binding, err := localconfig.BindRole(localconfig.BindRoleRequest{
-		ConfigRoot: a.providerControl.ConfigRoot,
-		ModelRole:  strings.TrimSpace(modelRole),
-		ProfileID:  strings.TrimSpace(profileID),
-	})
-	if err != nil {
-		return ProviderActivationProjection{}, err
-	}
-	result := ProviderActivationProjection{Binding: ProviderRoleBindingProjection{
-		ModelRole:         binding.ModelRole,
-		ProfileID:         binding.ProfileID,
-		PreviousProfileID: binding.PreviousProfileID,
-	}}
-	if a.supervisor == nil || a.supervisor.KernelStatus().Ownership == serviceOwnershipExternal {
-		result.Status = providerActivationExternalKernelRestartRequired
-		if a.supervisor != nil {
-			result.Sidecar = a.supervisor.KernelStatus()
-		}
-		return result, nil
-	}
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	result.Sidecar = a.supervisor.RestartOwned(ctx)
-	a.config.Sidecar = result.Sidecar
-	if result.Sidecar.Readiness != "ready" {
-		result.Status = providerActivationRestartFailed
-		return result, nil
-	}
-	result.Status = providerActivationOwnedKernelRestarted
-	return result, nil
-}
-
 func (a *App) RotateProviderCredential(profileID string, secret string) (ProviderCredentialRotationProjection, error) {
 	if a == nil {
 		return ProviderCredentialRotationProjection{}, errors.New("desktop app is unavailable")
@@ -267,23 +204,4 @@ func stringSliceFromMap(payload map[string]any, key string) []string {
 		}
 	}
 	return result
-}
-
-func (a *App) beginProviderActivation() error {
-	a.desktopTurnMu.Lock()
-	defer a.desktopTurnMu.Unlock()
-	if a.activeDesktopTurns > 0 {
-		return errors.New(providerActivationBlockedActiveTurn)
-	}
-	if a.providerActivationInProgress {
-		return errors.New(providerActivationInProgressReason)
-	}
-	a.providerActivationInProgress = true
-	return nil
-}
-
-func (a *App) endProviderActivation() {
-	a.desktopTurnMu.Lock()
-	defer a.desktopTurnMu.Unlock()
-	a.providerActivationInProgress = false
 }

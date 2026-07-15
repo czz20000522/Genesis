@@ -87,8 +87,10 @@ Genesis Kernel. Kernel primitive gaps belong in
     shared local configuration owner must not become a provider-context or
     ledger owner.
 - Closure: a shared `localconfig` owner now backs kernel/CLI and desktop
-  `models.json` mutation, protected credential writes, safe profile projection,
-  and role binding. An empty Home is a first-run state rather than an error:
+  `models.json` mutation, protected credential writes, and safe profile
+  projection. Desktop role binding and sidecar restart are retired from this
+  provider-control surface; ordinary selection remains session-scoped. An
+  empty Home is a first-run state rather than an error:
   the desktop offers the curated DeepSeek, OpenAI, OpenCode Go, local
   llama.cpp, and explicit OpenAI-compatible templates, clears one-shot keys
   after submission, reloads safe profiles, and calls the existing read-only
@@ -97,8 +99,8 @@ Genesis Kernel. Kernel primitive gaps belong in
   unbound until the user selects it for that session. It does not bind or
   restart automatically.
 - Remaining acceptance: use real local Qwen, DeepSeek, and OpenCode Go GLM
-  profiles from the desktop; verify each profile and switch one cloud profile
-  through an owned restart while confirming a prior session remains readable.
+  profiles from the desktop; verify each profile and select one cloud profile
+  in a session while confirming a prior session remains readable and unchanged.
 - Evidence: the existing desktop boundary test rejects direct kernel imports;
   `genesisctl provider` already proves the intended local config and secret
   store format.
