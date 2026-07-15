@@ -12,7 +12,7 @@
   "info": {
     "companyName": "Genesis",
     "productName": "Genesis",
-    "productVersion": "0.1.38",
+    "productVersion": "0.1.39",
     "copyright": "Copyright © 2026 Genesis Contributors",
     "comments": "Genesis desktop shell around the local kernel HTTP surface."
   }
