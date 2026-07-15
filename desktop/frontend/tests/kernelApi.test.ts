@@ -94,6 +94,7 @@ assert.equal(appSource.includes('importProviderTemplate'), true, 'App.vue must i
 assert.equal(appSource.includes('sessionModelProfile'), true, 'App.vue must keep the selected model on the current session projection')
 assert.equal(appSource.includes('回复已完成，但暂时无法刷新会话状态。'), true, 'App.vue must not describe a completed reply as a failed turn when refresh loses the service')
 assert.equal(appSource.includes("if (readiness.value !== 'not_ready') await loadTimeline()"), true, 'App.vue must reconcile a completed reply after reconnecting the kernel service')
+assert.equal(appSource.includes("error.value = turnErrorLabel(message)\n      if (message.toLowerCase().includes('llama.cpp')) await openProviderPanel()\n      try {\n        timeline.value = await getTimeline(config.value, session)"), true, 'App.vue must refresh durable failed-turn evidence before clearing its optimistic message')
 assert.equal(appSource.includes("timeline.value = await getTimeline(config.value, session)\n\t\tliveUserText.value = ''\n\t\tliveAssistantText.value = ''"), true, 'App.vue must clear optimistic messages as soon as the durable timeline is available')
 assert.equal(taskComposerSource.includes('selectModel'), true, 'TaskComposer must expose a session-scoped model selector')
 assert.equal(providerPanelSource.includes('localStorage'), false, 'provider key input must not persist in browser storage')

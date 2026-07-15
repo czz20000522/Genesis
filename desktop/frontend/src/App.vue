@@ -589,6 +589,11 @@ async function sendMessage() {
     } else {
       error.value = turnErrorLabel(message)
       if (message.toLowerCase().includes('llama.cpp')) await openProviderPanel()
+      try {
+        timeline.value = await getTimeline(config.value, session)
+      } catch {
+        // A disconnected kernel cannot provide durable failure evidence yet.
+      }
       liveUserText.value = ''
       liveAssistantText.value = ''
     }
