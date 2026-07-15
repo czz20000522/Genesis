@@ -183,6 +183,10 @@ Genesis Kernel. Kernel primitive gaps belong in
 - Evidence: The approved initial desktop task is “read this repository and say
   what it does”; it operates on a Project binding and current local files. The
   UI build, typed bridge, session catalog, and kernel binding tests pass.
+  An isolated live DeepSeek Flash check additionally bound one Project, one
+  Task, and one Chat, produced reasoning and final output for each, then
+  restarted the same daemon and reread all three bindings and timelines. This
+  does not replace installed-desktop or local-Qwen acceptance.
 - Verification: Project shared-directory/independent-history, Task
   independent-persistent-directory, Chat local-transcript/no-workspace, and
   restart acceptance tests in `docs/implementation-plans/desktop-session-workspaces.md`.
