@@ -10,7 +10,7 @@ import { compactionSummary } from './compactionView'
 import { debugExportText, debugSummary } from './debugExport'
 import { materialIntakeSummary } from './materialIntake'
 import { isLocalProfile, profileDisplayName } from './modelSelection'
-import { operationErrorLabel, readinessLabel, turnErrorLabel } from './display'
+import { operationErrorLabel, turnErrorLabel } from './display'
 import { isBlankSessionDraft } from './sessionDraft'
 import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
 import { timelineRows, type TimelineRow } from './timelineView'
@@ -876,7 +876,6 @@ async function persistDesktopCatalog() {
         :kind-label="workspaceKindLabel"
         :workspace-root="workspaceRoot"
         :model-label="workspaceModelLabel"
-        :readiness-label="readinessLabel(readiness)"
         :inspector-open="inspectorOpen"
         :message-text="messageText"
         :last-turn="lastTurn"

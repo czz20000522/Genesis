@@ -10,7 +10,6 @@ defineProps<{
   kindLabel: string
   workspaceRoot: string
   modelLabel: string
-  readinessLabel: string
   inspectorOpen: boolean
   messageText: string
   lastTurn: TurnResponse | null
@@ -47,7 +46,7 @@ function forwardApproval(approvalID: string, decision: ApprovalDecision) {
 
 <template>
   <section class="agent-workspace">
-    <WorkspaceHeader :title="title" :kind-label="kindLabel" :workspace-root="workspaceRoot" :model-label="modelLabel" :readiness-label="readinessLabel" :inspector-open="inspectorOpen" @toggle-inspector="$emit('toggleInspector')" />
+    <WorkspaceHeader :title="title" :kind-label="kindLabel" :workspace-root="workspaceRoot" :model-label="modelLabel" :inspector-open="inspectorOpen" @toggle-inspector="$emit('toggleInspector')" />
     <div class="agent-workspace-canvas">
       <WorkspaceTimeline v-if="rows.length || approvals.length" :rows="rows" :approvals="approvals" @decide-approval="forwardApproval" @load-detail="$emit('loadDetail', $event)" />
       <section v-else class="workspace-empty-state">
