@@ -109,6 +109,7 @@ const debugSummaryRows = computed(() => debugExport.value ? debugSummary(debugEx
 const compactionSummaryRows = computed(() => compaction.value ? compactionSummary(compaction.value) : [])
 const localModelRunning = computed(() => localModel.value.ownership === 'owned' && localModel.value.readiness === 'ready')
 const localModelExternallyServing = computed(() => localModel.value.reason === 'local_model_endpoint_already_serving')
+const hasSelectableProviderProfile = computed(() => providerProfilesState.value.some((profile) => profile.credential_present || isLocalProfile(profile)))
 const localModelLabel = computed(() => {
   if (localModelStarting.value) return '正在加载本地模型…'
   if (localModelRunning.value) return `本地模型运行中${localModel.value.pid ? ` · PID ${localModel.value.pid}` : ''}`
@@ -815,8 +816,8 @@ async function initializeDesktop() {
   const connected = await waitForKernelReady()
   if (!connected) return
   const restored = await restoreLatestKnownSession()
-  if (!restored && !sessionId.value && providerProfilesState.value.length === 0) providerOpen.value = true
-  if (!restored && !sessionId.value && providerProfilesState.value.length > 0 && sessionsLoaded.value && sessions.value.length === 0) await createChatSession()
+  if (!restored && !sessionId.value && !hasSelectableProviderProfile.value) providerOpen.value = true
+  if (!restored && !sessionId.value && hasSelectableProviderProfile.value && sessionsLoaded.value && sessions.value.length === 0) await createChatSession()
 }
 
 async function restoreLatestKnownSession() {
