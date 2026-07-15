@@ -790,7 +790,8 @@ async function initializeDesktop() {
     // Provider configuration is a desktop-only local surface; readiness still loads independently.
   }
   const connected = await waitForKernelReady()
-  if (connected && !sessionId.value) await createChatSession()
+  if (connected && !sessionId.value && providerProfilesState.value.length === 0) providerOpen.value = true
+  if (connected && !sessionId.value && providerProfilesState.value.length > 0) await createChatSession()
 }
 
 async function restoreDesktopCatalog() {

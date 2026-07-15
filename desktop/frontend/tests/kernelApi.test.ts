@@ -73,6 +73,8 @@ assert.equal(appSource.includes('desktopRuntimeConfig'), true, 'App.vue must sur
 assert.equal(appSource.includes('const connected = await waitForKernelReady()'), true, 'App.vue must defer initial session creation until the kernel is reachable')
 assert.equal(appSource.includes('async function ensureInitialChatAfterProviderSetup()'), true, 'App.vue must create an empty session after first provider setup without binding a model')
 assert.equal(appSource.includes('await ensureInitialChatAfterProviderSetup()'), true, 'provider setup must make the first usable chat available')
+assert.equal(appSource.includes("if (connected && !sessionId.value && providerProfilesState.value.length === 0) providerOpen.value = true"), true, 'an empty Genesis Home must open provider import instead of creating an unbound chat')
+assert.equal(appSource.includes("if (connected && !sessionId.value && providerProfilesState.value.length > 0) await createChatSession()"), true, 'only configured Homes may create an initial chat before import')
 assert.equal(appSource.includes("operationErrorLabel(err, '加载会话列表')"), true, 'App.vue must preserve a confirmed connection when only session listing fails')
 assert.equal(inspectorSource.includes('readinessLabel(readiness)'), true, 'InspectorDrawer must not show transport state identifiers directly')
 assert.equal(inspectorSource.includes('<el-input'), true, 'InspectorDrawer must use the shared input component')
