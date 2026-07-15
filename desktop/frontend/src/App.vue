@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { bindSessionModel, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, importProviderTemplate, installUpdate, interruptSession, kernelConfig, listSessions, loadDesktopCatalog, localModelStatus, pickMaterialDirectory as pickMaterialDirectoryFromDesktop, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveDesktopCatalog, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, setupDeepSeekFlash, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
+import { bindSessionModel, bindSessionWorkspace, checkForUpdate, closeBehavior, compactSessionContext, createProjectWorkspace, createTaskWorkspace, decideApproval, desktopRuntimeConfig, enableSessionDebug, getAgentInvocationChildConversation, getReady, getSession, getSessionAgentInvocations, getSessionDebug, getSessionTaskGraphs, getTimeline, getTimelineDetail, importProviderTemplate, installUpdate, interruptSession, kernelConfig, listSessions, loadDesktopCatalog, localModelStatus, pickMaterialDirectory as pickMaterialDirectoryFromDesktop, pickMaterialFile, pickProjectDirectory, providerProfiles, rotateProviderCredential, saveDesktopCatalog, saveKernelConfig, saveUpdateToken, searchSessions, setCloseBehavior, setupDeepSeekFlash, startLocalModel, stopLocalModel, submitTurnStream, uploadMaterial, verifyProvider, type AgentInvocationChildConversation, type AgentInvocationProjection, type ApprovalProjection, type ApprovalDecision, type CloseBehavior, type ContextCompactionResponse, type DesktopUpdate, type KernelTimeline, type KernelTimelineDetail, type LocalModelStatus, type MaterialFileSelection, type MaterialIntakeProjection, type ProviderProfile, type SessionDebugExport, type SessionListItem, type TaskGraphProjection, type TurnResponse } from './api/kernelApi'
 import AgentWorkspace from './components/AgentWorkspace.vue'
 import InspectorDrawer from './components/InspectorDrawer.vue'
 import KernelTopBar from './components/KernelTopBar.vue'
@@ -18,6 +18,7 @@ import { timelineRows, type TimelineRow } from './timelineView'
 const config = ref(kernelConfig())
 const readiness = ref('unchecked')
 const error = ref('')
+const ownedKernelEndpointConflict = ref(false)
 const sessionId = ref('')
 const sessions = ref<SessionListItem[]>([])
 const sessionSearchQuery = ref('')
@@ -260,6 +261,11 @@ function isCurrentSessionBlank() {
 }
 
 async function checkReady(quiet = false): Promise<boolean> {
+	if (ownedKernelEndpointConflict.value) {
+		readiness.value = 'not_ready'
+		if (!quiet) error.value = 'Genesis 未启动：已有服务正在使用本地地址。关闭该服务后重新打开 Genesis。'
+		return false
+	}
   if (!quiet) error.value = ''
   saveKernelConfig(config.value)
   try {
@@ -762,6 +768,15 @@ async function initializeDesktop() {
   await restoreDesktopCatalog()
   await refreshLocalModelStatus()
   try { desktopCloseBehavior.value = await closeBehavior() } catch {}
+	try {
+		const runtime = await desktopRuntimeConfig()
+		ownedKernelEndpointConflict.value = runtime.sidecar?.reason === 'kernel_already_serving'
+	} catch {}
+	if (ownedKernelEndpointConflict.value) {
+		readiness.value = 'not_ready'
+		error.value = 'Genesis 未启动：已有服务正在使用本地地址。关闭该服务后重新打开 Genesis。'
+		return
+	}
   try {
     await loadProviderProfiles()
   } catch {

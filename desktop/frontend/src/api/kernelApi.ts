@@ -212,6 +212,10 @@ export type LocalModelStatus = {
   pid?: number
 }
 
+export type DesktopRuntimeConfig = {
+  sidecar?: LocalModelStatus
+}
+
 export type ProviderProfile = {
   profile_id?: string
   model_id?: string
@@ -326,6 +330,12 @@ export async function localModelStatus(): Promise<LocalModelStatus> {
   const bridge = wailsAppBridge()
   if (!bridge?.LocalModelStatus) throw new Error('本地模型控制仅在 Genesis 桌面客户端中可用')
   return bridge.LocalModelStatus() as Promise<LocalModelStatus>
+}
+
+export async function desktopRuntimeConfig(): Promise<DesktopRuntimeConfig> {
+  const bridge = wailsAppBridge()
+  if (!bridge?.DesktopConfig) throw new Error('桌面运行状态仅在 Genesis 桌面客户端中可用')
+  return bridge.DesktopConfig() as Promise<DesktopRuntimeConfig>
 }
 
 export async function startLocalModel(): Promise<LocalModelStatus> {
@@ -693,6 +703,7 @@ type MaterialBridgeRequest = {
 }
 
 type WailsAppBridge = {
+	DesktopConfig?: () => Promise<unknown>
   Ready?: () => Promise<unknown>
   ListSessions?: () => Promise<unknown>
   SearchSessions?: (query: string, limit: number) => Promise<unknown>

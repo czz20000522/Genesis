@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { applyProviderRole, bindSessionModel, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, pickMaterialDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, setupDeepSeekFlash, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
+import { applyProviderRole, bindSessionModel, bindSessionWorkspace, compactSessionContext, createProjectWorkspace, decideApproval, desktopRuntimeConfig, enableSessionDebug, getAgentInvocationChildConversation, getSession, getSessionAgentInvocations, getSessionDebug, getTimeline, getTimelineDetail, interruptSession, kernelConfig, kernelUrl, listSessions, parseTurnStreamEvent, pickMaterialDirectory, providerProfiles, rotateProviderCredential, saveKernelConfig, searchSessions, setupDeepSeekFlash, submitTurn, submitTurnStream, turnStreamEventName, uploadMaterial, verifyProvider } from '../src/api/kernelApi.ts'
 import { approvalSummary } from '../src/approvalView.ts'
 import { compactionSummary } from '../src/compactionView.ts'
 import { debugExportText, debugSummary } from '../src/debugExport.ts'
@@ -66,6 +66,7 @@ assert.equal(workspaceTimelineSource.includes("terminalOutcome === 'succeeded'")
 assert.equal(appSource.includes("message.toLowerCase().includes('llama.cpp') || message.toLowerCase().includes('connection refused')"), false, 'App.vue must not treat a kernel connection failure as a local-model failure')
 assert.equal(appSource.includes("readiness.value = providerReadiness === 'ready' ? 'ready' : 'connected'"), true, 'App.vue must distinguish a reachable Genesis service from an unready model provider')
 assert.equal(appSource.includes('async function waitForKernelReady()'), true, 'App.vue must wait through the owned kernel cold start before showing a connection failure')
+assert.equal(appSource.includes('desktopRuntimeConfig'), true, 'App.vue must surface a refused unowned kernel endpoint before trying to use it')
 assert.equal(appSource.includes('const connected = await waitForKernelReady()'), true, 'App.vue must defer initial session creation until the kernel is reachable')
 assert.equal(appSource.includes("operationErrorLabel(err, '加载会话列表')"), true, 'App.vue must preserve a confirmed connection when only session listing fails')
 assert.equal(inspectorSource.includes('readinessLabel(readiness)'), true, 'InspectorDrawer must not show transport state identifiers directly')
@@ -106,6 +107,7 @@ globalThis.go = {
       RotateProviderCredential: async (profileID: string, secret: string) => ({ profile_id: profileID, credential_present: secret.length > 0 }),
       ApplyProviderRole: async (modelRole: string, profileID: string) => ({ status: 'owned_kernel_restarted', binding: { model_role: modelRole, profile_id: profileID } }),
       VerifyProvider: async (modelRole: string, profileID: string) => ({ readiness: 'ready', model_role: modelRole, profile_id: profileID, model: 'glm-5-2' }),
+		DesktopConfig: async () => ({ sidecar: { ownership: 'unowned', readiness: 'not_ready', reason: 'kernel_already_serving' } }),
     },
   },
 }
@@ -115,6 +117,7 @@ assert.deepEqual(await setupDeepSeekFlash('one-shot-key'), { profile_id: 'deepse
 assert.deepEqual(await rotateProviderCredential('cloud-glm', 'one-shot-key'), { profile_id: 'cloud-glm', credential_present: true })
 assert.equal((await applyProviderRole('coordinator', 'cloud-glm')).status, 'owned_kernel_restarted')
 assert.equal((await verifyProvider('coordinator', 'cloud-glm')).model, 'glm-5-2')
+assert.equal((await desktopRuntimeConfig()).sidecar?.reason, 'kernel_already_serving')
 globalThis.go = undefined
 
 globalThis.go = {
