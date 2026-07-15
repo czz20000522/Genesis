@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -1017,6 +1018,34 @@ func TestKernelHTTPClientStreamsTurnEventsFromKernelPrimitive(t *testing.T) {
 	}
 	if final["turn_id"] != "t1" {
 		t.Fatalf("final = %+v, want turn response", final)
+	}
+}
+
+func TestKernelHTTPClientStreamsTerminalResponseBeyondScannerLimit(t *testing.T) {
+	text := strings.Repeat("x", 4*1024*1024+1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = fmt.Fprintf(w, `{"type":"turn_completed","response":{"session_id":"s1","turn_id":"t1","final":{"text":%q}}}`+"\n", text)
+	}))
+	defer server.Close()
+
+	client := NewKernelHTTPClient(server.URL, "token", server.Client())
+	final, err := client.StreamJSONLines(context.Background(), "/turn/stream", true, json.RawMessage(`{"session_id":"s1"}`), nil)
+	if err != nil {
+		t.Fatalf("StreamJSONLines returned error: %v", err)
+	}
+	responseFinal, ok := final["final"].(map[string]any)
+	if !ok || responseFinal["text"] != text {
+		t.Fatalf("final response did not preserve the complete long text")
+	}
+}
+
+func TestTurnRequestContextHasNoOuterDeadline(t *testing.T) {
+	app := &App{ctx: context.Background()}
+	ctx, cancel := app.turnRequestContext()
+	defer cancel()
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("turn request context must not impose an outer deadline")
 	}
 }
 

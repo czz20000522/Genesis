@@ -776,33 +776,39 @@ func (c *KernelHTTPClient) StreamJSONLines(ctx context.Context, path string, aut
 		return nil, fmt.Errorf("kernel HTTP %d", resp.StatusCode)
 	}
 	var final map[string]any
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	reader := bufio.NewReader(resp.Body)
+	for {
+		rawLine, readErr := reader.ReadBytes('\n')
+		line := strings.TrimSpace(string(rawLine))
 		if line == "" {
-			continue
-		}
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(line), &payload); err != nil {
-			return nil, err
-		}
-		if emit != nil {
-			if err := emit(payload); err != nil {
+			if readErr == nil {
+				continue
+			}
+		} else {
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(line), &payload); err != nil {
 				return nil, err
 			}
-		}
-		switch payload["type"] {
-		case "turn_completed", "turn_paused":
-			if response, ok := payload["response"].(map[string]any); ok {
-				final = response
+			if emit != nil {
+				if err := emit(payload); err != nil {
+					return nil, err
+				}
 			}
-		case "turn_failed":
-			return nil, desktopTurnStreamFailure(payload)
+			switch payload["type"] {
+			case "turn_completed", "turn_paused":
+				if response, ok := payload["response"].(map[string]any); ok {
+					final = response
+				}
+			case "turn_failed":
+				return nil, desktopTurnStreamFailure(payload)
+			}
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
 	}
 	if final == nil {
 		return nil, errors.New("stream ended before terminal turn event")
