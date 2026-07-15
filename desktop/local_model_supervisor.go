@@ -17,14 +17,15 @@ import (
 )
 
 const (
-	serviceOwnershipUnowned        = "unowned"
-	localModelDisabled             = "local_model_disabled"
-	localModelConfigInvalid        = "local_model_config_invalid"
-	localModelStartFailed          = "local_model_start_failed"
-	localModelReadinessProbeFailed = "local_model_readiness_probe_failed"
-	localModelStopFailed           = "local_model_stop_failed"
-	localModelStopped              = "local_model_stopped"
-	localModelExited               = "local_model_exited"
+	serviceOwnershipUnowned          = "unowned"
+	localModelDisabled               = "local_model_disabled"
+	localModelConfigInvalid          = "local_model_config_invalid"
+	localModelEndpointAlreadyServing = "local_model_endpoint_already_serving"
+	localModelStartFailed            = "local_model_start_failed"
+	localModelReadinessProbeFailed   = "local_model_readiness_probe_failed"
+	localModelStopFailed             = "local_model_stop_failed"
+	localModelStopped                = "local_model_stopped"
+	localModelExited                 = "local_model_exited"
 )
 
 type localModelRuntimeConfig struct {
@@ -62,8 +63,9 @@ type LocalModelSupervisorConfig struct {
 	LogDir           string
 	ReadinessTimeout time.Duration
 
-	launcher       localModelLauncher
-	readinessProbe localModelReadinessProbe
+	launcher              localModelLauncher
+	readinessProbe        localModelReadinessProbe
+	endpointOccupiedProbe localModelReadinessProbe
 }
 
 type LocalModelSupervisor struct {
@@ -83,6 +85,9 @@ func NewLocalModelSupervisor(cfg LocalModelSupervisorConfig) *LocalModelSupervis
 	}
 	if cfg.readinessProbe == nil {
 		cfg.readinessProbe = probeLocalModelReadiness
+	}
+	if cfg.endpointOccupiedProbe == nil {
+		cfg.endpointOccupiedProbe = probeLocalModelReadinessOnce
 	}
 	supervisor := &LocalModelSupervisor{cfg: cfg}
 	supervisor.status = supervisor.initialStatus()
@@ -113,6 +118,13 @@ func (s *LocalModelSupervisor) Start(ctx context.Context) SidecarStatus {
 	}
 	if err := validateLocalModelRuntime(s.cfg.Runtime); err != nil {
 		s.status = s.unownedStatus("not_ready", localModelConfigInvalid)
+		return s.status
+	}
+	endpointCtx, cancelEndpointProbe := context.WithTimeout(ctx, time.Second)
+	endpoint := s.cfg.endpointOccupiedProbe(endpointCtx, s.cfg.Runtime.HealthURL)
+	cancelEndpointProbe()
+	if endpoint.Ready {
+		s.status = s.unownedStatus("ready", localModelEndpointAlreadyServing)
 		return s.status
 	}
 	logPath, err := s.prepareLogPath()

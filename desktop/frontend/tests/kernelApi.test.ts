@@ -98,6 +98,8 @@ assert.equal(taskComposerSource.includes('selectModel'), true, 'TaskComposer mus
 assert.equal(providerPanelSource.includes('localStorage'), false, 'provider key input must not persist in browser storage')
 assert.equal(appSource.includes('const localModelStarting = ref(false)'), true, 'App.vue must track explicit local-model startup')
 assert.equal(appSource.includes('localModelStarting.value = true'), true, 'App.vue must mark local-model startup before awaiting the bridge')
+assert.equal(appSource.includes("local_model_endpoint_already_serving"), true, 'App.vue must distinguish an external serving endpoint from a stopped local model')
+assert.equal(providerPanelSource.includes('localModelExternallyServing'), true, 'ProviderPanel must prevent a second local-model launch against an external endpoint')
 assert.equal(stylesSource.includes('--app: #fafafa;'), true, 'workspace must use the approved soft application background')
 assert.equal(stylesSource.includes('--ink: #111111;'), true, 'workspace must use the approved primary text color')
 assert.equal(stylesSource.includes('--muted: #6b7280;'), true, 'workspace must use the approved metadata color')

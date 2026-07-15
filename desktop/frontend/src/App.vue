@@ -107,9 +107,11 @@ const materialSummary = computed(() => material.value ? materialIntakeSummary(ma
 const debugSummaryRows = computed(() => debugExport.value ? debugSummary(debugExport.value) : [])
 const compactionSummaryRows = computed(() => compaction.value ? compactionSummary(compaction.value) : [])
 const localModelRunning = computed(() => localModel.value.ownership === 'owned' && localModel.value.readiness === 'ready')
+const localModelExternallyServing = computed(() => localModel.value.reason === 'local_model_endpoint_already_serving')
 const localModelLabel = computed(() => {
   if (localModelStarting.value) return '正在加载本地模型…'
   if (localModelRunning.value) return `本地模型运行中${localModel.value.pid ? ` · PID ${localModel.value.pid}` : ''}`
+  if (localModelExternallyServing.value) return '已有服务正在使用此模型地址；Genesis 未接管它'
   if (localModel.value.reason === 'local_model_disabled') return '本地模型未配置'
   return '本地模型已停止'
 })
@@ -857,6 +859,7 @@ async function persistDesktopCatalog() {
           :local-model-label="localModelLabel"
           :local-model-starting="localModelStarting"
           :local-model-running="localModelRunning"
+		:local-model-externally-serving="localModelExternallyServing"
 		:template-id="providerTemplate"
 		:base-url="providerBaseURL"
 		:model-id="providerModelID"

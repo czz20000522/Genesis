@@ -13,8 +13,9 @@ owned handle for manual stop and app shutdown.
 
 ## Task 1: Lock ownership with red tests
 
-- Add desktop tests for startup using a configured launcher, manual stop,
-  shutdown stop, disabled config, and external/unowned no-op behavior.
+- Add desktop tests for startup using a configured launcher, a ready external
+  endpoint that prevents launch, manual stop, shutdown stop, disabled config,
+  and external/unowned no-op behavior.
 - Run the focused test and observe the missing local-model supervisor failure.
 
 ## Task 2: Implement the narrow supervisor

@@ -19,9 +19,11 @@ machine-wide daemon, automatic restart, or a search-by-port stop path.
 ## Data Flow
 
 ```text
-desktop startup or StartLocalModel
+explicit StartLocalModel
   -> read ~/.genesis/config/desktop-local-model.json
-  -> wsl.exe -d Ubuntu --exec llama-server <exact configured args>
+  -> probe the configured /health endpoint once
+  -> if already ready, project unowned endpoint and do not launch
+  -> otherwise wsl.exe -d Ubuntu --exec llama-server <exact configured args>
   -> retain owned Windows process handle and probe /health
   -> project status to desktop
 
@@ -40,6 +42,8 @@ own handle.
 ## Failure And Recovery
 
 - Missing/invalid desktop-local-model config projects `local_model_config_invalid`.
+- A ready configured endpoint before Start projects
+  `local_model_endpoint_already_serving`; it is never adopted or stopped.
 - A launcher error projects `local_model_start_failed`.
 - A process that starts but does not answer `/health` projects
   `local_model_readiness_probe_failed`; it remains eligible for explicit stop.

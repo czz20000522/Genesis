@@ -150,10 +150,12 @@ Genesis Kernel. Kernel primitive gaps belong in
     owns a genesisd sidecar. The user needs the desktop to own exactly the
     WSL llama.cpp process it starts, allow manual stop for GPU reuse, and stop
     that process on client exit without affecting external GPU work.
-  - Closure: desktop now launches the configured WSL command directly, retains
+- Closure: desktop now launches the configured WSL command directly, retains
     only that `wsl.exe` handle, provides manual start/stop control, and calls
-    the same owned-stop path at client shutdown. No systemd or process
-    discovery path was added.
+    the same owned-stop path at client shutdown. Before launch, one configured
+    health request prevents competing with an already-serving endpoint; that
+    endpoint remains unowned and cannot be stopped by Genesis. No systemd or
+    process-discovery path was added.
 - Evidence: both verified llama user-systemd unit files were removed on
   2026-07-11; direct WSL start reached `/health` and an owned-tree stop left no
   llama process; focused ownership tests and desktop/frontend builds pass.

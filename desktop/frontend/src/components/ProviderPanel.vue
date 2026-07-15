@@ -11,6 +11,7 @@ defineProps<{
   localModelLabel: string
   localModelStarting: boolean
   localModelRunning: boolean
+	localModelExternallyServing: boolean
 	templateId: string
 	baseUrl: string
 	modelId: string
@@ -78,7 +79,7 @@ defineEmits<{
           <strong>本地模型</strong>
           <p>{{ localModelLabel }}</p>
         </div>
-        <el-button plain :loading="localModelStarting" :disabled="busy || localModelStarting" @click="$emit('toggleLocalModel')">{{ localModelStarting ? '正在启动…' : localModelRunning ? '停止本地模型' : '启动本地模型' }}</el-button>
+        <el-button plain :loading="localModelStarting" :disabled="busy || localModelStarting || localModelExternallyServing" @click="$emit('toggleLocalModel')">{{ localModelStarting ? '正在启动…' : localModelExternallyServing ? '外部服务正在运行' : localModelRunning ? '停止本地模型' : '启动本地模型' }}</el-button>
       </div>
       <div class="button-row">
         <el-button plain :loading="busy" :disabled="busy || !selectedProfile" @click="$emit('verify')">验证模型</el-button>

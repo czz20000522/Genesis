@@ -683,6 +683,29 @@ func TestLocalModelSupervisorStopsOnlyItsOwnedWSLProcess(t *testing.T) {
 	}
 }
 
+func TestLocalModelSupervisorLeavesReadyEndpointUnowned(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	runtime := localModelTestRuntime()
+	runtime.HealthURL = server.URL
+	launched := false
+	supervisor := NewLocalModelSupervisor(LocalModelSupervisorConfig{
+		Runtime: runtime,
+		launcher: func(context.Context, localModelLaunchRequest) (localModelProcess, error) {
+			launched = true
+			return nil, errors.New("external endpoint must prevent launch")
+		},
+	})
+
+	status := supervisor.Start(context.Background())
+	if launched || status.Ownership != serviceOwnershipUnowned || status.Readiness != "ready" || status.Reason != localModelEndpointAlreadyServing {
+		t.Fatalf("status = %+v, launched = %t; want unowned serving endpoint", status, launched)
+	}
+	if stopped := supervisor.StopOwned(context.Background()); stopped != status {
+		t.Fatalf("StopOwned() = %+v, want unchanged unowned endpoint", stopped)
+	}
+}
+
 func TestLocalModelSupervisorLeavesDisabledRuntimeUnowned(t *testing.T) {
 	supervisor := NewLocalModelSupervisor(LocalModelSupervisorConfig{
 		Runtime: localModelRuntimeConfig{Enabled: false},

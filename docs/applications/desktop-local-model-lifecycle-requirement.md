@@ -8,16 +8,18 @@
 ## Production Target
 
 When its local-model configuration is enabled, Genesis desktop starts the
-configured WSL `llama-server` directly when the client starts. The desktop
-holds the Windows `wsl.exe --exec` process handle, projects the local-model
-state, offers explicit start/stop controls, and stops that same owned process
-tree when the client exits. A stopped local model leaves the desktop and its
-cloud-provider path usable.
+configured WSL `llama-server` only after the user explicitly chooses Start.
+The desktop holds the Windows `wsl.exe --exec` process handle, projects the
+local-model state, offers explicit start/stop controls, and stops that same
+owned process tree when the client exits. A stopped local model leaves the
+desktop and its cloud-provider path usable.
 
 ## Boundaries
 
-- This is not a systemd service, a startup task, a port scanner, or a global
-  llama.cpp process manager.
+- This is not a systemd service, a startup task, or a global llama.cpp process
+  manager. Before launching, it may make one request to its configured health
+  endpoint solely to avoid competing with an already-serving external process;
+  it never enumerates or identifies that process.
 - Stop acts only on the process tree rooted at the `wsl.exe` process started by
   this desktop instance. It never finds or kills by port, executable name, GPU
   use, model name, or arbitrary WSL PID.
@@ -34,9 +36,11 @@ cloud-provider path usable.
    and exact llama.cpp arguments.
 2. The launcher uses `wsl.exe -d <distribution> --exec <server> ...`; it never
    invokes `systemctl`, a shell service wrapper, or a detached process.
-3. Start is idempotent for a live owned handle. Stop is idempotent and clears
-   the owned handle before termination.
-4. Start failure or readiness failure is visible but does not prevent cloud
+3. Start is idempotent for a live owned handle. If the configured health
+   endpoint is already ready before Start, the desktop reports an unowned
+   serving endpoint and does not launch or adopt it. Stop is idempotent and
+   clears only an owned handle before termination.
+4. Start failure, occupied endpoint, or readiness failure is visible but does not prevent cloud
    usage or stop the kernel sidecar.
 5. App shutdown calls the same owned-stop path. The desktop never stops an
    external model merely because the configured port is reachable.
@@ -49,3 +53,5 @@ cloud-provider path usable.
    desktop.
 4. Disabled or failed local startup leaves the desktop usable with cloud models.
 5. Tests prove no path invokes systemd or stops an unowned process.
+6. Tests prove a ready configured endpoint prevents launch and remains
+   unowned.
