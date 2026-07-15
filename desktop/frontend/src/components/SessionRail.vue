@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ChatDotRound, EditPen, Folder, FolderAdd, Plus, Search } from '@element-plus/icons-vue'
+import { ChatDotRound, EditPen, Folder, FolderAdd, Plus, Search, Setting } from '@element-plus/icons-vue'
 import type { SessionListItem } from '../api/kernelApi'
 import type { DesktopProjectCatalogEntry, DesktopSessionCatalogEntry } from '../sessionCatalog'
 import { sessionLabel, sessionStatus } from '../display'
@@ -58,6 +58,7 @@ const emit = defineEmits<{
   newProjectSession: [project: DesktopProjectCatalogEntry]
   newTask: []
   newChat: []
+  openSettings: []
   selectSession: [sessionId: string]
   'update:searchQuery': [value: string]
 }>()
@@ -77,6 +78,7 @@ const emit = defineEmits<{
       <el-button text class="rail-primary-action" @click="$emit('newTask')"><el-icon><EditPen /></el-icon> 新建任务</el-button>
       <el-button text class="rail-primary-action" @click="$emit('newChat')"><el-icon><ChatDotRound /></el-icon> 聊天</el-button>
       <el-button text class="rail-primary-action" @click="searchOpen = !searchOpen"><el-icon><Search /></el-icon> 搜索</el-button>
+      <el-button text class="rail-primary-action" @click="$emit('openSettings')"><el-icon><Setting /></el-icon> 设置</el-button>
     </nav>
 
     <div class="rail-section-heading rail-projects-heading">

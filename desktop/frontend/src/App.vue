@@ -863,6 +863,7 @@ async function persistDesktopCatalog() {
       @new-project-session="createProjectSession"
       @new-task="createTaskSession"
       @new-chat="createChatSession"
+      @open-settings="inspectorOpen = true"
       @select-session="selectSession"
       @update:search-query="updateSessionSearch"
     />
@@ -872,10 +873,8 @@ async function persistDesktopCatalog() {
         <KernelTopBar
           :session-id="sessionId"
           :readiness="readiness"
-          :inspector-open="inspectorOpen"
           @check-ready="checkReady"
           @toggle-provider="toggleProviderPanel"
-          @toggle-inspector="inspectorOpen = !inspectorOpen"
         />
         <ProviderPanel
           v-if="providerOpen"
