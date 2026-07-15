@@ -85,6 +85,24 @@ func TestSubmitTurnStreamDoesNotRetryAfterVisibleDelta(t *testing.T) {
 	if provider.calls != 1 {
 		t.Fatalf("stream provider calls = %d, want no retry after visible delta", provider.calls)
 	}
+	projection, err := k.Session("stream-failure-session")
+	if err != nil {
+		t.Fatalf("Session returned error: %v", err)
+	}
+	if len(projection.Turns) != 1 {
+		t.Fatalf("turns = %+v, want one durable failed turn", projection.Turns)
+	}
+	timeline, err := k.UITimeline("stream-failure-session")
+	if err != nil {
+		t.Fatalf("UITimeline returned error: %v", err)
+	}
+	turn := requireSingleTimelineTurn(t, timeline, projection.Turns[0].TurnID)
+	if user := requireTimelineChild(t, turn, "user_message"); user.Text != "hello" {
+		t.Fatalf("user message = %+v, want original retryable input", user)
+	}
+	if processing := requireTimelineChild(t, turn, "processing_group"); processing.TerminalOutcome != TerminalOutcomeFailed {
+		t.Fatalf("processing group = %+v, want durable failed evidence", processing)
+	}
 }
 
 type streamingTextProvider struct {
