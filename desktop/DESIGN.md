@@ -60,9 +60,10 @@ opaque refs. Headings use tight tracking; operational labels remain compact.
 - All interactive targets are at least 40px where space permits, have an
   explicit focus outline, and press with `scale(.96)`.
 - The model sheet is an inline elevated surface below the header, never a
-  modal. Cloud profiles can be verified and set as the **global coordinator
-  default**. Applying it announces that the owned Genesis service restarts and
-  that future, not historical, turns use the selected model.
+  modal. Cloud profiles can be verified there, while the composer binds the
+  selected profile to the current session only. A new session starts unbound;
+  changing one session never mutates another session or restarts the owned
+  Genesis service.
   A local profile reveals its own start/stop control; selecting it never
   starts llama.cpp automatically.
 - The attachment row has separate **Add archive** and **Add folder** actions.

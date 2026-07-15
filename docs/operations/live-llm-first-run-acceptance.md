@@ -206,9 +206,11 @@ process it starts and stop only that process on exit.
 2. Create two **Tasks** and one **Chat**. Confirm Task directories are distinct
    under the configured Genesis task root; Chat remains persisted and has no
    workspace. Search the Chat from the session rail after restart.
-3. Open **模型**, select a configured cloud profile, enter/rotate its key,
-   verify it, apply `coordinator`, and confirm the desktop restarts only its
-   owned `genesisd`. Submit one turn and reopen the earlier Project session.
+3. Open **模型**, select a configured cloud profile, enter/rotate its key, and
+   verify it. In the current session's composer, select that model, submit one
+   turn, then reopen the earlier Project session and confirm its model binding
+   did not change. Importing or verifying a cloud model must not restart the
+   owned `genesisd`.
 4. Cause one deterministic provider failure, restore the provider, then use
    **重试上一条失败请求**. Confirm the failed turn stays in the timeline and the
    retry is a distinct later turn.
