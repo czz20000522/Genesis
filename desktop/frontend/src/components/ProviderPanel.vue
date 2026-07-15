@@ -65,7 +65,7 @@ defineEmits<{
     </div>
     <div v-if="profiles.length" class="provider-controls">
       <label>
-        模型
+        管理模型
         <el-select :model-value="selectedProfile" filterable placeholder="选择模型" @update:model-value="$emit('update:selectedProfile', String($event))">
           <el-option v-for="profile in profiles" :key="profile.profile_id" :value="String(profile.profile_id || '')" :label="`${profile.model_id} · ${profile.profile_id}`">
             <span>{{ profile.model_id }}</span>
@@ -73,7 +73,7 @@ defineEmits<{
           </el-option>
         </el-select>
       </label>
-		<el-alert title="模型选择属于会话：切换只影响当前会话后续回合，不会重启 Genesis 服务。" type="info" :closable="false" show-icon />
+		<el-alert title="此处只选择要验证或更新凭据的模型；当前会话的模型请在输入框旁选择。" type="info" :closable="false" show-icon />
       <div v-if="selectedProfileIsLocal" class="local-model-control">
         <div>
           <strong>本地模型</strong>

@@ -93,6 +93,7 @@ assert.equal(providerPanelSource.includes('type="password"'), true, 'provider ke
 assert.equal(providerPanelSource.includes('OpenCode Go'), true, 'empty Genesis Home must offer the curated provider templates')
 assert.equal(providerPanelSource.includes("$emit('importProvider')"), true, 'provider import action must stay inside the Provider panel')
 assert.equal(providerPanelSource.includes('notice && !profiles.length'), true, 'provider import notice must not render twice after a profile is available')
+assert.equal(providerPanelSource.includes('当前会话的模型请在输入框旁选择。'), true, 'provider management must not be mistaken for session-scoped model binding')
 assert.equal(appSource.includes('importProviderTemplate'), true, 'App.vue must invoke the typed provider-import bridge')
 assert.equal(appSource.includes('sessionModelProfile'), true, 'App.vue must keep the selected model on the current session projection')
 assert.equal(appSource.includes('回复已完成，但暂时无法刷新会话状态。'), true, 'App.vue must not describe a completed reply as a failed turn when refresh loses the service')
