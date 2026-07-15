@@ -514,7 +514,7 @@ button:active:not(:disabled) { transform: scale(.96); }
 
 .workspace-empty-state h2 {
   margin: 0;
-  font-size: clamp(26px, 3vw, 36px);
+  font-size: 24px;
   font-weight: 620;
   letter-spacing: -.035em;
   line-height: 1.1;

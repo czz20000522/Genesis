@@ -56,6 +56,7 @@ assert.equal(railSource.includes('聊天'), true, 'rail must retain durable chat
 assert.equal(railSource.includes('<Folder />'), true, 'rail must use the installed icon set for project identity')
 assert.equal(topbarSource.includes('readinessLabel(readiness)'), true, 'top bar must retain accessible connection disclosure')
 assert.equal(topbarSource.includes('error:'), false, 'top bar must not duplicate a workspace failure state')
+assert.equal(/\.workspace-empty-state h2\s*\{[^}]*font-size:\s*24px;/.test(stylesSource), true, 'workspace empty state must keep a desktop-scale title instead of a marketing display heading')
 assert.equal(appSource.includes('listApprovals'), false, 'App.vue must not load global pending approvals into the current conversation')
 assert.equal(appSource.includes('localSessions'), false, 'App.vue must not keep frontend-local sessions as history truth')
 assert.equal(workspaceTimelineSource.includes('approvals: ApprovalProjection[]'), true, 'WorkspaceTimeline must render a current-session approval queue')
