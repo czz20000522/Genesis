@@ -366,6 +366,11 @@ async function loadProviderProfiles() {
   }
 }
 
+async function ensureInitialChatAfterProviderSetup() {
+  if (sessionId.value || !(await checkReady(true))) return
+  await createChatSession()
+}
+
 async function toggleProviderPanel() {
   providerOpen.value = !providerOpen.value
   if (!providerOpen.value) return
@@ -409,6 +414,7 @@ async function configureDeepSeekFlash() {
 		if (!setup.credential_present || !setup.profile_id) throw new Error('DeepSeek 凭据未保存')
 		await loadProviderProfiles()
 		selectedProviderProfile.value = setup.profile_id
+		await ensureInitialChatAfterProviderSetup()
 		const verification = await verifyProvider('', setup.profile_id)
 		providerNotice.value = verification.readiness === 'ready'
 			? `验证成功：${verification.model || setup.profile_id}。现在可以在任一会话输入框旁选择它。`
@@ -432,6 +438,7 @@ async function importSelectedProvider() {
 		}
 		await loadProviderProfiles()
 		selectedProviderProfile.value = String(result.profile_ids?.[0] || selectedProviderProfile.value)
+		await ensureInitialChatAfterProviderSetup()
 		providerNotice.value = '模型已导入。请在当前会话输入框旁选择它。'
 	} catch (err) {
 		providerNotice.value = operationErrorLabel(err, '导入模型')

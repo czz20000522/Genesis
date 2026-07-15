@@ -60,7 +60,7 @@ defineEmits<{
 			<el-button type="primary" :loading="busy" :disabled="busy || (templateId !== 'local-llama-cpp' && !credential.trim())" @click="$emit('importProvider')">{{ templateId === 'local-llama-cpp' ? '导入本地模型' : '导入并获取模型' }}</el-button>
       </div>
 		<el-alert v-if="templateId === 'local-llama-cpp'" title="读取已保存的本地模型设置创建 profile；不会启动模型。随后可在会话中选择并显式启动。" type="info" :closable="false" show-icon />
-      <el-alert v-if="notice" class="provider-notice" :title="notice" type="info" :closable="false" show-icon />
+		<el-alert v-if="notice && !profiles.length" class="provider-notice" :title="notice" type="info" :closable="false" show-icon />
     </div>
     <div v-if="profiles.length" class="provider-controls">
       <label>
