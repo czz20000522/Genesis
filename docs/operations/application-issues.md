@@ -89,9 +89,13 @@ Genesis Kernel. Kernel primitive gaps belong in
 - Closure: a shared `localconfig` owner now backs kernel/CLI and desktop
   `models.json` mutation, protected credential writes, safe profile projection,
   and role binding. An empty Home is a first-run state rather than an error:
-  the desktop shows one DeepSeek Flash password form, clears the one-shot key
-  after submission, reloads the safe profile, and calls the existing read-only
-  adapter verification diagnostic. It does not bind or restart automatically.
+  the desktop offers the curated DeepSeek, OpenAI, OpenCode Go, local
+  llama.cpp, and explicit OpenAI-compatible templates, clears one-shot keys
+  after submission, reloads safe profiles, and calls the existing read-only
+  adapter verification diagnostic. After a successful first import it creates
+  one empty durable Chat when no session exists; the imported model remains
+  unbound until the user selects it for that session. It does not bind or
+  restart automatically.
 - Remaining acceptance: use real local Qwen, DeepSeek, and OpenCode Go GLM
   profiles from the desktop; verify each profile and switch one cloud profile
   through an owned restart while confirming a prior session remains readable.
@@ -107,9 +111,9 @@ Genesis Kernel. Kernel primitive gaps belong in
 - First-run evidence: `localconfig` and desktop bridge tests prove safe profile
   creation without a secret projection; the configured DeepSeek Flash live
   acceptance proves `deepseek-v4-flash`, settled turn completion, and restart
-  replay. The installed empty-Home click path remains manual_test_pending. It
-  remains one preset only; arbitrary endpoints and marketplace behavior stay
-  out of scope.
+  replay. The installed empty-Home click path remains manual_test_pending.
+  Arbitrary endpoint behavior is limited to the explicit advanced template;
+  marketplace behavior stays out of scope.
 
 ### APP-DESKTOP-SESSION-MODEL-AND-IMPORT-20260713 - P1 - Session selection and curated cloud import need installed-desktop acceptance
 

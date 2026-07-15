@@ -160,6 +160,19 @@ func TestArchitectureBoundaryModelVisibleToolSchemaShapeIsStable(t *testing.T) {
 		required []string
 		fields   map[string]toolSchemaFieldShape
 	}{
+		"task_graph_edit": {
+			required: []string{"operation"},
+			fields: map[string]toolSchemaFieldShape{
+				"operation":     {typ: "string"},
+				"graph_id":      {typ: "string"},
+				"node_id":       {typ: "string"},
+				"invocation_id": {typ: "string"},
+				"from_node_id":  {typ: "string"},
+				"to_node_id":    {typ: "string"},
+				"title":         {typ: "string"},
+				"description":   {typ: "string"},
+			},
+		},
 		"delegate_worker": {
 			required: []string{"role_id", "task"},
 			fields: map[string]toolSchemaFieldShape{
