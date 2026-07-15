@@ -16,7 +16,7 @@ import (
 
 const desktopUpdateCredentialRef = "secret://updates/github/genesis"
 
-var desktopVersion = "0.1.23"
+var desktopVersion = "0.1.24"
 
 type DesktopUpdateProjection struct {
 	CurrentVersion string `json:"current_version"`
