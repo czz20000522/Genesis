@@ -77,6 +77,7 @@ assert.equal(appSource.includes("if (!restored && !sessionId.value && providerPr
 assert.equal(appSource.includes('await restoreLatestKnownSession()'), true, 'startup must restore the latest known session before considering a new chat')
 assert.equal(appSource.includes('sessionsLoaded.value && sessions.value.length === 0'), true, 'only a successful empty session list may create the first configured chat')
 assert.equal(appSource.includes("operationErrorLabel(err, '加载会话列表')"), true, 'App.vue must preserve a confirmed connection when only session listing fails')
+assert.equal(appSource.includes("sessionId.value = next\n  resetSessionViewState()\n  await loadTimeline()\n\tawait rememberSessionActivation(next)"), true, 'session selection must use the shared recoverable timeline load instead of a second unhandled model read')
 assert.equal(appSource.includes("ElMessage.success('GitHub 更新令牌已保存。')"), true, 'saving an update token must confirm success before the user checks for updates')
 assert.equal(inspectorSource.includes('readinessLabel(readiness)'), true, 'InspectorDrawer must not show transport state identifiers directly')
 assert.equal(inspectorSource.includes('<el-input'), true, 'InspectorDrawer must use the shared input component')

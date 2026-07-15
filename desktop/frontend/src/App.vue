@@ -495,7 +495,6 @@ async function selectSession(nextSessionId: string) {
   if (!next || next === sessionId.value) return
   sessionId.value = next
   resetSessionViewState()
-	await refreshSessionModel(next)
   await loadTimeline()
 	await rememberSessionActivation(next)
 }
