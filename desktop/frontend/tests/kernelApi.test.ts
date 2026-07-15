@@ -10,7 +10,7 @@ import { materialIntakeSummary } from '../src/materialIntake.ts'
 import { isBlankSessionDraft } from '../src/sessionDraft.ts'
 import { timelineDetailEntries } from '../src/timelineDetail.ts'
 import { timelineRows } from '../src/timelineView.ts'
-import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog } from '../src/sessionCatalog.ts'
+import { latestKnownSessionID, loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog } from '../src/sessionCatalog.ts'
 
 const values = new Map<string, string>()
 const storage = {
@@ -73,8 +73,9 @@ assert.equal(appSource.includes('desktopRuntimeConfig'), true, 'App.vue must sur
 assert.equal(appSource.includes('const connected = await waitForKernelReady()'), true, 'App.vue must defer initial session creation until the kernel is reachable')
 assert.equal(appSource.includes('async function ensureInitialChatAfterProviderSetup()'), true, 'App.vue must create an empty session after first provider setup without binding a model')
 assert.equal(appSource.includes('await ensureInitialChatAfterProviderSetup()'), true, 'provider setup must make the first usable chat available')
-assert.equal(appSource.includes("if (connected && !sessionId.value && providerProfilesState.value.length === 0) providerOpen.value = true"), true, 'an empty Genesis Home must open provider import instead of creating an unbound chat')
-assert.equal(appSource.includes("if (connected && !sessionId.value && providerProfilesState.value.length > 0) await createChatSession()"), true, 'only configured Homes may create an initial chat before import')
+assert.equal(appSource.includes("if (!restored && !sessionId.value && providerProfilesState.value.length === 0) providerOpen.value = true"), true, 'an empty Genesis Home must open provider import instead of creating an unbound chat')
+assert.equal(appSource.includes('await restoreLatestKnownSession()'), true, 'startup must restore the latest known session before considering a new chat')
+assert.equal(appSource.includes('sessionsLoaded.value && sessions.value.length === 0'), true, 'only a successful empty session list may create the first configured chat')
 assert.equal(appSource.includes("operationErrorLabel(err, '加载会话列表')"), true, 'App.vue must preserve a confirmed connection when only session listing fails')
 assert.equal(appSource.includes("ElMessage.success('GitHub 更新令牌已保存。')"), true, 'saving an update token must confirm success before the user checks for updates')
 assert.equal(inspectorSource.includes('readinessLabel(readiness)'), true, 'InspectorDrawer must not show transport state identifiers directly')
@@ -172,6 +173,11 @@ assert.deepEqual(loadSessionCatalog(storage), [
   { sessionId: 'task-session', kind: 'task', projectId: '', root: 'C:\\Users\\Tomczz\\Documents\\Genesis\\task-session', name: '' },
   { sessionId: 'chat-session', kind: 'chat', projectId: '', root: '', name: '' },
 ])
+assert.equal(latestKnownSessionID(loadSessionCatalog(storage), [{ session_id: 'project-session' }, { session_id: 'chat-session' }]), 'chat-session')
+assert.equal(latestKnownSessionID(loadSessionCatalog(storage), [{ session_id: 'project-session' }]), 'project-session')
+assert.equal(latestKnownSessionID(loadSessionCatalog(storage), []), '')
+recordSessionCatalogEntry({ sessionId: 'project-session', kind: 'project', projectId: 'project-a' }, storage)
+assert.equal(latestKnownSessionID(loadSessionCatalog(storage), [{ session_id: 'project-session' }, { session_id: 'chat-session' }]), 'project-session')
 replaceDesktopCatalog([{ projectId: 'project-b', name: 'repo-b', root: 'D:\\repo-b' }], [{ sessionId: 'chat-b', kind: 'chat' }], storage)
 assert.deepEqual(loadProjectCatalog(storage), [{ projectId: 'project-b', name: 'repo-b', root: 'D:\\repo-b' }])
 assert.deepEqual(loadSessionCatalog(storage), [{ sessionId: 'chat-b', kind: 'chat', projectId: '', root: '', name: '' }])

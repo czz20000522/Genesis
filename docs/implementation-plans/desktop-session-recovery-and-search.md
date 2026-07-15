@@ -8,7 +8,9 @@ acceptance remains with the user under
 
 Wire the existing `SearchSessions` desktop bridge into `SessionRail`; add
 frontend tests proving the query uses the kernel projection and clearing it
-restores normal groups.
+restores normal groups. On startup, reopen the most recently active catalogued
+session that still appears in the kernel list, and create the first Chat only
+after a successful empty list result.
 
 ## Phase B: Explicit Retry
 
@@ -29,5 +31,6 @@ event semantics.
 ## Verification
 
 Run frontend tests/build, desktop tests/build, focused kernel search tests, and
-the root Go suite. Manual acceptance searches a prior Project/Task/Chat session
-and retries one deterministic provider error.
+the root Go suite. Manual acceptance restarts into a prior Project/Task/Chat
+session without a duplicate Chat, searches that session, and retries one
+deterministic provider error.

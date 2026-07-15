@@ -28,6 +28,10 @@ stop is a kernel-owned interruption and never rewrites or hides the turn.
    an operator reason and waits for the normal terminal projection.
 7. A no-active-turn refusal is a race-safe refresh condition, not permission
    for the desktop to synthesize an interrupted message or retry the turn.
+8. On startup, the desktop restores its most recently active catalogued
+   session when that session still exists in the kernel projection. It creates
+   an initial Chat only after a successful session-list read confirms there
+   are no sessions; a failed list read is never treated as an empty history.
 
 ## Non-Goals
 
@@ -41,5 +45,7 @@ stop is a kernel-owned interruption and never rewrites or hides the turn.
 - A recoverable failed turn can be explicitly retried once as a distinct turn;
   its original failed evidence stays readable.
 - Empty search restores the normal Project / Task / Chat grouping.
+- Restart restores the latest known Project, Task, or Chat without minting a
+  duplicate Chat.
 - A streaming local-provider turn can be explicitly stopped; its durable
   interrupted projection remains readable after refresh or restart.

@@ -16,7 +16,7 @@ import (
 
 const desktopUpdateCredentialRef = "secret://updates/github/genesis"
 
-var desktopVersion = "0.1.32"
+var desktopVersion = "0.1.33"
 
 var ErrUpdateCredentialRequired = errors.New("update credential is required")
 

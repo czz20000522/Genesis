@@ -30,6 +30,12 @@ timeline. While that stream is active, the composer replaces send with one
 operator reason `user requested stop`; the stream and timeline remain the
 source of the settled interruption message.
 
+At startup the desktop first reads the kernel session list. It reopens the
+latest active entry in its desktop catalogue only when that id is still in the
+kernel projection. It creates a first Chat only after that successful list is
+empty; list failure leaves the rail intact and asks the operator to retry
+rather than minting a replacement session.
+
 ## Failure Semantics
 
 Search errors preserve the existing rail and show the normal desktop error

@@ -1,3 +1,5 @@
+import type { SessionListItem } from './api/kernelApi'
+
 const sessionCatalogKey = 'genesis.desktop.session_catalog'
 const projectCatalogKey = 'genesis.desktop.project_catalog'
 
@@ -67,6 +69,15 @@ export function replaceDesktopCatalog(projects: DesktopProjectCatalogEntry[], se
   const normalizedSessions = sessions.flatMap(normalizeCatalogEntry)
   storage.setItem(projectCatalogKey, JSON.stringify(normalizedProjects))
   storage.setItem(sessionCatalogKey, JSON.stringify(normalizedSessions))
+}
+
+export function latestKnownSessionID(catalog: DesktopSessionCatalogEntry[], sessions: SessionListItem[]) {
+  const available = new Set(sessions.map((session) => String(session.session_id || '').trim()).filter(Boolean))
+  for (let index = catalog.length - 1; index >= 0; index -= 1) {
+    const sessionID = String(catalog[index]?.sessionId || '').trim()
+    if (available.has(sessionID)) return sessionID
+  }
+  return ''
 }
 
 function normalizeCatalogEntry(value: unknown): DesktopSessionCatalogEntry[] {

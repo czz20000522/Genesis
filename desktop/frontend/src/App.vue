@@ -13,7 +13,7 @@ import { materialIntakeSummary } from './materialIntake'
 import { isLocalProfile, profileDisplayName } from './modelSelection'
 import { operationErrorLabel, turnErrorLabel } from './display'
 import { isBlankSessionDraft } from './sessionDraft'
-import { loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
+import { latestKnownSessionID, loadProjectCatalog, loadSessionCatalog, recordProjectCatalogEntry, recordSessionCatalogEntry, replaceDesktopCatalog, type DesktopProjectCatalogEntry, type DesktopSessionCatalogEntry } from './sessionCatalog'
 import { timelineRows, type TimelineRow } from './timelineView'
 
 const config = ref(kernelConfig())
@@ -22,6 +22,7 @@ const error = ref('')
 const ownedKernelEndpointConflict = ref(false)
 const sessionId = ref('')
 const sessions = ref<SessionListItem[]>([])
+const sessionsLoaded = ref(false)
 const sessionSearchQuery = ref('')
 const sessionSearchResults = ref<SessionListItem[]>([])
 const sessionCatalog = ref<DesktopSessionCatalogEntry[]>([])
@@ -371,7 +372,7 @@ async function loadProviderProfiles() {
 }
 
 async function ensureInitialChatAfterProviderSetup() {
-  if (sessionId.value || !(await checkReady(true))) return
+  if (sessionId.value || !(await checkReady(true)) || !sessionsLoaded.value || sessions.value.length > 0) return
   await createChatSession()
 }
 
@@ -471,6 +472,7 @@ async function loadSessions() {
   saveKernelConfig(config.value)
   const payload = await listSessions(config.value)
   sessions.value = (payload.items ?? []).filter((item) => String(item.session_id || '').trim())
+  sessionsLoaded.value = true
 }
 
 async function updateSessionSearch(query: string) {
@@ -495,6 +497,19 @@ async function selectSession(nextSessionId: string) {
   resetSessionViewState()
 	await refreshSessionModel(next)
   await loadTimeline()
+	await rememberSessionActivation(next)
+}
+
+async function rememberSessionActivation(nextSessionID: string) {
+  const entry = sessionCatalog.value.find((item) => item.sessionId === nextSessionID)
+  if (!entry) return
+  recordSessionCatalogEntry(entry)
+  sessionCatalog.value = loadSessionCatalog()
+  try {
+    await persistDesktopCatalog()
+  } catch {
+    // Session selection remains usable when the local catalogue cannot persist.
+  }
 }
 
 async function refreshSessionModel(session = sessionId.value) {
@@ -794,8 +809,17 @@ async function initializeDesktop() {
     // Provider configuration is a desktop-only local surface; readiness still loads independently.
   }
   const connected = await waitForKernelReady()
-  if (connected && !sessionId.value && providerProfilesState.value.length === 0) providerOpen.value = true
-  if (connected && !sessionId.value && providerProfilesState.value.length > 0) await createChatSession()
+  if (!connected) return
+  const restored = await restoreLatestKnownSession()
+  if (!restored && !sessionId.value && providerProfilesState.value.length === 0) providerOpen.value = true
+  if (!restored && !sessionId.value && providerProfilesState.value.length > 0 && sessionsLoaded.value && sessions.value.length === 0) await createChatSession()
+}
+
+async function restoreLatestKnownSession() {
+  const session = latestKnownSessionID(sessionCatalog.value, sessions.value)
+  if (!session) return false
+  await selectSession(session)
+  return true
 }
 
 async function restoreDesktopCatalog() {

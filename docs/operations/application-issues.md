@@ -67,8 +67,10 @@ Genesis Kernel. Kernel primitive gaps belong in
 - Status: manual_test_pending.
 - Requirement: `docs/requirements/desktop-session-recovery-and-search.md`.
   - Design: `docs/design/desktop-session-recovery-and-search.md`.
-  - Closure: the rail now renders existing kernel search results and restores
-    normal Project / Task / Chat groups when cleared. A turn whose processing
+- Closure: the rail now renders existing kernel search results and restores
+    normal Project / Task / Chat groups when cleared. Startup reopens the latest
+    known live session and creates a first Chat only after a successful empty
+    kernel list. A turn whose processing
     projection has terminal outcome `failed` exposes one explicit retry using
     its same-turn user text and a fresh desktop idempotency key.
   - Remaining acceptance: search a persisted session and retry one real
