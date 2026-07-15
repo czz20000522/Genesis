@@ -166,6 +166,7 @@ function taskSummary(graph: TaskGraphProjection) {
         GitHub 只读令牌
         <el-input :model-value="updateToken" type="password" show-password autocomplete="off" spellcheck="false" @update:model-value="$emit('update:updateToken', String($event))" />
       </label>
+      <p class="status">仅用于检查和下载此私有发行；保存后写入本机受保护存储，无需重复输入。</p>
       <div class="button-row">
         <el-button plain :disabled="!updateToken.trim()" @click="$emit('saveUpdateToken')">保存令牌</el-button>
         <el-button plain @click="$emit('checkUpdate')">检查更新</el-button>
