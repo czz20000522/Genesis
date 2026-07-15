@@ -40,6 +40,7 @@ export function turnErrorLabel(error: unknown) {
 
 export function operationErrorLabel(error: unknown, action: string) {
   const detail = errorDetail(error)
+  if (detail.includes('update credential is required')) return '此安装来自私有发行。请先保存 GitHub 只读令牌，再检查更新。'
   if (detail.includes('checksum') || detail.includes('hash mismatch')) return '更新文件校验失败，请重新检查更新后再试。'
   if (detail.includes('release') || detail.includes('update')) return '暂时无法完成更新，请稍后重新检查。'
   return knownModelErrorLabel(detail) || `无法${action}，请稍后重试。`

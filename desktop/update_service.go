@@ -16,7 +16,9 @@ import (
 
 const desktopUpdateCredentialRef = "secret://updates/github/genesis"
 
-var desktopVersion = "0.1.29"
+var desktopVersion = "0.1.30"
+
+var ErrUpdateCredentialRequired = errors.New("update credential is required")
 
 type DesktopUpdateProjection struct {
 	CurrentVersion string `json:"current_version"`
@@ -98,7 +100,7 @@ func (s desktopUpdateService) download(ctx context.Context, location, token stri
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("update download returned HTTP %d", response.StatusCode)
+		return nil, updateHTTPError(response.StatusCode, token, "download")
 	}
 	return io.ReadAll(response.Body)
 }
@@ -127,7 +129,7 @@ func (s desktopUpdateService) Check(ctx context.Context) (DesktopUpdateProjectio
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return result, fmt.Errorf("update release request returned HTTP %d", response.StatusCode)
+		return result, updateHTTPError(response.StatusCode, token, "release request")
 	}
 	var release struct {
 		TagName string `json:"tag_name"`
@@ -157,6 +159,13 @@ func (s desktopUpdateService) Check(ctx context.Context) (DesktopUpdateProjectio
 	}
 	result.Available = compareDesktopVersions(result.CurrentVersion, result.LatestVersion) < 0
 	return result, nil
+}
+
+func updateHTTPError(status int, token string, operation string) error {
+	if operation == "release request" && strings.TrimSpace(token) == "" && (status == http.StatusUnauthorized || status == http.StatusNotFound) {
+		return ErrUpdateCredentialRequired
+	}
+	return fmt.Errorf("update %s returned HTTP %d", operation, status)
 }
 
 func compareDesktopVersions(current, latest string) int {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -94,5 +95,21 @@ func TestDesktopUpdateServiceChecksAndDownloadsPublicReleaseWithoutToken(t *test
 	}
 	if _, err := service.DownloadAndVerify(context.Background(), update); err != nil {
 		t.Fatalf("download public update: %v", err)
+	}
+}
+
+func TestDesktopUpdateServiceExplainsPrivateReleaseTokenRequirement(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("missing-token request sent authorization = %q", got)
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	service := desktopUpdateService{currentVersion: "0.1.8", latestReleaseURL: server.URL, client: server.Client()}
+	_, err := service.Check(context.Background())
+	if !errors.Is(err, ErrUpdateCredentialRequired) {
+		t.Fatalf("Check error = %v, want ErrUpdateCredentialRequired", err)
 	}
 }
