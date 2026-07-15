@@ -593,6 +593,31 @@ func TestLocalServiceSupervisorShutdownOnlyStopsOwnedProcessOnce(t *testing.T) {
 	}
 }
 
+func TestLocalServiceSupervisorRetainsOwnedProcessWhenStopFails(t *testing.T) {
+	proc := &fakeSidecarProcess{pid: 2468, stopErr: errors.New("taskkill failed")}
+	supervisor := NewLocalServiceSupervisor(LocalServiceSupervisorConfig{
+		KernelBaseURL: defaultKernelBaseURL,
+		LogDir:        desktopTestTempDir(t),
+		launcher: func(context.Context, sidecarLaunchRequest) (sidecarProcess, error) {
+			return proc, nil
+		},
+		readinessProbe: func(context.Context, string, string) sidecarReadinessResult {
+			return sidecarReadinessResult{Ready: true}
+		},
+	})
+
+	supervisor.StartKernel(context.Background())
+	failed := supervisor.StopOwned(context.Background())
+	if failed.Ownership != serviceOwnershipOwned || failed.PID != proc.pid || failed.Reason != sidecarStopFailed {
+		t.Fatalf("failed stop = %+v, want retained owned process", failed)
+	}
+	proc.stopErr = nil
+	stopped := supervisor.StopOwned(context.Background())
+	if proc.stopCalls != 2 || stopped.Reason != sidecarStopped {
+		t.Fatalf("successful retry = %+v, stop calls = %d", stopped, proc.stopCalls)
+	}
+}
+
 type fakeLocalModelProcess struct {
 	fakeSidecarProcess
 	done chan struct{}

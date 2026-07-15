@@ -183,7 +183,10 @@ func (s *LocalServiceSupervisor) StopOwned(ctx context.Context) SidecarStatus {
 	}
 	s.stopAttempted = true
 	if s.process != nil {
-		_ = s.process.Stop(ctx)
+		if err := s.process.Stop(ctx); err != nil {
+			s.status = s.ownedStatus("not_ready", sidecarStopFailed, s.process.PID(), s.status.StartedAt, s.status.LogPath)
+			return s.status
+		}
 		s.process = nil
 	}
 	s.status.Readiness = "not_ready"
