@@ -1,7 +1,7 @@
 # Design: Desktop Agent Workspace
 
 - **Requirement:** `docs/requirements/desktop-agent-workspace.md`.
-- **Status:** approved for implementation.
+- **Status:** implemented; packaged native visual acceptance remains pending.
 - **Visual reference:** the user-provided Codex Desktop screenshot is a design
   system reference, not a screenshot to copy.
 

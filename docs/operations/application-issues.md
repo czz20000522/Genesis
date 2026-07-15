@@ -26,6 +26,26 @@ Genesis Kernel. Kernel primitive gaps belong in
 
 ## Active Issues
 
+### APP-DESKTOP-AGENT-WORKSPACE-20260715 - P1 - Packaged native visual acceptance pending
+
+- Status: manual_test_pending.
+- Requirement: `docs/requirements/desktop-agent-workspace.md`.
+  - Design: `docs/design/desktop-agent-workspace.md`.
+  - Closure: the desktop now uses the Agent Workspace composition, a nested
+    Project/Task/Chat rail, session-scoped composer model selection, truthful
+    timeline activity, a demand-opened inspector, and the approved white
+    visual system. Settings are a restrained rail entry; the top bar retains
+    only connection and model controls.
+  - Evidence: frontend assertions/type/build checks, root and desktop Go
+    verification, isolated DeepSeek Flash stream/restart acceptance, and
+    released installer `v0.1.41` with published checksum.
+  - Remaining acceptance: in the packaged desktop app, create/select Chat,
+    Task, and Project sessions; choose a model for each; send, inspect details,
+    retry a deterministic failure, open/close the inspector, and restart.
+    Record observations directly; do not use browser automation as GUI proof.
+  - Reference alignment: continues the approved Codex/Reasonix scan in the
+    design while keeping all session and timeline truth in `genesisd`.
+
 ### APP-WORKFLOW-RUNTIME-PHASE-A-20260711 - P1 - Fixed workflow contract has no runtime
 
 - Status: blocked_no_real_workflow_available.

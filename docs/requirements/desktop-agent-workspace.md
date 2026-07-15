@@ -1,6 +1,6 @@
 # Requirement: Desktop Agent Workspace
 
-- **Status:** approved for implementation.
+- **Status:** implemented; packaged native visual acceptance remains pending.
 - **Owner split:** the kernel owns sessions, turns, timeline truth, approvals,
   task graphs, agent invocations, and session-model bindings. The desktop owns
   navigation, layout, transient draft state, and projection rendering.

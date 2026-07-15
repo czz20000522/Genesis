@@ -4,6 +4,11 @@
 
 **Goal:** Replace the chat-first desktop surface with a truthful, calm Agent Workspace while preserving session, model, and kernel projection behavior.
 
+**Status:** Tasks 1–5 and Task 6 automated/package checks are complete. The
+remaining native visual user-path inspection is tracked as
+`APP-DESKTOP-AGENT-WORKSPACE-20260715`; it must not be inferred from source or
+browser automation.
+
 **Architecture:** \`App.vue\` stays the only frontend orchestration layer. It supplies existing projections and actions to a new workspace composition; a pure adapter maps \`TimelineRow\` values into activity presentation without producing runtime facts.
 
 **Tech Stack:** Vue 3 Composition API, TypeScript, Wails, Element Plus, plain CSS, Node assertions, \`vue-tsc\`, Vite.
@@ -33,7 +38,7 @@
 - Create: \`desktop/frontend/tests/workspaceActivity.test.ts\`
 - Modify: \`desktop/frontend/package.json\`
 
-- [ ] **Step 1: Write the failing mapping test**
+- [x] **Step 1: Write the failing mapping test**
 
 \`\`\`ts
 import assert from 'node:assert/strict'
@@ -50,13 +55,13 @@ assert.equal(rows[2]?.label, '已完成')
 assert.equal(rows.some((row) => row.label === 'Planning' || row.label === 'Reviewing'), false)
 \`\`\`
 
-- [ ] **Step 2: Verify the absent module fails**
+- [x] **Step 2: Verify the absent module fails**
 
 Run: \`node --experimental-strip-types ./tests/workspaceActivity.test.ts\` from \`desktop/frontend\`.
 
 Expected: module-not-found failure for \`workspaceActivity.ts\`.
 
-- [ ] **Step 3: Implement the adapter**
+- [x] **Step 3: Implement the adapter**
 
 \`\`\`ts
 import type { TimelineRow } from './timelineView'
@@ -76,7 +81,7 @@ Map only \`user\`, \`reasoning\`, \`processing\`, \`action\`, and \`assistant\` 
 \`Needs your decision\`, \`已完成\` only for a succeeded processing row, \`正在处理\`,
 \`Result\`, or \`Task\`; never return fabricated planning/review labels.
 
-- [ ] **Step 4: Register and run the test**
+- [x] **Step 4: Register and run the test**
 
 Add \`node --experimental-strip-types ./tests/workspaceActivity.test.ts\` to the
 existing \`test\` script before \`kernelApi.test.ts\`.
@@ -85,7 +90,7 @@ Run: \`npm test\` from \`desktop/frontend\`.
 
 Expected: all assertion suites pass.
 
-- [ ] **Step 5: Commit the adapter**
+- [x] **Step 5: Commit the adapter**
 
 Run: \`git add desktop/frontend/src/workspaceActivity.ts desktop/frontend/tests/workspaceActivity.test.ts desktop/frontend/package.json\`.
 
@@ -100,7 +105,7 @@ Run: \`git commit -m "Define Desktop activity projection" -m "Use existing timel
 - Create: \`desktop/frontend/src/components/AgentWorkspace.vue\`
 - Modify: \`desktop/frontend/tests/kernelApi.test.ts\`
 
-- [ ] **Step 1: Add failing component-boundary assertions**
+- [x] **Step 1: Add failing component-boundary assertions**
 
 \`\`\`ts
 const workspaceSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'AgentWorkspace.vue'), 'utf8')
@@ -114,13 +119,13 @@ assert.equal(composerSource.includes('selectedModelProfile'), true)
 assert.equal(/\bfetch\s*\(/.test(workspaceSource + timelineSource + composerSource), false)
 \`\`\`
 
-- [ ] **Step 2: Confirm the assertions fail**
+- [x] **Step 2: Confirm the assertions fail**
 
 Run: \`npm test\` from \`desktop/frontend\`.
 
 Expected: failure opening the absent workspace component.
 
-- [ ] **Step 3: Implement component contracts**
+- [x] **Step 3: Implement component contracts**
 
 \`AgentWorkspace.vue\` receives existing rows, approvals, error, draft, profiles,
 selected model, and session metadata. It renders a header, either timeline or a
@@ -134,13 +139,13 @@ rows, output with \`AssistantMessage\`, errors near the affected activity, and
 existing approval actions. \`TaskComposer.vue\` moves current Element Plus
 textarea/select/button controls and emits intent only.
 
-- [ ] **Step 4: Verify the component boundary**
+- [x] **Step 4: Verify the component boundary**
 
 Run: \`npm test; npm run build\` from \`desktop/frontend\`.
 
 Expected: Node tests, \`vue-tsc --noEmit\`, and Vite pass.
 
-- [ ] **Step 5: Commit the component boundary**
+- [x] **Step 5: Commit the component boundary**
 
 Run: \`git add desktop/frontend/src/components/AgentWorkspace.vue desktop/frontend/src/components/WorkspaceHeader.vue desktop/frontend/src/components/WorkspaceTimeline.vue desktop/frontend/src/components/TaskComposer.vue desktop/frontend/tests/kernelApi.test.ts\`.
 
@@ -153,7 +158,7 @@ Run: \`git commit -m "Expose Desktop task workspace" -m "Separate task compositi
 - Delete: \`desktop/frontend/src/components/ConversationPane.vue\`
 - Modify: \`desktop/frontend/tests/kernelApi.test.ts\`
 
-- [ ] **Step 1: Add failing integration guardrails**
+- [x] **Step 1: Add failing integration guardrails**
 
 \`\`\`ts
 assert.equal(appSource.includes("import AgentWorkspace from './components/AgentWorkspace.vue'"), true)
@@ -162,13 +167,13 @@ assert.equal(appSource.includes('<AgentWorkspace'), true)
 assert.equal(readdirSync(join(import.meta.dirname, '..', 'src', 'components')).includes('ConversationPane.vue'), false)
 \`\`\`
 
-- [ ] **Step 2: Confirm the old-pane assertion fails**
+- [x] **Step 2: Confirm the old-pane assertion fails**
 
 Run: \`npm test\` from \`desktop/frontend\`.
 
 Expected: \`ConversationPane\` assertion fails.
 
-- [ ] **Step 3: Rewire without moving orchestration**
+- [x] **Step 3: Rewire without moving orchestration**
 
 Pass existing \`displayedRows\`, \`retryText\`, \`selectedFileName\`,
 \`selectedFileIsDirectory\`, \`providerProfilesState\`, \`sessionModelProfile\`, and
@@ -177,13 +182,13 @@ reconciliation, session model binding, approval decisions, and local-model
 lifecycle in \`App.vue\`. Delete \`ConversationPane.vue\` only after its import and
 template use are gone.
 
-- [ ] **Step 4: Run regression checks**
+- [x] **Step 4: Run regression checks**
 
 Run: \`npm test; npm run build\` from \`desktop/frontend\`.
 
 Expected: all tests pass and Vite produces a bundle without the legacy pane.
 
-- [ ] **Step 5: Commit integration**
+- [x] **Step 5: Commit integration**
 
 Run: \`git add desktop/frontend/src/App.vue desktop/frontend/src/components/ConversationPane.vue desktop/frontend/tests/kernelApi.test.ts\`.
 
@@ -196,7 +201,7 @@ Run: \`git commit -m "Center Desktop on agent work" -m "Replace the transcript-f
 - Modify: \`desktop/frontend/src/components/KernelTopBar.vue\`
 - Modify: \`desktop/frontend/tests/kernelApi.test.ts\`
 
-- [ ] **Step 1: Add navigation assertions**
+- [x] **Step 1: Add navigation assertions**
 
 \`\`\`ts
 const railSource = readFileSync(join(import.meta.dirname, '..', 'src', 'components', 'SessionRail.vue'), 'utf8')
@@ -208,26 +213,26 @@ assert.equal(topbarSource.includes('readinessLabel(readiness)'), true)
 assert.equal(topbarSource.includes('error:'), false)
 \`\`\`
 
-- [ ] **Step 2: Confirm the header check fails**
+- [x] **Step 2: Confirm the header check fails**
 
 Run: \`npm test\` from \`desktop/frontend\`.
 
 Expected: failure because the old top bar accepts a duplicate error prop.
 
-- [ ] **Step 3: Simplify the rail and top bar**
+- [x] **Step 3: Simplify the rail and top bar**
 
 Keep existing catalog grouping and emitted commands. Replace textual glyphs
 \`▱\`/\`+\` with installed Element Plus icons. Remove the top-bar error prop;
 retain only compact accessible connection, Model, and inspector actions. Active
 rail state is a pale background with dark text, never an opaque accent card.
 
-- [ ] **Step 4: Verify navigation changes**
+- [x] **Step 4: Verify navigation changes**
 
 Run: \`npm test; npm run build\` from \`desktop/frontend\`.
 
 Expected: all tests and compilation pass.
 
-- [ ] **Step 5: Commit navigation**
+- [x] **Step 5: Commit navigation**
 
 Run: \`git add desktop/frontend/src/components/SessionRail.vue desktop/frontend/src/components/KernelTopBar.vue desktop/frontend/tests/kernelApi.test.ts\`.
 
@@ -239,7 +244,7 @@ Run: \`git commit -m "Constrain Desktop workspace navigation" -m "Make project h
 - Modify: \`desktop/frontend/src/styles.css\`
 - Modify: \`desktop/frontend/tests/kernelApi.test.ts\`
 
-- [ ] **Step 1: Add failing visual-system assertions**
+- [x] **Step 1: Add failing visual-system assertions**
 
 \`\`\`ts
 assert.equal(stylesSource.includes('--app: #fafafa;'), true)
@@ -251,13 +256,13 @@ assert.equal(stylesSource.includes('.chat-bubble'), false)
 assert.equal(stylesSource.includes('.rail .session-link-active'), true)
 \`\`\`
 
-- [ ] **Step 2: Confirm the visual contract fails**
+- [x] **Step 2: Confirm the visual contract fails**
 
 Run: \`npm test\` from \`desktop/frontend\`.
 
 Expected: token and workspace-selector assertions fail.
 
-- [ ] **Step 3: Rewrite the shared styles**
+- [x] **Step 3: Rewrite the shared styles**
 
 Use required exact colors, 12–16px elevated surfaces, 248px rail, 880px reading
 width, compact top bar, and a demand-opened 340–440px inspector. Delete
@@ -265,13 +270,13 @@ width, compact top bar, and a demand-opened 340–440px inspector. Delete
 selectors instead of stacking overrides. Keep focus styling, 120–140ms motion,
 pointer-only hover, and reduced-motion behavior.
 
-- [ ] **Step 4: Build and prove legacy selectors are gone**
+- [x] **Step 4: Build and prove legacy selectors are gone**
 
 Run: \`npm test; npm run build; rg -n "chat-bubble|empty-chat|composer-wrap|conversation" src\` from \`desktop/frontend\`.
 
 Expected: tests/build pass and the search finds no live legacy selector.
 
-- [ ] **Step 5: Commit the visual system**
+- [x] **Step 5: Commit the visual system**
 
 Run: \`git add desktop/frontend/src/styles.css desktop/frontend/tests/kernelApi.test.ts\`.
 
@@ -283,7 +288,7 @@ Run: \`git commit -m "Refine Desktop workspace visual system" -m "Replace legacy
 - Modify if evidence changes: \`docs/operations/application-issues.md\`
 - Modify if evidence changes: \`docs/implementation-plans/*desktop*.md\`
 
-- [ ] **Step 1: Run full repository verification**
+- [x] **Step 1: Run full repository verification**
 
 Run: \`git diff --check\` from repository root.
 
@@ -295,7 +300,7 @@ Run: \`npm test; npm run build\` from \`desktop/frontend\`.
 
 Expected: every command exits zero.
 
-- [ ] **Step 2: Build the installer without installing it**
+- [x] **Step 2: Build the installer without installing it**
 
 Run: \`powershell -ExecutionPolicy Bypass -File scripts/build_desktop_release.ps1\` from repository root.
 
@@ -309,7 +314,7 @@ details; exercise retry; open/close inspector; restart and reopen each session.
 Record any human-only verification as \`待人工测试\`; do not claim GUI proof from
 source inspection.
 
-- [ ] **Step 4: Carry out the closing drift check**
+- [x] **Step 4: Carry out the closing drift check**
 
 Compare the result to \`docs/requirements/desktop-agent-workspace.md\`,
 \`docs/design/desktop-agent-workspace.md\`, the approved design spec, and this
